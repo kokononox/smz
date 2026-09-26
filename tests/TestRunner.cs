@@ -3755,8 +3755,14 @@ class TestRunner
             var runEngineSource = V27ReadSrc(Path.Combine("Services", "RunEngine.cs"));
             Assert(runEngineSource.Contains("MMOVE|{segment.Dx},{segment.Dy},rel,2")
                    && runEngineSource.Contains("handReplayTimeMin")
-                   && runEngineSource.Contains("targetMs"),
-                "desktop replay scales captured timing to a fresh duration on every execution");
+                   && runEngineSource.Contains("targetMs")
+                   && runEngineSource.Contains("targetDue - activeElapsed")
+                   && runEngineSource.Contains("sendClock.ElapsedMilliseconds"),
+                "desktop replay uses a fresh duration and subtracts hardware time from absolute deadlines");
+            var scriptGeneratorSource = V27ReadSrc(Path.Combine("Services", "ScriptGenerator.cs"));
+            Assert(scriptGeneratorSource.Contains("$handClock = [Diagnostics.Stopwatch]::StartNew()")
+                   && scriptGeneratorSource.Contains("$handDue - [int]$handClock.ElapsedMilliseconds"),
+                "generated replay scripts pace HANDPATH against wall-clock deadlines");
             var cadenceSample = new HandMovementSample.Sample(10_000,
                 new System.Drawing.Point(0, 0), new System.Drawing.Point(35, 0), new[]
                 {

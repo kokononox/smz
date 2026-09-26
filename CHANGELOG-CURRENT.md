@@ -53,6 +53,7 @@
 ### Validation
 
 - شبیه‌سازی 1000 Segment با 10ms زمان هدف و 10ms هزینهٔ سخت‌افزار، به‌جای 20 ثانیه در 10.01 ثانیه پایان یافت.
+- TestRunner قرارداد deadline در RunEngine و ScriptGenerator را به‌صورت صریح قفل می‌کند.
 - `py_compile` برای هر سه Runtime مدرن موفق شد.
 - اندازهٔ `plan_engine_exec.py` برابر 19,585 بایت و زیر سقف 20KB باقی ماند.
 - Manifest هر سه فایل Runtime تغییرکرده بازسازی شد.
