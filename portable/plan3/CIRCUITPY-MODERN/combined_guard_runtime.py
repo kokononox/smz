@@ -139,6 +139,7 @@ class Arm:
     def move_relative(self, dx, dy):
         if self.relative_ready is None:
             reply = self.send("HVER", 3)
+            print("EVT|DEBUG|ARM|" + reply)
             self.relative_ready = "|REL=1" in reply
         if not self.relative_ready:
             raise RuntimeError("ARM 2.8 relative mouse firmware required")
@@ -325,7 +326,7 @@ class PlanContext:
         if time.monotonic() >= state["deadline"]:
             self._parallel_sound = None
             return False
-        # ARM 2.8.2 already exposes a short, HALT-abortable sound calibration
+        # ARM 2.8.3 already exposes a short, HALT-abortable sound calibration
         # window. Reusing 10 ms SCAL slices avoids adding bytes to the nearly
         # full Leonardo firmware and returns the UART to MMOVE between polls.
         # MMOVE is pipelined (two outstanding frames). Starting SCAL before

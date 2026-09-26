@@ -55,7 +55,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.2"
+#define FW_VER   "2.8.3"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -193,7 +193,10 @@ static Stream* g_out = 0;
 static void send_line(const char* pt) {
   if (g_out) {                       // brain link: plain text on Serial1, always
     g_out->println(pt);
-    g_out->flush();
+    // ARM 2.8.3: move replies are bounded by the Pico's two-command ledger, so
+    // they fit safely in the UART TX buffer. Do not block the command loop on
+    // physical transmission; all non-move replies keep the verified flush.
+    if (strncmp(pt, "OK|MMOVE", 8) != 0) g_out->flush();
     return;
   }
   if (!g_secure) {
@@ -285,12 +288,21 @@ static void mouse_move_steps(int32_t x, int32_t y, uint16_t steps, uint8_t paceM
 }
 
 static void mouse_move_relative_native(int32_t dx, int32_t dy) {
-  // ARM 2.8.2: target two pixels of path per DDA interval, but do not add an
-  // explicit 1 ms sleep after each report. USB_Send already applies endpoint
-  // back-pressure; the old extra delay nearly doubled dense HANDPATH replay.
-  // Integer endpoint rounding can produce (2,2), which remains < 3 px.
-  uint32_t dist = (uint32_t)sqrt((float)(dx * dx + dy * dy));
-  uint16_t steps = (uint16_t)((dist + 1U) / 2U);  // ceil(dist/2)
+  // ARM 2.8.3: use the fewest DDA reports whose worst-case integer component
+  // increments still fit the three-pixel Euclidean ceiling. This consumes the
+  // already-approved <=3 px budget instead of targeting two pixels and reduces
+  // USB reports without changing the exact delta, order, or endpoint.
+  uint32_t ax = (uint32_t)(dx < 0 ? -dx : dx);
+  uint32_t ay = (uint32_t)(dy < 0 ? -dy : dy);
+  uint16_t steps;
+  if (!ax) steps = (uint16_t)((ay + 2U) / 3U);       // vertical: <=3 px
+  else if (!ay) steps = (uint16_t)((ax + 2U) / 3U);  // horizontal: <=3 px
+  else {
+    uint16_t nx = (uint16_t)((ax + 1U) / 2U);
+    uint16_t ny = (uint16_t)((ay + 1U) / 2U);
+    steps = nx > ny ? nx : ny;                       // mixed: <=(2,2)
+  }
+  if (steps < 1) steps = 1;
   mouse_move_steps(g_curX + dx, g_curY + dy, steps, 0);
 }
 

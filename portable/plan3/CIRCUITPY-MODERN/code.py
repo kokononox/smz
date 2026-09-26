@@ -773,7 +773,7 @@ def _run_light_route(ctx, commands):
                     raise ValueError("HANDPATH segment out of range")
                 source_elapsed += delay_ms
                 target_due = (source_elapsed * target_total + source_total // 2) // max(1, source_total)
-                # Arm 2.8.2 splits each delta into <=3 px HID reports. UART
+                # Arm 2.8.3 splits each delta into <=3 px HID reports. UART
                 # back-pressure and those reports consume real time, so wait
                 # only until the absolute replay deadline instead of adding
                 # the recorded delay after hardware work already elapsed.
