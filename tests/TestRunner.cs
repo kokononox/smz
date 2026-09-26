@@ -1022,16 +1022,17 @@ class TestRunner
             HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 800 }, { "moveTimeMax", 800 }, { "overshootChance", 0 }, { "midPauseChance", 0 } }, 0, 2300),
             new HumanMouse.PausePlanner(new Random(42)), new Random(42), 1920, 1080);
         int durSum = durFixed.Waypoints.Sum(w => w.DelayMs);
-        Assert(durFixed.TargetMoveMs == 800 && Math.Abs(durSum - 800) <= durFixed.Waypoints.Count,
-            $"fixed duration 800ms hits its target (sum={durSum}ms over {durFixed.Waypoints.Count} micro-steps)");
+        Assert(durFixed.TargetMoveMs == 1080
+               && Math.Abs(durSum - durFixed.TargetMoveMs) <= durFixed.Waypoints.Count,
+            $"fixed 800ms baseline scales to the long-move target (target={durFixed.TargetMoveMs} sum={durSum}ms)");
 
         var durRangeCfg = HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 400 }, { "moveTimeMax", 1500 }, { "overshootChance", 0 }, { "midPauseChance", 0 } }, 0, 2300);
         var durSums = Enumerable.Range(0, 12)
             .Select(i => HumanMouse.PlanMove(100, 400, 1100, 400, durRangeCfg,
                 new HumanMouse.PausePlanner(new Random(50 + i)), new Random(50 + i), 1920, 1080)
                 .Waypoints.Sum(w => w.DelayMs)).ToList();
-        Assert(durSums.Min() >= 250 && durSums.Max() <= 1900 && durSums.Distinct().Count() > 6,
-            $"duration range 400–1500 draws a fresh target per move (min={durSums.Min()} max={durSums.Max()} distinct={durSums.Distinct().Count()})");
+        Assert(durSums.Min() >= 500 && durSums.Max() <= 2200 && durSums.Distinct().Count() > 6,
+            $"duration range 400–1500 draws a fresh distance-scaled target (min={durSums.Min()} max={durSums.Max()} distinct={durSums.Distinct().Count()})");
 
         var durNoSpeed = HumanMouse.PlanMove(100, 400, 1100, 400,
             HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 600 }, { "moveTimeMax", 600 }, { "midPauseChance", 0 } }, 0, 0),
