@@ -1041,6 +1041,37 @@ class TestRunner
         Assert(HumanMouse.Config.FromProps(new Dictionary<string, object?>(), 0, 2300).MoveTimeMaxMs == 0,
             "old files without duration fields keep speed-driven timing (0/0)");
 
+        // Natural-v1: duration follows distance while preserving the configured range as
+        // the medium-distance baseline.  Transport cadence and endpoint math stay unchanged.
+        int naturalShort = HumanMouse.DistanceScaledMoveMs(800, 800, 80, new Random(900));
+        int naturalMedium = HumanMouse.DistanceScaledMoveMs(800, 800, 325, new Random(900));
+        int naturalLong = HumanMouse.DistanceScaledMoveMs(800, 800, 650, new Random(900));
+        Assert(naturalShort < naturalMedium && naturalMedium < naturalLong
+               && naturalShort >= 120 && naturalLong <= 30000,
+            $"natural-v1 duration scales with distance ({naturalShort} < {naturalMedium} < {naturalLong})");
+
+        var naturalShortPlan = HumanMouse.PlanMove(100, 300, 250, 300,
+            HumanMouse.Config.FromProps(new Dictionary<string, object?> {
+                { "moveTimeMin", 800 }, { "moveTimeMax", 800 },
+                { "overshootChance", 100 }, { "midPauseChance", 100 },
+                { "midPauseMin", 70 }, { "midPauseMax", 70 }
+            }, 0, 0),
+            new HumanMouse.PausePlanner(new Random(901)), new Random(901), 1920, 1080);
+        Assert(!naturalShortPlan.Overshot,
+            "natural-v1 does not overshoot short moves");
+
+        var naturalLongPlan = HumanMouse.PlanMove(100, 300, 700, 300,
+            HumanMouse.Config.FromProps(new Dictionary<string, object?> {
+                { "moveTimeMin", 800 }, { "moveTimeMax", 800 },
+                { "overshootChance", 100 }, { "midPauseChance", 0 },
+                { "curveMinPct", 3 }, { "curveMaxPct", 22 }
+            }, 0, 0),
+            new HumanMouse.PausePlanner(new Random(902)), new Random(902), 1920, 1080);
+        Assert(naturalLongPlan.Overshot
+               && naturalLongPlan.Waypoints[^1].X == 700
+               && naturalLongPlan.Waypoints[^1].Y == 300,
+            "natural-v1 long-move overshoot returns to the exact endpoint");
+
         // v0.9.9 — every key name captured by WPF must map to a Win32 global-hotkey VK.
         Assert(GlobalHotkeyService.TryParseGesture("Shift+Add", out var shiftAddMods, out var shiftAddVk)
                && (shiftAddMods & 0x4) != 0 && shiftAddVk == 0x6B,
