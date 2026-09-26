@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 59 با ARM 2.8.5 و Bundle 150
-- **وضعیت حافظه:** Route سبک با 77,664 بایت آزاد وارد اجرا شد و MemoryError رخ نداد.
-- **وضعیت کیفیت حرکت:** تست Tempo به‌دلیل `ERR|CKSUM` ناشی از Frame شش‌تایی 68 بایتی ناقص ماند؛ نتیجهٔ 17.332 ثانیهٔ Build 58 هنوز آخرین Baseline کامل است.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 60 با ARM 2.8.6 و Bundle 151
+- **وضعیت حافظه:** Route سبک با 77,680 بایت آزاد کامل شد و MemoryError، ACK timeout یا Guard Failure رخ نداد.
+- **وضعیت کیفیت حرکت:** زمان فعال 16.770 ثانیه بود، اما 67.3٪ فاصله‌ها صفر و 43 وقفه حداقل 40ms بودند؛ Batch فعلی Burst/Gap قابل‌احساس می‌سازد.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.6؛ Batch پنج‌تایی سازگار با RX 64-byte | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.7؛ پخش Micro-step روی Deadline مطلق | CI candidate |
+| 60 | Route کامل؛ 16.770s؛ مقصد دقیق | Batch پنج‌تایی CKSUM را رفع کرد، اما Burst/Gap باقی ماند | Hardware functional; tempo/quality failed |
 | 59 | HVER صحیح؛ Route با ERR\|CKSUM متوقف شد | Frame شش‌تایی 68B از RX 64B بزرگ‌تر بود | Hardware failed; superseded |
 | 58 | مسیر کامل؛ 17.332s؛ Bundle سالم | ARM 2.8.4 پروتکل کوتاه MR | Tempo failed; superseded |
 | 57 | مسیر کامل؛ 17.595s؛ Bundle سالم | ARM 2.8.3 DDA حداقل امن و Flush کمتر | Tempo improved; superseded |
@@ -32,11 +33,53 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — ARM 2.8.6 با Batch پنج‌تایی
+## Build {{BUILD_NUMBER}} — ARM 2.8.7 با Deadline pacing
 
-**Previous build:** 59
+**Previous build:** 60
 **Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 60 و ARM 2.8.6 خطای CKSUM را رفع کردند و Route کامل شد، اما حرکت به‌صورت Burstهای سریع و Gapهای قابل‌احساس اجرا شد.
+
+### Evidence
+
+- Record شامل 5,415 موقعیت و 5,414 Segment بود.
+- زمان فعال 16.770s شد؛ فقط 3.2٪ بهتر از 17.332s در Build 58 و همچنان خارج از هدف 9–11s.
+- 3,645 فاصله، برابر 67.3٪، صفر میلی‌ثانیه بودند.
+- 43 وقفه حداقل 40ms، 11 وقفه حداقل 60ms و بیشینه 91ms ثبت شد.
+- مقصد دقیق ماند: `(934,499)` تا `(1141,621)`، یعنی Delta برابر `(207,122)`.
+- Plan شامل 1,176 Delta و 10.001s Timing است؛ DDA برای آن حدود 5,417 گزارش HID می‌سازد.
+
+### Root cause
+
+MB تا Deadline کامل هر Delta صبر می‌کرد و سپس تمام Micro-stepهای DDA همان Delta را با `paceMs=0` پشت‌سرهم می‌فرستاد. کاهش Ack زمان Wire را کم کرد، اما Cadence را به «انتظار سپس Burst» تبدیل کرد.
+
+### Change
+
+- ARM به نسخهٔ 2.8.7 ارتقا یافت.
+- Micro-stepهای هر رکورد MB روی بازهٔ مطلق میکروثانیه‌ای همان رکورد پخش می‌شوند.
+- کف یک‌میلی‌ثانیه‌ای به‌صورت Deadline اعمال می‌شود، نه `delay(1)` ثابت؛ زمان مصرف‌شده در `USB_Send` جزو فاصله حساب می‌شود.
+- اگر Delta متراکم از بودجهٔ نمونه جلو بزند، بدهی Deadline به رکورد بعدی منتقل می‌شود و زمان‌بندی از نو به Burst تبدیل نمی‌شود.
+- سقف سه‌پیکسل، Delta و Endpoint دقیق، ترتیب گزارش‌ها، Batch پنج‌تایی 58 بایتی، checksum و MR/MMOVE fallback حفظ شده‌اند.
+- Release فایل `ARM-2.8.7-source.zip` را منتشر می‌کند.
+
+### Validation
+
+- شبیه‌ساز قرارداد، فاصلهٔ حداقل 1ms میان Deadline گزارش‌ها، Delta دقیق، سقف سه‌پیکسل و انتقال بدهی از Delta متراکم را کنترل می‌کند.
+- تست‌های Exhaustive کامل `-127..127` برای Endpoint و سقف گزارش بدون تغییر باقی مانده‌اند.
+- تمام قراردادهای Portable، Hashها، Windows TestRunner، ARM compile، Plan2، Golden و Security باید پیش از Merge سبز باشند.
+
+### Next test
+
+ARM 2.8.7 را فلش، Build جدید را اجرا و Bundle را از همان `11hand3.amsj` بازسازی کن. Guard باید HVER نسخهٔ 2.8.7 را نشان دهد. معیار اصلی کاهش شدید فاصله‌های صفر و وقفه‌های حداقل 40ms، حفظ Endpoint `(207,122)`، نبود CKSUM و نزدیک‌شدن زمان فعال به 9–11s است.
+
+## Build 60 — ARM 2.8.6 با Batch پنج‌تایی
+
+**Previous build:** 59
+**Status:** hardware route passed; tempo/quality failed; superseded by ARM 2.8.7
+**Commit:** `06558a72a7d846054d4117a526625b1fa3a34f79`
 
 ### Problem observed
 
@@ -72,6 +115,10 @@ Frame شش‌تایی چهار بایت از بافر RX سخت‌افزاری �
 ### Next test
 
 ARM 2.8.6 را فلش، Build جدید را اجرا و Bundle را از همان `11hand3.amsj` بازسازی کن. Guard باید HVER نسخهٔ 2.8.6 را نشان دهد، `ERR|CKSUM` نباید تکرار شود و Route باید کامل شود. Guard، Record و Bundle را برای سنجش Tempo ارسال کن.
+
+### Hardware result
+
+Bundle 151 و ARM 2.8.6 Route را بدون CKSUM، MemoryError یا ACK timeout کامل کردند. زمان فعال 16.770s و مقصد `(207,122)` دقیق بود، اما 67.3٪ فاصله‌ها صفر، 43 وقفه حداقل 40ms و بیشینه وقفه 91ms بود. علت، صبر کامل هر رکورد MB و سپس اجرای Burst همهٔ Micro-stepهای آن رکورد با `paceMs=0` بود.
 
 ## Build 59 — ARM 2.8.5 با Batch محدود HANDPATH
 

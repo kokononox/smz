@@ -55,7 +55,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.6"
+#define FW_VER   "2.8.7"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -285,17 +285,57 @@ static void mouse_move_steps(int32_t x, int32_t y, uint16_t steps, uint8_t paceM
   g_curX = x; g_curY = y;
 }
 
-static void mouse_move_relative_native(int32_t dx, int32_t dy) {
-  // ARM 2.8.3: use the fewest DDA reports whose worst-case integer component
-  // increments still fit the three-pixel Euclidean ceiling. This consumes the
-  // already-approved <=3 px budget instead of targeting two pixels and reduces
-  // USB reports without changing the exact delta, order, or endpoint.
+static uint16_t relative_native_steps(int32_t dx, int32_t dy) {
   uint32_t ax = (uint32_t)(dx < 0 ? -dx : dx);
   uint32_t ay = (uint32_t)(dy < 0 ? -dy : dy);
   uint16_t steps = (ax && ay)
       ? (uint16_t)max((ax + 1U) / 2U, (ay + 1U) / 2U)  // mixed: <=(2,2)
       : (uint16_t)((ax + ay + 2U) / 3U);               // one axis: <=3 px
+  return steps ? steps : 1;
+}
+
+static void mouse_move_relative_native(int32_t dx, int32_t dy) {
+  // ARM 2.8.3: use the fewest DDA reports whose worst-case integer component
+  // increments still fit the three-pixel Euclidean ceiling. This consumes the
+  // already-approved <=3 px budget instead of targeting two pixels and reduces
+  // USB reports without changing the exact delta, order, or endpoint.
+  uint16_t steps = relative_native_steps(dx, dy);
   mouse_move_steps(g_curX + dx, g_curY + dy, steps, 0);
+}
+
+// ARM 2.8.7: MB records describe cursor displacement over a sampled time
+// window. Older MB replay waited for the whole window and then emitted every
+// DDA report with paceMs=0, producing visible burst/gap motion. Spread reports
+// across the record's absolute microsecond deadline instead. The 1 ms floor is
+// a deadline, not an added delay: time already spent in USB_Send counts toward
+// it, so the fixed one-millisecond slowdown from ARM 2.8.1 does not return.
+static unsigned long g_relativeReportDueUs = 0;
+
+static void wait_until_us(unsigned long dueUs) {
+  while ((long)(dueUs - micros()) > 0) {
+    // Keep waits short and absolute. delay(1) would add a second millisecond
+    // after a USB report that already consumed its host polling interval.
+    if ((long)(dueUs - micros()) > 250) delayMicroseconds(100);
+  }
+}
+
+static void mouse_move_relative_deadline(
+    int32_t dx, int32_t dy, unsigned long windowStartUs, unsigned long windowEndUs) {
+  uint16_t steps = relative_native_steps(dx, dy);
+  int32_t sx = g_curX, sy = g_curY;
+  unsigned long spanUs = windowEndUs - windowStartUs;
+  for (uint16_t i = 1; i <= steps; i++) {
+    unsigned long dueUs = windowStartUs
+        + (unsigned long)((spanUs * (uint32_t)i) / steps);
+    unsigned long floorUs = g_relativeReportDueUs + 1000UL;
+    if (g_relativeReportDueUs && (long)(dueUs - floorUs) < 0) dueUs = floorUs;
+    wait_until_us(dueUs);
+    int32_t px = sx + (int32_t)((dx * (int32_t)i) / (int32_t)steps);
+    int32_t py = sy + (int32_t)((dy * (int32_t)i) / (int32_t)steps);
+    mouse_report(px, py);
+    g_relativeReportDueUs = dueUs;
+  }
+  g_curX = sx + dx; g_curY = sy + dy;
 }
 
 static void mouse_move_abs(int32_t x, int32_t y, bool human) {
@@ -638,7 +678,7 @@ static void handle(char* cmd) {
     return;
   }
   if (!strcmp(cmd, "MB")) {
-    unsigned long started = millis(), due = 0;
+    unsigned long startedUs = micros(), dueUs = 0;
     uint16_t size = 0;
     if (!hex_decode(args, g_pt, 25, &size) || strlen(args) != size * 2 || !size || size % 5) {
       reply_err("ARG"); return;
@@ -650,11 +690,11 @@ static void handle(char* cmd) {
       if (waitMs > 64 || abs(x) > 8192 || abs(y) > 8192) {
         reply_err("ARG"); return;
       }
-      due += (unsigned long)waitMs;
-      while ((long)(started + due - millis()) > 0) {
-        delay(1);
-      }
-      if (x || y) mouse_move_relative_native(x, y);
+      unsigned long windowStartUs = startedUs + dueUs;
+      dueUs += (unsigned long)waitMs * 1000UL;
+      unsigned long windowEndUs = startedUs + dueUs;
+      if (x || y) mouse_move_relative_deadline(x, y, windowStartUs, windowEndUs);
+      else wait_until_us(windowEndUs);
     }
     reply_ok("MB"); return;
   }
