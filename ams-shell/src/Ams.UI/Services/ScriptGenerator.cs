@@ -187,13 +187,12 @@ public static class ScriptGenerator
                     int sourceMs = Math.Max(1, path.Sum(seg => seg.DelayMs));
                     int sourceElapsed = 0;
                     sb.AppendLine($"{pad}$handTargetMs = $script:rng.Next({replayMin}, {replayMax + 1})");
-                    sb.AppendLine($"{pad}$handElapsed = 0");
+                    sb.AppendLine($"{pad}$handClock = [Diagnostics.Stopwatch]::StartNew()");
                     foreach (var seg in path)
                     {
                         sourceElapsed += seg.DelayMs;
                         sb.AppendLine($"{pad}$handDue = [int][math]::Round($handTargetMs * {sourceElapsed} / {sourceMs})");
-                        sb.AppendLine($"{pad}Step-Delay ([math]::Max(0, $handDue - $handElapsed))");
-                        sb.AppendLine($"{pad}$handElapsed = $handDue");
+                        sb.AppendLine($"{pad}Step-Delay ([math]::Max(0, $handDue - [int]$handClock.ElapsedMilliseconds))");
                         if (seg.Dx != 0 || seg.Dy != 0) sb.AppendLine($"{pad}Send-Cmd \"MMOVE|{seg.Dx},{seg.Dy},rel,2\"");
                     }
                 }

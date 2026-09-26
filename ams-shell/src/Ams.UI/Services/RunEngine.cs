@@ -1047,7 +1047,7 @@ public sealed class RunEngine
         int targetMs;
         lock (_rngLock) targetMs = replayMin == replayMax ? replayMin : Rng.Next(replayMin, replayMax + 1);
         int sourceMs = Math.Max(1, path.Sum(segment => segment.DelayMs));
-        int sourceElapsed = 0, targetElapsed = 0;
+        int sourceElapsed = 0, activeElapsed = 0;
         _log($"mouse: relative hand gesture Δ({delta.X},{delta.Y}) · {path.Count} segments · {targetMs}ms");
         foreach (var segment in path)
         {
@@ -1057,11 +1057,18 @@ public sealed class RunEngine
             // one, so it belongs before the corresponding relative report.
             sourceElapsed += segment.DelayMs;
             int targetDue = (int)Math.Round(sourceElapsed * (double)targetMs / sourceMs);
-            int scaledDelay = Math.Max(0, targetDue - targetElapsed);
-            targetElapsed = targetDue;
-            if (scaledDelay > 0) await PausableDelay(scaledDelay, ct);
+            int remaining = Math.Max(0, targetDue - activeElapsed);
+            if (remaining > 0)
+            {
+                await PausableDelay(remaining, ct);
+                activeElapsed += remaining;
+            }
             if (segment.Dx != 0 || segment.Dy != 0)
+            {
+                var sendClock = Stopwatch.StartNew();
                 await Send($"MMOVE|{segment.Dx},{segment.Dy},rel,2", ct, quiet: true);
+                activeElapsed += (int)sendClock.ElapsedMilliseconds;
+            }
         }
         // Windows can report the real post-HID position. Do not invent it by adding raw HID
         // deltas: pointer acceleration means a report delta is not guaranteed to equal pixels.
