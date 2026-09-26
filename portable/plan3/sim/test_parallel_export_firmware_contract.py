@@ -13,7 +13,7 @@ assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
 # Keep the physically verified, near-capacity firmware unchanged.
-assert '#define FW_VER   "2.8.1"' in arm
+assert '#define FW_VER   "2.8.2"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('def sound_start','def sound_poll','def sound_cancel','def type_char','SCAL|10'):
     assert token in runtime, token
