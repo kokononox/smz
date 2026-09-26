@@ -131,6 +131,7 @@ def assign_dynamic_delays(pts, sx, sy, smin, smax, target_ms=0):
     hi = 2000 if shape_only else max(lo, max(smin, smax))
     knot_count = int(_clamp(4 + len(pts) // 120, 4, 9))
     prof = build_range_profile(float(lo), float(hi), knot_count, low_ends=True)
+    phase_skew = _rf() * 0.44 - 0.22
     segs = []
     path = 0.0
     px, py = sx, sy
@@ -146,6 +147,7 @@ def assign_dynamic_delays(pts, sx, sy, smin, smax, target_ms=0):
     travelled = 0.0
     for i in range(len(pts)):
         phase = _clamp((travelled + segs[i] * 0.5) / path, 0.0, 1.0)
+        phase = _clamp(phase + phase_skew * phase * (1.0 - phase), 0.0, 1.0)
         speed = _clamp(sample_profile(prof, phase), lo, hi)
         w = segs[i] * 1000.0 / max(1.0, speed)
         weights.append(w)
@@ -274,6 +276,17 @@ _DEFAULT_CFG = dict(before_min=120, before_max=450, after_min=150, after_max=600
                     speed_min=0, speed_max=2000, mt_min=0, mt_max=0)
 
 
+def distance_scaled_move_ms(mn, mx, distance):
+    """Natural-v1 duration: configured range is the medium-distance baseline."""
+    if mx < mn:
+        mn, mx = mx, mn
+    if mx <= 0:
+        return 0
+    sampled = rand_range(max(1, mn), max(1, mx))
+    scale = 0.72 + 0.63 * _clamp(distance / 650.0, 0.0, 1.0)
+    return int(_clamp(round(sampled * scale), 120, 30000))
+
+
 def relative_mouse_events(pos, tx, ty, c, pauses):
     """Yield a bounded curve; ARM 2.8.1 expands deltas to <=3 px reports."""
     sx, sy = pos[0], pos[1]
@@ -287,8 +300,9 @@ def relative_mouse_events(pos, tx, ty, c, pauses):
         amp = -amp
     denom = max(1, span)
     pxoff, pyoff = (-dy * amp) // denom, (dx * amp) // denom
+    path_dist = math.sqrt(dx * dx + dy * dy)
     if c["mt_max"] > 0:
-        total = rand_range(c["mt_min"], c["mt_max"])
+        total = distance_scaled_move_ms(c["mt_min"], c["mt_max"], path_dist)
     elif c["speed_max"] > 0:
         speed = rand_range(max(1, c["speed_min"]),
                            max(max(1, c["speed_min"]), c["speed_max"]))
@@ -305,13 +319,16 @@ def relative_mouse_events(pos, tx, ty, c, pauses):
     timed = (total + 7) // 8 if total > 0 else spatial
     segments = max(8, min(128, max(spatial, timed)))
     base, extra = total // segments, total % segments
-    mid, mid_at = pauses.mid_pause(c), 1 + _below(max(1, segments - 1))
+    mid = pauses.mid_pause(c) if path_dist >= 300 else 0
+    mid_at = 1 + _below(max(1, segments - 1))
+    phase_skew = rand_range(-220, 220)
     if c["before_max"] > 0:
         yield ("wait", rand_range(c["before_min"], c["before_max"]))
     px, py = sx, sy
     for step in range(1, segments + 1):
         t = (step * 1024) // segments
-        ease = (t * t * (3072 - 2 * t)) // 1048576
+        q = int(_clamp(t + (phase_skew * t * (1024 - t)) // 1024000, 0, 1024))
+        ease = (q * q * (3072 - 2 * q)) // 1048576
         bow = (4 * t * (1024 - t)) // 1024
         nx = sx + (dx * ease + pxoff * bow) // 1024
         ny = sy + (dy * ease + pyoff * bow) // 1024
@@ -350,17 +367,16 @@ def plan_move(sx, sy, tx, ty, c, pauses, w, h):
     mt_min, mt_max = max(0, c["mt_min"]), max(0, c["mt_max"])
     if mt_max < mt_min:
         mt_min, mt_max = mt_max, mt_min
-    target_ms = rand_range(max(1, mt_min), max(1, mt_max)) if mt_max > 0 else 0
+    target_ms = distance_scaled_move_ms(mt_min, mt_max, dist) if mt_max > 0 else 0
 
     dense = []
     overshoot_idx = -1
     if curve_max > 100 and dist >= 80:                          # true arc mode
         dense, _height, _arc_ms = build_arc(sx, sy, tx, ty, total_ms, curve_min, curve_max, w, h)
-    elif dist >= 60 and c["over_chance"] > 0 and _below(100) < c["over_chance"]:
+    elif dist >= 300 and c["over_chance"] > 0 and _below(100) < c["over_chance"]:
         ux, uy = (tx - sx) / dist, (ty - sy) / dist
-        cscale = min(1.0, curve)
-        over = int(_clamp(dist * (0.03 + _rf() * 0.05) * cscale, 2, 20))
-        perp = int(_rf() * (2.0 + cscale * 5.0) - (1.0 + cscale * 2.5))
+        over = rand_range(2, 6)
+        perp = rand_range(-1, 1)
         ox = int(_clamp(tx + int(ux * over - uy * perp), 0, max(0, w - 1)))
         oy = int(_clamp(ty + int(uy * over + ux * perp), 0, max(0, h - 1)))
         leg1_ms = max(40, int(total_ms * 0.8))
@@ -378,8 +394,8 @@ def plan_move(sx, sy, tx, ty, c, pauses, w, h):
     assign_dynamic_delays(dense, sx, sy, c["speed_min"], c["speed_max"], target_ms)
 
     if overshoot_idx >= 0:                                      # re-aim pause
-        dense[overshoot_idx][2] += rand_range(60, 180)
-    mid = pauses.mid_pause(c)                                   # one hesitation per move
+        dense[overshoot_idx][2] += rand_range(70, 160)
+    mid = pauses.mid_pause(c) if dist >= 300 else 0             # long-move hesitation only
     if mid > 0 and len(dense) >= 8:
         dense[2 + _below(len(dense) - 4)][2] += mid
 
