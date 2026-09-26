@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hostless mouse contract for the modern Pico + ARM 2.8.2 runtime."""
+"""Hostless mouse contract for the modern Pico + ARM 2.8.3 runtime."""
 from pathlib import Path
 import random
 import sys
@@ -73,7 +73,7 @@ assert "PortableMouse.move(sx, sy, 0);" in impl
 assert '#include "portable_relative_mouse.h"' in impl
 assert "HID-Project.h" not in impl
 assert "class PortableMouse_" in portable_hid
-assert '#define FW_VER   "2.8.2"' in impl
+assert '#define FW_VER   "2.8.3"' in impl
 assert 'if (!strcmp(mode, "rel"))' in impl
 rel_branch = impl.split('if (!strcmp(mode, "rel"))', 1)[1].split("else if", 1)[0]
 assert "mouse_move_relative_native(x, y)" in rel_branch
@@ -81,7 +81,8 @@ assert "mouse_move_abs" not in rel_branch
 relative_fn = impl.split("static void mouse_move_relative_native", 1)[1].split(
     "static void mouse_move_abs", 1
 )[0]
-assert "(dist + 1U) / 2U" in relative_fn
+assert "max((ax + 1U) / 2U, (ay + 1U) / 2U)" in relative_fn
+assert "(ax + ay + 2U) / 3U" in relative_fn
 assert "mouse_move_steps(g_curX + dx, g_curY + dy, steps, 0)" in relative_fn
 assert "mouse_delta_report(dx, dy, 0)" not in relative_fn
 assert "delay(1)" not in relative_fn
@@ -90,14 +91,18 @@ assert "|REL=1" in source
 print("PASS ARM 2.8 rel-MMOVE uses native relative HID")
 
 
-# Match the integer DDA used by ARM 2.8.2 over the complete one-report HID
-# range. The two-pixel target is deliberate: endpoint rounding may produce a
-# diagonal (2,2), whose Euclidean length is sqrt(8), still below three pixels.
+# Match the integer DDA used by ARM 2.8.3 over the complete one-report HID
+# range. The step count is the smallest safe integer-DDA count; endpoint
+# rounding may produce a diagonal (2,2), still below three pixels.
 def arm_microsteps(dx, dy):
-    dist = int((dx * dx + dy * dy) ** 0.5)
-    steps = (dist + 1) // 2
-    if steps < 1:
-        return [(dx, dy)]
+    ax, ay = abs(dx), abs(dy)
+    if not ax:
+        steps = (ay + 2) // 3
+    elif not ay:
+        steps = (ax + 2) // 3
+    else:
+        steps = max((ax + 1) // 2, (ay + 1) // 2)
+    steps = max(1, steps)
     out = []
     px = py = 0
     for i in range(1, steps + 1):
@@ -119,4 +124,15 @@ for test_dx in range(-127, 128):
         assert all((x * x + y * y) <= 9 for x, y in reports), (
             test_dx, test_dy, reports
         )
-print("PASS ARM 2.8.2 relative HID reports are exact and at most three pixels")
+print("PASS ARM 2.8.3 relative HID reports are exact and at most three pixels")
+
+old_reports = 0
+new_reports = 0
+for test_dx in range(-127, 128):
+    for test_dy in range(-127, 128):
+        if test_dx or test_dy:
+            dist = int((test_dx * test_dx + test_dy * test_dy) ** 0.5)
+            old_reports += max(1, (dist + 1) // 2)
+            new_reports += len(arm_microsteps(test_dx, test_dy))
+assert new_reports < old_reports * 0.9, (old_reports, new_reports)
+print("PASS ARM 2.8.3 reduces exhaustive relative HID report count", old_reports, new_reports)

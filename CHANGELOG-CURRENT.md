@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 55 (Bundle 142)
-- **وضعیت حافظه:** Chunk شدن HANDPATH تأیید شده و خطای تخصیص 8.7KB برنگشته است.
-- **وضعیت کیفیت حرکت:** شکل و مقصد دقیق است، اما زمان واقعی 21.495 ثانیه در برابر هدف 9–11 ثانیه بود؛ محدودکننده به ARM 2.8.1 منتقل شد.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 56 با ARM 2.8.2
+- **وضعیت حافظه:** Route سبک با 79,344 بایت آزاد کامل شد و هیچ MemoryError رخ نداد.
+- **وضعیت کیفیت حرکت:** مقصد و سقف 2.83px سالم‌اند، اما زمان فعال 19.921 ثانیه در برابر هدف 9–11 ثانیه بود؛ Throughput فرمان ARM محدودکننده است.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.2؛ حذف sleep تکراری بین گزارش‌های Relative HID | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.3؛ DDA حداقل امن و Ack غیرمسدودکننده | CI candidate |
+| 56 | مسیر کامل؛ 19.921s؛ مقصد دقیق | ARM 2.8.2 حذف sleep صریح | Tempo failed; superseded |
 | 55 | مسیر کامل؛ مقصد دقیق؛ 21.495s | deadline-based HANDPATH؛ محدودکنندهٔ ARM آشکار شد | Tempo failed; superseded |
 | 52 | مسیر کامل؛ مقصد دقیق؛ 21.704s | Chunk کم‌حافظهٔ HANDPATH | Memory pass؛ tempo superseded |
 | 51 | MemoryError پیش از Import در Route 8.7KB | بازهٔ تصادفی زمان بازپخش Hand Sample | Superseded by next build |
@@ -28,11 +29,52 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — ARM 2.8.2 با Pacing طبیعی USB
+## Build {{BUILD_NUMBER}} — ARM 2.8.3 با Throughput بیشتر
 
-**Previous build:** 55
+**Previous build:** 56
 **Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+تست واقعی Build 56 با ARM 2.8.2 کامل شد، اما Record برای بازهٔ هدف 9–11 ثانیه، 19.921 ثانیه زمان فعال ثبت کرد. Guard نیز Route را حدود 21 ثانیه نشان داد.
+
+### Evidence
+
+- 5,842 موقعیت و 5,841 Segment ثبت شد.
+- Delta نهایی `(207,122)`، گام میانه 2px و بیشینه 2.83px بود.
+- فقط 9 وقفهٔ حداقل 40ms و هیچ وقفهٔ فعال حداقل 100ms وجود نداشت.
+- حذف sleep نسخهٔ 2.8.2 اثر داشت، اما نسبت به 21.495 ثانیه فقط 7.3 درصد بهبود ایجاد کرد.
+
+### Root cause
+
+ARM برای بیشتر Deltaهای Hand Sample حدود پنج گزارش HID تولید می‌کرد و پس از هر فرمان `OK|MMOVE` را با Flush مسدودکنندهٔ UART می‌فرستاد. صف دوفرمانی Pico نمی‌توانست زمان USB reports و پایان فیزیکی هر Ack را به‌اندازهٔ کافی هم‌پوشان کند.
+
+### Change
+
+- ARM به نسخهٔ 2.8.3 ارتقا یافت.
+- DDA کمترین تعداد گزارش امن را انتخاب می‌کند: حرکت تک‌محور تا 3px و حرکت ترکیبی حداکثر `(2,2)` یا 2.83px است.
+- جمع Delta، ترتیب Segmentها و مقصد دقیقاً حفظ می‌شوند.
+- پاسخ‌های لینک داخلی در بافر محدود UART قرار می‌گیرند؛ خود <code>println</code> هنگام پُرشدن بافر Back-pressure می‌دهد و Flush اضافی حذف شده است.
+- نخستین پاسخ HVER با `EVT|DEBUG|ARM|...` در Guard log ثبت می‌شود.
+- Release فایل مستقیم `ARM-2.8.3-source.zip` و Hash آن را منتشر می‌کند.
+
+### Validation
+
+- پیمایش Exhaustive همهٔ Deltaهای `-127..127` جمع دقیق و سقف حداکثر سه‌پیکسلی را تأیید می‌کند.
+- تعداد گزارش‌های Exhaustive نسبت به ARM 2.8.2 از 3,173,660 به 2,774,528 کاهش یافت.
+- قرارداد Runtime چاپ نسخهٔ واقعی HVER را قفل می‌کند.
+- Workflow AutoCycle کامپایل Leonardo/ATmega32U4 را قبل از Merge الزامی می‌کند.
+
+### Next test
+
+ARM 2.8.3 را فلش، Bundle را با Build جدید از همان `11hand3.amsj` بساز و Guard log همراه Record را ارسال کن. Guard باید `OK|HVER|2.8.3` و زمان فعال نزدیک‌تر به 9–11 ثانیه نشان دهد.
+
+## Build 56 — ARM 2.8.2 با Pacing طبیعی USB
+
+**Previous build:** 55
+**Status:** hardware tempo failed; superseded by ARM 2.8.3
+**Commit:** `30e673e066f5084ea59de2eddb43ee6ac8686d2b`
 
 ### Problem observed
 

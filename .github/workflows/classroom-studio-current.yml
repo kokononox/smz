@@ -99,9 +99,9 @@ jobs:
           $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
           Remove-Item -Recurse -Force "$out/bridge/__pycache__" -ErrorAction SilentlyContinue
           Compress-Archive -Path "$out/*" -DestinationPath Classroom-Studio-current.zip -Force
-          Compress-Archive -Path "firmware/arm28/*" -DestinationPath ARM-2.8.2-source.zip -Force
+          Compress-Archive -Path "firmware/arm28/*" -DestinationPath ARM-2.8.3-source.zip -Force
           (Get-FileHash Classroom-Studio-current.zip -Algorithm SHA256).Hash | Out-File sha256.txt -Encoding ascii
-          (Get-FileHash ARM-2.8.2-source.zip -Algorithm SHA256).Hash | Out-File arm-sha256.txt -Encoding ascii
+          (Get-FileHash ARM-2.8.3-source.zip -Algorithm SHA256).Hash | Out-File arm-sha256.txt -Encoding ascii
 
       - name: Upload current build or test log
         if: always()
@@ -110,7 +110,7 @@ jobs:
           name: Classroom-Studio-current-${{ github.sha }}
           path: |
             Classroom-Studio-current.zip
-            ARM-2.8.2-source.zip
+            ARM-2.8.3-source.zip
             sha256.txt
             arm-sha256.txt
             ci-test-output.txt
@@ -128,7 +128,7 @@ jobs:
           body_path: release-notes.md
           files: |
             Classroom-Studio-current.zip
-            ARM-2.8.2-source.zip
+            ARM-2.8.3-source.zip
             sha256.txt
             arm-sha256.txt
             ci-test-output.txt
