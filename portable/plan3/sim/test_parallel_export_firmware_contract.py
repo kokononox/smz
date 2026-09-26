@@ -13,7 +13,7 @@ assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
 # Keep the physically verified, near-capacity firmware unchanged.
-assert '#define FW_VER   "2.8.5"' in arm
+assert '#define FW_VER   "2.8.6"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('def sound_start','def sound_poll','def sound_cancel','def type_char','SCAL|10'):
     assert token in runtime, token
@@ -32,7 +32,7 @@ assert 'self.event("ARM", reply, persist=True)' in runtime
 assert 'self.compact_relative = "|MR=1" in reply' in runtime
 assert 'self.batch_relative = "|MB=1" in reply' in runtime
 assert 'self.send("MB|" + payload, 3)' in runtime
-assert 'self._batch_count >= 6 or self._batch_due + interval > 64' in runtime
+assert 'self._batch_count >= 5 or self._batch_due + interval > 64' in runtime
 assert '"%02X%04X%04X"' in runtime
 assert 'self.write("MR|%d,%d" % (dx, dy))' in runtime
 assert 'line.startswith("OK|MR")' in runtime

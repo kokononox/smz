@@ -55,7 +55,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.5"
+#define FW_VER   "2.8.6"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -640,7 +640,7 @@ static void handle(char* cmd) {
   if (!strcmp(cmd, "MB")) {
     unsigned long started = millis(), due = 0;
     uint16_t size = 0;
-    if (!hex_decode(args, g_pt, 30, &size) || strlen(args) != size * 2 || !size || size % 5) {
+    if (!hex_decode(args, g_pt, 25, &size) || strlen(args) != size * 2 || !size || size % 5) {
       reply_err("ARG"); return;
     }
     for (uint8_t i = 0; i < size; i += 5) {
