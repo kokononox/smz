@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 52 (Bundle 141)
-- **وضعیت حافظه:** Chunk شدن HANDPATH تأیید شد؛ ۱۳ خط با حداکثر طول ۸۱۴ کاراکتر و بدون خط 8.7KB.
-- **وضعیت کیفیت حرکت:** شکل و مقصد دقیق است، اما زمان واقعی 21.704 ثانیه در برابر هدف 9–11 ثانیه بود.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 55 (Bundle 142)
+- **وضعیت حافظه:** Chunk شدن HANDPATH تأیید شده و خطای تخصیص 8.7KB برنگشته است.
+- **وضعیت کیفیت حرکت:** شکل و مقصد دقیق است، اما زمان واقعی 21.495 ثانیه در برابر هدف 9–11 ثانیه بود؛ محدودکننده به ARM 2.8.1 منتقل شد.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | زمان‌بندی deadline-based برای HANDPATH | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.2؛ حذف sleep تکراری بین گزارش‌های Relative HID | CI candidate |
+| 55 | مسیر کامل؛ مقصد دقیق؛ 21.495s | deadline-based HANDPATH؛ محدودکنندهٔ ARM آشکار شد | Tempo failed; superseded |
 | 52 | مسیر کامل؛ مقصد دقیق؛ 21.704s | Chunk کم‌حافظهٔ HANDPATH | Memory pass؛ tempo superseded |
 | 51 | MemoryError پیش از Import در Route 8.7KB | بازهٔ تصادفی زمان بازپخش Hand Sample | Superseded by next build |
 | 50 | A و B کامل؛ Record تست C تحلیل شد | Changelog اجباری؛ همان Runtime Build 49 | C انسانی‌ترین؛ B نرم‌ترین |
@@ -27,11 +28,48 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — زمان‌بندی واقعی HANDPATH با deadline
+## Build {{BUILD_NUMBER}} — ARM 2.8.2 با Pacing طبیعی USB
 
-**Previous build:** 52  
-**Status:** CI candidate; hardware retest pending  
+**Previous build:** 55
+**Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در Bundle 142، Runtime مبتنی بر deadline داخل Bundle حضور داشت و هر 25 Hash معتبر بود، اما بازپخش نمونهٔ هدف 9–11 ثانیه همچنان 21.495 ثانیه طول کشید.
+
+### Evidence
+
+- مسیر و مقصد نهایی دقیق باقی ماندند و سقف Micro-step برابر 2.83px بود.
+- Deadline پیکو دیگر Delay ثبت‌شده را بعد از کار سخت‌افزار دوباره اضافه نمی‌کرد؛ بااین‌حال ARM 2.8.1 برای هر Micro-step هم Back-pressure طبیعی USB و هم `delay(1)` نرم‌افزاری پرداخت می‌کرد.
+
+### Root cause
+
+مسیر نسبی ARM 2.8.1 پس از هر گزارش HID یک میلی‌ثانیه صبر می‌کرد، درحالی‌که `USB_Send` نیز گزارش بعدی را تا آماده‌شدن Endpoint نگه می‌دارد. در HANDPATH پرتراکم این دو Pacing متوالی زمان اجرا را تقریباً دو برابر کردند.
+
+### Change
+
+- نسخهٔ Firmware به ARM 2.8.2 ارتقا یافت.
+- فقط در `MMOVE|dx,dy,rel,2`، تأخیر صریح یک‌میلی‌ثانیه‌ای حذف شد و Endpoint USB مرجع Pacing باقی ماند.
+- هندسهٔ DDA، مجموع Delta، ترتیب Segmentها و سقف زیر سه‌پیکسل تغییر نکردند.
+- مسیرهای Absolute، Stream قدیمی، Click، Drag، Wheel و Sound بدون تغییر ماندند.
+- Release اکنون علاوه بر Classroom Studio، فایل مستقیم `ARM-2.8.2-source.zip` و Hash آن را منتشر می‌کند.
+
+### Validation
+
+- پیمایش کامل ورودی‌های `-127..127` جمع دقیق Delta و Micro-stepهای حداکثر سه‌پیکسلی را بررسی می‌کند.
+- قرارداد Firmware قفل می‌کند که مسیر Relative از Pace صفر استفاده کند و `delay(1)` در این تابع برنگردد.
+- Workflow AutoCycle، Firmware را برای Leonardo/ATmega32U4 کامپایل می‌کند.
+
+### Next test
+
+ARM 2.8.2 را روی Pro Micro فلش کنید، سپس همان `11hand3.amsj` و بازهٔ 9–11 ثانیه را اجرا کنید. Record باید زمان فعال نزدیک 9–11 ثانیه، مقصد ثابت و Micro-stepهای زیر سه پیکسل نشان دهد.
+
+## Build 55 — زمان‌بندی واقعی HANDPATH با deadline
+
+**Previous build:** 52
+**Status:** hardware tempo failed; superseded by ARM 2.8.2
+**Commit:** `493a65ff190fb2268c8adfc599e41dd430f44c21`
 
 ### Problem observed
 

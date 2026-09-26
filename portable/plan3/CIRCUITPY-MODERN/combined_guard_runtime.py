@@ -325,7 +325,7 @@ class PlanContext:
         if time.monotonic() >= state["deadline"]:
             self._parallel_sound = None
             return False
-        # ARM 2.8.1 already exposes a short, HALT-abortable sound calibration
+        # ARM 2.8.2 already exposes a short, HALT-abortable sound calibration
         # window. Reusing 10 ms SCAL slices avoids adding bytes to the nearly
         # full Leonardo firmware and returns the UART to MMOVE between polls.
         # MMOVE is pipelined (two outstanding frames). Starting SCAL before

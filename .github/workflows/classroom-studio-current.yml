@@ -6,6 +6,7 @@ on:
     branches: [feat/dc-auto-esc-88-188, fix/cursor-origin-sync, fix/portable-relative-mouse]
     paths:
       - 'ams-shell/**'
+      - 'firmware/arm28/**'
       - 'tests/**'
       - 'portable/plan3/CIRCUITPY-MODERN/**'
       - 'portable/plan3/sim/test_calibration_heap_release.py'
@@ -35,7 +36,7 @@ jobs:
         run: |
           $changed = @(git diff --name-only HEAD^ HEAD)
           $releaseRelevant = @($changed | Where-Object {
-            $_ -match '^(ams-shell/|tests/|portable/plan3/CIRCUITPY-MODERN/|tools/apply_calibration_save_heap_fix.py|tools/current_release_notes.py|\.github/workflows/classroom-studio-current.yml)'
+            $_ -match '^(ams-shell/|firmware/arm28/|tests/|portable/plan3/CIRCUITPY-MODERN/|tools/apply_calibration_save_heap_fix.py|tools/current_release_notes.py|\.github/workflows/classroom-studio-current.yml)'
           })
           if ($releaseRelevant.Count -gt 0 -and -not ($changed -contains 'CHANGELOG-CURRENT.md')) {
             throw 'Build-affecting changes require an update to CHANGELOG-CURRENT.md'
@@ -98,7 +99,9 @@ jobs:
           $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
           Remove-Item -Recurse -Force "$out/bridge/__pycache__" -ErrorAction SilentlyContinue
           Compress-Archive -Path "$out/*" -DestinationPath Classroom-Studio-current.zip -Force
+          Compress-Archive -Path "firmware/arm28/*" -DestinationPath ARM-2.8.2-source.zip -Force
           (Get-FileHash Classroom-Studio-current.zip -Algorithm SHA256).Hash | Out-File sha256.txt -Encoding ascii
+          (Get-FileHash ARM-2.8.2-source.zip -Algorithm SHA256).Hash | Out-File arm-sha256.txt -Encoding ascii
 
       - name: Upload current build or test log
         if: always()
@@ -107,7 +110,9 @@ jobs:
           name: Classroom-Studio-current-${{ github.sha }}
           path: |
             Classroom-Studio-current.zip
+            ARM-2.8.2-source.zip
             sha256.txt
+            arm-sha256.txt
             ci-test-output.txt
             release-notes.md
           if-no-files-found: warn
@@ -123,5 +128,7 @@ jobs:
           body_path: release-notes.md
           files: |
             Classroom-Studio-current.zip
+            ARM-2.8.2-source.zip
             sha256.txt
+            arm-sha256.txt
             ci-test-output.txt
