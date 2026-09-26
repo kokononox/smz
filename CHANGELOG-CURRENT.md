@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 58 با ARM 2.8.4 و Bundle 148
-- **وضعیت حافظه:** Route سبک کامل شد؛ هر 25 Hash معتبر و بدون MemoryError یا ACK timeout بود.
-- **وضعیت کیفیت حرکت:** زمان فعال 17.332 ثانیه شد؛ MR فقط 1.5٪ بهتر از Build 57 بود و هدف 9–11 ثانیه هنوز پاس نشده است.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 59 با ARM 2.8.5 و Bundle 150
+- **وضعیت حافظه:** Route سبک با 77,664 بایت آزاد وارد اجرا شد و MemoryError رخ نداد.
+- **وضعیت کیفیت حرکت:** تست Tempo به‌دلیل `ERR|CKSUM` ناشی از Frame شش‌تایی 68 بایتی ناقص ماند؛ نتیجهٔ 17.332 ثانیهٔ Build 58 هنوز آخرین Baseline کامل است.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.5؛ Batch محدود MB/OK\|MB و لاگ HVER روی Guard | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.6؛ Batch پنج‌تایی سازگار با RX 64-byte | CI candidate |
+| 59 | HVER صحیح؛ Route با ERR\|CKSUM متوقف شد | Frame شش‌تایی 68B از RX 64B بزرگ‌تر بود | Hardware failed; superseded |
 | 58 | مسیر کامل؛ 17.332s؛ Bundle سالم | ARM 2.8.4 پروتکل کوتاه MR | Tempo failed; superseded |
 | 57 | مسیر کامل؛ 17.595s؛ Bundle سالم | ARM 2.8.3 DDA حداقل امن و Flush کمتر | Tempo improved; superseded |
 | 56 | مسیر کامل؛ 19.921s؛ مقصد دقیق | ARM 2.8.2 حذف sleep صریح | Tempo failed; superseded |
@@ -31,11 +32,52 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — ARM 2.8.5 با Batch محدود HANDPATH
+## Build {{BUILD_NUMBER}} — ARM 2.8.6 با Batch پنج‌تایی
 
-**Previous build:** 58
+**Previous build:** 59
 **Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 59 و Bundle 150 قابلیت `MB=1` را صحیح مذاکره کردند و HVER روی COM31 دیده شد، اما Route در میانهٔ HANDPATH با `ARM MB rejected: ERR|CKSUM` متوقف شد.
+
+### Evidence
+
+- هر 25 Hash Bundle 150 معتبر بود و MemoryError رخ نداد.
+- حافظهٔ آزاد light-route برابر 77,664 بایت بود.
+- بافر RX استاندارد HardwareSerial روی AVR برابر 64 بایت است.
+- Frame شش‌تایی MB برابر 68 بایت بود: چهار بایت `#XX|`، سه بایت `MB|`، شصت کاراکتر Hex و newline.
+- Record با 4,537 موقعیت ناقص ماند و برای Tempo یا Endpoint نهایی معتبر نیست.
+
+### Root cause
+
+Frame شش‌تایی چهار بایت از بافر RX سخت‌افزاری بزرگ‌تر بود. هنگام پردازش طولانی DDA، بخشی از Frame بعدی در Ring Buffer 64 بایتی جا نمی‌شد و Checksum عمداً Frame ناقص را رد می‌کرد.
+
+### Change
+
+- ARM به نسخهٔ 2.8.6 ارتقا یافت.
+- سقف Batch از شش به پنج رکورد کاهش یافت.
+- Decoder نیز حداکثر 25 بایت Payload، دقیقاً پنج رکورد، می‌پذیرد.
+- Frame پنج‌تایی کامل 58 بایت است و شش بایت حاشیه زیر RX 64-byte دارد.
+- checksum، Deadline مطلق، Timing، Delta علامت‌دار، DDA سه‌پیکسلی، Stop Gate و MR/MMOVE fallback تغییر نکرده‌اند.
+- Release فایل `ARM-2.8.6-source.zip` را منتشر می‌کند.
+
+### Validation
+
+- تست قراردادی اندازهٔ Frame الزام `<=64` را قفل می‌کند.
+- پنج Delta در یک Frame هنوز تعداد ACK را برای Plan 1,176-Segment حدود 80٪ کاهش می‌دهد.
+- تمام 37 قرارداد Portable، 25 Hash، Windows TestRunner، ARM compile، Plan2، Golden و Security باید پیش از Merge سبز باشند.
+
+### Next test
+
+ARM 2.8.6 را فلش، Build جدید را اجرا و Bundle را از همان `11hand3.amsj` بازسازی کن. Guard باید HVER نسخهٔ 2.8.6 را نشان دهد، `ERR|CKSUM` نباید تکرار شود و Route باید کامل شود. Guard، Record و Bundle را برای سنجش Tempo ارسال کن.
+
+## Build 59 — ARM 2.8.5 با Batch محدود HANDPATH
+
+**Previous build:** 58
+**Status:** hardware CKSUM failed; superseded by ARM 2.8.6
+**Commit:** `cf6ec8c371fb1a490b520fa0d2396fb99bb14277`
 
 ### Problem observed
 
@@ -72,9 +114,9 @@ Build 58 با ARM 2.8.4 و Bundle 148 کامل شد، اما پروتکل کوت
 - کامپایل محلی Leonardo برابر 27,600 از 28,672 بایت Flash و 2,148 از 2,560 بایت RAM است.
 - قراردادهای fallback، Batch حداکثر شش‌تایی/64ms، Endpoint دقیق و Fail-Closed قفل شده‌اند.
 
-### Next test
+### Hardware result
 
-ARM 2.8.5 را با کلید خصوصی فعلی فلش کن، Build جدید را اجرا و Bundle را از همان `11hand3.amsj` بازسازی کن. Guard باید `OK/HVER/2.8.5/REL=1/MR=1/MB=1` را روی COM31 نشان دهد. Cursor را نزدیک مرکز بگذار و Guard، Record و Bundle را برای مقایسهٔ 17.332s با هدف 9–11s ارسال کن.
+Bundle 150 هر 25 Hash معتبر داشت و HVER نسخهٔ 2.8.5 با `MB=1` روی COM31 ثبت شد. حافظهٔ light-route برابر 77,664 بایت بود، اما Frame شش‌تایی 68 بایتی از RX 64-byte AVR عبور کرد و Route با `ERR|CKSUM` متوقف شد. نتیجهٔ Record ناقص است و برای Tempo معتبر نیست.
 
 ## Build 58 — ARM 2.8.4 با پروتکل کوتاه MR
 

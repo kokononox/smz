@@ -275,7 +275,7 @@ _DEFAULT_CFG = dict(before_min=120, before_max=450, after_min=150, after_max=600
 
 
 def relative_mouse_events(pos, tx, ty, c, pauses):
-    """Yield a bounded curve; ARM 2.8.5 expands deltas to <=3 px reports."""
+    """Yield a bounded curve; ARM 2.8.6 expands deltas to <=3 px reports."""
     sx, sy = pos[0], pos[1]
     dx, dy = tx - sx, ty - sy
     span = max(abs(dx), abs(dy))

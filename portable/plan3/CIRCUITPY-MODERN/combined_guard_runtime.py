@@ -321,7 +321,7 @@ class PlanContext:
     def relative_batch_add(self, target_due, dx, dy):
         elapsed = int(self.now() * 1000) - self._batch_started
         interval = max(0, target_due - elapsed) if not self._batch_count else target_due - self._batch_last_target
-        if self._batch_count and (self._batch_count >= 6 or self._batch_due + interval > 64):
+        if self._batch_count and (self._batch_count >= 5 or self._batch_due + interval > 64):
             self._relative_batch_send()
             elapsed = int(self.now() * 1000) - self._batch_started
             interval = max(0, target_due - elapsed)
