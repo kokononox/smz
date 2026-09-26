@@ -7,9 +7,8 @@ Windows applies each delta to the cursor's real current position, so no bridge,
 
 ARM 2.8.4 uses one Arduino-core `PortableMouse` interface for movement, buttons and
 wheel. Existing `MMOVE`, `HMOVE`, `HRANDOM`, sound, framed UART, encrypted USB,
-HOSTUSB, HALT and button behavior remain available. `HSETCUR` still aligns the
-virtual ledger when an optional host-assisted workflow uses it; the fully
-portable path does not call it.
+HOSTUSB, HALT and button behavior remain available. ARM 2.8.4 omits the optional bridge-only `HSETCUR` ledger sync to stay within
+the standard Caterina flash limit; the supported portable path never calls it.
 
 Keep all source files, including `portable_relative_mouse.h`, in one Arduino sketch folder. Copy your existing private
 `ams_key.h` beside them (never commit it); `ams_key.example.h` is only a template.

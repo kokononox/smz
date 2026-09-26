@@ -74,11 +74,11 @@ assert '#include "portable_relative_mouse.h"' in impl
 assert "HID-Project.h" not in impl
 assert "class PortableMouse_" in portable_hid
 assert '#define FW_VER   "2.8.4"' in impl
-assert 'if (!strcmp(mode, "rel"))' in impl
-rel_branch = impl.split('if (!strcmp(mode, "rel"))', 1)[1].split("else if", 1)[0]
+assert 'if (compactMove || !strcmp(mode, "rel"))' in impl
+rel_branch = impl.split('if (compactMove || !strcmp(mode, "rel"))', 1)[1].split("else if", 1)[0]
 assert "mouse_move_relative_native(x, y)" in rel_branch
-assert 'if (!strcmp(cmd, "MR"))' in impl
-assert 'send_line("OK|MR")' in impl
+assert 'bool compactMove = !strcmp(cmd, "MR");' in impl
+assert "reply_ok(cmd);" in impl
 assert '|REL=1|MR=1' in source
 assert "mouse_move_abs" not in rel_branch
 relative_fn = impl.split("static void mouse_move_relative_native", 1)[1].split(

@@ -637,18 +637,13 @@ static void handle(char* cmd) {
     else reply_err("ARG");
     return;
   }
-  if (!strcmp(cmd, "MR")) {
-    int x = 0, y = 0;
-    if (sscanf(args, "%d,%d", &x, &y) == 2) {
-      mouse_move_relative_native(x, y);
-      send_line("OK|MR");
-    } else reply_err("ARG");
-    return;
-  }
-  if (!strcmp(cmd, "MMOVE")) {
+  bool compactMove = !strcmp(cmd, "MR");
+  if (compactMove || !strcmp(cmd, "MMOVE")) {
     int x = 0, y = 0; char mode[8] = "abs"; char hm[4] = "1";
-    if (sscanf(args, "%d,%d,%7[^,],%3s", &x, &y, mode, hm) >= 3) {
-      if (!strcmp(mode, "rel")) {
+    int parsed = compactMove ? sscanf(args, "%d,%d", &x, &y)
+                             : sscanf(args, "%d,%d,%7[^,],%3s", &x, &y, mode, hm);
+    if ((compactMove && parsed == 2) || (!compactMove && parsed >= 3)) {
+      if (compactMove || !strcmp(mode, "rel")) {
         // ARM 2.8: genuine relative HID. Windows applies this delta to the
         // actual cursor; the virtual ledger is updated only for compatibility.
         mouse_move_relative_native(x, y);
@@ -668,7 +663,7 @@ static void handle(char* cmd) {
         mouse_move_stream(x, y);                         // fw 1.9: interpolated path point
       }
       else mouse_move_abs(x, y, hm[0] == '1');
-      reply_ok("MMOVE");
+      reply_ok(cmd);
     } else reply_err("ARG");
     return;
   }

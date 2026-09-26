@@ -90,12 +90,6 @@ static bool human_mouse_v3_handle(char* line){
     if(n!=10||!hm3_range(v[0],v[1],1)||!timing||!hm3_range(v[4],v[5],0)||!hm3_range(v[6],v[7],0)||!hm3_range(v[8],v[9],0)){g_hm3.configured=false;reply_err("HCFG|RANGE");return true;}
     g_hm3.speedMin=v[0];g_hm3.speedMax=v[1];g_hm3.moveMin=v[2];g_hm3.moveMax=v[3];g_hm3.curveMin=v[4];g_hm3.curveMax=v[5];g_hm3.beforeMin=v[6];g_hm3.beforeMax=v[7];g_hm3.afterMin=v[8];g_hm3.afterMax=v[9];g_hm3.configured=false;reply_ok("HCFG");return true;
   }
-  if(!strcmp(line,"HSETCUR")){
-    int x,y;
-    if(sscanf(args,"%d,%d",&x,&y)==2){g_curX=x;g_curY=y;g_reportX=x;g_reportY=y;send_line("OK|HSETCUR");}
-    else send_line("ERR|HSETCUR|RANGE");
-    return true;
-  }
   if(!strcmp(line,"HPAUSE")){
     int v[8];int n=sscanf(args,"%d,%d,%d,%d,%d,%d,%d,%d",&v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6],&v[7]);
     if(n!=8||!hm3_chance(v[0])||!hm3_range(v[1],v[2],0)||!hm3_range(v[3],v[4],1)||!hm3_range(v[5],v[6],0)||!hm3_chance(v[7])){g_hm3.configured=false;reply_err("HPAUSE|RANGE");return true;}
