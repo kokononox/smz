@@ -27,5 +27,5 @@ firmware no longer pays both USB endpoint time and an additional software sleep.
 Absolute, streamed legacy, click, wheel and sound paths are unchanged.
 
 ARM 2.8.3 additionally chooses the minimum safe DDA report count whose integer
-steps remain at or below three Euclidean pixels, and pipelines only `OK|MMOVE`
-UART replies without a blocking flush. All other replies retain their flush.
+steps remain at or below three Euclidean pixels, and lets the bounded brain-link UART buffer provide back-pressure without an extra
+blocking flush; `println` still blocks safely if that buffer fills.

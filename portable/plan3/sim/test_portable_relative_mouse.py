@@ -81,9 +81,8 @@ assert "mouse_move_abs" not in rel_branch
 relative_fn = impl.split("static void mouse_move_relative_native", 1)[1].split(
     "static void mouse_move_abs", 1
 )[0]
-assert "(ay + 2U) / 3U" in relative_fn
-assert "(ax + 2U) / 3U" in relative_fn
-assert "steps = nx > ny ? nx : ny" in relative_fn
+assert "max((ax + 1U) / 2U, (ay + 1U) / 2U)" in relative_fn
+assert "(ax + ay + 2U) / 3U" in relative_fn
 assert "mouse_move_steps(g_curX + dx, g_curY + dy, steps, 0)" in relative_fn
 assert "mouse_delta_report(dx, dy, 0)" not in relative_fn
 assert "delay(1)" not in relative_fn

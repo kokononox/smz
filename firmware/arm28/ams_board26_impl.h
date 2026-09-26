@@ -192,11 +192,9 @@ static Stream* g_out = 0;
 // send encrypted (or plaintext if !secure) reply/event line
 static void send_line(const char* pt) {
   if (g_out) {                       // brain link: plain text on Serial1, always
+    // Serial1.println already blocks if its bounded TX buffer is full. An extra
+    // flush only stalls command processing until the final stop bit leaves.
     g_out->println(pt);
-    // ARM 2.8.3: move replies are bounded by the Pico's two-command ledger, so
-    // they fit safely in the UART TX buffer. Do not block the command loop on
-    // physical transmission; all non-move replies keep the verified flush.
-    if (strncmp(pt, "OK|MMOVE", 8) != 0) g_out->flush();
     return;
   }
   if (!g_secure) {
@@ -294,15 +292,9 @@ static void mouse_move_relative_native(int32_t dx, int32_t dy) {
   // USB reports without changing the exact delta, order, or endpoint.
   uint32_t ax = (uint32_t)(dx < 0 ? -dx : dx);
   uint32_t ay = (uint32_t)(dy < 0 ? -dy : dy);
-  uint16_t steps;
-  if (!ax) steps = (uint16_t)((ay + 2U) / 3U);       // vertical: <=3 px
-  else if (!ay) steps = (uint16_t)((ax + 2U) / 3U);  // horizontal: <=3 px
-  else {
-    uint16_t nx = (uint16_t)((ax + 1U) / 2U);
-    uint16_t ny = (uint16_t)((ay + 1U) / 2U);
-    steps = nx > ny ? nx : ny;                       // mixed: <=(2,2)
-  }
-  if (steps < 1) steps = 1;
+  uint16_t steps = (ax && ay)
+      ? (uint16_t)max((ax + 1U) / 2U, (ay + 1U) / 2U)  // mixed: <=(2,2)
+      : (uint16_t)((ax + ay + 2U) / 3U);               // one axis: <=3 px
   mouse_move_steps(g_curX + dx, g_curY + dy, steps, 0);
 }
 
