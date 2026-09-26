@@ -55,7 +55,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.4"
+#define FW_VER   "2.8.5"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -637,6 +637,27 @@ static void handle(char* cmd) {
     else reply_err("ARG");
     return;
   }
+  if (!strcmp(cmd, "MB")) {
+    unsigned long started = millis(), due = 0;
+    uint16_t size = 0;
+    if (!hex_decode(args, g_pt, 30, &size) || strlen(args) != size * 2 || !size || size % 5) {
+      reply_err("ARG"); return;
+    }
+    for (uint8_t i = 0; i < size; i += 5) {
+      uint8_t waitMs = g_pt[i];
+      int16_t x = (int16_t)((uint16_t)g_pt[i + 1] << 8 | g_pt[i + 2]);
+      int16_t y = (int16_t)((uint16_t)g_pt[i + 3] << 8 | g_pt[i + 4]);
+      if (waitMs > 64 || abs(x) > 8192 || abs(y) > 8192) {
+        reply_err("ARG"); return;
+      }
+      due += (unsigned long)waitMs;
+      while ((long)(started + due - millis()) > 0) {
+        delay(1);
+      }
+      if (x || y) mouse_move_relative_native(x, y);
+    }
+    reply_ok("MB"); return;
+  }
   bool compactMove = !strcmp(cmd, "MR");
   if (compactMove || !strcmp(cmd, "MMOVE")) {
     int x = 0, y = 0; char mode[8] = "abs"; char hm[4] = "1";
@@ -648,21 +669,12 @@ static void handle(char* cmd) {
         // actual cursor; the virtual ledger is updated only for compatibility.
         mouse_move_relative_native(x, y);
       }
-      else if (hm[0] == '2') {
-        // fw 2.5: forensics + last line of defence. A streamed path point sits a few
-        // dozen px from the tracked position (the brain coalesces, so a few hundred px
-        // is still legitimate), but a jump beyond MOVE_SANITY_PX can only be a corrupt
-        // line that matched its checksum anyway - the '1216' -> '216' digit drop.
-        // Refuse it and echo the RAW wire bytes so the brain log shows what arrived.
-        int32_t ddx = (int32_t)x - g_curX, ddy = (int32_t)y - g_curY;
-        if (ddx * ddx + ddy * ddy > (int32_t)MOVE_SANITY_PX * (int32_t)MOVE_SANITY_PX) {
-          g_badMoves++;
-          reply_ok("MMOVE");                             // keep the brain's ack ledger sane
-          return;
-        }
-        mouse_move_stream(x, y);                         // fw 1.9: interpolated path point
+      else {
+        // The portable architecture has no trusted absolute cursor origin.
+        // Reject legacy streamed/absolute MMOVE instead of moving from a
+        // synthetic centre. HMOVE and MDRAG retain their explicit contracts.
+        reply_err("ABS"); return;
       }
-      else mouse_move_abs(x, y, hm[0] == '1');
       reply_ok(cmd);
     } else reply_err("ARG");
     return;

@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 57 با ARM 2.8.3 و Bundle 145
-- **وضعیت حافظه:** Route سبک با 79,312 بایت آزاد کامل شد؛ هر 25 Hash معتبر و بدون MemoryError بود.
-- **وضعیت کیفیت حرکت:** زمان فعال به 17.595 ثانیه رسید، اما هنوز بالاتر از هدف 9–11 ثانیه است؛ پروتکل متنی UART محدودکنندهٔ بعدی است.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 58 با ARM 2.8.4 و Bundle 148
+- **وضعیت حافظه:** Route سبک کامل شد؛ هر 25 Hash معتبر و بدون MemoryError یا ACK timeout بود.
+- **وضعیت کیفیت حرکت:** زمان فعال 17.332 ثانیه شد؛ MR فقط 1.5٪ بهتر از Build 57 بود و هدف 9–11 ثانیه هنوز پاس نشده است.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.4؛ پروتکل کوتاه MR/OK\|MR | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.5؛ Batch محدود MB/OK\|MB و لاگ HVER روی Guard | CI candidate |
+| 58 | مسیر کامل؛ 17.332s؛ Bundle سالم | ARM 2.8.4 پروتکل کوتاه MR | Tempo failed; superseded |
 | 57 | مسیر کامل؛ 17.595s؛ Bundle سالم | ARM 2.8.3 DDA حداقل امن و Flush کمتر | Tempo improved; superseded |
 | 56 | مسیر کامل؛ 19.921s؛ مقصد دقیق | ARM 2.8.2 حذف sleep صریح | Tempo failed; superseded |
 | 55 | مسیر کامل؛ مقصد دقیق؛ 21.495s | deadline-based HANDPATH؛ محدودکنندهٔ ARM آشکار شد | Tempo failed; superseded |
@@ -30,11 +31,56 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — ARM 2.8.4 با پروتکل کوتاه MR
+## Build {{BUILD_NUMBER}} — ARM 2.8.5 با Batch محدود HANDPATH
 
-**Previous build:** 57
+**Previous build:** 58
 **Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 58 با ARM 2.8.4 و Bundle 148 کامل شد، اما پروتکل کوتاه MR زمان فعال را فقط از 17.595 به 17.332 ثانیه رساند؛ بهبود 263ms یا 1.5٪ بود و هدف 9–11 ثانیه همچنان پاس نشد.
+
+### Evidence
+
+- هر 25 Hash معتبر بود؛ Plan شامل 1,176 Segment، زمان منبع 10.001s و بازهٔ هدف 9–11s است.
+- Record شامل 5,416 موقعیت و 5,415 گزارش قابل مشاهده بود.
+- Delta نهایی `(207,122)` بدون clipping، گام میانه 2.24px و بیشینه دقیقاً 3px بود.
+- فقط 11 فاصلهٔ فعال حداقل 40ms و هیچ فاصلهٔ 100ms یا بیشتر ثبت نشد.
+- HVER در COM31 دیده نشد، چون Runtime آن را با `print()` به Console می‌فرستاد، نه Data channel مانیتور Guard.
+
+### Root cause
+
+کاهش 34٪ طول فرمان متنی کافی نبود. مسیر هنوز برای هر یک از 1,176 Segment یک فرمان، Parse و Ack جدا داشت و ARM نیز در مجموع 5,415 گزارش HID تولید می‌کرد.
+
+### Change
+
+- ARM به نسخهٔ 2.8.5 ارتقا یافت و `HVER` قابلیت `MB=1` را اعلام می‌کند.
+- HANDPATH در فریم‌های checksumدار حداکثر شش Delta و حداکثر 64ms زمان هدف ارسال می‌شود.
+- هر رکورد پنج‌بایتی Hex شامل Delay، dx و dy علامت‌دار است؛ یک `OK|MB` جای Ackهای جداگانه را می‌گیرد.
+- ARM داخل هر Batch از Deadline مطلق استفاده می‌کند تا هزینهٔ USB دوباره روی Timing نمونه جمع نشود.
+- هر Batch حداکثر 64ms است و Pico بین Batchها Gate دکمه‌ها را بررسی می‌کند.
+- ARMهای بدون `MB=1` خودکار به MR یا MMOVE قبلی برمی‌گردند.
+- پاسخ HVER اکنون با Debug event رسمی روی کانال Data ثبت می‌شود.
+- MMOVE مطلق/Stream قدیمی با `ERR|ABS` Fail-Closed شد؛ معماری Portable مبدأ مطلق قابل اعتماد ندارد. Relative MR/MMOVE، HMOVE صریح، Drag، Click، Wheel و Sound حفظ شدند.
+- Release فایل `ARM-2.8.5-source.zip` را منتشر می‌کند.
+
+### Validation
+
+- شش Delta نمونه با 74 بایت Wire منتقل می‌شوند؛ شش MR جدا 138 بایت بودند، یعنی حدود 46٪ کاهش بیشتر.
+- Batch دقیقاً ترتیب، Timing و Delta علامت‌دار را نگه می‌دارد؛ سقف DDA سه‌پیکسلی تغییر نکرده است.
+- کامپایل محلی Leonardo برابر 27,600 از 28,672 بایت Flash و 2,148 از 2,560 بایت RAM است.
+- قراردادهای fallback، Batch حداکثر شش‌تایی/64ms، Endpoint دقیق و Fail-Closed قفل شده‌اند.
+
+### Next test
+
+ARM 2.8.5 را با کلید خصوصی فعلی فلش کن، Build جدید را اجرا و Bundle را از همان `11hand3.amsj` بازسازی کن. Guard باید `OK/HVER/2.8.5/REL=1/MR=1/MB=1` را روی COM31 نشان دهد. Cursor را نزدیک مرکز بگذار و Guard، Record و Bundle را برای مقایسهٔ 17.332s با هدف 9–11s ارسال کن.
+
+## Build 58 — ARM 2.8.4 با پروتکل کوتاه MR
+
+**Previous build:** 57
+**Status:** hardware route passed; tempo failed; superseded by ARM 2.8.5
+**Commit:** `86966a1b5f8015ce51e8b7870fcf28afc31f7a9e`
 
 ### Problem observed
 
@@ -68,9 +114,9 @@ Build 57 با ARM 2.8.3 زمان فعال را از 19.921 به 17.595 ثانی�
 - قرارداد Capability، fallback Legacy و هر دو Ack در Runtime قفل شده‌اند.
 - هر 37 قرارداد Portable و Manifest بیست‌وپنج‌فایلی باید پیش از Merge سبز باشند.
 
-### Next test
+### Hardware result
 
-ARM 2.8.4 را فلش و Bundle را با Build جدید بساز. Cursor را نزدیک مرکز صفحه قرار بده، سپس Guard و Record را هم‌زمان اجرا کن. Guard باید `OK|HVER|2.8.4|...|MR=1` را نشان دهد و زمان فعال باید به بازهٔ 9–11 ثانیه نزدیک‌تر شود.
+Bundle 148 هر 25 Hash معتبر داشت. Route بدون MemoryError و ACK timeout کامل شد. زمان فعال 17.332s، مکث انتهایی 2.141s و کل Record برابر 19.473s بود. Delta نهایی `(207,122)` بدون clipping ثبت شد؛ گام میانه 2.24px و بیشینه 3px بود. MR فقط 1.5٪ نسبت به Build 57 بهبود داد، بنابراین Batch محدود به‌عنوان گام بعدی انتخاب شد.
 
 ## Build 57 — ARM 2.8.3 با Throughput بیشتر
 
