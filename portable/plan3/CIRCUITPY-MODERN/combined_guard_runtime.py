@@ -309,10 +309,30 @@ class PlanContext:
     def log(self, text): print("plan:", text)
     def mmove(self, x, y): self.r.arm.move(x, y)
     def mmove_relative(self, dx, dy): self.r.arm.move_relative(dx, dy)
-    def relative_batch_ready(self):
+    def relative_batch_start(self, replay_started_ms):
         self.r.arm.relative_capabilities()
+        self._batch = ""; self._batch_count = 0; self._batch_due = 0
+        self._batch_last_target = 0; self._batch_started = replay_started_ms
         return self.r.arm.batch_relative
-    def mmove_relative_batch(self, payload): return self.r.arm.move_relative_batch(payload)
+    def _relative_batch_send(self):
+        self.r.arm.move_relative_batch(self._batch)
+        if not self.gate(): raise RuntimeError("route aborted")
+        self._batch = ""; self._batch_count = 0; self._batch_due = 0
+    def relative_batch_add(self, target_due, dx, dy):
+        elapsed = int(self.now() * 1000) - self._batch_started
+        interval = max(0, target_due - elapsed) if not self._batch_count else target_due - self._batch_last_target
+        if self._batch_count and (self._batch_count >= 6 or self._batch_due + interval > 64):
+            self._relative_batch_send()
+            elapsed = int(self.now() * 1000) - self._batch_started
+            interval = max(0, target_due - elapsed)
+        if not self._batch_count and interval > 64:
+            if not self.sleep_ms(interval - 64): raise RuntimeError("route aborted")
+            interval = 64
+        self._batch += "%02X%04X%04X" % (interval, dx & 0xFFFF, dy & 0xFFFF)
+        self._batch_count += 1; self._batch_due += interval
+        self._batch_last_target = target_due
+    def relative_batch_flush(self):
+        if self._batch_count: self._relative_batch_send()
     def mclick(self, button, count, hmin, hmax): self.r.arm.send("MCLICK|%s,%d,%d,%d" % (button, count, hmin, hmax), 8)
     def ktext(self, hmin, hmax, text): self.r.type_text(text, hmin, hmax, self)
     def type_char(self, ch):

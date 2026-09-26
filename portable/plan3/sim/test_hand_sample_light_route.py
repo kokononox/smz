@@ -33,6 +33,8 @@ class Ctx:
     def mmove_relative(self, dx, dy):
         events.append(("relative", dx, dy))
 
+    def relative_batch_start(self, started): return False
+
     def sleep_ms(self, milliseconds):
         events.append(("delay", milliseconds))
         self.elapsed += milliseconds / 1000.0
@@ -80,26 +82,15 @@ batch_events = []
 
 class BatchCtx(Ctx):
     elapsed = 0.0
-    def relative_batch_ready(self): return True
-    def mmove_relative_batch(self, payload):
-        assert len(payload) % 10 == 0
-        parts = []
-        for offset in range(0, len(payload), 10):
-            part = payload[offset:offset + 10]
-            delay = int(part[:2], 16)
-            dx = int(part[2:6], 16); dx = dx - 0x10000 if dx & 0x8000 else dx
-            dy = int(part[6:10], 16); dy = dy - 0x10000 if dy & 0x8000 else dy
-            parts.append((delay, dx, dy))
-        assert len(parts) <= 6
-        assert sum(part[0] for part in parts) <= 64
-        batch_events.append(parts)
-        self.elapsed += sum(part[0] for part in parts) / 1000.0
+    def relative_batch_start(self, started): return True
+    def relative_batch_add(self, target_due, dx, dy):
+        batch_events.append((target_due, dx, dy))
+    def relative_batch_flush(self): batch_events.append(("flush",))
     def gate(self): return True
 
 route = "PLAN|2\nHANDPATH|" + ";".join("8,2,1" for _ in range(10)) + "\n"
 commands = namespace["_light_route_lines"](route)
 namespace["_run_light_route"](BatchCtx(), commands)
-flat = [part for batch in batch_events for part in batch]
-assert len(batch_events) == 2, batch_events
-assert flat == [(8, 2, 1)] * 10, flat
+assert batch_events[:-1] == [(8 * i, 2, 1) for i in range(1, 11)], batch_events
+assert batch_events[-1] == ("flush",)
 print("hand-sample bounded batch route: 8 passed, 0 failed")

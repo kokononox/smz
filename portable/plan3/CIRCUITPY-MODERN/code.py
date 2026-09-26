@@ -759,11 +759,7 @@ def _run_light_route(ctx, commands):
             start = 0
             count = 0
             size = len(payload)
-            use_batch = hasattr(ctx, "relative_batch_ready") and ctx.relative_batch_ready()
-            batch = ""
-            batch_count = 0
-            batch_due = 0
-            batch_last_target = 0
+            use_batch = ctx.relative_batch_start(replay_started_ms)
             while start < size:
                 end = payload.find(";", start)
                 if end < 0:
@@ -780,48 +776,18 @@ def _run_light_route(ctx, commands):
                 source_elapsed += delay_ms
                 target_due = (source_elapsed * target_total + source_total // 2) // max(1, source_total)
                 if use_batch:
-                    elapsed = int(ctx.now() * 1000) - replay_started_ms
-                    interval = max(0, target_due - elapsed) if not batch_count else target_due - batch_last_target
-                    piece = "%02X%04X%04X" % (interval, dx & 0xFFFF, dy & 0xFFFF)
-                    # ARM plaintext is capped at 96 bytes. Keep each batch below
-                    # 64 ms so a physical Stop never waits behind a long packet.
-                    if batch_count and (batch_count >= 6 or batch_due + interval > 64):
-                        ctx.mmove_relative_batch(batch)
-                        if not ctx.gate():
-                            raise RuntimeError("route aborted")
-                        elapsed = int(ctx.now() * 1000) - replay_started_ms
-                        interval = max(0, target_due - elapsed)
-                        piece = "%02X%04X%04X" % (interval, dx & 0xFFFF, dy & 0xFFFF)
-                        batch = ""
-                        batch_count = 0
-                        batch_due = 0
-                    if not batch_count and interval > 64:
-                        if not ctx.sleep_ms(interval - 64):
-                            raise RuntimeError("route aborted")
-                        interval = 64
-                        piece = "%02X%04X%04X" % (interval, dx & 0xFFFF, dy & 0xFFFF)
-                    batch += piece
-                    batch_count += 1
-                    batch_due += interval
-                    batch_last_target = target_due
+                    ctx.relative_batch_add(target_due, dx, dy)
                 else:
-                    # Legacy ARM fallback keeps the original per-segment,
-                    # absolute-deadline pacing.
                     remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
-                    if remaining and not ctx.sleep_ms(remaining):
-                        raise RuntimeError("route aborted")
-                    if dx or dy:
-                        ctx.mmove_relative(dx, dy)
+                    if remaining and not ctx.sleep_ms(remaining): raise RuntimeError("route aborted")
+                    if dx or dy: ctx.mmove_relative(dx, dy)
                 count += 1
                 if count > 2000:
                     raise ValueError("HANDPATH has too many segments")
                 if not (count & 31):
                     gc.collect()
                 start = end + 1
-            if batch_count:
-                ctx.mmove_relative_batch(batch)
-                if not ctx.gate():
-                    raise RuntimeError("route aborted")
+            if use_batch: ctx.relative_batch_flush()
             if not count:
                 raise ValueError("HANDPATH is empty")
         elif command == "LOOP":

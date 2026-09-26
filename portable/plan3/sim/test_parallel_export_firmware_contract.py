@@ -32,6 +32,8 @@ assert 'self.event("ARM", reply, persist=True)' in runtime
 assert 'self.compact_relative = "|MR=1" in reply' in runtime
 assert 'self.batch_relative = "|MB=1" in reply' in runtime
 assert 'self.send("MB|" + payload, 3)' in runtime
+assert 'self._batch_count >= 6 or self._batch_due + interval > 64' in runtime
+assert '"%02X%04X%04X"' in runtime
 assert 'self.write("MR|%d,%d" % (dx, dy))' in runtime
 assert 'line.startswith("OK|MR")' in runtime
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
