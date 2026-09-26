@@ -10,6 +10,15 @@ gc.collect()
 _LITE_OPS = ("PLAN", "SCREEN", "SPEED", "DELAY", "LOOP", "LOOPTIME",
              "ENDLOOP", "RMOUSE")
 
+def _natural_move_ms(mn, mx, path):
+    if mx < mn:
+        mn, mx = mx, mn
+    if mx <= 0:
+        return 0
+    sampled = rand_range(max(1, mn), max(1, mx))
+    scale_permille = 720 + (630 * min(650, max(0, path))) // 650
+    return max(120, min(30000, (sampled * scale_permille + 500) // 1000))
+
 def _lite_rmouse(prm, ctx, pause):
     import random
     _rx, _ry, rw, rh = prm.get("region", (0, 0, ctx.screen_w, ctx.screen_h))
@@ -22,6 +31,7 @@ def _lite_rmouse(prm, ctx, pause):
     ty = sy + (ymag if random.randint(0, 1) else -ymag)
     dx, dy = tx - sx, ty - sy
     span = max(abs(dx), abs(dy))
+    path = max(abs(dx), abs(dy)) + min(abs(dx), abs(dy)) // 2
 
     curve = prm.get("curve", (15, 45))
     cmin, cmax = curve
@@ -36,13 +46,26 @@ def _lite_rmouse(prm, ctx, pause):
     mt = prm.get("mt", (0, 0))
     speed = prm.get("speed", (ctx.speed_min, ctx.speed_max))
     if mt[1] > 0:
-        total = rand_range(mt[0], mt[1])
+        total = _natural_move_ms(mt[0], mt[1], path)
     elif speed[1] > 0:
         sampled = rand_range(max(1, speed[0]), max(max(1, speed[0]), speed[1]))
-        path = max(abs(dx), abs(dy)) + min(abs(dx), abs(dy)) // 2
         total = max(0, (path * 1000) // sampled - path)
     else:
         total = 0
+
+    # Natural-v1 overshoot: only long moves, only 2–6px, then one bounded
+    # 70–160ms correction.  Preserve the requested endpoint exactly.
+    final_tx, final_ty = tx, ty
+    overshot = False
+    over_chance = max(0, min(100, int(prm.get("over", 0))))
+    if path >= 300 and over_chance > 0 and _below(100) < over_chance:
+        over_px = rand_range(2, 6)
+        denom = max(1, span)
+        tx = int(_clamp(final_tx + (dx * over_px) // denom, 0, max(0, ctx.screen_w - 1)))
+        ty = int(_clamp(final_ty + (dy * over_px) // denom, 0, max(0, ctx.screen_h - 1)))
+        overshot = tx != final_tx or ty != final_ty
+        dx, dy = tx - sx, ty - sy
+        span = max(abs(dx), abs(dy))
     spatial = max(8, (span + 11) // 12)
     timed = (total + 7) // 8 if total > 0 else spatial
     segments = max(8, min(128, max(spatial, timed)))
@@ -51,8 +74,10 @@ def _lite_rmouse(prm, ctx, pause):
     before = prm.get("before", (120, 450))
     after = prm.get("after", (150, 600))
     mid = prm.get("mid", (12, (100, 400)))
-    mid_ms = rand_range(mid[1][0], mid[1][1]) if mid[0] > 0 and _below(100) < mid[0] else 0
+    mid_ms = (rand_range(mid[1][0], mid[1][1])
+              if path >= 300 and mid[0] > 0 and _below(100) < mid[0] else 0)
     mid_at = 1 + _below(max(1, segments - 1))
+    phase_skew = rand_range(-220, 220)
     if before[1] > 0 and not ctx.sleep_ms(rand_range(before[0], before[1])):
         raise PlanAbort()
 
@@ -62,7 +87,8 @@ def _lite_rmouse(prm, ctx, pause):
         if not ctx.gate():
             raise PlanAbort()
         t = (step * 1024) // segments
-        ease = (t * t * (3072 - 2 * t)) // 1048576
+        q = int(_clamp(t + (phase_skew * t * (1024 - t)) // 1024000, 0, 1024))
+        ease = (q * q * (3072 - 2 * q)) // 1048576
         bow = (4 * t * (1024 - t)) // 1024
         nx = sx + (dx * ease + pxoff * bow) // 1024
         ny = sy + (dy * ease + pyoff * bow) // 1024
@@ -76,6 +102,22 @@ def _lite_rmouse(prm, ctx, pause):
         if delay and not ctx.sleep_ms(delay):
             raise PlanAbort()
         px, py = nx, ny
+    if overshot:
+        cdx, cdy = final_tx - px, final_ty - py
+        correction_steps = max(1, min(3, max(abs(cdx), abs(cdy))))
+        correction_ms = rand_range(70, 160)
+        corr_base, corr_extra = divmod(correction_ms, correction_steps)
+        ox, oy = px, py
+        for step in range(1, correction_steps + 1):
+            if not ctx.gate():
+                raise PlanAbort()
+            nx = ox + (cdx * step) // correction_steps
+            ny = oy + (cdy * step) // correction_steps
+            ctx.mmove_relative(nx - px, ny - py)
+            wait = corr_base + (1 if step <= corr_extra else 0)
+            if wait and not ctx.sleep_ms(wait):
+                raise PlanAbort()
+            px, py = nx, ny
     if after[1] > 0 and not ctx.sleep_ms(rand_range(after[0], after[1])):
         raise PlanAbort()
 
