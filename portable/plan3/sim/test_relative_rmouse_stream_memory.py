@@ -15,6 +15,16 @@ assert "plan_engine_human" not in sys.modules
 assert "plan_engine_parallel" not in sys.modules
 assert "plan_engine_exec" not in sys.modules
 
+# Natural-v1 keeps the configured duration as the medium-distance baseline and
+# changes only path-level timing.  The low-level relative transport remains bounded.
+random.seed(901)
+short_ms = plan_engine._natural_move_ms(800, 800, 80)
+random.seed(901)
+medium_ms = plan_engine._natural_move_ms(800, 800, 325)
+random.seed(901)
+long_ms = plan_engine._natural_move_ms(800, 800, 650)
+assert short_ms < medium_ms < long_ms, (short_ms, medium_ms, long_ms)
+
 
 class RelativeCtx:
     plan_api = 3
