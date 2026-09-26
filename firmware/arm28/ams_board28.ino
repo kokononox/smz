@@ -1,4 +1,4 @@
-// ARM 2.8.3: hostless relative HID with USB-paced dense HANDPATH replay.
+// ARM 2.8.4: hostless relative HID with USB-paced dense HANDPATH replay.
 // Relative MMOVE never resets the OS cursor, so movement starts from its real
 // current position without a Windows bridge or a centre reset.
 // Arduino only auto-generates prototypes for the primary sketch, not for a legacy
@@ -20,7 +20,7 @@ static bool arm27_human_command(const char* line){
   return !strcmp(line,"HVER")||!strncmp(line,"HCFG|",5)||!strncmp(line,"HPAUSE|",7)||!strncmp(line,"HMOVE|",6)||!strncmp(line,"HRANDOM|",8)||!strncmp(line,"HSETCUR|",8);
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.3|HMOUSE=1|REL=1");return true;}
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.4|HMOUSE=1|REL=1|MR=1");return true;}
   if(!arm27_human_command(line))return false;
   return human_mouse_v3_handle(line);
 }

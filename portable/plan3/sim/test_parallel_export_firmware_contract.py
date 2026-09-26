@@ -13,7 +13,7 @@ assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
 # Keep the physically verified, near-capacity firmware unchanged.
-assert '#define FW_VER   "2.8.3"' in arm
+assert '#define FW_VER   "2.8.4"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('def sound_start','def sound_poll','def sound_cancel','def type_char','SCAL|10'):
     assert token in runtime, token
@@ -28,7 +28,10 @@ assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
 assert 'plan-lite-relative' in facade.read_text()
 assert 'timeout - cancel group' in parallel.read_text()
-assert 'print("EVT|DEBUG|ARM|" + reply)' in runtime
+assert 'print("EVT|DEBUG|%d/ARM/%s"' in runtime
+assert 'self.compact_relative = "|MR=1" in reply' in runtime
+assert 'self.write("MR|%d,%d" % (dx, dy))' in runtime
+assert 'line.startswith("OK|MR")' in runtime
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
 code=(root/'portable/plan3/CIRCUITPY-MODERN/code.py').read_text()
 assert 'self.keyboard.release_all()' in code and 'GP3", "pause"' in code
