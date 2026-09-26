@@ -192,6 +192,21 @@ public static class HumanMouse
     }
 
     /// <summary>
+    /// Natural-v1 duration: keep the user's configured range as the medium-distance
+    /// baseline, shorten close moves and lengthen long moves.  The scale glides from
+    /// 0.72x at zero distance to 1.35x at 650px, then stays bounded.  This is applied
+    /// once per movement; micro-step cadence remains untouched.
+    /// </summary>
+    public static int DistanceScaledMoveMs(int minMs, int maxMs, double distance, Random rng)
+    {
+        if (maxMs < minMs) (minMs, maxMs) = (maxMs, minMs);
+        if (maxMs <= 0) return 0;
+        int sampled = Rand(rng, Math.Max(1, minMs), Math.Max(1, maxMs));
+        double scale = 0.72 + 0.63 * Math.Clamp(distance / 650.0, 0.0, 1.0);
+        return (int)Math.Clamp(Math.Round(sampled * scale), 120, 30000);
+    }
+
+    /// <summary>
     /// Builds a complete move plan from (sx,sy) to (tx,ty): optional overshoot leg +
     /// correction leg, WindMouse waypoints with ease-in-out timing, a possible folded-in
     /// hesitation pause, and the before/after/long pauses. Target is clamped to the screen.
@@ -223,7 +238,9 @@ public static class HumanMouse
         if (moveTimeMax < moveTimeMin) (moveTimeMin, moveTimeMax) = (moveTimeMax, moveTimeMin);
         // v0.9.10 — per-step duration range: a FRESH target time is drawn for every move, then
         // the continuously-changing speed profile is normalized to land on it (0/0 = speed-driven).
-        int targetMoveMs = moveTimeMax > 0 ? Rand(rng, Math.Max(1, moveTimeMin), Math.Max(1, moveTimeMax)) : 0;
+        int targetMoveMs = moveTimeMax > 0
+            ? DistanceScaledMoveMs(moveTimeMin, moveTimeMax, dist, rng)
+            : 0;
         bool overshot = false;
         int overshootDenseIndex = -1, overshootCtrlIndex = -1;
 
@@ -271,15 +288,14 @@ public static class HumanMouse
         // Overshoot & correct: aim PAST the target along the approach line (plus a little
         // perpendicular error), pause briefly like a human re-aiming, then correct back.
         // Arc mode and overshoot are mutually exclusive — pick one curvature strategy per move.
-        else if (dist >= 60 && c.OvershootChancePct > 0 && rng.Next(100) < c.OvershootChancePct)
+        else if (dist >= 300 && c.OvershootChancePct > 0 && rng.Next(100) < c.OvershootChancePct)
         {
             overshot = true;
             double ux = (tx - sx) / dist, uy = (ty - sy) / dist;
-            // v0.9.5 — overshoot scales with curve: 3-8% at curve≤1, up to 20% at curve=2.
-            // Lateral error also scales: ±2px at curve≤1, up to ±12px at curve=2.
-            double curveScale = Math.Min(1.0, curve); // strong arc is a separate branch, not giant overshoot
-            int over = (int)Math.Clamp(dist * (0.03 + rng.NextDouble() * 0.05) * curveScale, 2, 20);
-            int perp = (int)(rng.NextDouble() * (2.0 + curveScale * 5.0) - (1.0 + curveScale * 2.5));
+            // Natural-v1: a rare, small miss followed by one correction.  Large
+            // percentage-based overshoots looked synthetic on long screen moves.
+            int over = Rand(rng, 2, 6);
+            int perp = Rand(rng, -1, 1);
             int ox = Math.Clamp(tx + (int)(ux * over - uy * perp), 0, Math.Max(0, screenW - 1));
             int oy = Math.Clamp(ty + (int)(uy * over + ux * perp), 0, Math.Max(0, screenH - 1));
             int leg1Ms = Math.Max(40, (int)(totalMs * 0.8));
@@ -320,7 +336,7 @@ public static class HumanMouse
         AssignDelays(ctrl, dynamicTotalMs, rng); // old-bridge fallback keeps equivalent total time
         if (overshootDenseIndex >= 0)
         {
-            int reAimMs = Rand(rng, 60, 180);
+            int reAimMs = Rand(rng, 70, 160);
             dense[overshootDenseIndex] = dense[overshootDenseIndex] with
                 { DelayMs = dense[overshootDenseIndex].DelayMs + reAimMs };
             if (overshootCtrlIndex >= 0)
@@ -329,7 +345,9 @@ public static class HumanMouse
         }
 
         // Hesitation: fold ONE mid-path pause into a random interior point of BOTH lists.
-        var mid = pauses.MidPauseMs(c);
+        // Hesitation is rare and meaningful only on a long movement.  Short-move
+        // pauses resemble transport stalls rather than hand behaviour.
+        var mid = dist >= 300 ? pauses.MidPauseMs(c) : null;
         if (mid is > 0)
         {
             if (dense.Count >= 8)
@@ -561,6 +579,9 @@ public static class HumanMouse
         int hi = shapeOnly ? 2000 : Math.Max(lo, Math.Max(speedMin, speedMax));   // v0.9.24 — shape-only fallback aligned
         int knotCount = Math.Clamp(4 + pts.Count / 120, 4, 9);
         var speedProfile = BuildRangeProfile(lo, hi, knotCount, rng, lowAtBothEnds: true);
+        // Move the speed peak slightly earlier or later on every movement.  The
+        // remap is monotonic and keeps endpoints exact; only the velocity shape changes.
+        double phaseSkew = rng.NextDouble() * 0.44 - 0.22;
 
         double pathLength = 0; int px = sx, py = sy;
         var segLengths = new double[pts.Count];
@@ -577,6 +598,7 @@ public static class HumanMouse
         for (int i = 0; i < pts.Count; i++)
         {
             double phase = Math.Clamp((travelled + segLengths[i] * 0.5) / pathLength, 0.0, 1.0);
+            phase = Math.Clamp(phase + phaseSkew * phase * (1.0 - phase), 0.0, 1.0);
             double speed = Math.Clamp(SampleCurveProfile(speedProfile, phase), lo, hi);
             double w = segLengths[i] * 1000.0 / Math.Max(1.0, speed);
             weights[i] = w; weightSum += w;
