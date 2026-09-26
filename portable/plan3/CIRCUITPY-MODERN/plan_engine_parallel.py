@@ -117,8 +117,15 @@ def _parallel_events(ops, ctx, pos, pauses, inc):
                 for event in _parallel_events(progs[item], ctx, pos, pauses, inc):
                     yield event
         elif op == "HANDPATH":
+            replay_started_ms = int(ctx.now() * 1000)
+            target_due = 0
             for delay, dx, dy in handpath_events(prm["path"], prm.get("mt")):
-                yield ("move", delay, dx, dy, True)
+                target_due += delay
+                # The generator resumes after the previous move/back-pressure,
+                # so recomputing the remainder keeps parallel replay on the
+                # original absolute timeline rather than double-counting it.
+                remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
+                yield ("move", remaining, dx, dy, True)
         elif op == "TYPE":
             for cmd in plan_typing(prm["text"], prm):
                 if cmd[0] == "KTEXT":

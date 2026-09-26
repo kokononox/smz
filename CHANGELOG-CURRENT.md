@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 50
-- **وضعیت عملکرد A و B:** هر دو موفق؛ Route کامل شد و `MemoryError` رخ نداد. برای C فعلاً Record دریافت شده است.
-- **وضعیت کیفیت حرکت:** B نرم‌ترین الگوی آهسته است؛ C با تنوع زمانی و Curve بیشتر، انسانی‌ترین گزینهٔ فعلی است.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 52 (Bundle 141)
+- **وضعیت حافظه:** Chunk شدن HANDPATH تأیید شد؛ ۱۳ خط با حداکثر طول ۸۱۴ کاراکتر و بدون خط 8.7KB.
+- **وضعیت کیفیت حرکت:** شکل و مقصد دقیق است، اما زمان واقعی 21.704 ثانیه در برابر هدف 9–11 ثانیه بود.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | Chunk کم‌حافظهٔ HANDPATH | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | زمان‌بندی deadline-based برای HANDPATH | CI candidate |
+| 52 | مسیر کامل؛ مقصد دقیق؛ 21.704s | Chunk کم‌حافظهٔ HANDPATH | Memory pass؛ tempo superseded |
 | 51 | MemoryError پیش از Import در Route 8.7KB | بازهٔ تصادفی زمان بازپخش Hand Sample | Superseded by next build |
 | 50 | A و B کامل؛ Record تست C تحلیل شد | Changelog اجباری؛ همان Runtime Build 49 | C انسانی‌ترین؛ B نرم‌ترین |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
@@ -26,10 +27,44 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — Chunk کم‌حافظهٔ HANDPATH
+## Build {{BUILD_NUMBER}} — زمان‌بندی واقعی HANDPATH با deadline
+
+**Previous build:** 52  
+**Status:** CI candidate; hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در Record مربوط به Bundle 141، مسیر کامل و دقیق اجرا شد اما بخش فعال حرکت 21.704 ثانیه طول کشید؛ درحالی‌که بازهٔ خواسته‌شده 9 تا 11 ثانیه بود.
+
+### Evidence
+
+- 1176 Segment منبع با زمان ثبت‌شدهٔ 10001ms به 13 خط کم‌حافظه تبدیل شده بود.
+- جابه‌جایی خروجی `(207,122)` در برابر منبع `(207,123)` و حداکثر Micro-step برابر 2.83px بود؛ پس شکل مسیر و ARM 2.8.1 درست کار کردند.
+- ARM هر Delta را به گزارش‌های حداکثر سه‌پیکسلی تقسیم می‌کند. زمان UART، Back-pressure و HID علاوه بر Delay ضبط‌شده محاسبه می‌شد و زمان کل تقریباً دو برابر می‌شد.
+
+### Change
+
+- HANDPATH اکنون به‌جای افزودن Delay ثابت بعد از کار سخت‌افزار، تا deadline تجمعی هر Segment صبر می‌کند.
+- زمان مصرف‌شده توسط ARM/UART/HID از Delay بعدی کم می‌شود؛ Deltaها، Micro-stepها و مقصد تغییر نمی‌کنند.
+- همین منطق در Runner سبک Pico، Executor کامل، Parallel Scheduler، اجرای مستقیم Windows و ScriptGenerator همگام شد.
+- Pause همچنان زمان فعال Route را مصرف نمی‌کند.
+
+### Validation
+
+- شبیه‌سازی 1000 Segment با 10ms زمان هدف و 10ms هزینهٔ سخت‌افزار، به‌جای 20 ثانیه در 10.01 ثانیه پایان یافت.
+- `py_compile` برای هر سه Runtime مدرن موفق شد.
+- اندازهٔ `plan_engine_exec.py` برابر 19,585 بایت و زیر سقف 20KB باقی ماند.
+- Manifest هر سه فایل Runtime تغییرکرده بازسازی شد.
+
+### Next test
+
+Bundle جدید را از همان `11hand3.amsj` بسازید. زمان فعال حرکت باید نزدیک بازهٔ 9 تا 11 ثانیه باشد و جابه‌جایی نهایی و نرمی Micro-stepهای سه‌پیکسلی حفظ شود.
+
+## Build 52 — Chunk کم‌حافظهٔ HANDPATH
 
 **Previous build:** 51  
-**Status:** CI candidate; hardware retest pending  
+**Status:** hardware passed; tempo issue found  
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed

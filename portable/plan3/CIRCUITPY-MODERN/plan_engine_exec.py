@@ -181,8 +181,12 @@ def run_plan(ops, ctx, _pos=None, _pauses=None, _inc=()):
                 else:
                     ctx.kcombo(cmd[1])
         elif op == "HANDPATH":
+            replay_started_ms = int(ctx.now() * 1000)
+            target_due = 0
             for delay, dx, dy in handpath_events(prm["path"], prm.get("mt")):
-                if not ctx.sleep_ms(delay):
+                target_due += delay
+                remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
+                if remaining and not ctx.sleep_ms(remaining):
                     raise PlanAbort()
                 if dx or dy:
                     ctx.mmove_relative(dx, dy)

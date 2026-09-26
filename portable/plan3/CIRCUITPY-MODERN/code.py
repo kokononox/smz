@@ -754,7 +754,7 @@ def _run_light_route(ctx, commands):
                 scan = stop + 1
             target_total = runtime.random.randint(timing[0], timing[1]) if timing else source_total
             source_elapsed = 0
-            target_elapsed = 0
+            replay_started_ms = int(ctx.now() * 1000)
             start = 0
             count = 0
             size = len(payload)
@@ -773,9 +773,12 @@ def _run_light_route(ctx, commands):
                     raise ValueError("HANDPATH segment out of range")
                 source_elapsed += delay_ms
                 target_due = (source_elapsed * target_total + source_total // 2) // max(1, source_total)
-                scaled_delay = max(0, target_due - target_elapsed)
-                target_elapsed = target_due
-                if not ctx.sleep_ms(scaled_delay):
+                # Arm 2.8.1 splits each delta into <=3 px HID reports. UART
+                # back-pressure and those reports consume real time, so wait
+                # only until the absolute replay deadline instead of adding
+                # the recorded delay after hardware work already elapsed.
+                remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
+                if remaining and not ctx.sleep_ms(remaining):
                     raise RuntimeError("route aborted")
                 if dx or dy:
                     ctx.mmove_relative(dx, dy)
