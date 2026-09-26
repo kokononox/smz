@@ -4,15 +4,16 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 56 با ARM 2.8.2
-- **وضعیت حافظه:** Route سبک با 79,344 بایت آزاد کامل شد و هیچ MemoryError رخ نداد.
-- **وضعیت کیفیت حرکت:** مقصد و سقف 2.83px سالم‌اند، اما زمان فعال 19.921 ثانیه در برابر هدف 9–11 ثانیه بود؛ Throughput فرمان ARM محدودکننده است.
+- **آخرین Build دارای تست سخت‌افزاری:** Build 57 با ARM 2.8.3 و Bundle 145
+- **وضعیت حافظه:** Route سبک با 79,312 بایت آزاد کامل شد؛ هر 25 Hash معتبر و بدون MemoryError بود.
+- **وضعیت کیفیت حرکت:** زمان فعال به 17.595 ثانیه رسید، اما هنوز بالاتر از هدف 9–11 ثانیه است؛ پروتکل متنی UART محدودکنندهٔ بعدی است.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.3؛ DDA حداقل امن و Ack غیرمسدودکننده | CI candidate |
+| {{BUILD_NUMBER}} | در انتظار تست سخت‌افزاری | ARM 2.8.4؛ پروتکل کوتاه MR/OK\|MR | CI candidate |
+| 57 | مسیر کامل؛ 17.595s؛ Bundle سالم | ARM 2.8.3 DDA حداقل امن و Flush کمتر | Tempo improved; superseded |
 | 56 | مسیر کامل؛ 19.921s؛ مقصد دقیق | ARM 2.8.2 حذف sleep صریح | Tempo failed; superseded |
 | 55 | مسیر کامل؛ مقصد دقیق؛ 21.495s | deadline-based HANDPATH؛ محدودکنندهٔ ARM آشکار شد | Tempo failed; superseded |
 | 52 | مسیر کامل؛ مقصد دقیق؛ 21.704s | Chunk کم‌حافظهٔ HANDPATH | Memory pass؛ tempo superseded |
@@ -29,11 +30,53 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — ARM 2.8.3 با Throughput بیشتر
+## Build {{BUILD_NUMBER}} — ARM 2.8.4 با پروتکل کوتاه MR
 
-**Previous build:** 56
+**Previous build:** 57
 **Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 57 با ARM 2.8.3 زمان فعال را از 19.921 به 17.595 ثانیه کاهش داد، اما بازپخش Route هدف 9–11 ثانیه هنوز 6.6 تا 8.6 ثانیه کندتر بود.
+
+### Evidence
+
+- Bundle 145 هر 25 Hash معتبر، 1,176 Segment، زمان منبع 10.001s و بازهٔ دقیق 9–11s داشت.
+- Record شامل 5,416 موقعیت بود؛ گام میانه 2.24px و صدک 95 برابر 3px ثبت شد.
+- فقط 12 وقفهٔ حداقل 40ms و هیچ وقفهٔ فعال 100ms وجود نداشت.
+- Cursor به لبهٔ راست صفحه رسید؛ بنابراین Delta نهایی Record برای سنجش مقصد معتبر نبود و تست بعدی باید از مرکز صفحه شروع شود.
+
+### Root cause
+
+برای هر Segment، لینک 57,600 baud همچنان قاب متنی طولانی `#XX|MMOVE|dx,dy,rel,2` و پاسخ `OK|MMOVE` را منتقل می‌کرد. با 1,176 Segment، حجم فرمان/Ack اجازه نمی‌داد Pacing هدف با USB reports هم‌پوشانی کافی داشته باشد.
+
+### Change
+
+- ARM به نسخهٔ 2.8.4 ارتقا یافت و در HVER قابلیت `MR=1` را اعلام می‌کند.
+- Pico در صورت وجود Capability از فرمان کوتاه `MR|dx,dy` و پاسخ `OK|MR` استفاده می‌کند.
+- قاب Checksum، صف دوفرمانی، DDA امن و سقف سه‌پیکسلی حفظ می‌شوند.
+- ARMهای قدیمی بدون `MR=1` به‌طور خودکار همان MMOVE Legacy را دریافت می‌کنند.
+- قابلیت اختیاری و Bridge-only فرمان `HSETCUR` از Firmware 2.8.4 حذف شد؛ مسیر Portable هیچ‌وقت آن را فراخوانی نمی‌کند و حرکت مطلق همچنان Fail-Closed است.
+- لاگ نسخه با قالب استاندارد Timestamp چاپ می‌شود.
+- Release فایل `ARM-2.8.4-source.zip` را منتشر می‌کند.
+
+### Validation
+
+- حجم نمونهٔ Wire از 35 به 23 بایت، حدود 34 درصد، کاهش یافت.
+- تست Exhaustive جمع دقیق Delta و سقف سه‌پیکسلی را برای همهٔ بردارهای `-127..127` حفظ می‌کند.
+- قرارداد Capability، fallback Legacy و هر دو Ack در Runtime قفل شده‌اند.
+- هر 37 قرارداد Portable و Manifest بیست‌وپنج‌فایلی باید پیش از Merge سبز باشند.
+
+### Next test
+
+ARM 2.8.4 را فلش و Bundle را با Build جدید بساز. Cursor را نزدیک مرکز صفحه قرار بده، سپس Guard و Record را هم‌زمان اجرا کن. Guard باید `OK|HVER|2.8.4|...|MR=1` را نشان دهد و زمان فعال باید به بازهٔ 9–11 ثانیه نزدیک‌تر شود.
+
+## Build 57 — ARM 2.8.3 با Throughput بیشتر
+
+**Previous build:** 56
+**Status:** hardware tempo improved but failed; superseded by ARM 2.8.4
+**Commit:** `a2279251327fc67ca1cf9a6511ea8fde681b4515`
 
 ### Problem observed
 

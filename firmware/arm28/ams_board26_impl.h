@@ -55,7 +55,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.3"
+#define FW_VER   "2.8.4"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -637,10 +637,13 @@ static void handle(char* cmd) {
     else reply_err("ARG");
     return;
   }
-  if (!strcmp(cmd, "MMOVE")) {
+  bool compactMove = !strcmp(cmd, "MR");
+  if (compactMove || !strcmp(cmd, "MMOVE")) {
     int x = 0, y = 0; char mode[8] = "abs"; char hm[4] = "1";
-    if (sscanf(args, "%d,%d,%7[^,],%3s", &x, &y, mode, hm) >= 3) {
-      if (!strcmp(mode, "rel")) {
+    int parsed = compactMove ? sscanf(args, "%d,%d", &x, &y)
+                             : sscanf(args, "%d,%d,%7[^,],%3s", &x, &y, mode, hm);
+    if ((compactMove && parsed == 2) || (!compactMove && parsed >= 3)) {
+      if (compactMove || !strcmp(mode, "rel")) {
         // ARM 2.8: genuine relative HID. Windows applies this delta to the
         // actual cursor; the virtual ledger is updated only for compatibility.
         mouse_move_relative_native(x, y);
@@ -660,7 +663,7 @@ static void handle(char* cmd) {
         mouse_move_stream(x, y);                         // fw 1.9: interpolated path point
       }
       else mouse_move_abs(x, y, hm[0] == '1');
-      reply_ok("MMOVE");
+      reply_ok(cmd);
     } else reply_err("ARG");
     return;
   }
