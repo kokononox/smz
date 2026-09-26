@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hostless mouse contract for the modern Pico + ARM 2.8.4 runtime."""
+"""Hostless mouse contract for the modern Pico + ARM 2.8.5 runtime."""
 from pathlib import Path
 import random
 import sys
@@ -73,13 +73,19 @@ assert "PortableMouse.move(sx, sy, 0);" in impl
 assert '#include "portable_relative_mouse.h"' in impl
 assert "HID-Project.h" not in impl
 assert "class PortableMouse_" in portable_hid
-assert '#define FW_VER   "2.8.4"' in impl
+assert '#define FW_VER   "2.8.5"' in impl
 assert 'if (compactMove || !strcmp(mode, "rel"))' in impl
-rel_branch = impl.split('if (compactMove || !strcmp(mode, "rel"))', 1)[1].split("else if", 1)[0]
+rel_branch = impl.split('if (compactMove || !strcmp(mode, "rel"))', 1)[1].split("else {", 1)[0]
 assert "mouse_move_relative_native(x, y)" in rel_branch
 assert 'bool compactMove = !strcmp(cmd, "MR");' in impl
 assert "reply_ok(cmd);" in impl
-assert '|REL=1|MR=1' in source
+assert '|REL=1|MR=1|MB=1' in source
+assert 'if (!strcmp(cmd, "MB"))' in impl
+assert 'reply_ok("MB")' in impl
+assert 'waitMs > 64' in impl
+assert 'hex_decode(args, g_pt, 30, &size)' in impl
+assert 'reply_err("ABS"); return;' in impl
+assert "mouse_move_stream(x, y)" not in impl.split('if (compactMove || !strcmp(cmd, "MMOVE"))', 1)[1].split('if (!strcmp(cmd, "MCLICK"))', 1)[0]
 assert "mouse_move_abs" not in rel_branch
 relative_fn = impl.split("static void mouse_move_relative_native", 1)[1].split(
     "static void mouse_move_abs", 1
@@ -94,7 +100,7 @@ assert "|REL=1" in source
 print("PASS ARM 2.8 rel-MMOVE uses native relative HID")
 
 
-# Match the integer DDA used by ARM 2.8.4 over the complete one-report HID
+# Match the integer DDA used by ARM 2.8.5 over the complete one-report HID
 # range. The step count is the smallest safe integer-DDA count; endpoint
 # rounding may produce a diagonal (2,2), still below three pixels.
 def arm_microsteps(dx, dy):
@@ -127,7 +133,7 @@ for test_dx in range(-127, 128):
         assert all((x * x + y * y) <= 9 for x, y in reports), (
             test_dx, test_dy, reports
         )
-print("PASS ARM 2.8.4 relative HID reports are exact and at most three pixels")
+print("PASS ARM 2.8.5 relative HID reports are exact and at most three pixels")
 
 old_reports = 0
 new_reports = 0
@@ -138,9 +144,14 @@ for test_dx in range(-127, 128):
             old_reports += max(1, (dist + 1) // 2)
             new_reports += len(arm_microsteps(test_dx, test_dy))
 assert new_reports < old_reports * 0.9, (old_reports, new_reports)
-print("PASS ARM 2.8.4 reduces exhaustive relative HID report count", old_reports, new_reports)
+print("PASS ARM 2.8.5 preserves reduced relative HID report count", old_reports, new_reports)
 
 legacy_wire = len("#XX|MMOVE|-127,-127,rel,2\n") + len("OK|MMOVE\n")
 compact_wire = len("#XX|MR|-127,-127\n") + len("OK|MR\n")
 assert compact_wire <= legacy_wire * 0.67, (legacy_wire, compact_wire)
 print("PASS ARM 2.8.4 compact relative wire contract", legacy_wire, compact_wire)
+
+batch_wire = len("#XX|MB|08FF81FF8108FF81FF8108FF81FF8108FF81FF8108FF81FF8108FF81FF81\n") + len("OK|MB\n")
+six_compact = compact_wire * 6
+assert batch_wire < six_compact * 0.65, (batch_wire, six_compact)
+print("PASS ARM 2.8.5 six-delta batch wire contract", batch_wire, six_compact)

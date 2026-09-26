@@ -33,6 +33,8 @@ class Ctx:
     def mmove_relative(self, dx, dy):
         events.append(("relative", dx, dy))
 
+    def relative_batch_start(self, started): return False
+
     def sleep_ms(self, milliseconds):
         events.append(("delay", milliseconds))
         self.elapsed += milliseconds / 1000.0
@@ -75,3 +77,20 @@ assert events == [
     ("relative", 47, -6),
 ], events
 print("hand-sample HANDPATH light route: 10 passed, 0 failed")
+
+batch_events = []
+
+class BatchCtx(Ctx):
+    elapsed = 0.0
+    def relative_batch_start(self, started): return True
+    def relative_batch_add(self, target_due, dx, dy):
+        batch_events.append((target_due, dx, dy))
+    def relative_batch_flush(self): batch_events.append(("flush",))
+    def gate(self): return True
+
+route = "PLAN|2\nHANDPATH|" + ";".join("8,2,1" for _ in range(10)) + "\n"
+commands = namespace["_light_route_lines"](route)
+namespace["_run_light_route"](BatchCtx(), commands)
+assert batch_events[:-1] == [(8 * i, 2, 1) for i in range(1, 11)], batch_events
+assert batch_events[-1] == ("flush",)
+print("hand-sample bounded batch route: 8 passed, 0 failed")

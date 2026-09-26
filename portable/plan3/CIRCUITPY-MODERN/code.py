@@ -265,6 +265,7 @@ def _memory_safe_init(self):
     gc.collect()
 
     self.arm = runtime.Arm()
+    self.arm.event = self.debug_event
     self.keyboard = runtime.Keyboard(runtime.usb_hid.devices)
     self.controls = runtime.Controls(self.arm, self.keyboard)
     # Route waits must continue polling GP3/GP4; otherwise Pause/Resume only
@@ -758,6 +759,7 @@ def _run_light_route(ctx, commands):
             start = 0
             count = 0
             size = len(payload)
+            use_batch = ctx.relative_batch_start(replay_started_ms)
             while start < size:
                 end = payload.find(";", start)
                 if end < 0:
@@ -773,21 +775,19 @@ def _run_light_route(ctx, commands):
                     raise ValueError("HANDPATH segment out of range")
                 source_elapsed += delay_ms
                 target_due = (source_elapsed * target_total + source_total // 2) // max(1, source_total)
-                # Arm 2.8.4 splits each delta into <=3 px HID reports. UART
-                # back-pressure and those reports consume real time, so wait
-                # only until the absolute replay deadline instead of adding
-                # the recorded delay after hardware work already elapsed.
-                remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
-                if remaining and not ctx.sleep_ms(remaining):
-                    raise RuntimeError("route aborted")
-                if dx or dy:
-                    ctx.mmove_relative(dx, dy)
+                if use_batch:
+                    ctx.relative_batch_add(target_due, dx, dy)
+                else:
+                    remaining = max(0, target_due - (int(ctx.now() * 1000) - replay_started_ms))
+                    if remaining and not ctx.sleep_ms(remaining): raise RuntimeError("route aborted")
+                    if dx or dy: ctx.mmove_relative(dx, dy)
                 count += 1
                 if count > 2000:
                     raise ValueError("HANDPATH has too many segments")
                 if not (count & 31):
                     gc.collect()
                 start = end + 1
+            if use_batch: ctx.relative_batch_flush()
             if not count:
                 raise ValueError("HANDPATH is empty")
         elif command == "LOOP":

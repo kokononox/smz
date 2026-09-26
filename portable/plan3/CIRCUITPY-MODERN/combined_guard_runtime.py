@@ -114,7 +114,8 @@ class Arm:
     def __init__(self):
         self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
         self.buf = bytearray(); self.pending = 0; self.held = set()
-        self.relative_ready = None; self.compact_relative = False
+        self.relative_ready = None; self.compact_relative = False; self.batch_relative = False
+        self.event = None
     def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
     def write(self, line):
         data = self.frame(line); count = self.uart.write(data)
@@ -136,12 +137,18 @@ class Arm:
             if time.monotonic() > end: raise RuntimeError("arm back-pressure timeout")
             time.sleep(.001)
         self.write("MMOVE|%d,%d,abs,2" % (x, y)); self.pending += 1
-    def move_relative(self, dx, dy):
+    def relative_capabilities(self):
         if self.relative_ready is None:
             reply = self.send("HVER", 3)
-            print("EVT|DEBUG|%d/ARM/%s" % (int(time.monotonic()), reply))
             self.relative_ready = "|REL=1" in reply
             self.compact_relative = "|MR=1" in reply
+            self.batch_relative = "|MB=1" in reply
+            if self.event:
+                self.event("ARM", reply, persist=True)
+            return reply
+        return None
+    def move_relative(self, dx, dy):
+        self.relative_capabilities()
         if not self.relative_ready:
             raise RuntimeError("ARM 2.8 relative mouse firmware required")
         end = time.monotonic() + 2
@@ -154,6 +161,12 @@ class Arm:
         else:
             self.write("MMOVE|%d,%d,rel,2" % (dx, dy))
         self.pending += 1
+    def move_relative_batch(self, payload):
+        self.relative_capabilities()
+        if not self.batch_relative:
+            raise RuntimeError("ARM 2.8.5 batched relative firmware required")
+        self.flush()
+        return self.send("MB|" + payload, 3)
     def _track_button_command(self, line):
         head, sep, payload = line.partition("|")
         button = payload.split(",", 1)[0].strip().lower() if sep else ""
@@ -296,6 +309,30 @@ class PlanContext:
     def log(self, text): print("plan:", text)
     def mmove(self, x, y): self.r.arm.move(x, y)
     def mmove_relative(self, dx, dy): self.r.arm.move_relative(dx, dy)
+    def relative_batch_start(self, replay_started_ms):
+        self.r.arm.relative_capabilities()
+        self._batch = ""; self._batch_count = 0; self._batch_due = 0
+        self._batch_last_target = 0; self._batch_started = replay_started_ms
+        return self.r.arm.batch_relative
+    def _relative_batch_send(self):
+        self.r.arm.move_relative_batch(self._batch)
+        if not self.gate(): raise RuntimeError("route aborted")
+        self._batch = ""; self._batch_count = 0; self._batch_due = 0
+    def relative_batch_add(self, target_due, dx, dy):
+        elapsed = int(self.now() * 1000) - self._batch_started
+        interval = max(0, target_due - elapsed) if not self._batch_count else target_due - self._batch_last_target
+        if self._batch_count and (self._batch_count >= 6 or self._batch_due + interval > 64):
+            self._relative_batch_send()
+            elapsed = int(self.now() * 1000) - self._batch_started
+            interval = max(0, target_due - elapsed)
+        if not self._batch_count and interval > 64:
+            if not self.sleep_ms(interval - 64): raise RuntimeError("route aborted")
+            interval = 64
+        self._batch += "%02X%04X%04X" % (interval, dx & 0xFFFF, dy & 0xFFFF)
+        self._batch_count += 1; self._batch_due += interval
+        self._batch_last_target = target_due
+    def relative_batch_flush(self):
+        if self._batch_count: self._relative_batch_send()
     def mclick(self, button, count, hmin, hmax): self.r.arm.send("MCLICK|%s,%d,%d,%d" % (button, count, hmin, hmax), 8)
     def ktext(self, hmin, hmax, text): self.r.type_text(text, hmin, hmax, self)
     def type_char(self, ch):
