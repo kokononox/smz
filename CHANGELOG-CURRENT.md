@@ -4,14 +4,15 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **آخرین Build دارای تست سخت‌افزاری:** Build 49
-- **وضعیت عملکرد A:** موفق؛ Route کامل شد و `MemoryError` رخ نداد.
-- **وضعیت کیفیت حرکت:** هنوز نهایی نیست؛ رکورد A فاصله‌های زمانی حدود 52–53ms را نشان می‌دهد.
+- **Baseline سخت‌افزاری انتخاب‌شده:** Build 50 + ARM 2.8.1 + پروژهٔ C
+- **وضعیت حرکت:** نرم و بدون شکستگی دوره‌ای؛ Natural Mouse v1 آمادهٔ تست است.
+- **اصل معماری:** Cadence و Micro-step تأییدشدهٔ Build 50 دست‌نخورده می‌ماند؛ Humanization فقط در سطح مسیر اعمال می‌شود.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Natural Mouse v1 روی Baseline 50 | CI candidate |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
 | 48 | Import و Parse موفق؛ اجرا شکست خورد | Lazy import Parser/Executor | Superseded by 49 |
 | 47 | تست A در Import شکست خورد | Fishing timeout + cadence 128-point | Superseded by 48/49 |
@@ -22,6 +23,36 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build {{BUILD_NUMBER}} — Natural Mouse v1 روی Baseline نرم Build 50
+
+**Previous build:** 50
+**Status:** CI candidate; hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+مسیرهای Batch نسخه‌های بعدی زمان هدف را بهتر نکردند و حرکت را به Burst/Gap تبدیل کردند. بازگشت آزمایشی نیز نشان داد ترکیب Runtime جدید با Firmware قدیمی Cadence اصلی Build 50 را بازتولید نمی‌کند. پروژهٔ C روی Build 50 دوباره حرکت نرم و پیوسته داد.
+
+### Change
+
+- Cadence، Micro-step و ARM 2.8.1 دست‌نخورده باقی ماندند.
+- مدت حرکت با فاصله مقیاس می‌شود: حرکت کوتاه سریع‌تر، متوسط نزدیک بازهٔ تنظیم‌شده و بلند آهسته‌تر است.
+- نقطهٔ اوج سرعت در هر حرکت کمی جلو یا عقب می‌رود؛ Endpoint و مجموع زمان حفظ می‌شوند.
+- مکث میان‌مسیر فقط برای حرکت حداقل 300px مجاز است.
+- Overshoot فقط برای حرکت حداقل 300px، به اندازهٔ 2–6px و با یک اصلاح 70–160ms انجام می‌شود.
+- پروژهٔ `mouse-tune-C-natural-v1.amsj` با احتمال مکث 4٪، Overshoot شش‌درصدی و Curve برابر 3–22٪ اضافه شد.
+
+### Validation
+
+- Runner سبک روی 200 Seed بدون مسیر مطلق، بدون Import موتور کامل و با حداکثر 128 نقطه موفق شد.
+- تست فاصله ثابت کرد زمان حرکت کوتاه، متوسط و بلند به‌ترتیب افزایش می‌یابد.
+- تست C# تأیید می‌کند حرکت کوتاه Overshoot ندارد و حرکت بلند پس از Overshoot دقیقاً به Endpoint برمی‌گردد.
+- Hashهای Runtime مدرن در Manifest بازسازی شدند.
+
+### Next test
+
+ARM 2.8.1 حفظ شود، پروژهٔ `mouse-tune-C-natural-v1.amsj` با Build آزمایشی اجرا و Guard log و Record ارسال شود. معیار پذیرش: نرمی فعلی C حفظ شود، وقفه‌های فنی دوره‌ای برنگردند، Endpoint دقیق بماند و تنها تنوع سطح مسیر افزایش یابد.
 
 ## Build {{BUILD_NUMBER}} — Changelog اجباری و تأیید سخت‌افزاری A
 
