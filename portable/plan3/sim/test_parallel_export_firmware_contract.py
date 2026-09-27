@@ -15,9 +15,9 @@ bundle=(root/'ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs').r
 assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
-# ARM 2.8.2-S2 keeps relative HID, moves ADC work out of the HID cadence, and
+# ARM 2.8.2-S3 keeps relative HID, moves ADC work out of the HID cadence, and
 # never treats an open-but-idle CDC port as a pending secure handshake.
-assert '#define FW_VER   "2.8.2-S2"' in arm
+assert '#define FW_VER   "2.8.2-S3"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('ASND|', 'ASNDCANCEL', 'ASND=1', 'EVT|ASND|'):
     assert token in arm28, token
@@ -26,7 +26,7 @@ move_steps = arm.split("static void mouse_move_steps", 1)[1].split(
 assert "ARM_SOUND_TICK()" not in move_steps
 main_loop = arm28.split("void loop()", 1)[1]
 assert "arm28_sound_tick();" in main_loop
-assert "OK|HVER|2.8.2-S2|REL=1|ASND=1" in arm28
+assert "OK|HVER|2.8.2-S3|REL=1|ASND=1" in arm28
 assert "if(!g_secure){if(Serial.available())do_handshake(40);else delay(1);return;}" in arm28
 assert "if(!g_secure){if(Serial)do_handshake(40)" not in arm28
 assert "if (Serial.available()) do_handshake(40);" in arm
@@ -57,4 +57,12 @@ assert 'self.keyboard.release_all()' in code and 'GP3", "pause"' in code
 assert 'except runtime.plan_engine.PlanAbort:' in code
 assert '_release_plan_heap(self)' in code
 assert 'other["moving"] for other in tasks' in parallel.read_text()
+
+# Build 79: blocking WSND reports the observed peak and a timeout remains a normal plan result.
+assert 'ERR|TIMEOUT|WSND|max=%u' in arm
+assert 'OK|WSND|DETECTED|peak=%u|t=%lu' in arm
+assert 'listen_loop(uint16_t thr, uint16_t minMs, uint32_t timeoutMs, uint16_t* observedPeak)' in arm
+assert 'ARM_SOUND_TICK()' not in move_steps
+assert 'head == "WSND" and reply.startswith("ERR|TIMEOUT|WSND")' in runtime
+assert 'EVT|SOUND|result=timeout|' in runtime
 print('parallel export/firmware contract: smooth command-boundary async sound passed')

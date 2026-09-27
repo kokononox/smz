@@ -214,12 +214,19 @@ def run_wait(ctx, command, args):
     need = 3 if command == "WSND" else 5
     if len(fields) != need:
         raise ValueError(command + " has bad fields")
+    profile_id = 0
+    source = "default"
     if command == "WSND":
         threshold, minimum = int(fields[0]), int(fields[1])
     else:
+        profile_id = int(fields[0])
         threshold, minimum = ctx.sound_profile(
-            int(fields[0]), fields[1], int(fields[2]), int(fields[3]))
-    heard = ctx.wait_sound(threshold, minimum, int(fields[-1]))
+            profile_id, fields[1], int(fields[2]), int(fields[3]))
+        source = getattr(ctx.r, "sound_profile_source", "default")
+    timeout = int(fields[-1])
+    ctx.r.emit("EVT|SOUND|listen|source=%s|id=%d|threshold=%d|min=%d|timeout=%d" %
+               (source, profile_id, threshold, minimum, timeout))
+    heard = ctx.wait_sound(threshold, minimum, timeout)
     if heard is None:
         raise RuntimeError("route aborted")
     ctx.log(command.lower() + (" heard" if heard else " timeout - continue"))
@@ -242,9 +249,11 @@ def resolve(owner, profile_id, binding, threshold, minimum):
         owner.sound_profiles = _load(owner)
     item = owner.sound_profiles.get(str(profile_id))
     if item and item.get("binding") == binding:
+        owner.sound_profile_source = "calibrated"
         return item["threshold"], item["minDurationMs"]
     if item and item.get("binding") != binding:
         _error(owner, "BINDING", "id=%d" % profile_id)
+    owner.sound_profile_source = "default"
     return int(threshold), int(minimum)
 
 

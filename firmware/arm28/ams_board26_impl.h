@@ -65,7 +65,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.2-S2"
+#define FW_VER   "2.8.2-S3"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -502,11 +502,14 @@ static uint16_t sound_peak(uint16_t windowMs) {
 }
 
 // returns: 0 = still listening, 1 = detected, 2 = aborted by HALT, 3 = timeout
-static uint8_t listen_loop(uint16_t thr, uint16_t minMs, uint32_t timeoutMs) {
+static uint8_t listen_loop(uint16_t thr, uint16_t minMs, uint32_t timeoutMs, uint16_t* observedPeak) {
   unsigned long start = millis(); uint32_t sustained = 0;
+  if (observedPeak) *observedPeak = 0;
   while (true) {
     if (timeoutMs && (millis() - start >= timeoutMs)) return 3;
-    if (sound_peak(10) >= thr) {
+    uint16_t windowPeak = sound_peak(10);
+    if (observedPeak && windowPeak > *observedPeak) *observedPeak = windowPeak;
+    if (windowPeak >= thr) {
       sustained += 10;
       if (sustained >= minMs) return 1;
     }
@@ -776,21 +779,27 @@ static void handle(char* cmd) {
   if (!strcmp(cmd, "WSND")) {
     int thr = 60; unsigned long minMs = 100, timeoutMs = 30000;
     sscanf(args, "%d,%lu,%lu", &thr, &minMs, &timeoutMs);
-    uint8_t r = listen_loop((uint16_t)thr, (uint16_t)minMs, timeoutMs);
+    uint16_t observedPeak = 0;
+    uint8_t r = listen_loop((uint16_t)thr, (uint16_t)minMs, timeoutMs, &observedPeak);
     if (r == 1) {
-      char b[64];
-      snprintf(b, sizeof(b), "OK|WSND|DETECTED|t=%lu", (unsigned long)millis());
+      char b[80];
+      snprintf(b, sizeof(b), "OK|WSND|DETECTED|peak=%u|t=%lu", observedPeak, (unsigned long)millis());
       send_line(b);
     }
     else if (r == 2) send_line("OK|WSND|ABORTED");
-    else reply_err("TIMEOUT|WSND");
+    else {
+      char b[64];
+      snprintf(b, sizeof(b), "ERR|TIMEOUT|WSND|max=%u", observedPeak);
+      send_line(b);
+    }
     return;
   }
   if (!strcmp(cmd, "TRGSND")) {
     int thr = 60, act = 1; unsigned long minMs = 100, timeoutMs = 30000;
     int rMin = 80, rMax = 180, hMin = 30, hMax = 90;
     sscanf(args, "%d,%lu,%lu,%d,%d,%d,%d,%d", &thr, &minMs, &timeoutMs, &act, &rMin, &rMax, &hMin, &hMax);
-    uint8_t r = listen_loop((uint16_t)thr, (uint16_t)minMs, timeoutMs);
+    uint16_t observedPeak = 0;
+    uint8_t r = listen_loop((uint16_t)thr, (uint16_t)minMs, timeoutMs, &observedPeak);
     if (r == 2) {
       send_line("OK|TRGSND|ABORTED");
       return;

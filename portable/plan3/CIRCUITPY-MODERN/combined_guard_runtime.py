@@ -180,6 +180,8 @@ class Arm:
                         self._track_button_command(line)
                         return reply
                     if reply.startswith("ERR|"):
+                        if head == "WSND" and reply.startswith("ERR|TIMEOUT|WSND"):
+                            return reply
                         last_error = reply
                         break
                 if last_error is not None: break
@@ -320,7 +322,15 @@ class PlanContext:
     def setres(self, w, h): return self.r.arm.send("SETRES|%d,%d" % (w, h), 5)
     def wait_sound(self, threshold, minimum, timeout):
         reply = self.r.arm.send("WSND|%d,%d,%d" % (threshold, minimum, timeout), timeout / 1000 + 3)
-        return True if "DETECTED" in reply else False if "TIMEOUT" in reply else None
+        if "DETECTED" in reply:
+            detail = reply.split("DETECTED|", 1)[1] if "DETECTED|" in reply else "peak=unknown"
+            self.r.emit("EVT|SOUND|result=detected|" + detail)
+            return True
+        if "TIMEOUT" in reply:
+            detail = reply.split("WSND|", 1)[1] if "WSND|" in reply else "max=unknown"
+            self.r.emit("EVT|SOUND|result=timeout|" + detail)
+            return False
+        return None
     def sound_profile(self, profile_id, binding, threshold, minimum):
         return self.r.sound_profile(profile_id, binding, threshold, minimum)
     def sound_start(self, threshold, minimum, timeout):
