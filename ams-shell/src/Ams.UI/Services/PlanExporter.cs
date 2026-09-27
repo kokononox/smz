@@ -403,9 +403,9 @@ public static class PlanExporter
                 if (t1 > 0) parts.Add("think=" + tch + ":" + t0 + "," + t1);
             }
             var (y0, y1) = Pair(PropEx.GetInt(p, "typoEveryMin", 0), PropEx.GetInt(p, "typoEveryMax", 0));
-            if (y1 > 0) parts.Add("typos=" + y0 + "," + y1);
+            if (y1 > 0) parts.Add("typochars=" + y0 + "," + y1);
             else if (PropEx.GetInt(p, "typoChance", 0) > 0)
-                Flag(n, "legacy typoChance % is not portable - use the per-text typo count (typoEveryMin/Max); "
+                Flag(n, "legacy typoChance % is not portable - use the character interval (typoEveryMin/Max); "
                         + "the step types WITHOUT typos in this plan");
             Emit(n, new[] { "TYPE|text=" + text + "|" + string.Join("|", parts) }, "TYPE");
         }

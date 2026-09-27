@@ -65,7 +65,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.2"
+#define FW_VER   "2.8.2-S1"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -290,13 +290,9 @@ static void mouse_move_steps(int32_t x, int32_t y, uint16_t steps, uint8_t paceM
     px = sx + (int32_t)((dx * (int32_t)i) / (int32_t)steps);
     py = sy + (int32_t)((dy * (int32_t)i) / (int32_t)steps);
     mouse_report(px, py);
-    // ARM 2.8.2: the private sound watcher samples between HID micro-steps.
-    // Detection stops the current move at the last emitted point; queued
-    // MMOVEs are acknowledged but ignored until the next ASND arm command.
-    if (ARM_SOUND_TICK()) {
-      g_curX = px; g_curY = py;
-      return;
-    }
+    // Keep the hardware-proven ARM 2.8.1 HID cadence byte-for-byte: sound
+    // sampling must never run between micro-steps.  The ARM 2.8.2 watcher is
+    // serviced at command boundaries in the outer loop instead.
     if (i < steps && paceMs) delay(paceMs);
   }
   g_curX = x; g_curY = y;

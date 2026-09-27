@@ -237,12 +237,27 @@ def _typing_commands(text, prm):
     tmin, tmax = prm.get("typos", (0, 0))
     if tmax < tmin: tmin, tmax = tmax, tmin
     tmin, tmax = max(0, tmin), max(0, tmax)
-    word_mode = wmax > 0 or pmax > 0 or think_chance > 0 or tmax > 0
+    cmin, cmax = prm.get("typochars", (0, 0))
+    if cmax < cmin: cmin, cmax = cmax, cmin
+    cmin, cmax = max(1, cmin), max(0, cmax)
+    word_mode = wmax > 0 or pmax > 0 or think_chance > 0 or tmax > 0 or cmax > 0
     commands = []
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     words_by_line = [[word for word in line.split() if word] for line in lines]
     typo_positions = {}
-    if tmax > 0:
+    if cmax > 0:
+        candidates = []
+        for li, words in enumerate(words_by_line):
+            for wi, word in enumerate(words):
+                for pi, ch in enumerate(word):
+                    if ch.lower() in "1234567890qwertyuiopasdfghjklzxcvbnm":
+                        candidates.append((li, wi, pi))
+        cursor = rand_range(cmin, cmax) - 1
+        while cursor < len(candidates):
+            li, wi, pi = candidates[cursor]
+            typo_positions.setdefault((li, wi), []).append(pi)
+            cursor += rand_range(cmin, cmax)
+    elif tmax > 0:
         candidates = []
         for li, words in enumerate(words_by_line):
             for wi, word in enumerate(words):
@@ -292,7 +307,7 @@ def run_type(args, ctx):
     if "text" not in raw:
         raise ValueError("TYPE needs text")
     prm = {}
-    for key in ("h", "w", "p", "typos"):
+    for key in ("h", "w", "p", "typos", "typochars"):
         if key in raw: prm[key] = _pair(raw[key])
     if "wp" in raw: prm["wp"] = int(raw["wp"])
     if "think" in raw:

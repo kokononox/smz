@@ -195,9 +195,9 @@ public static class StepDefinitions
                 new("thinkMin", "Thinking pause — min (ms)", FieldKind.Int, "800", HideWhenKey: "mode", HideWhenValue: "clipboard"),
                 new("thinkMax", "Thinking pause — max (ms)", FieldKind.Int, "2200", HideWhenKey: "mode", HideWhenValue: "clipboard"),
                 // Keep the persisted property names for old .amsj files, but their user-facing
-                // meaning is now the requested per-TYPE typo count (not an every-N-words cadence).
-                new("typoEveryMin", "Typos in this text — minimum count · 0/0 = off (slip + backspace correction)", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
-                new("typoEveryMax", "Typos in this text — maximum count · re-rolled for each TYPE execution", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
+                // meaning is the eligible-character interval between corrected slips.
+                new("typoEveryMin", "Typing-error interval — minimum eligible characters · 0/0 = off", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
+                new("typoEveryMax", "Typing-error interval — maximum eligible characters · re-rolled after each correction", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
             },
             Summarize = s =>
             {
@@ -212,7 +212,7 @@ public static class StepDefinitions
                 if (PropEx.GetInt(s.Props, "pmax") > 0) hint += " · punct";
                 if (PropEx.GetInt(s.Props, "thinkChance") > 0) hint += $" · think {PropEx.GetInt(s.Props, "thinkChance")}%";
                 int tyMax = PropEx.GetInt(s.Props, "typoEveryMax");
-                if (tyMax > 0) hint += $" · typos {PropEx.GetInt(s.Props, "typoEveryMin")}–{tyMax} per text";
+                if (tyMax > 0) hint += $" · typo every {PropEx.GetInt(s.Props, "typoEveryMin")}–{tyMax} chars";
                 else if (PropEx.GetInt(s.Props, "typoChance") > 0) hint += $" · typos {PropEx.GetInt(s.Props, "typoChance")}%";
                 return $"Type text · {hint} · \"{t}\"" + KeyboardBoardHint(s.Props);
             },
@@ -768,14 +768,17 @@ public static class StepDefinitions
         int thinkMin = Math.Max(0, PropEx.GetInt(p, "thinkMin", 800));
         int thinkMax = Math.Max(0, PropEx.GetInt(p, "thinkMax", 2200));
         if (thinkMax < thinkMin) (thinkMin, thinkMax) = (thinkMax, thinkMin);
-        // The persisted property names are retained for .amsj compatibility, but this range is
-        // now a count of corrected slips in this TYPE execution. It therefore also works for a
-        // one-word login/password. Legacy typoChance remains a fallback for old project files.
-        int typoCountMin = Math.Max(0, PropEx.GetInt(p, "typoEveryMin"));
-        int typoCountMax = Math.Max(0, PropEx.GetInt(p, "typoEveryMax"));
-        if (typoCountMax < typoCountMin) (typoCountMin, typoCountMax) = (typoCountMax, typoCountMin);
+        // The persisted typoEveryMin/Max names mean what they say: choose the
+        // eligible-character distance to the next corrected slip.  This works
+        // for one-word login/password text without turning 7..12 into 7..12
+        // errors in a short string.
+        int typoCharMin = PropEx.GetInt(p, "typoEveryMin");
+        int typoCharMax = PropEx.GetInt(p, "typoEveryMax");
+        if (typoCharMax < typoCharMin) (typoCharMin, typoCharMax) = (typoCharMax, typoCharMin);
+        typoCharMin = Math.Max(1, typoCharMin);
+        typoCharMax = Math.Max(0, typoCharMax);
         int typoChance = Math.Clamp(PropEx.GetInt(p, "typoChance"), 0, 100);
-        bool typoCountMode = typoCountMax > 0;
+        bool typoCharMode = typoCharMax > 0;
         // v0.9.13 — word pause PROBABILITY: 100 = after every word (the old metronome feel the
         // user reported: a pause after every space). 40–70 looks human. Files saved before this
         // field existed have no key and keep 100, so their behavior is unchanged.
@@ -784,12 +787,12 @@ public static class StepDefinitions
             : 100;
         // Word segmentation is needed by word pauses AND every v0.9.11+ layer; with all of them
         // off, keep the legacy whole-line 60-char chunking byte-identical for old files.
-        bool wordMode = wmax > 0 || pmax > 0 || thinkChance > 0 || typoChance > 0 || typoCountMode;
+        bool wordMode = wmax > 0 || pmax > 0 || thinkChance > 0 || typoChance > 0 || typoCharMode;
         var cmds = new List<string>();
         var lines = normalized.Split('\n');
         var lineWords = lines.Select(line => Regex.Split(line, @"\s+").Where(w => w.Length > 0).ToArray()).ToArray();
         var typoPositions = new Dictionary<(int Line, int Word), List<int>>();
-        if (typoCountMode)
+        if (typoCharMode)
         {
             var candidates = new List<(int Line, int Word, int Pos)>();
             for (int li = 0; li < lineWords.Length; li++)
@@ -798,18 +801,16 @@ public static class StepDefinitions
                         if ("1234567890qwertyuiopasdfghjklzxcvbnm".IndexOf(
                                 char.ToLowerInvariant(lineWords[li][wi][pos])) >= 0)
                             candidates.Add((li, wi, pos));
-            int wanted = Math.Min(candidates.Count, RandRange(typoCountMin, typoCountMax));
-            for (int i = 0; i < wanted; i++)
+            int cursor = RandRange(typoCharMin, typoCharMax) - 1;
+            while (cursor < candidates.Count)
             {
-                int j = i + NextInt(candidates.Count - i);
-                (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
-                var candidate = candidates[i];
+                var candidate = candidates[cursor];
                 var key = (candidate.Line, candidate.Word);
                 if (!typoPositions.TryGetValue(key, out var positions))
                     typoPositions[key] = positions = new List<int>();
                 positions.Add(candidate.Pos);
+                cursor += RandRange(typoCharMin, typoCharMax);
             }
-            foreach (var positions in typoPositions.Values) positions.Sort();
         }
         for (int li = 0; li < lines.Length; li++)
         {
@@ -837,7 +838,7 @@ public static class StepDefinitions
                     string tail = wi < words.Length - 1 ? " " : "";
                     string typed = words[wi] + tail;
 
-                    // Count mode picks unique eligible characters across the whole TYPE step.
+                    // Character-interval mode picks ordered eligible characters across TYPE.
                     // Each slip uses an adjacent QWERTY key, pauses, Backspaces, and resumes from
                     // the correct character. Multiple slips can occur in the same one-word text.
                     if (typoPositions.TryGetValue((li, wi), out var selected))
@@ -857,7 +858,7 @@ public static class StepDefinitions
                         }
                         typed = words[wi][start..] + tail;
                     }
-                    else if (!typoCountMode && typoChance > 0 && NextInt(100) < typoChance
+                    else if (!typoCharMode && typoChance > 0 && NextInt(100) < typoChance
                              && words[wi].Length >= 2 && words[wi].Length <= 60)
                     {
                         int pos = 1 + NextInt(words[wi].Length - 1);

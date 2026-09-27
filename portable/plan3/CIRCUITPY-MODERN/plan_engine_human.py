@@ -454,8 +454,8 @@ def _split_punct(s):
 def plan_typing(text, p):
     """Returns [("KTEXT",hmin,hmax,chunk) | ("DLY",ms) | ("KCOMBO",vk), ...].
     p keys: h,w (ms ranges), wp (word pause chance %), p (punct pause range),
-    think ((chance,(mn,mx))), typos ((mn,mx) corrected slips per TYPE).
-    Legacy typo keeps its old every-N-words cadence."""
+    think ((chance,(mn,mx))), typochars ((mn,mx) eligible-character interval).
+    Legacy typos count mode and typo every-N-words mode remain readable."""
     hmin, hmax = p.get("h", (80, 220))
     wmin, wmax = p.get("w", (0, 0))
     wp = _clamp(p.get("wp", 100), 0, 100)
@@ -469,11 +469,18 @@ def plan_typing(text, p):
     typo_count_min = max(0, typo_count_min)
     typo_count_max = max(0, typo_count_max)
     typo_count_mode = typo_count_max > 0
+    typo_char_min, typo_char_max = p.get("typochars", (0, 0))
+    if typo_char_max < typo_char_min:
+        typo_char_min, typo_char_max = typo_char_max, typo_char_min
+    typo_char_min = max(1, typo_char_min)
+    typo_char_max = max(0, typo_char_max)
+    typo_char_mode = typo_char_max > 0
     typo_min, typo_max = p.get("typo", (0, 0))
-    typo_cadence = not typo_count_mode and typo_max > 0
+    typo_cadence = not typo_char_mode and not typo_count_mode and typo_max > 0
     next_typo_at = max(1, rand_range(typo_min, typo_max)) if typo_cadence else -1
     words_since_typo = 0
-    word_mode = wmax > 0 or pmax > 0 or think_chance > 0 or typo_count_mode or typo_cadence
+    word_mode = (wmax > 0 or pmax > 0 or think_chance > 0 or
+                 typo_char_mode or typo_count_mode or typo_cadence)
 
     cmds = []
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -481,9 +488,23 @@ def plan_typing(text, p):
     pending = []
     typo_positions = {}
 
-    # Pick the requested number once per TYPE execution. Positions are unique, so
-    # a short one-word password can still receive several realistic corrected slips.
-    if typo_count_mode:
+    # Current Studio semantics: typoEveryMin/Max is a spacing interval across
+    # eligible characters.  A 7..12 setting on a 12-character password therefore
+    # creates one correction, not 7..12 corrections.
+    if typo_char_mode:
+        candidates = []
+        for li, words in enumerate(line_words):
+            for wi, word in enumerate(words):
+                for pos, ch in enumerate(word):
+                    if ch.lower() in "1234567890qwertyuiopasdfghjklzxcvbnm":
+                        candidates.append((li, wi, pos))
+        cursor = rand_range(typo_char_min, typo_char_max) - 1
+        while cursor < len(candidates):
+            li, wi, pos = candidates[cursor]
+            typo_positions.setdefault((li, wi), []).append(pos)
+            cursor += rand_range(typo_char_min, typo_char_max)
+    # Retain old exported plans that explicitly requested a per-TYPE count.
+    elif typo_count_mode:
         candidates = []
         for li, words in enumerate(line_words):
             for wi, word in enumerate(words):
