@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
 | 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
@@ -31,6 +32,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 74 — کالیبراسیون پرتابل دو Step صوتی
+
+**Previous build:** 73
+**Status:** local candidate; CI and hardware test pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Goal
+
+دو Step صوتی مستقل پروژه—برای نمونه صدای چلپ ماهیگیری و آلارم Whisper—باید مستقیماً روی سخت‌افزار کالیبر شوند. کالیبراسیون نباید به کامپیوتر، Classroom یا Export مجدد وابسته باشد و مقدار ID 1 نباید تصادفی روی Step دیگری از پروژهٔ جدید اعمال شود.
+
+### Change
+
+- در تنظیمات `Wait For Sound` فیلد `Calibration ID` با دو مقدار 1 و 2 اضافه شد.
+- Export کامل پروژه استفادهٔ تکراری یک ID را در همهٔ تب‌ها رد می‌کند.
+- Route پرتابل فرمان `WSNDP|id,binding,defaultThreshold,defaultMin,timeout` تولید می‌کند.
+- Binding دوازده‌رقمی از موقعیت/نام همان Step و مقدارهای پیش‌فرض ساخته می‌شود؛ Calibration قدیمی فقط وقتی اعمال می‌شود که Binding همان Step هنوز مطابق باشد.
+- فایل کاربر `sound-step-calibration.json` با Checksum، Backup و نوشتن اتمیک روی Pico نگهداری می‌شود و داخل Manifest ثابت Bundle نیست؛ بنابراین Export بعدی آن را پاک یا جایگزین نمی‌کند.
+- منطق Calibration در ماژول Lazy جداگانه قرار گرفت تا Boot و Routeهای بدون WSNDP هزینهٔ حافظهٔ آن را نپردازند.
+
+### Hardware controls
+
+- فقط وقتی Macro متوقف است، نگه‌داشتن GP3 زرد وارد Sound Step Calibration می‌شود.
+- GP4 آبی کوتاه بین ID 1 و ID 2 جابه‌جا می‌شود.
+- GP3 زرد کوتاه سه ثانیه سکوت و سپس سی ثانیه صدای هدف را نمونه‌برداری می‌کند.
+- GP3 زرد بلند نتیجهٔ آماده را ذخیره و خارج می‌شود؛ خروج هنگام Sample نتیجهٔ نیمه‌کاره را دور می‌ریزد.
+- Threshold از میانهٔ `silenceMax` و `soundPeak` محاسبه می‌شود؛ V1 مقدار محافظه‌کارانهٔ `minDurationMs=20` را نگه می‌دارد.
+- نبود Binding، نبود جدایی کافی سیگنال، خطای سنسور و خطای ذخیره Fail-Closed و دارای بوق خطاست.
+
+### Validation
+
+- Parser کامل، Light runner و Game/Parallel runner همگی WSNDP را پشتیبانی می‌کنند.
+- تست جدید اعمال Override پروفایل 1 در Parallel، رد ID/Shape نامعتبر و وجود قراردادهای UI/Exporter/Runtime را کنترل می‌کند.
+- تست‌های قدیمی Async Sound و Cooperative Parallel بدون تغییر سبز ماندند.
+
+### Next test
+
+در Classroom برای Step چلپ ID 1 و برای Step Whisper ID 2 انتخاب کنید و Bundle را کامل روی CIRCUITPY بسازید. پس از Reboot و در حالت Stop، GP3 را نگه دارید؛ برای هر ID با GP4 انتخاب کنید، GP3 کوتاه را بزنید، سه ثانیه سکوت و سپس سی ثانیه صدای واقعی را پخش کنید. پس از پیام `mode=complete`، GP3 را نگه دارید تا ذخیره و خروج انجام شود. سپس هر دو Route را جداگانه تست کنید.
 
 ## Build 73 — انتقال پروفایل‌های نور Classroom به Pico
 
