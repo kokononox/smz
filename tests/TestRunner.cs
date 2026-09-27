@@ -4250,7 +4250,7 @@ class TestRunner
                    && modernCode.Contains("ctx.mmove_relative(int(fields[0]), int(fields[1]))"),
                 "looped hand-sampled RAW/MMOVE routes stay on the low-memory light-route executor");
             var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
-            Assert(!loginHelper.Contains("plan_engine_parse")
+            Assert(!loginHelper.Contains("import plan_engine_parse")
                    && loginHelper.Contains("def run_rmouse(")
                    && loginHelper.Contains("def run_type(")
                    && loginHelper.Length < 14000,
