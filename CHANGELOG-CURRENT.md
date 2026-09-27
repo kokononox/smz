@@ -46,12 +46,16 @@
 ## Build 79 — Peak واقعی WSND و Timeout غیرخطایی
 
 **Previous build:** 78  
-**Status:** CI candidate; sound hardware retest pending  
+**Status:** CI green and merged; sound hardware retest pending  
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
 تست SCAL صدای بازی را تا Peak 129 می‌دید، اما WSND با Thresholdهای 12، 30 و 68 همگی Timeout می‌شد. Threshold یک فوراً Route را کامل و کلید F را اجرا کرد. پاسخ `ERR|TIMEOUT|WSND` نیز به‌اشتباه کل Guard را Fail می‌کرد.
+
+### Root cause
+
+Listener قدیمی بیشترین دامنهٔ مشاهده‌شده را نگه نمی‌داشت؛ بنابراین اختلاف SCAL و WSND قابل اندازه‌گیری نبود. همچنین لایهٔ UART تمام پاسخ‌های `ERR`، از جمله Timeout عادی WSND، را Exception بحرانی تلقی می‌کرد.
 
 ### Change
 
