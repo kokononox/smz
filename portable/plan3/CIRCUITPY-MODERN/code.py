@@ -512,6 +512,12 @@ def _audible_cal_tick(self):
         self.samples = []
         _prepare_calibration_heap(self)
         self.save_cal()
+    elif was_sampling and self.result is None:
+        # UNSTABLE used to fail silently on the physical interface: the event
+        # was emitted over CDC, but the user heard neither save nor error.
+        self.cal_save_error_tone()
+        _debug_event(self, "CAL", "sample-failed stage=%d id=%s" %
+            (self.stage + 1, runtime.PROFILES[self.stage]), persist=True)
 
 def _audible_save_cal(self):
     profile_was_saved = runtime.PROFILES[self.stage] in self.saved_ids
@@ -543,6 +549,9 @@ def _repeatable_yellow_action(self):
         return
     if self.result == "sampling":
         _original_yellow_action(self)
+        self.cal_save_error_tone()
+        _debug_event(self, "GP3", "calibration-busy stage=%d" %
+            (self.stage + 1), persist=True)
         return
     if isinstance(self.result, dict) and not self.saved:
         if (self.last_cal_error or "").startswith("OVERLAP:"):
