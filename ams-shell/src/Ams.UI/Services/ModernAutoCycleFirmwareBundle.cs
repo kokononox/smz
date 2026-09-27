@@ -111,6 +111,56 @@ public static class ModernAutoCycleFirmwareBundle
         return files;
     }
 
+    /// <summary>
+    /// Reads the bytes back from the selected CIRCUITPY volume. A successful
+    /// staging export is not sufficient: concurrent device-side FAT writes can
+    /// acknowledge host copies while cross-linking unrelated files.
+    /// </summary>
+    public static void VerifyExportedTarget(string targetRoot)
+    {
+        var manifestPath = Path.Combine(targetRoot, "SHA256SUMS.txt");
+        if (!File.Exists(manifestPath))
+            throw new IOException("SHA256SUMS.txt روی CIRCUITPY پیدا نشد.");
+
+        var entries = File.ReadAllLines(manifestPath)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => line.Split(new[] { "  " }, StringSplitOptions.None))
+            .ToArray();
+        if (entries.Length != 28 || entries.Any(parts => parts.Length != 2))
+            throw new IOException("Manifest خوانده‌شده از CIRCUITPY نامعتبر است.");
+
+        foreach (var parts in entries)
+        {
+            var expected = parts[0].Trim().ToLowerInvariant();
+            var name = parts[1].Trim();
+            if (name != Path.GetFileName(name))
+                throw new IOException("نام فایل نامعتبر در Manifest: " + name);
+            var path = Path.Combine(targetRoot, name);
+            if (!File.Exists(path))
+                throw new IOException("فایل خروجی روی CIRCUITPY پیدا نشد: " + name);
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var actual = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(actual), Encoding.ASCII.GetBytes(expected)))
+                throw new IOException("Hash فایل خروجی روی CIRCUITPY ناهماهنگ است: " + name);
+        }
+
+        var calibration = JsonNode.Parse(
+            File.ReadAllText(Path.Combine(targetRoot, "guard-calibration.json")))?.AsObject()
+            ?? throw new IOException("guard-calibration.json روی CIRCUITPY نامعتبر است.");
+        var transition = JsonNode.Parse(
+            File.ReadAllText(Path.Combine(targetRoot, "guard-transition.json")))?.AsObject()
+            ?? throw new IOException("guard-transition.json روی CIRCUITPY نامعتبر است.");
+        var calibrationRevision = calibration["revision"]?.GetValue<string>();
+        var transitionRevision = transition["calibrationRevision"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(calibrationRevision)
+            || !string.Equals(calibrationRevision, transitionRevision, StringComparison.Ordinal))
+            throw new IOException("Revision پروفایل‌های Guard روی CIRCUITPY ناهماهنگ است.");
+        if (calibration["profiles"]?.AsObject().Count != RequiredLightProfileIds.Length
+            || transition["profiles"]?.AsArray().Count != RequiredLightProfileIds.Length)
+            throw new IOException("تعداد پروفایل‌های Guard روی CIRCUITPY نامعتبر است.");
+    }
+
 
     private static readonly string[] RequiredLightProfileIds =
     {

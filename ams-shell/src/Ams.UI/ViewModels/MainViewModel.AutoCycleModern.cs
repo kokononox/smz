@@ -29,6 +29,19 @@ public partial class MainViewModel
                 await StopLightWatchAsync();
                 Log("light watch stopped — Pico export restarts the USB serial connection");
             }
+            if (_bridge is not null && _bridge.State == BridgeState.Connected)
+            {
+                try
+                {
+                    await _bridge.SendAsync("HALT|SILENT", 3);
+                    Log("Pico runtime quiesced before CIRCUITPY export");
+                }
+                catch (Exception ex)
+                {
+                    Log("Pico quiesce warning: " + ex.Message);
+                }
+                await _bridge.DisconnectAsync();
+            }
             staging = Path.Combine(Path.GetTempPath(), "ClassroomStudio-modern-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             var workspace = CapturePipelineWorkspaceForExport();
@@ -47,9 +60,32 @@ public partial class MainViewModel
                 File.Copy(source, destination, true);
                 Log("pico current-project export: " + Path.GetFileName(source));
             }
+
+            Exception? verifyError = null;
+            for (var attempt = 1; attempt <= 5; attempt++)
+            {
+                await Task.Delay(attempt == 1 ? 750 : 500);
+                try
+                {
+                    ModernAutoCycleFirmwareBundle.VerifyExportedTarget(targetRoot);
+                    verifyError = null;
+                    Log("pico current-project verification: 28/28 hashes and Guard revisions OK");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    verifyError = ex;
+                    Log($"pico verification attempt {attempt}/5 failed: {ex.Message}");
+                }
+            }
+            if (verifyError is not null)
+                throw new IOException(
+                    "خروجی CIRCUITPY پس از کپی معتبر نیست. Pico را Reset و فایل‌سیستم را بررسی کنید.",
+                    verifyError);
+
             MessageBox.Show(
                 $"پروژهٔ باز فعلی همراه Bundle مدرن روی CIRCUITPY کپی شد ({files.Length} فایل).\n"
-                + "تمام Routeها، plan.txt، autocycle.amsj و پروفایل‌های نور فعلی منتقل شدند؛ code.py آخر کپی شد.",
+                + "تمام Routeها، پروفایل‌ها و ۲۸ Hash مستقیماً از CIRCUITPY بازخوانی و تأیید شدند.",
                 "Current project Pico export", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)

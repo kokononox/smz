@@ -119,11 +119,10 @@ del _name, _guard_bundle
 # The runtime is already imported; only the verified boot bundle remains live.
 gc.collect()
 
-_DEBUG_FILE = "/guard-debug.log"
-_DEBUG_MAX_BYTES = 8192
 _DEBUG_MAX_LINES = 96
 _DEBUG_NVM_BYTES = 1536
-_DEBUG_PERSIST_EVENTS = ("BOOT", "GP4", "ROUTE", "FAIL", "STOP", "CAL")
+_DEBUG_MAX_BYTES = _DEBUG_NVM_BYTES - 5
+_DEBUG_PERSIST_EVENTS = ("BOOT", "ROUTE", "FAIL", "STOP", "CAL")
 
 
 def _debug_trim(text):
@@ -162,46 +161,16 @@ def _debug_nvm_write(text):
         return False
 
 
-def _debug_file_read():
-    try:
-        with open(_DEBUG_FILE, "r") as fh:
-            return fh.read()
-    except Exception:
-        return ""
-
-
 def _debug_persist(self):
     try:
-        # Re-open the filesystem for every persistence attempt. A host-side
-        # delete/remount can leave CircuitPython with a stale read-only view;
-        # doing this only after the NVM write was too late to recreate the file.
-        try:
-            remount = getattr(runtime.storage, "remount", None)
-            if remount is not None:
-                remount("/", readonly=False, disable_concurrent_write_protection=True)
-        except Exception:
-            pass
-        # Merge the file and NVM journals. NVM survives reset; the file is the
-        # user-visible copy and must be restored whenever it was deleted.
-        file_text = _debug_file_read()
-        nvm_text = _debug_nvm_read()
-        previous = file_text or nvm_text
-        payload = _debug_trim(previous + "".join(self.debug_events))
-        file_ok = False
-        try:
-            with open(_DEBUG_FILE, "w") as fh:
-                fh.write(payload)
-                try: fh.flush()
-                except Exception: pass
-            file_ok = _debug_file_read() == payload
-        except Exception:
-            pass
+        # Never write diagnostics to the CIRCUITPY FAT volume while USB mass
+        # storage is mounted. Host export and Pico file writes can otherwise
+        # cross-link guard JSON sectors. NVM and live CDC events are sufficient.
+        payload = _debug_trim(_debug_nvm_read() + "".join(self.debug_events))
         nvm_ok = _debug_nvm_write(payload)
-        # Do not discard pending events merely because NVM succeeded: if the
-        # visible file failed, the next boot/event must retry its reconstruction.
-        if file_ok:
+        if nvm_ok:
             self.debug_events = []
-        return file_ok or nvm_ok
+        return nvm_ok
     except Exception:
         pass
     # Keep pending records for the next event/retry; never lose GP4/FAIL data.
@@ -226,7 +195,7 @@ def _debug_event(self, kind, detail="", persist=False):
 
 def _debug_get(self):
     _debug_persist(self)
-    return _debug_file_read() or _debug_nvm_read()
+    return _debug_nvm_read()
 
 
 def _debug_exception(exc):
@@ -242,11 +211,6 @@ def _debug_exception(exc):
 def _debug_clear(self):
     self.debug_events = []
     _debug_nvm_write("")
-    try:
-        with open(_DEBUG_FILE, "w") as fh:
-            fh.write("")
-    except Exception:
-        pass
 
 
 def _debug_emit(self):
@@ -582,13 +546,13 @@ def _audible_buttons(self):
     blue = self.blue.poll(now)
     yellow = self.yellow.poll(now)
     if blue == "down":
-        _debug_event(self, "GP4", "down running=%s calibrating=%s" % (self.controls.running, self.calibrating), persist=True)
+        _debug_event(self, "GP4", "down running=%s calibrating=%s" % (self.controls.running, self.calibrating))
     elif blue == "long":
-        _debug_event(self, "GP4", "long calibrating=%s" % self.calibrating, persist=True)
+        _debug_event(self, "GP4", "long calibrating=%s" % self.calibrating)
     elif blue == "up":
-        _debug_event(self, "GP4", "up", persist=True)
+        _debug_event(self, "GP4", "up")
     if yellow == "long":
-        _debug_event(self, "GP3", "long sound-calibrating=%s" % self.sound_calibrating, persist=True)
+        _debug_event(self, "GP3", "long sound-calibrating=%s" % self.sound_calibrating)
     if self.sound_calibrating:
         _sound_module().handle_buttons(self, blue, yellow); return
     if yellow == "long" and not self.calibrating and not self.controls.running:

@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 76 | Bundle 175: دو Guard JSON با Debug/FAT cross-link خراب شدند | حذف Debug file write، پاسخ سریع دکمه و Read-back کامل Export | Local candidate |
 | 75 | Build 74: Game ابتدا اجرا شد؛ بازگشت بعد از Lux spike شکست خورد | Game re-entry، کالیبراسیون مقاوم Game/Target و بازیابی کامل Bridge | Local candidate |
 | 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
 | 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
@@ -33,6 +34,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 76 — جداسازی FAT و تأیید واقعی Export
+
+**Previous build:** 75
+**Status:** Local candidate; focused contracts pending Windows CI and hardware retest
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- Bundle 175 از نظر ZIP/CRC سالم بود، اما <code>guard-calibration.json</code> با خطوط <code>STATE|denied</code> و <code>guard-transition.json</code> با رویدادهای GP3/GP4 و دادهٔ باینری جایگزین شده بودند.
+- SHA واقعی این دو فایل با Manifest متفاوت بود؛ بنابراین Pico هیچ پروفایل معتبر Game برای تشخیص نداشت.
+- دکمه‌های کالیبراسیون پیش از پخش Note، Debug را هم روی FAT و هم با نوشتن کامل 1536 بایت NVM Persist می‌کردند و پاسخ حدود یک ثانیه دیر حس می‌شد.
+
+### Root cause
+
+- <code>boot.py</code> برای ذخیرهٔ کالیبراسیون، CIRCUITPY را Writable نگه می‌دارد. Runtime هم‌زمان <code>guard-debug.log</code> را روی همان FAT بازنویسی می‌کرد و Classroom از USB Mass Storage فایل‌های Bundle را جایگزین می‌کرد؛ این مالکیت هم‌زمان باعث Cross-link شدن Sectorها شد.
+- Export فقط موفقیت <code>File.Copy</code> را کنترل می‌کرد و بایت‌های نهایی روی درایو، Hashها یا Revision دو Guard JSON را دوباره نمی‌خواند.
+- GP4 down/long/up قبل از Action با <code>persist=True</code> مسیر ذخیرهٔ Blocking را اجرا می‌کرد.
+
+### Change
+
+- Debug پایدار Runtime فقط در NVM نگهداری می‌شود و رویداد زنده همچنان از CDC به GuardHardwareMonitor می‌رسد؛ Runtime دیگر هیچ فایل Debug روی CIRCUITPY نمی‌نویسد.
+- GP3/GP4 down، up و long فقط Live event هستند و پیش از Note یا Action ذخیرهٔ Blocking ندارند.
+- Classroom پیش از Export فرمان <code>HALT|SILENT</code> می‌فرستد و Bridge را می‌بندد.
+- پس از کپی، Classroom تا پنج بار 28 فایل Manifest را مستقیماً از CIRCUITPY می‌خواند و SHA-256 هر فایل را کنترل می‌کند.
+- دو Guard JSON نیز Parse می‌شوند؛ Revision مشترک و وجود شش پروفایل بررسی می‌شود.
+- در هر mismatch، Export موفق اعلام نمی‌شود و پیام بررسی/Reset فایل‌سیستم نمایش داده می‌شود.
+
+### Validation
+
+- تست رگرسیون، Guard JSON دارای متن Debug را عمداً تزریق و رد شدن Read-back را تأیید می‌کند.
+- قرارداد Firmware نبودن <code>_DEBUG_FILE</code>، نبودن Remount در مسیر Debug و Live-only بودن رویدادهای فیزیکی را کنترل می‌کند.
+- قرارداد Export وجود Quiesce، پنج Retry و پیام <code>28/28 hashes and Guard revisions OK</code> را قفل می‌کند.
+
+### Next test
+
+Build منتشرشده را در پوشهٔ تازه اجرا کنید. Bundle 175 معتبر نیست. Pico را Reset کنید و پروژه را دوباره Export کنید؛ Classroom فقط پس از پیام <code>28/28 hashes and Guard revisions OK</code> باید موفقیت نشان دهد. سپس Start در Game، ورود/انتخاب Calibration و سرعت Note دکمه‌ها را آزمایش و Bundle و Guard log جدید را ارسال کنید.
 
 ## Build 75 — بازیابی Game/Target و اتصال بدون بستن Classroom
 
