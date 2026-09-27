@@ -106,7 +106,7 @@ def find_profile_overlap(profiles, profile_id, candidate, margin=CAL_OVERLAP_MAR
 
 
 def calibrated_profile(values, profiles, profile_id, stable_ms=750):
-    """Build a robust profile and cap it at the nearest saved range."""
+    """Build an asymmetric-safe profile and cap it at the nearest saved range."""
     if profile_id not in PROFILE_IDS or not isinstance(profiles, dict):
         raise ValueError("profile")
     clean = sorted(_number(value, "sample") for value in values)
@@ -114,9 +114,15 @@ def calibrated_profile(values, profiles, profile_id, stable_ms=750):
         raise ValueError("samples")
     count = len(clean)
     center = clean[count // 2]
-    low = clean[int((count - 1) * 0.10)]
-    high = clean[int((count - 1) * 0.90)]
-    tolerance = max(1.0, ((high - low) / 2.0) + 0.5)
+    # Use a trimmed envelope so isolated sensor spikes cannot inflate the
+    # profile, but measure each side from the median independently. The old
+    # half-width formula assumed the median was exactly midway between P10 and
+    # P90. A dashboard sample clustered at 13.3 with a repeated 15.8 upper
+    # state therefore saved tolerance=1.0 and immediately became unknown.
+    low = clean[int((count - 1) * 0.05)]
+    high = clean[int((count - 1) * 0.95)]
+    deviation = max(center - low, high - center)
+    tolerance = max(1.0, deviation + 0.5)
     cap = None
     for other_id in PROFILE_IDS:
         if other_id == profile_id or other_id not in profiles:

@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 82:** Tolerance کالیبراسیون نور اکنون فاصلهٔ هر سمت از Median را مستقل محاسبه می‌کند؛ نمونهٔ نامتقارن Dashboard دیگر بلافاصله پس از Save به `unknown` تبدیل نمی‌شود.
 - **Candidate Build 81:** خروجی Classroom Studio اکنون با تست صریح بسته‌بندی کنترل می‌شود تا Runtime سازگار با ARM 2.8.2-S4 شامل شروع ASND، تشخیص/Timeout و Telemetry موازی باشد؛ این Build جایگزین Release قدیمی Build 98 می‌شود.
 - **Candidate Build 80:** ARM 2.8.2-S4 با ADC آزادِ پس‌زمینه، Peak صدا را حین حرکت بدون قرار دادن `analogRead` در Cadence موس نگه می‌دارد؛ مقیاس ASND دوباره با SCAL یکسان است.
 - **Candidate Build 79:** WSND اکنون Peak واقعی را در تشخیص/Timeout گزارش می‌کند و Timeout عادی دیگر Guard Failure نیست؛ مسیر موس و Cadence تغییر نکرده‌اند.
@@ -19,6 +20,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 82 | Dashboard با center=13.3، spread=2.5 و live=15.8 به unknown رفت | محاسبهٔ دامنهٔ نامتقارن P5/P95 نسبت به Median | CI candidate |
 | 81 | S4 + Bundle 203 دستی Catch را پاس کرد | انتشار Classroom با Runtime داخلی سازگار با S4 | CI candidate |
 | 80 | S4 + Bundle 203 دستی Catch را پاس کرد | بازیابی شنیدن پیوسته بدون شکستن نرمی موس | Hardware pass |
 | 79 | تست سخت‌افزاری لازم است | Peak telemetry برای WSND و Timeout غیرخطایی | CI candidate |
@@ -45,6 +47,36 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 82 — پوشش نمونه‌های نامتقارن کالیبراسیون نور
+
+**Previous build:** 81
+**Status:** CI candidate; Dashboard hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Dashboard طی نمونه‌برداری `center=13.3` و `spread=2.5` داشت، اما `tolerance=1.0` ذخیره شد. نور پایدار بعدی `15.8` بود؛ بنابراین بازهٔ 12.3 تا 14.3 آن را نپذیرفت و Guard با وجود Save موفق، `STATE/unknown` گزارش کرد.
+
+### Root cause
+
+فرمول قبلی نصف فاصلهٔ P10 تا P90 را به‌عنوان Tolerance دور Median قرار می‌داد. این فقط وقتی صحیح است که Median دقیقاً وسط دو Quantile باشد. در توزیع نامتقارن Dashboard، Median نزدیک لبهٔ پایین بود و نیمهٔ بالایی دامنه حذف شد.
+
+### Change
+
+- Envelope مقاوم از P5/P95 ساخته می‌شود تا نویز منفرد حذف، اما تغییر تکرارشونده حفظ شود.
+- Tolerance برابر بیشترین فاصلهٔ `Median→P5` یا `Median→P95` به‌علاوهٔ Margin است.
+- Cap پروفایل مجاور و بررسی Overlap بدون تغییر باقی مانده‌اند؛ بازه نمی‌تواند وارد Game یا Targeted شود.
+
+### Validation
+
+- Regression واقعی `18×13.3 + 2×15.8` باید Center برابر 13.3 و Tolerance حداقل 3.0 بسازد.
+- مقدار 15.8 باید داخل پروفایل باشد و `find_profile_overlap` همچنان هیچ همپوشانی جدیدی نپذیرد.
+- تست Outlier قدیمی Game باید همچنان Tolerance محدود 1.0 تا 1.5 داشته باشد.
+
+### Next test
+
+فقط Stage 3 یعنی Character Dashboard را دوباره نمونه‌برداری و Save کنید. پس از خروج از Calibration، Start باید در همان محیط `STATE/character-dashboard` و سپس Route مربوط را ثبت کند.
 
 ## Build 81 — همگام‌سازی Runtime داخلی Classroom با S4
 
