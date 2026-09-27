@@ -1,0 +1,45 @@
+name: GuardHardwareMonitor Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/GuardHardwareMonitor/**"
+      - ".github/workflows/guard-hardware-monitor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore
+        run: dotnet restore tools/GuardHardwareMonitor/GuardHardwareMonitor.csproj
+      - name: Build
+        run: dotnet build tools/GuardHardwareMonitor/GuardHardwareMonitor.csproj -c Release --no-restore
+      - name: Publish win-x64
+        run: dotnet publish tools/GuardHardwareMonitor/GuardHardwareMonitor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o artifacts/GuardHardwareMonitor-win-x64
+      - name: Add quick start
+        shell: pwsh
+        run: |
+          Copy-Item tools/GuardHardwareMonitor/README.md artifacts/GuardHardwareMonitor-win-x64/README.md
+          @'
+          @echo off
+          cd /d "%~dp0"
+          GuardHardwareMonitor.exe %*
+          pause
+          '@ | Set-Content -Encoding ascii artifacts/GuardHardwareMonitor-win-x64/Start-Monitor.cmd
+          Compress-Archive -Path artifacts/GuardHardwareMonitor-win-x64/* -DestinationPath artifacts/GuardHardwareMonitor-win-x64.zip -Force
+          (Get-FileHash artifacts/GuardHardwareMonitor-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuardHardwareMonitor-win-x64
+          path: |
+            artifacts/GuardHardwareMonitor-win-x64.zip
+            artifacts/sha256.txt
+          if-no-files-found: error
