@@ -26,23 +26,24 @@ public sealed class LightStateProfile
 
 public static class LightStateDefaults
 {
-    /// <summary>Phase-four seed values. They are intentionally editable hypotheses, not calibrated truth.</summary>
+    /// <summary>Hardware-derived seed values shipped with every Classroom package.</summary>
     public static List<LightStateProfile> CreateInitialProfiles() => new()
     {
-        Profile("desktop", "دسکتاپ", 0),
-        Profile("login-or-dc", "صفحه لاگین یا DC", 25),
-        Profile("character-dashboard", "داشبورد انتخاب کرکترها", 31),
-        Profile("entering-game-loading", "صفحه لود ورود به بازی", 5),
-        Profile("game", "محیط بازی", 26),
-        Profile("targeted", "تارگت شدن توسط افراد", 20),
+        Profile("desktop", "دسکتاپ", 45, 5),
+        Profile("login-or-dc", "صفحه لاگین یا DC", 2.5, 1),
+        Profile("character-dashboard", "داشبورد انتخاب کرکترها", 13.3, 3),
+        Profile("entering-game-loading", "صفحه لود ورود به بازی", 38.3, 1),
+        Profile("game", "محیط بازی", 25, 2),
+        Profile("targeted", "تارگت شدن توسط افراد", 20, 1),
     };
 
-    private static LightStateProfile Profile(string id, string name, double center) => new()
+    private static LightStateProfile Profile(
+        string id, string name, double center, double tolerance) => new()
     {
         Id = id,
         Name = name,
         LuxCenter = center,
-        LuxTolerance = 2,
+        LuxTolerance = tolerance,
         StableDurationMs = 750,
         HysteresisLux = 1,
     };
