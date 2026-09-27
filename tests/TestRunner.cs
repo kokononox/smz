@@ -4407,6 +4407,28 @@ class TestRunner
                 Assert(manifestProfile == profileHash + "  " + profileFile,
                     "Build 73: manifest hashes exported " + profileFile);
             }
+            ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
+            Assert(true, "Build 76: target read-back accepts 28 valid hashes and matching Guard revisions");
+            var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
+            var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
+            File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");
+            var rejectedCorruption = false;
+            try { ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp); }
+            catch (IOException) { rejectedCorruption = true; }
+            Assert(rejectedCorruption,
+                "Build 76: target read-back rejects a Guard file cross-linked with debug data");
+            File.WriteAllBytes(corruptGuardPath, validGuardBytes);
+            ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
+
+            var safeDebugCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(!safeDebugCode.Contains("_DEBUG_FILE")
+                   && !safeDebugCode.Contains("disable_concurrent_write_protection=True")
+                   && safeDebugCode.Contains("NVM and live CDC events are sufficient"),
+                "Build 76: runtime diagnostics never write to the USB-mounted CIRCUITPY FAT volume");
+            Assert(repairedDeploy.Contains("HALT|SILENT")
+                   && repairedDeploy.Contains("VerifyExportedTarget(targetRoot)")
+                   && repairedDeploy.Contains("28/28 hashes and Guard revisions OK"),
+                "Build 76: export quiesces Pico and verifies target bytes before reporting success");
         }
         finally { if (Directory.Exists(modernTmp)) Directory.Delete(modernTmp, true); }
 
