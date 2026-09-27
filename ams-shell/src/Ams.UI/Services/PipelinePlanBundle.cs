@@ -24,6 +24,7 @@ public static class PipelinePlanBundle
         AppSettings settings, int screenW, int screenH, string sourceName, string machine)
     {
         ValidateRecoveryCalls(workspace);
+        ValidateSoundCalibrationIds(workspace);
         workspace.EnsureDcDefaults();
         var desktop = NormalizeRecoveryCalls(workspace[PipelineKind.Desktop].Steps);
         var written = AutoCyclePlanBundle.Export(planPath, desktop, settings, screenW, screenH,
@@ -68,6 +69,39 @@ public static class PipelinePlanBundle
             written.Add(recoveryTarget);
         }
         return written.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static void ValidateSoundCalibrationIds(PipelineWorkspace workspace)
+    {
+        var owners = new Dictionary<int, string>();
+        var errors = new List<string>();
+        foreach (var tab in workspace.Tabs)
+            Visit(tab.Steps, tab.Title, owners, errors);
+        if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
+
+        static void Visit(IEnumerable<StepNode> nodes, string tab,
+            Dictionary<int, string> owners, List<string> errors)
+        {
+            foreach (var node in nodes)
+            {
+                if (!node.IsDisabled && node.Type == "waitForSound"
+                    && !PropEx.GetBool(node.Props, "armed")
+                    && !PropEx.GetBool(node.Props, "insertIfElse"))
+                {
+                    var id = PropEx.GetInt(node.Props, "calibrationId", 1);
+                    var label = tab + " / " + (string.IsNullOrWhiteSpace(node.Name)
+                        ? "Wait For Sound" : node.Name.Trim());
+                    if (id is not (1 or 2))
+                        errors.Add(label + ": شناسهٔ کالیبراسیون صدا باید ۱ یا ۲ باشد.");
+                    else if (owners.TryGetValue(id, out var owner))
+                        errors.Add(label + ": شناسهٔ کالیبراسیون صدای " + id
+                            + " قبلاً به «" + owner + "» اختصاص یافته است.");
+                    else
+                        owners[id] = label;
+                }
+                Visit(node.Children, tab, owners, errors);
+            }
+        }
     }
 
     private static bool ContainsCycleDirective(string text)
