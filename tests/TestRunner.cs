@@ -4291,8 +4291,27 @@ class TestRunner
                    && repairedWatch.Substring(watchFault, watchDelay - watchFault).Contains("break;"),
                 "Light Watch stops polling after one transport fault");
             Assert(repairedBridge.Contains("op is (\"send\" or \"send_path\")")
-                   && repairedBridge.Contains("SetState(BridgeState.Disconnected)"),
-                "bridge invalidates a stale COM connection after send faults");
+                   && repairedBridge.Contains("SetState(BridgeState.Disconnected)")
+                   && repairedBridge.Contains("failed.Kill(entireProcessTree: true)")
+                   && repairedBridge.Contains("Port = null;"),
+                "bridge kills the stale sidecar and releases COM after send faults");
+            var repairedPythonBridge = File.ReadAllText(
+                Path.Combine(_p57root, "ams-shell", "bridge", "bridge.py"));
+            Assert(repairedPythonBridge.Contains("stale = state[\"link\"]")
+                   && repairedPythonBridge.Contains("failed = state[\"link\"]")
+                   && repairedPythonBridge.Contains("Pico brain not found on any serial port"),
+                "portable bridge closes stale links and never falls into keyless direct-board mode");
+            var repairedTransition = File.ReadAllText(
+                Path.Combine(modernTmp, "guard_transition.py"));
+            var repairedCalibration = File.ReadAllText(
+                Path.Combine(modernTmp, "guard_calibration_protocol.py"));
+            Assert(repairedTransition.Contains("game-reentry-after-unknown")
+                   && repairedTransition.Contains("\"execute\": False"),
+                "Game re-entry after an optical spike restores stage 5 without replaying the macro");
+            Assert(repairedCalibration.Contains("def calibrated_profile(")
+                   && repairedCalibration.Contains("0.90")
+                   && repairedCalibration.Contains("tolerance = min(tolerance, cap)"),
+                "light calibration uses robust central samples and caps tolerance at adjacent profiles");
             var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
                    && repairedVm.Contains("private void OnBridgeStateChanged")

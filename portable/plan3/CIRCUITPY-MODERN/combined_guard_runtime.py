@@ -73,7 +73,10 @@ class Keyboard:
         self._send()
 
 import plan_engine
-from guard_calibration_protocol import build_calibration_get, parse_calibration_set, find_profile_overlap
+from guard_calibration_protocol import (
+    build_calibration_get, parse_calibration_set, find_profile_overlap,
+    calibrated_profile,
+)
 from live_light_guard import (
     HASHED_BUNDLE_FILES,
     GuardBundleError,
@@ -610,7 +613,10 @@ class Combined:
         if time.monotonic() - self.sample_started < 5: return
         values = sorted(self.samples); center = values[len(values)//2]; spread = max(values)-min(values)
         if len(values) < 5 or spread > 5: self.result = None; self.emit("ERR|CAL|UNSTABLE|stage=%d|spread=%.1f" % (self.stage+1, spread)); return
-        self.result = {"center":center,"tolerance":max(2.0,spread*1.5),"stable_ms":750}; self.saved = False; self.emit("EVT|CAL|mode=complete-stage|stage=%d|id=%s|center=%.1f|spread=%.1f|tolerance=%.1f|saved=0" % (self.stage+1, PROFILES[self.stage], center, spread, self.result["tolerance"]))
+        self.result = calibrated_profile(
+            values, self.bundle.get("calibration", {}).get("profiles", {}),
+            PROFILES[self.stage], 750)
+        self.saved = False; self.emit("EVT|CAL|mode=complete-stage|stage=%d|id=%s|center=%.1f|spread=%.1f|tolerance=%.1f|saved=0" % (self.stage+1, PROFILES[self.stage], self.result["center"], spread, self.result["tolerance"]))
     def next_cal(self):
         if not self.calibrating: return
         if self.result is not None and self.result != "sampling" and not self.saved: self.emit("ERR|CAL|UNSAVED|stage=%d" % (self.stage+1)); return

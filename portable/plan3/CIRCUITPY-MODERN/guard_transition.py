@@ -105,6 +105,18 @@ class GuardTransition:
                 "next_stage": 5,
                 "reason": "targeted-returned-to-game",
             }
+        if self.stage == 5:
+            # A brief out-of-range sample clears the optical guard's active
+            # state. Accept its stable return without replaying game_steps.
+            return {
+                "execute": False,
+                "profile": "game",
+                "route": PROFILE_TO_ROUTE["game"],
+                "context": "game-reentry",
+                "stage": 5,
+                "next_stage": 5,
+                "reason": "game-reentry-after-unknown",
+            }
         if self.stage != 4:
             return self._deny("game-not-expected")
         self.stage = 5

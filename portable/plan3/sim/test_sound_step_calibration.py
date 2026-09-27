@@ -95,6 +95,7 @@ assert "fallback = None" in bridge
 assert '"stage": "pico_fallback"' in bridge
 assert "Remember a direct/legacy board, but keep scanning" in bridge
 assert "detected = detect_board_port()" in bridge
+assert "Pico brain not found on any serial port" in bridge
 
 bundle = (root / "ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs").read_text()
 assert '"sound_step_calibration.py"' in bundle

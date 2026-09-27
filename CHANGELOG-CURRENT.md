@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 75 | Build 74: Game ابتدا اجرا شد؛ بازگشت بعد از Lux spike شکست خورد | Game re-entry، کالیبراسیون مقاوم Game/Target و بازیابی کامل Bridge | Local candidate |
 | 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
 | 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
@@ -32,6 +33,45 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 75 — بازیابی Game/Target و اتصال بدون بستن Classroom
+
+**Previous build:** 74
+**Status:** Local candidate; focused portable tests passed; Windows CI and hardware test pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- لاگ سخت‌افزاری نشان داد Game در `24.2 lux` درست تشخیص داده و Route کامل شد؛ یک جهش کوتاه به `28.3` حالت را Unknown کرد و بازگشت به `25.0` با `game-not-expected` و سپس `duplicate-stable-state` برای همیشه رد شد.
+- کالیبراسیون Game یا Targeted با وجود جدایی پروفایل‌های ذخیره‌شده، به‌علت Tolerance بزرگ‌شده پیام `CAL|OVERLAP` می‌داد.
+- پس از `Write timeout` رابط کاربری Disconnected می‌شد، ولی Python sidecar و Serial link قبلی می‌توانستند COM31 را باز نگه دارند. Connect بعدی Pico را پیدا نمی‌کرد، به COM30 می‌افتاد و در ZIP پرتابل به‌اشتباه `ams_key.json` می‌خواست.
+
+### Root cause
+
+- Transition فقط ورود Game از Stage 4 یا بازگشت صریح از Targeted را قبول می‌کرد؛ بازگشت طبیعی `Game → Unknown → Game` در Stage 5 تعریف نشده بود.
+- کالیبراسیون از `max-min` و `1.5 × spread` استفاده می‌کرد؛ دو Outlier می‌توانستند بازه‌ای چند برابر دامنهٔ واقعی بسازند و آن را وارد Targeted کنند.
+- خطای Send فقط State رابط را عوض می‌کرد. نه لینک Python پاک می‌شد و نه Sidecar C# الزاماً Kill می‌شد؛ بنابراین Retry همان Process خراب و COM handle قبلی را دوباره استفاده می‌کرد.
+
+### Change
+
+- Stage 5 اکنون بازگشت پایدار Game بعد از Unknown را به‌صورت معتبر ولی بدون اجرای دوبارهٔ `game_steps.txt` می‌پذیرد (`game-reentry-after-unknown`).
+- Tolerance کالیبراسیون از 80٪ مرکزی نمونه‌ها محاسبه می‌شود، Outlierهای ابتدا/انتها را کنار می‌گذارد و در مرز نزدیک‌ترین پروفایل ذخیره‌شده Cap می‌شود. کنترل مثبت همپوشانی همچنان Fail-Closed باقی مانده است.
+- قبل از Connect هر Serial link قدیمی بسته می‌شود؛ خطای Connect/Send/Path لینک را پاک و رویداد Disconnected صادر می‌کند.
+- C# روی خطای Transport، Sidecar خراب را Kill و Port/Firmware را پاک می‌کند تا Connect بعدی Process تمیز بسازد.
+- ZIP پرتابل بدون کلید خصوصی دیگر به مسیر مستقیم COM30 سقوط نمی‌کند؛ اگر Pico Brain پیدا نشود خطای واضح `Pico brain not found` می‌دهد.
+
+### Validation
+
+- رگرسیون `Game → Unknown → Game` ثابت می‌کند Stage 5 حفظ می‌شود و Macro دوباره اجرا نمی‌شود.
+- رگرسیون `Game → Targeted → Game` بدون تغییر پاس می‌شود.
+- نمونه‌های Game دارای Outlier دیگر Tolerance مصنوعی بزرگ تولید نمی‌کنند و با Targeted همپوشانی ندارند.
+- قراردادهای Cleanup لینک، Kill Sidecar و ممنوعیت fallback بدون کلید اضافه شدند.
+- تست‌های متمرکز Transition، Calibration، Overlap، Retry، Start-current و Brain-first محلی پاس شدند.
+- TestRunner کامل ویندوز به CI سپرده می‌شود؛ محیط محلی Linux ابزار `dotnet` ندارد.
+
+### Next test
+
+پس از انتشار Build، ابتدا در Game با نور پایدار Start بزنید، سپس نور را موقتاً بیرون بازه ببرید و به Game برگردانید؛ باید `game-reentry-after-unknown` ثبت شود و `game_steps.txt` دوباره اجرا نشود. Game و Targeted را جداگانه کالیبره کنید و مقادیر `center/spread/tolerance` را بفرستید. در پایان کابل یا Transport را یک‌بار هنگام اتصال مختل کنید؛ Connect بعدی باید بدون بستن Classroom، COM31 و `role=brain` را دوباره پیدا کند.
 
 ## Build 74 — کالیبراسیون پرتابل دو Step صوتی و اتصال Brain-first Classroom
 
