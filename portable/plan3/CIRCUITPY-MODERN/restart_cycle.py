@@ -1,10 +1,12 @@
-"""Low-memory After/Startup controller for the modern Guard runtime.
+"""Low-memory timed After/Startup controller for the modern Guard runtime.
 
-Game owns its own duration (for example LOOPTIME). When game_steps.txt finishes,
-After runs immediately. A persistent marker survives the Windows restart; after
-USB returns and is stable, Startup runs once, then Login/DC continues while
-Desktop is intentionally skipped.
+The root RUNFOR range bounds the complete active cycle. Game may still contain
+its own LOOPTIME blocks, but reaching the selected cycle deadline cleanly
+aborts the active route and runs After. A persistent marker survives the
+Windows restart; after USB returns and is stable, Startup runs once, then
+Login/DC continues while Desktop is intentionally skipped.
 """
+import random
 import time
 
 MAGIC = b"RC84"
@@ -12,6 +14,26 @@ MAX_RESTARTS = 5
 AFTER_ROUTE = "restart_steps.txt"
 STARTUP_ROUTE = "startup_steps.txt"
 USB_STABLE_SECONDS = 2
+
+
+def _runfor_from_root(root="/"):
+    path = root.rstrip("/") + "/plan.txt"
+    try:
+        with open(path, "r") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line.startswith("RUNFOR|"):
+                    continue
+                values = line.split("|", 1)[1].replace(" ", "").split(",")
+                if len(values) != 2:
+                    break
+                minimum, maximum = int(values[0]), int(values[1])
+                if minimum <= 0 or maximum < minimum:
+                    break
+                return minimum, maximum
+    except Exception:
+        pass
+    return 110 * 60, 130 * 60
 
 
 class Marker:
@@ -60,23 +82,26 @@ class Marker:
 
 
 class Controller:
-    def __init__(self, owner, nvm, now=None):
+    def __init__(self, owner, nvm, now=None, run_for=None, choose=None):
         self.owner = owner
         self.now = now or time.monotonic
+        self.run_for = run_for or (110 * 60, 130 * 60)
+        self.choose = choose or random.randint
         self.marker = Marker(nvm)
         self.phase = "idle"
         self.down_seen = False
         self.up_since = None
         self.previous_running = False
+        self.deadline = None
+        self.deadline_expired = False
         if self.marker.armed():
             self.phase = "wait-usb"
             self.down_seen = True
             self._emit("armed-at-boot", "count=%d" % self.marker.count())
 
     @classmethod
-    def from_root(cls, owner, nvm, **kwargs):
-        # Stable construction API; timing no longer comes from plan.txt.
-        return cls(owner, nvm, **kwargs)
+    def from_root(cls, owner, nvm, root="/", **kwargs):
+        return cls(owner, nvm, run_for=_runfor_from_root(root), **kwargs)
 
     def _emit(self, event, detail=""):
         self.owner.emit("EVT|CYCLE|" + event + (("|" + detail) if detail else ""))
@@ -84,17 +109,34 @@ class Controller:
     def _begin_run(self, resumed=False):
         self.phase = "run"
         self.previous_running = True
+        self.deadline_expired = False
+        duration = self.choose(self.run_for[0], self.run_for[1])
+        self.deadline = self.now() + duration
         self._emit("resumed" if resumed else "armed",
-                   "trigger=game-complete|count=%d" % self.marker.count())
+                   "trigger=cycle-window|seconds=%d|range=%d,%d|count=%d" %
+                   (duration, self.run_for[0], self.run_for[1], self.marker.count()))
 
     def _manual_stop(self):
         self.phase = "idle"
+        self.deadline = None
+        self.deadline_expired = False
         self.marker.reset()
         self._emit("cancelled", "reason=manual-stop")
 
+    def _expire_deadline(self):
+        if self.phase != "run" or self.deadline_expired:
+            return False
+        if self.deadline is None or self.now() < self.deadline:
+            return False
+        self.deadline_expired = True
+        self._emit("deadline", "action=after")
+        # When called inside a route wait, only abort the route here. After is
+        # launched by tick() once the route stack and split parser are released.
+        self.owner.controls.stop()
+        return True
+
     def route_tick(self):
-        # Long waits still call this hook, but there is no global deadline.
-        return
+        self._expire_deadline()
 
     def _host_state(self):
         if getattr(self.owner.arm, "host_usb_seen", False):
@@ -114,6 +156,8 @@ class Controller:
         })
 
     def _perform_after(self):
+        self.deadline = None
+        self.deadline_expired = False
         if not self.marker.arm_next():
             self._emit("blocked", "reason=marker-or-limit")
             self.phase = "idle"
@@ -174,6 +218,12 @@ class Controller:
         self._begin_run(True)
 
     def tick(self):
+        if self.phase == "run":
+            self._expire_deadline()
+            if self.deadline_expired:
+                self._perform_after()
+                self.previous_running = bool(self.owner.controls.running)
+                return
         running = bool(self.owner.controls.running)
         if self.phase == "idle" and running and not self.previous_running:
             self.marker.reset()
