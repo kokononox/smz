@@ -110,7 +110,7 @@ runtime.parse_calibration_set = parse_calibration_set
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
               "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
-              "sound_step_calibration.py"):
+              "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES
@@ -235,7 +235,7 @@ def _memory_safe_init(self):
     self.controls = runtime.Controls(self.arm, self.keyboard)
     # Route waits must continue polling GP3/GP4; otherwise Pause/Resume only
     # works between steps and feels unresponsive during long delays or TYPE.
-    self.controls.tick = self.buttons
+    self.controls.tick = self.controls_tick
     self.mouse_pos = None
     self.sensor = runtime.BH1750()
     self.routes = {}
@@ -259,6 +259,10 @@ def _memory_safe_init(self):
     self.blue_start_pending = False
     self.last_cal_error = None
     self.debug_last_state = None
+    self.debug_last_denied = None
+    import restart_cycle
+    self.cycle = restart_cycle.Controller.from_root(
+        self, getattr(_microcontroller, "nvm", None))
     _debug_event(self, "BOOT", "bundle=valid profiles=%d" % len(runtime.PROFILES), persist=True)
 
 _CAL_NOTES = (262, 294, 330, 349, 392, 440)
@@ -596,6 +600,18 @@ def _audible_buttons(self):
     self.cal_tick()
 
 
+def _cycle_controls_tick(self):
+    # Long route delays must still observe both physical Stop/Pause and the
+    # RUNFOR deadline. Expiry aborts the active route; the outer loop then
+    # performs the restart sequence on a clean stack.
+    self.buttons()
+    self.cycle.route_tick()
+
+
+def _plan_context(self):
+    return runtime.PlanContext(self)
+
+
 _original_plan_setres = runtime.PlanContext.setres
 _original_plan_beep = runtime.PlanContext.beep
 
@@ -900,6 +916,7 @@ def _audible_loop(self):
         self.host_poll()
         self.buttons()
         self.arm.pump()
+        self.cycle.tick()
         if (self.controls.running and not self.calibrating and not self.sound_calibrating and
                 not getattr(self, "blue_start_pending", False) and
                 runtime.time.monotonic() - last >= .25):
@@ -910,6 +927,7 @@ def _audible_loop(self):
                 if active != self.debug_last_state:
                     _debug_event(self, "STATE", "%s lux=%.1f" % (active or "unknown", lux), persist=active is None)
                     self.debug_last_state = active
+                    self.debug_last_denied = None
                 decision = self.guard.last_decision
                 # A decision is a one-shot transition. Clear it before running
                 # the route so the same Desktop macro is not replayed every poll.
@@ -931,7 +949,11 @@ def _audible_loop(self):
                         else:
                             _debug_event(self, "ROUTE", "complete %s" % route_name, persist=True)
                     else:
-                        _debug_event(self, "STATE", "denied reason=%s lux=%.1f" % (decision.get("reason"), lux), persist=True)
+                        denied = (active, decision.get("reason"))
+                        if denied != self.debug_last_denied:
+                            _debug_event(self, "STATE", "denied reason=%s lux=%.1f" %
+                                         (decision.get("reason"), lux), persist=True)
+                            self.debug_last_denied = denied
             except Exception as exc:
                 failure = _debug_exception(exc)
                 _debug_event(self, "FAIL", "guard=" + failure, persist=True)
@@ -1033,6 +1055,7 @@ def _live_host_poll(self):
                 self.guard.reset()
                 self.guard.last_decision = None
                 self.debug_last_state = None
+                self.debug_last_denied = None
                 _apply_pending_cursor(self, force=True)
                 self.controls.start()
                 self.guard_start_tone()
@@ -1129,5 +1152,7 @@ runtime.Combined.cal_tick = _audible_cal_tick
 runtime.Combined.save_cal = _audible_save_cal
 runtime.Combined.yellow_action = _repeatable_yellow_action
 runtime.Combined.buttons = _audible_buttons
+runtime.Combined.controls_tick = _cycle_controls_tick
+runtime.Combined.plan_context = _plan_context
 runtime.Combined.loop = _audible_loop
 main()
