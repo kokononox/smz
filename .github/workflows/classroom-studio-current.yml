@@ -1,4 +1,4 @@
-shname: Classroom Studio current branch
+name: Classroom Studio current branch
 
 on:
   workflow_dispatch:
@@ -125,5 +125,3 @@ jobs:
             Classroom-Studio-current.zip
             sha256.txt
             ci-test-output.txt
-
-        ru
