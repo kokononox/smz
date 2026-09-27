@@ -62,6 +62,10 @@
 
 چرخهٔ Build 83 یک Deadline مستقل `RUNFOR` داشت و پس از پایان آن مستقیماً توالی داخلی Restart را اجرا می‌کرد. در نتیجه مدت Game از استپ‌های خود Game جدا شده بود، تب Restart پروژه عملاً منبع After نبود و پس از بالا آمدن Windows نیز Resume با تأخیرهای قدیمی اجرا می‌شد. همچنین `boot.py` مالکیت نوشتن FAT را به CircuitPython داده بود و Windows درایو را Read-only می‌دید.
 
+### Root cause
+
+چرخهٔ مدرن هنوز مدل قدیمیِ زمان‌محور را منبع حقیقت می‌دانست و پایان واقعی Route بازی را به مرحلهٔ After متصل نمی‌کرد. Resume نیز به‌جای یک Route مستقل Startup، از تأخیرها و Launch قدیمی استفاده می‌کرد. سیاست `boot.py` نیز برای ذخیرهٔ JSON کالیبراسیون، مالکیت FAT را از Windows گرفته بود.
+
 ### Change
 
 - زمان اجرا فقط داخل `game_steps.txt` و استپ‌هایی مانند `LOOPTIME` تعریف می‌شود؛ هیچ تایمر سراسری پیش از Restart وجود ندارد.
@@ -79,7 +83,7 @@
 - Manifest مدرن ۳۲ فایل دارد و Startup/NVM module در Hash verification قرار گرفته‌اند.
 - تست‌های UI، Export، FAT isolation، Guard transitions و Runtime sound/mouse contract پاس شدند.
 
-### Hardware test
+### Next test
 
 1. Game با `LOOPTIME` کوتاه تمام شود و لاگ بلافاصله `CYCLE|after-start` را نشان دهد.
 2. پس از Restart، لاگ `CYCLE|usb|state=UP|startup-in=2`، سپس `startup-start` و `startup-complete|next=login-or-dc|desktop=skip` را نشان دهد.

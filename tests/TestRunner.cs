@@ -4226,7 +4226,7 @@ class TestRunner
         try
         {
             var modernWritten = ModernAutoCycleFirmwareBundle.Export(Path.Combine(modernTmp, "code.py"));
-            Assert(modernWritten.Count == 34
+            Assert(modernWritten.Count == 36
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
@@ -4236,7 +4236,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "sound_step_calibration.py"))
                    && File.Exists(Path.Combine(modernTmp, "restart_cycle.py"))
                    && File.Exists(Path.Combine(modernTmp, "restart_windows.py"))
-                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 30,
+                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 32,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
             // Windows checkout expands LF to CRLF and the packaging workflow applies the
             // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
@@ -4416,7 +4416,7 @@ class TestRunner
                     "Build 73: manifest hashes exported " + profileFile);
             }
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
-            Assert(true, "Build 76: target read-back accepts 28 valid hashes and matching Guard revisions");
+            Assert(true, "Build 84: target read-back accepts 32 valid hashes and matching Guard revisions");
             var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
             var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
             File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");
@@ -4435,7 +4435,7 @@ class TestRunner
                 "Build 76: runtime diagnostics never write to the USB-mounted CIRCUITPY FAT volume");
             Assert(repairedDeploy.Contains("HALT|SILENT")
                    && repairedDeploy.Contains("VerifyExportedTarget(targetRoot)")
-                   && repairedDeploy.Contains("30/30 hashes and Guard revisions OK"),
+                   && repairedDeploy.Contains("32/32 hashes and Guard revisions OK"),
                 "Build 76: export quiesces Pico and verifies target bytes before reporting success");
         }
         finally { if (Directory.Exists(modernTmp)) Directory.Delete(modernTmp, true); }
