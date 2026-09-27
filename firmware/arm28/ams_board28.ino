@@ -20,7 +20,7 @@ static void arm28_sound_cancel();
 #include "ams_board26_impl.h"
 #undef setup
 #undef loop
-// ARM 2.8.2-S2 intentionally drops the unused legacy absolute HumanMouse layer.
+// ARM 2.8.2-S3 intentionally drops the unused legacy absolute HumanMouse layer.
 // Portable mode uses native relative MMOVE; the recovered flash is used for a
 // concurrent sound watcher.  S1 restores the hardware-proven 2.8.1 mouse
 // cadence: ADC sampling runs between MMOVE commands, never between HID
@@ -51,7 +51,7 @@ static bool arm28_sound_tick(){
   return false;
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S2|REL=1|ASND=1");return true;}
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S3|REL=1|ASND=1");return true;}
   if(!strncmp(line,"ASND|",5)){
     int thr=60;unsigned long minimum=60,timeout=30000;
     sscanf(line+5,"%d,%lu,%lu",&thr,&minimum,&timeout);

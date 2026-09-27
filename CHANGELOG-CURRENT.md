@@ -4,6 +4,8 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 79:** WSND اکنون Peak واقعی را در تشخیص/Timeout گزارش می‌کند و Timeout عادی دیگر Guard Failure نیست؛ مسیر موس و Cadence تغییر نکرده‌اند.
+
 - **Candidate Build 78:** ARM 2.8.2-S2 مانع توقف ۴۰–۵۲ms ناشی از بازبودن COM بدون HELLO می‌شود؛ پایش صدا و Cadence یک‌میلی‌ثانیه‌ای حفظ شده‌اند.
 - **Candidate Build 77:** ARM 2.8.2-S1 پایش صدا را از حلقهٔ Micro-step خارج می‌کند تا Cadence نرم 2.8.1 برگردد؛ Typo نیز دوباره فاصلهٔ کاراکتری واقعی است.
 - **Baseline سخت‌افزاری:** Build 68 مسیرهای Desktop/Login/DC/Game را بدون MemoryError روی Pico اجرا کرد؛ حرکت Natural Mouse v1 حفظ شد.
@@ -15,6 +17,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 79 | تست سخت‌افزاری لازم است | Peak telemetry برای WSND و Timeout غیرخطایی | CI candidate |
 | 78 | Build 95: میانهٔ 51ms و 1,194 وقفهٔ حداقل 40ms | USB handshake فقط با بایت واقعی؛ حذف stall هنگام بازبودن COM | Local candidate |
 | 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
 | 76 | Bundle 175: دو Guard JSON با Debug/FAT cross-link خراب شدند | حذف Debug file write، پاسخ سریع دکمه و Read-back کامل Export | Local candidate |
@@ -38,6 +41,35 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+
+## Build 79 — Peak واقعی WSND و Timeout غیرخطایی
+
+**Previous build:** 78  
+**Status:** CI candidate; sound hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+تست SCAL صدای بازی را تا Peak 129 می‌دید، اما WSND با Thresholdهای 12، 30 و 68 همگی Timeout می‌شد. Threshold یک فوراً Route را کامل و کلید F را اجرا کرد. پاسخ `ERR|TIMEOUT|WSND` نیز به‌اشتباه کل Guard را Fail می‌کرد.
+
+### Change
+
+- Listener مسدودکنندهٔ WSND بیشترین Peak واقعی همان بازه را نگه می‌دارد.
+- تشخیص با `OK|WSND|DETECTED|peak=...` و Timeout با `ERR|TIMEOUT|WSND|max=...` گزارش می‌شود.
+- Pico فقط Timeout همین فرمان را نتیجهٔ عادی `False` می‌داند؛ همهٔ خطاهای دیگر ARM همچنان Fail-Closed هستند.
+- پیش از Listener، ID، منبع `calibrated/default`، Threshold، Minimum و Timeout مؤثر ثبت می‌شود.
+- ARM به 2.8.2-S3 ارتقا یافت؛ `mouse_move_steps`، DDA، Micro-step و Cadence یک‌میلی‌ثانیه‌ای تغییر نکرده‌اند.
+
+### Validation
+
+- Python runtime با `py_compile` معتبر است.
+- قراردادها قالب Peak، رفتار Timeout و نبود Sound sampling داخل حلقهٔ Micro-step را قفل می‌کنند.
+- کامپایل Leonardo، تست Exhaustive سه‌پیکسلی و بستهٔ Windows به CI سپرده می‌شوند.
+
+### Next test
+
+Firmware ARM 2.8.2-S3 و Bundle جدید را نصب کنید. تست Game را با Threshold 12/20ms اجرا کنید؛ در صورت Timeout، مقدار `max=...` دقیقاً دامنهٔ دیده‌شده داخل WSND را نشان می‌دهد. اگر صدا تشخیص داده شود، `peak=...` ثبت و F اجرا می‌شود.
 
 ## Build 78 — حذف توقف ۵۰ms هنگام بازبودن COM
 
