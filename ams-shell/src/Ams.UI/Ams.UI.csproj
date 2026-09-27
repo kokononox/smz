@@ -26,6 +26,7 @@
   <ItemGroup><Resource Include="Resources\ams.ico" /></ItemGroup>
 
   <ItemGroup>
+    <None Include="light-state-profiles.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\**" Exclude="..\..\bridge\bridge.py;..\..\bridge\light_state_bridge.py"><Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\bridge.py"><Link>bridge\_bridge_core.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\light_state_bridge.py"><Link>bridge\bridge.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
