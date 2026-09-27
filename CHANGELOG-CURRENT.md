@@ -55,7 +55,7 @@
 ## Build 84 — چرخهٔ Route-driven After/Startup و مالکیت امن CIRCUITPY
 
 **Previous build:** 83 / Classroom release 102
-**Status:** CI candidate; staged hardware test required
+**Status:** CI candidate; feature-branch packaging enabled; staged hardware test required
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
