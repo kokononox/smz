@@ -1079,6 +1079,22 @@ def _live_host_poll(self):
             elif line == "LUX?":
                 lux = self.sensor.lux()
                 reply = "OK|LUX|lux=%.1f|sensor=ok" % lux
+            elif line.startswith("SCAL|"):
+                # Build 72: Classroom connects to the Pico brain, while the sound
+                # sensor lives on the Pro Micro. Proxy the bounded calibration
+                # window over the private UART instead of answering UNKNOWN.
+                ms = int(line.split("|", 1)[1])
+                if ms < 1 or ms > 10000:
+                    raise ValueError("SCAL range")
+                reply = self.arm.send(line, ms / 1000.0 + 3)
+            elif line.startswith("WSND|"):
+                fields = line.split("|", 1)[1].split(",")
+                if len(fields) != 3:
+                    raise ValueError("WSND needs threshold,min,timeout")
+                threshold, minimum, timeout_ms = int(fields[0]), int(fields[1]), int(fields[2])
+                if threshold < 1 or minimum < 1 or timeout_ms < 1 or timeout_ms > 600000:
+                    raise ValueError("WSND range")
+                reply = self.arm.send(line, timeout_ms / 1000.0 + 3)
             elif line == "DEBUGGET":
                 _debug_emit(self)
                 reply = "OK|DEBUG|read"
