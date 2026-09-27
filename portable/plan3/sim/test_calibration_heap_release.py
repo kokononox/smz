@@ -13,7 +13,7 @@ for name in ('plan_engine_exec', 'plan_engine_game', 'plan_engine_human', 'plan_
 assert code.count('_prepare_calibration_heap(self)') == 4
 assert 'self.samples = []\n        _prepare_calibration_heap(self)' in code
 manifest = (root / "CIRCUITPY-MODERN" / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
-assert len(manifest) == 27
+assert len(manifest) == 28
 assert any(line.endswith('  plan_engine_game.py') for line in manifest)
 assert any(line.endswith('  plan_engine_login.py') for line in manifest)
 assert any(line.endswith('  plan_engine_parallel.py') for line in manifest)
