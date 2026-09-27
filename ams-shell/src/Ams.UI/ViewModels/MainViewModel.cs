@@ -1861,8 +1861,9 @@ public partial class MainViewModel : ObservableObject
         _bridge ??= CreateBridge();
 
         _bridge.LineReceived -= OnBridgeLine;
-
         _bridge.LineReceived += OnBridgeLine;
+        _bridge.StateChanged -= OnBridgeStateChanged;
+        _bridge.StateChanged += OnBridgeStateChanged;
 
 
 
@@ -2208,13 +2209,14 @@ public partial class MainViewModel : ObservableObject
 
     {
 
-        if (Connection != ConnectionState.Connected || _bridge is null)
+        if (Connection != ConnectionState.Connected || _bridge is null
+            || _bridge.State != BridgeState.Connected)
 
         {
 
             System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
 
-                "Connect the board first — calibration samples the sound sensor on A0.",
+                "ارتباط برد فعال نیست. Connect را بزنید و سپس دوباره کالیبراسیون صدا را اجرا کنید.",
 
                 "Calibrate", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -2421,6 +2423,25 @@ public partial class MainViewModel : ObservableObject
 
 
     private void OnBridgeLine(object? sender, string line) => Log("bridge: " + line);
+
+    // Build 71 — transport state is authoritative. A sidecar/COM failure must not leave
+    // the status bar green while every later command throws "Bridge is not connected."
+    private void OnBridgeStateChanged(object? sender, BridgeState state)
+    {
+        if (state != BridgeState.Disconnected) return;
+        void ApplyDisconnected()
+        {
+            Connection = ConnectionState.Disconnected;
+            ConnectButtonText = "Connect";
+            PicoPresent = false;
+            ArmPresent = false;
+            StopCursorSync();
+            Log("bridge disconnected — reconnect before calibration or playback");
+        }
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess()) ApplyDisconnected();
+        else dispatcher.BeginInvoke((Action)ApplyDisconnected);
+    }
 
 
 
