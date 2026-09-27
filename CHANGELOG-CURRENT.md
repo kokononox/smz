@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 81:** خروجی Classroom Studio اکنون با تست صریح بسته‌بندی کنترل می‌شود تا Runtime سازگار با ARM 2.8.2-S4 شامل شروع ASND، تشخیص/Timeout و Telemetry موازی باشد؛ این Build جایگزین Release قدیمی Build 98 می‌شود.
 - **Candidate Build 80:** ARM 2.8.2-S4 با ADC آزادِ پس‌زمینه، Peak صدا را حین حرکت بدون قرار دادن `analogRead` در Cadence موس نگه می‌دارد؛ مقیاس ASND دوباره با SCAL یکسان است.
 - **Candidate Build 79:** WSND اکنون Peak واقعی را در تشخیص/Timeout گزارش می‌کند و Timeout عادی دیگر Guard Failure نیست؛ مسیر موس و Cadence تغییر نکرده‌اند.
 
@@ -18,7 +19,8 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| 80 | تست سخت‌افزاری لازم است | بازیابی شنیدن پیوسته بدون شکستن نرمی موس | CI candidate |
+| 81 | S4 + Bundle 203 دستی Catch را پاس کرد | انتشار Classroom با Runtime داخلی سازگار با S4 | CI candidate |
+| 80 | S4 + Bundle 203 دستی Catch را پاس کرد | بازیابی شنیدن پیوسته بدون شکستن نرمی موس | Hardware pass |
 | 79 | تست سخت‌افزاری لازم است | Peak telemetry برای WSND و Timeout غیرخطایی | CI candidate |
 | 78 | Build 95: میانهٔ 51ms و 1,194 وقفهٔ حداقل 40ms | USB handshake فقط با بایت واقعی؛ حذف stall هنگام بازبودن COM | Local candidate |
 | 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
@@ -43,6 +45,35 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 81 — همگام‌سازی Runtime داخلی Classroom با S4
+
+**Previous build:** 80
+**Status:** CI candidate; Classroom export hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+ARM 2.8.2-S4 همراه با Pico Bundle 203 هماهنگ، Catch را در تست سخت‌افزاری انجام داد؛ اما آخرین Classroom Studio منتشرشده پیش از Merge شدن S4 ساخته شده بود. بنابراین Export دوبارهٔ همان پروژه با Release قدیمی، Runtime قبلی Pico را روی برد می‌نوشت و Catch از کار می‌افتاد.
+
+### Root cause
+
+تنظیم‌های Threshold/Minimum داخل AMSJ منتقل می‌شوند، ولی پروتکل Async Sound و پردازش `EVT|ASND` بخشی از Runtime داخلی Classroom هستند. Release عمومی موجود مربوط به قبل از Commit پایدار S4 بود؛ در نتیجه فایل پروژه به‌تنهایی نمی‌توانست Runtime را ارتقا دهد.
+
+### Change
+
+- Release جدید Classroom مستقیماً از شاخهٔ پایدار دارای S4 ساخته می‌شود.
+- قرارداد TestRunner اکنون روی فایل واقعاً Export‌شده، وجود Start پروتکل ASND، تشخیص، Timeout و Telemetry `mode=async` را کنترل می‌کند.
+- منطق Mouse، ADC، Threshold و Route تغییر نکرده است؛ این Build فقط همگام‌سازی و جلوگیری از بازگشت بسته‌بندی قدیمی است.
+
+### Validation
+
+- TestRunner باید ثابت کند `combined_guard_runtime.py` موجود در خروجی Classroom قرارداد کامل S4 را دارد.
+- معیار تست سخت‌افزاری: با ARM 2.8.2-S4 و Export مستقیم پروژه از Classroom جدید، Threshold 76 و Minimum 20ms بدون کپی دستی Bundle Catch کند.
+
+### Next test
+
+پس از نصب Classroom جدید، همان پروژهٔ `p-updated-v3-fishing-parallel-natural-v1-S4-sound76-20.amsj` را مستقیم Export کنید و یک چرخهٔ Catch را بدون جایگزینی دستی فایل‌های Pico اجرا کنید.
 
 
 ## Build 80 — ADC پیوسته و Peak-Latch برای Sound موازی
