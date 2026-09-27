@@ -4,16 +4,17 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **Baseline سخت‌افزاری انتخاب‌شده:** Build 50 + ARM 2.8.1 + پروژهٔ C
-- **وضعیت حرکت:** Natural Mouse v1 و Login/DC سبک در Build 67 روی سخت‌افزار تأیید شدند.
-- **مسئلهٔ باز:** Game در Build 67 پس از Parse با وجود 62,352 بایت آزاد، هنگام Lazy-load مسیر اجرایی کامل با `MemoryError` متوقف شد؛ Build 68 آن را به Runner سبک منتقل می‌کند.
-- **اصل معماری:** Cadence و Micro-step تأییدشدهٔ Build 50 دست‌نخورده می‌ماند؛ Humanization فقط در سطح مسیر اعمال می‌شود.
-- **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
+- **Baseline سخت‌افزاری:** Build 68 مسیرهای Desktop/Login/DC/Game را بدون MemoryError روی Pico اجرا کرد؛ حرکت Natural Mouse v1 حفظ شد.
+- **مسئلهٔ باز Build 68:** برای جلوگیری از `ERR|BUSY`، Sound فقط هنگام توقف Mouse Poll می‌شد و واکنش F به صدای قلاب دیر می‌رسید.
+- **راه‌حل Build 69:** ARM 2.8.2 صدا را درون حلقهٔ Mouse به‌صورت Async پایش می‌کند، حرکت را همان لحظه متوقف می‌کند و Pico کلید F را بدون انتظار برای پایان Mouse می‌زند.
+- **اصل معماری:** Pico مسئول Keyboard/Guard/Route است؛ Pro Micro مسئول Mouse HID و پایش Sound هم‌زمان است.
+- **کالیبراسیون Game:** مقدار مرجع برنامه `22.5 ± 3.7` با پایداری 750ms است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Runner سبک Game/Fishing و Stop عادی | CI candidate |
+| 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
+| 68 | Desktop/Login/DC/Game پاس | Runner سبک Game؛ تأخیر Sound هنگام حرکت | Hardware pass؛ Sound superseded |
 | 67 | Desktop و Login/DC سبک پاس؛ Calibration ذخیره شد | Runner سبک Streaming برای Login/DC | Hardware pass؛ Game superseded |
 | 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable؛ Login superseded |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
@@ -27,11 +28,41 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — Runner سبک Game/Fishing و Stop عادی
+## Build 69 — واکنش هم‌زمان Sound در حین حرکت Mouse
 
-**Previous build:** 67
-**Status:** CI candidate; Game hardware retest pending
+**Previous build:** 68  
+**Status:** CI candidate; hardware retest pending  
 **Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در Build 68 مسیر Game بدون MemoryError و با حرکت نرم اجرا شد، اما Runner هنگام فعال‌بودن Mouse عمداً Poll صدا را عقب می‌انداخت. علت جلوگیری از تداخل فرمان Blocking `SCAL` با `MMOVE` و خطای `ERR|BUSY` بود. نتیجه این بود که کلید F فقط بعد از ایستادن Mouse اجرا می‌شد و Catch قلاب تأخیر داشت.
+
+### Change
+
+- Firmware به ARM 2.8.2 ارتقا یافت و فرمان‌های `ASND` و `ASNDCANCEL` اضافه شدند.
+- Pro Micro هنگام اجرای Micro-stepهای Mouse، ورودی صوتی A0 را پیوسته و غیرمسدودکننده پایش می‌کند.
+- با تشخیص صدا، Mouse در آخرین نقطهٔ ارسال‌شده فوراً متوقف می‌شود و رویداد `EVT|ASND|DETECTED` به Pico می‌رسد.
+- Pico سپس کلید F را مستقل از Mouse HID می‌زند؛ MMOVEهای صف‌شده تا Arm بعدی صدا ACK و Drop می‌شوند تا قبل از F حرکت ادامه پیدا نکند.
+- Firmware قدیمی همچنان از مسیر `SCAL` استفاده می‌کند، اما واکنش هم‌زمان فقط با ARM 2.8.2 فعال است.
+- لایهٔ Legacy و بلااستفادهٔ `human_mouse_v3` از Firmware حذف شد تا فضای Flash برای Watcher جدید آزاد شود؛ مسیر Portable Relative بدون تغییر باقی ماند.
+
+### Validation
+
+- تست جدید ثابت می‌کند Sound poll در بازهٔ حرکت فعال انجام می‌شود و F حداکثر تا 40ms در شبیه‌سازی اجرا می‌گردد.
+- پس از تشخیص، هیچ حرکت جدیدی بعد از F ثبت نمی‌شود.
+- قرارداد Firmware وجود `ASND=1`، رویدادهای Async و Fallback قدیمی `SCAL` را هم‌زمان کنترل می‌کند.
+- Hashهای Runtime و Game helper در Manifest بازسازی شدند.
+
+### Next test
+
+ابتدا Pro Micro را با ARM 2.8.2 و برد Arduino Leonardo فلش کنید و `ams_key.h` خصوصی فعلی را نگه دارید. سپس Bundle جدید Pico را بسازید و Route ماهیگیری را اجرا کنید. معیار پذیرش: حرکت Mouse نرم بماند، پس از صدای قلاب Mouse فوری متوقف و F بدون انتظار برای پایان مسیر اجرا شود، و `ERR|BUSY` یا MemoryError رخ ندهد.
+
+## Build 68 — Runner سبک Game/Fishing و Stop عادی
+
+**Previous build:** 67  
+**Status:** Hardware verified for Desktop/Login/DC/Game; Sound superseded by Build 69  
+**Commit:** `9c27b113`
 
 ### Problem observed
 
@@ -45,7 +76,7 @@ Game شامل `RPKG`، `LOOPTIME`، `PGROUP`، `WSND` و RMOUSE موازی اس�
 
 - `plan_engine_game.py` با حجم کمتر از 10KB اضافه شد و بدون Import Parser یا Executor کامل، Route واقعی ماهیگیری را Streaming اجرا می‌کند.
 - Random Package، Loop زمانی، Parallel Group، RMOUSE و WSND با همان قرارداد قبلی حفظ شدند.
-- هنگام حرکت فعال موس، Sound poll اجرا نمی‌شود؛ تشخیص صدا خواهرها را لغو و F را اجرا می‌کند، Timeout کل گروه را بدون F می‌بندد تا Loop بیرونی دوباره Cast کند.
+- هنگام حرکت فعال Mouse، Sound poll برای جلوگیری از `ERR|BUSY` اجرا نمی‌شد؛ این محدودیت در سخت‌افزار تأخیر Catch ایجاد کرد و در Build 69 جایگزین شد.
 - Stop در Runner سبک اکنون `ROUTE/aborted` عادی است و Guard Failure تولید نمی‌کند.
 - Cacheهای Helper بعد از هر Route سبک نیز آزاد می‌شوند تا Start بعدی Heap تازه داشته باشد.
 - Manifest و Exporter به Inventory 27فایلی و خروجی 31فایلی به‌روزرسانی شدند.
@@ -60,7 +91,7 @@ Game شامل `RPKG`، `LOOPTIME`، `PGROUP`، `WSND` و RMOUSE موازی اس�
 
 ### Next test
 
-Bundle جدید را روی CIRCUITPY جایگزین و Start را مستقیماً در Game بزنید. معیار پذیرش: `ROUTE|stage=light-route` (نه `before-plan-engine-import`)، آغاز Cast/Fishing، حرکت نرم موس، عملکرد Sound/F و نبود `MemoryError`. GP4 Stop باید فقط `ROUTE/aborted` ثبت کند.
+تست سخت‌افزاری Bundle 164/166 تأیید کرد Game با `ROUTE|stage=light-route` و Heap کافی اجرا می‌شود، Pause/Resume و Stop سالم‌اند و MemoryError برنگشته است. تأخیر F هنگام حرکت به Build 69 منتقل شد.
 
 ## Build 67 — Runner سبک Streaming برای Login/DC
 
