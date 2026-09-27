@@ -4295,8 +4295,10 @@ class TestRunner
                    && repairedBridge.Contains("failed.Kill(entireProcessTree: true)")
                    && repairedBridge.Contains("Port = null;"),
                 "bridge kills the stale sidecar and releases COM after send faults");
+            var repairedRepoRoot = new DirectoryInfo(AppContext.BaseDirectory)
+                .Parent?.Parent?.Parent?.Parent?.FullName ?? "";
             var repairedPythonBridge = File.ReadAllText(
-                Path.Combine(_p57root, "ams-shell", "bridge", "bridge.py"));
+                Path.Combine(repairedRepoRoot, "ams-shell", "bridge", "bridge.py"));
             Assert(repairedPythonBridge.Contains("stale = state[\"link\"]")
                    && repairedPythonBridge.Contains("failed = state[\"link\"]")
                    && repairedPythonBridge.Contains("Pico brain not found on any serial port"),
