@@ -12,7 +12,7 @@
     <AssemblyTitle>Classroom Studio</AssemblyTitle>
     <Product>Classroom Studio</Product>
     <Description>Educational classroom workflow and input-automation studio</Description>
-    <Version>0.9.68</Version>
+    <Version>0.9.67</Version>
     <RootNamespace>Ams.UI</RootNamespace>
   </PropertyGroup>
 

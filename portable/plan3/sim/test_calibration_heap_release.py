@@ -8,12 +8,13 @@ code = (root / "CIRCUITPY-MODERN" / "code.py").read_text(encoding="utf-8")
 assert 'def _prepare_calibration_heap(self):' in code
 assert 'def _release_plan_heap(self, emit_cal=False):' in code
 assert 'proxy.module = None' in code
-for name in ('plan_engine_exec', 'plan_engine_human', 'plan_engine_login', 'plan_engine_parallel', 'plan_engine_parse'):
+for name in ('plan_engine_exec', 'plan_engine_game', 'plan_engine_human', 'plan_engine_login', 'plan_engine_parallel', 'plan_engine_parse'):
     assert name in code
 assert code.count('_prepare_calibration_heap(self)') == 4
 assert 'self.samples = []\n        _prepare_calibration_heap(self)' in code
 manifest = (root / "CIRCUITPY-MODERN" / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
-assert len(manifest) == 26
+assert len(manifest) == 27
+assert any(line.endswith('  plan_engine_game.py') for line in manifest)
 assert any(line.endswith('  plan_engine_login.py') for line in manifest)
 assert any(line.endswith('  plan_engine_parallel.py') for line in manifest)
 print('calibration heap release contract: PASS')
