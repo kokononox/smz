@@ -3,6 +3,132 @@ name: Classroom Studio current branch
 on:
   workflow_dispatch:
   push:
+    branches: [feat/dc-auto-esc-88-188, fix/cursor-origin-sync, fix/portable-relative-mouse, feat/build50-human-mouse-final, fix/build67-label-lightwatch]
+    paths:
+      - 'ams-shell/**'
+      - 'tests/**'
+      - 'portable/plan3/CIRCUITPY-MODERN/**'
+      - 'portable/plan3/sim/test_calibration_heap_release.py'
+      - 'tools/apply_calibration_save_heap_fix.py'
+      - 'tools/current_release_notes.py'
+      - 'CHANGELOG-CURRENT.md'
+      - 'README.md'
+      - '.github/workflows/classroom-studio-current.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Require a current hardware changelog entry
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only HEAD^ HEAD)
+          $releaseRelevant = @($changed | Where-Object {
+            $_ -match '^(ams-shell/|tests/|portable/plan3/CIRCUITPY-MODERN/|tools/apply_calibration_save_heap_fix.py|tools/current_release_notes.py|\.github/workflows/classroom-studio-current.yml)'
+          })
+          if ($releaseRelevant.Count -gt 0 -and -not ($changed -contains 'CHANGELOG-CURRENT.md')) {
+            throw 'Build-affecting changes require an update to CHANGELOG-CURRENT.md'
+          }
+          python tools/current_release_notes.py --build-number "${{ github.run_number }}" --sha "${{ github.sha }}"
+          if (-not (Test-Path release-notes.md)) { throw 'release-notes.md was not generated' }
+
+      - name: Apply and verify calibration-save memory fix
+        shell: pwsh
+        run: |
+          python tools/apply_calibration_save_heap_fix.py
+          python portable/plan3/sim/test_calibration_heap_release.py
+          python -m py_compile portable/plan3/CIRCUITPY-MODERN/code.py
+
+      - name: Compile-check bridge stack
+        run: python -m py_compile ams-shell/bridge/bridge.py ams-shell/bridge/ams_serial.py ams-shell/bridge/ams_crypto.py
+
+      - name: Verify bridge stack imports
+        run: python -c "import sys; sys.path.insert(0, 'ams-shell/bridge'); import ams_crypto, ams_serial, bridge; print('bridge stack imports OK')"
+
+      - name: Restore
+        run: dotnet restore ams-shell/AMS.sln
+
+      - name: Build Classroom Studio
+        run: dotnet build ams-shell/AMS.sln -c Release --no-restore
+
+      - name: Build TestRunner
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force tests/bin, tests/obj -ErrorAction SilentlyContinue
+          dotnet build tests/TestRunner.csproj -c Release
+
+      - name: Run Golden-100 TestRunner contract
+        shell: pwsh
+        env:
+          GOLDEN_100_ONLY: '1'
+        run: |
+          dotnet run --project tests/TestRunner.csproj -c Release --no-build 2>&1 | Tee-Object ci-test-output.txt
+          $exitCode = $LASTEXITCODE
+          $fails = Select-String -Path ci-test-output.txt -Pattern '^FAIL:'
+          $summary = Select-String -Path ci-test-output.txt -Pattern '^(FAIL:|=== Results|Unhandled|.*Exception|.*error)'
+          foreach ($line in $summary) {
+            Write-Host "::error file=tests/TestRunner.cs::$($line.Line)"
+          }
+          if ($exitCode -ne 0) {
+            foreach ($line in (Get-Content ci-test-output.txt -Tail 100)) {
+              Write-Host "::error::$line"
+            }
+            exit $exitCode
+          }
+          foreach ($fail in $fails) {
+            Write-Host "::error file=tests/TestRunner.cs::$($fail.Line)"
+          }
+          if ($fails.Count -gt 0) { exit 1 }
+
+      - name: Package current Classroom Studio
+        if: success()
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          Remove-Item -Recurse -Force "$out/bridge/__pycache__" -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$out/*" -DestinationPath Classroom-Studio-current.zip -Force
+          (Get-FileHash Classroom-Studio-current.zip -Algorithm SHA256).Hash | Out-File sha256.txt -Encoding ascii
+
+      - name: Upload current build or test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classroom-Studio-current-${{ github.sha }}
+          path: |
+            Classroom-Studio-current.zip
+            sha256.txt
+            ci-test-output.txt
+            release-notes.md
+          if-no-files-found: warn
+
+      - name: Publish current Classroom Studio test release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: classroom-current-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: "Classroom Studio current test #${{ github.run_number }}"
+          prerelease: true
+          body_path: release-notes.md
+          files: |
+            Classroom-Studio-current.zip
+            sha256.txt
+            ci-test-output.txtname: Classroom Studio current branch
+
+on:
+  workflow_dispatch:
+  push:
     branches: [feat/dc-auto-esc-88-188, fix/cursor-origin-sync, fix/portable-relative-mouse, feat/build50-human-mouse-final, stable/natural-mouse-v1]
     paths:
       - 'ams-shell/**'
