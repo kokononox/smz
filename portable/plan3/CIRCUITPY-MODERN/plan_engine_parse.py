@@ -128,7 +128,7 @@ _OPS = ("PLAN", "SCREEN", "SPEED", "RMOUSE", "CLICK", "TYPE",
         "DELAY", "LOOP", "LOOPTIME", "ENDLOOP", "WLIGHT", "STATELOOP",
         # v2 - Classroom Studio portable parity (sound, keys, flow, includes)
         "MOVETO", "KEY", "KDOWN", "KUP", "WHEEL", "RAW",
-        "WSND", "TRGSND", "IFSND", "IFLUX", "ELSE", "ENDIF",
+        "WSND", "WSNDP", "TRGSND", "IFSND", "IFLUX", "ELSE", "ENDIF",
         "LABEL", "GOTO", "INCLUDE", "HANDPATH",
         # v3 - full Classroom Studio parity: packages, parallel groups, buzzer
         "RPKG", "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "RETRY", "ENDRETRY", "BEEP")
@@ -200,7 +200,7 @@ def _link_blocks(ops):
 # individual timed events. TRGSND deliberately stays out: the Arm-side click is
 # an indivisible legacy transaction and cannot share the sound monitor.
 _PAR_OK = ("RMOUSE", "MOVETO", "CLICK", "KEY", "KDOWN", "KUP", "WHEEL",
-           "TYPE", "DELAY", "RAW", "BEEP", "HANDPATH", "WSND",
+           "TYPE", "DELAY", "RAW", "BEEP", "HANDPATH", "WSND", "WSNDP",
            "LOOP", "LOOPTIME", "ENDLOOP", "RPKG")
 _PKG_MODES = ("pick", "all", "seq")
 
@@ -449,6 +449,20 @@ def parse_plan(text):
             prm["fallback"] = vals.get("fallback", "STOP").upper()
             if prm["fallback"] not in ("STOP", "FIRST"):
                 raise ValueError("line %d: STATELOOP fallback must be STOP or FIRST" % line_no)
+        elif op == "WSNDP":
+            pa = fields[1].split(",") if len(fields) > 1 else []
+            if len(pa) != 5:
+                raise ValueError("line %d: WSNDP needs id,binding,threshold,min,timeout" % line_no)
+            try:
+                profile_id = int(pa[0])
+                threshold, minimum, timeout = int(pa[2]), int(pa[3]), int(pa[4])
+            except Exception:
+                raise ValueError("line %d: bad WSNDP numbers" % line_no)
+            binding = pa[1].strip()
+            if profile_id not in (1, 2) or not binding or len(binding) > 32:
+                raise ValueError("line %d: bad WSNDP profile" % line_no)
+            prm.update({"profile_id": profile_id, "binding": binding,
+                        "threshold": threshold, "minimum": minimum, "timeout": timeout})
         elif op in ("WSND", "TRGSND", "IFSND", "IFLUX"):
             pa = fields[1].split(",") if len(fields) > 1 else []
             need = {"WSND": 3, "IFSND": 3, "IFLUX": 5, "TRGSND": 8}[op]
