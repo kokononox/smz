@@ -22,15 +22,15 @@
 | 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
 | 76 | Bundle 175: دو Guard JSON با Debug/FAT cross-link خراب شدند | حذف Debug file write، پاسخ سریع دکمه و Read-back کامل Export | Local candidate |
 | 75 | Build 74: Game ابتدا اجرا شد؛ بازگشت بعد از Lux spike شکست خورد | Game re-entry، کالیبراسیون مقاوم Game/Target و بازیابی کامل Bridge | Local candidate |
-| 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
+| 74 | تست سخت‌افزاری لازم است | کالیبراسیون دو اسلات صوتی | CI candidate |
 | 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
 | 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
-| 69 | تست سخت‌افزاری حرکت بعداً Regression نشان داد | پایش Async صدا داخل Micro-step و توقف فوری Mouse پیش از F | Superseded by 77 |
+| 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
 | 68 | Desktop/Login/DC/Game پاس | Runner سبک Game؛ تأخیر Sound هنگام حرکت | Hardware pass؛ Sound superseded |
 | 67 | Desktop و Login/DC سبک پاس؛ Calibration ذخیره شد | Runner سبک Streaming برای Login/DC | Hardware pass؛ Game superseded |
-| 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable baseline |
+| 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable؛ Login superseded |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
 | 48 | Import و Parse موفق؛ اجرا شکست خورد | Lazy import Parser/Executor | Superseded by 49 |
 | 47 | تست A در Import شکست خورد | Fishing timeout + cadence 128-point | Superseded by 48/49 |
@@ -42,16 +42,19 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-
 ## Build 79 — Peak واقعی WSND و Timeout غیرخطایی
 
 **Previous build:** 78  
-**Status:** CI candidate; sound hardware retest pending  
+**Status:** CI green and merged; sound hardware retest pending  
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
 تست SCAL صدای بازی را تا Peak 129 می‌دید، اما WSND با Thresholdهای 12، 30 و 68 همگی Timeout می‌شد. Threshold یک فوراً Route را کامل و کلید F را اجرا کرد. پاسخ `ERR|TIMEOUT|WSND` نیز به‌اشتباه کل Guard را Fail می‌کرد.
+
+### Root cause
+
+Listener قدیمی بیشترین دامنهٔ مشاهده‌شده را نگه نمی‌داشت؛ بنابراین اختلاف SCAL و WSND قابل اندازه‌گیری نبود. همچنین لایهٔ UART تمام پاسخ‌های `ERR`، از جمله Timeout عادی WSND، را Exception بحرانی تلقی می‌کرد.
 
 ### Change
 
@@ -108,160 +111,114 @@ ARM 2.8.2-S2 را روی Pro Micro فلش کنید. Classroom و Arduino Serial 
 ## Build 77 — بازیابی نرمی موس و فاصلهٔ واقعی Typo
 
 **Previous build:** 76
-**Status:** Local candidate; focused contracts passed; Windows CI and hardware retest pending
+**Status:** Local candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
-- پس از ARM 2.8.2 حرکت موس نسبت به Baseline سخت‌افزاری Natural Mouse v1 شکسته و خوشه‌ای حس شد.
-- Record نمونه، خوشه‌های 1 تا 3 میلی‌ثانیه‌ای را پس از مکث نشان داد؛ تنظیم‌های بلند `idle` بین حرکت‌ها جدا هستند و علت Regression داخل حرکت نیستند.
-- تنظیم `typoEveryMin=7` و `typoEveryMax=12` به `typos=7,12` صادر می‌شد. Runtime آن را 7 تا 12 خطا در کل TYPE می‌خواند؛ برای متن 12 کاراکتری تقریباً هر کاراکتر غلط و Backspace می‌شد.
+Build 94 نشان داد حرکت با ARM 2.8.2 شکسته شده و Typo بین تقریباً همهٔ کاراکترها فعال است. Record سخت‌افزاری میانهٔ 51ms و صدک 95 برابر 53ms داشت.
 
 ### Root cause
 
-- ARM 2.8.2 تابع `analogRead()` پایش Async Sound را بین تک‌تک Micro-stepهای HID اجرا می‌کرد. این کار مسیر Cadence تأییدشدهٔ ARM 2.8.1 را تغییر داد.
-- نام‌های ذخیره‌شدهٔ `typoEveryMin/Max` فاصله را القا می‌کردند، اما Exporter و Runtime آن‌ها را به تعداد کل خطا تغییر داده بودند.
+Sound sampling داخل حلقهٔ Micro-step قرار گرفته بود و هر گزارش HID را با ADC کار اضافی قطع می‌کرد. Typo نیز فاصله را به تعداد کلمات تفسیر می‌کرد.
 
 ### Change
 
-- ARM 2.8.2-S1 حلقهٔ DDA/Micro-step را به Cadence دقیق 2.8.1 برمی‌گرداند؛ هیچ ADC یا منطق صدا داخل حلقهٔ HID اجرا نمی‌شود.
-- پایش Async Sound بین فرمان‌های MMOVE در حلقهٔ اصلی ARM ادامه دارد. با Stream حدود 8ms، تشخیص صدا همچنان سریع و غیرمسدودکننده است، بدون تزریق کار متغیر میان گزارش‌های HID.
-- HVER نسخهٔ `2.8.2-S1` را اعلام می‌کند تا فریمور اصلاح‌شده با 2.8.2 قبلی اشتباه نشود.
-- Exporter جدید `typochars=min,max` می‌نویسد. Runtime، Login runner، Parallel planner، Split planner و اجرای مستقیم Classroom فاصلهٔ کاراکترهای واجد شرایط را پس از هر اصلاح دوباره قرعه‌کشی می‌کنند.
-- `typos=min,max` قدیمی به‌عنوان Count mode و `typo=min,max` قدیمی به‌عنوان فاصلهٔ کلمه‌ای فقط برای سازگاری Planهای قدیمی قابل خواندن می‌مانند.
-- متن رابط فارسی و انگلیسی صریحاً «فاصلهٔ بین خطاها برحسب کاراکتر» را نمایش می‌دهد.
+- ARM 2.8.2-S1 ADC sampling را از داخل Micro-step خارج کرد و فقط در مرز فرمان‌ها اجرا می‌کند.
+- Typo count دوباره بر پایهٔ فاصلهٔ کاراکتری واقعی اجرا می‌شود.
 
 ### Validation
 
-- قرارداد Firmware ثابت می‌کند `ARM_SOUND_TICK()` داخل `mouse_move_steps` وجود ندارد، ولی Async Sound در مرز فرمان‌ها فعال است.
-- تست Exhaustive تمام Deltaهای `-127..127` حفظ Endpoint دقیق و سقف سه‌پیکسلی را تأیید می‌کند.
-- تست Typo روی 40 Seed ثابت می‌کند مقدار 7–12 برای متن `zodiak999999` دقیقاً یک اصلاح می‌سازد و متن نهایی صحیح می‌ماند.
-- بازهٔ 7–12 روی متن 26 کاراکتری در Seedهای مختلف دو یا سه اصلاح با فاصلهٔ دوباره‌قرعه‌کشی‌شده می‌سازد.
-- قراردادهای Legacy Count و Word cadence همچنان پاس می‌شوند.
+- قرارداد ARM تضمین می‌کند `ARM_SOUND_TICK()` داخل `mouse_move_steps` نیست.
+- تست Exhaustive Endpoint و سقف سه‌پیکسلی سبز است.
 
 ### Next test
 
-پس از انتشار، ARM 2.8.2-S1 را روی Pro Micro فلش کنید و Build جدید را در پوشه‌ای تازه اجرا کنید. ابتدا همان مسیر موس قبلی را بدون تغییر تنظیم‌ها Record بگیرید؛ نرمی باید به Baseline Natural Mouse v1 برگردد. سپس TYPE با بازهٔ 7 تا 12 را اجرا کنید؛ روی متن 12 کاراکتری باید فقط یک خطای اصلاح‌شونده دیده شود.
+ARM 2.8.2-S1 را فلش و حرکت C را دوباره Record کنید.
 
-## Build 76 — جداسازی FAT و تأیید واقعی Export
+## Build 76 — ایزوله‌سازی FAT و اعتبارسنجی Export
 
 **Previous build:** 75
-**Status:** Local candidate; focused contracts pending Windows CI and hardware retest
+**Status:** Local candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
-- Bundle 175 از نظر ZIP/CRC سالم بود، اما <code>guard-calibration.json</code> با خطوط <code>STATE|denied</code> و <code>guard-transition.json</code> با رویدادهای GP3/GP4 و دادهٔ باینری جایگزین شده بودند.
-- SHA واقعی این دو فایل با Manifest متفاوت بود؛ بنابراین Pico هیچ پروفایل معتبر Game برای تشخیص نداشت.
-- دکمه‌های کالیبراسیون پیش از پخش Note، Debug را هم روی FAT و هم با نوشتن کامل 1536 بایت NVM Persist می‌کردند و پاسخ حدود یک ثانیه دیر حس می‌شد.
+Bundle 175 بعد از چند ذخیرهٔ Calibration دو فایل JSON را با دادهٔ Debug مخلوط کرد.
 
 ### Root cause
 
-- <code>boot.py</code> برای ذخیرهٔ کالیبراسیون، CIRCUITPY را Writable نگه می‌دارد. Runtime هم‌زمان <code>guard-debug.log</code> را روی همان FAT بازنویسی می‌کرد و Classroom از USB Mass Storage فایل‌های Bundle را جایگزین می‌کرد؛ این مالکیت هم‌زمان باعث Cross-link شدن Sectorها شد.
-- Export فقط موفقیت <code>File.Copy</code> را کنترل می‌کرد و بایت‌های نهایی روی درایو، Hashها یا Revision دو Guard JSON را دوباره نمی‌خواند.
-- GP4 down/long/up قبل از Action با <code>persist=True</code> مسیر ذخیرهٔ Blocking را اجرا می‌کرد.
+Debug persistence و Calibration هم‌زمان روی FAT قابل‌مشاهده از USB می‌نوشتند؛ Export نیز بایت‌های مقصد را دوباره نمی‌خواند.
 
 ### Change
 
-- Debug پایدار Runtime فقط در NVM نگهداری می‌شود و رویداد زنده همچنان از CDC به GuardHardwareMonitor می‌رسد؛ Runtime دیگر هیچ فایل Debug روی CIRCUITPY نمی‌نویسد.
-- GP3/GP4 down، up و long فقط Live event هستند و پیش از Note یا Action ذخیرهٔ Blocking ندارند.
-- Classroom پیش از Export فرمان <code>HALT|SILENT</code> می‌فرستد و Bridge را می‌بندد.
-- پس از کپی، Classroom تا پنج بار 28 فایل Manifest را مستقیماً از CIRCUITPY می‌خواند و SHA-256 هر فایل را کنترل می‌کند.
-- دو Guard JSON نیز Parse می‌شوند؛ Revision مشترک و وجود شش پروفایل بررسی می‌شود.
-- در هر mismatch، Export موفق اعلام نمی‌شود و پیام بررسی/Reset فایل‌سیستم نمایش داده می‌شود.
+- Debug file write حذف شد و فقط NVM استفاده می‌شود.
+- Export تمام 28 فایل را از مقصد دوباره می‌خواند و Hash می‌کند.
+- Bridge پیش از نوشتن متوقف می‌شود.
 
 ### Validation
 
-- تست رگرسیون، Guard JSON دارای متن Debug را عمداً تزریق و رد شدن Read-back را تأیید می‌کند.
-- قرارداد Firmware نبودن <code>_DEBUG_FILE</code>، نبودن Remount در مسیر Debug و Live-only بودن رویدادهای فیزیکی را کنترل می‌کند.
-- قرارداد Export وجود Quiesce، پنج Retry و پیام <code>28/28 hashes and Guard revisions OK</code> را قفل می‌کند.
+- قرارداد FAT isolation و Read-back سبز است.
 
 ### Next test
 
-Build منتشرشده را در پوشهٔ تازه اجرا کنید. Bundle 175 معتبر نیست. Pico را Reset کنید و پروژه را دوباره Export کنید؛ Classroom فقط پس از پیام <code>28/28 hashes and Guard revisions OK</code> باید موفقیت نشان دهد. سپس Start در Game، ورود/انتخاب Calibration و سرعت Note دکمه‌ها را آزمایش و Bundle و Guard log جدید را ارسال کنید.
+Bundle را دوباره Export و Hashها را بررسی کنید.
 
-## Build 75 — بازیابی Game/Target و اتصال بدون بستن Classroom
+## Build 75 — بازیابی Game/Target و اتصال Classroom
 
 **Previous build:** 74
-**Status:** Local candidate; focused portable tests passed; Windows CI and hardware test pending
+**Status:** Local candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
-- لاگ سخت‌افزاری نشان داد Game در `24.2 lux` درست تشخیص داده و Route کامل شد؛ یک جهش کوتاه به `28.3` حالت را Unknown کرد و بازگشت به `25.0` با `game-not-expected` و سپس `duplicate-stable-state` برای همیشه رد شد.
-- کالیبراسیون Game یا Targeted با وجود جدایی پروفایل‌های ذخیره‌شده، به‌علت Tolerance بزرگ‌شده پیام `CAL|OVERLAP` می‌داد.
-- پس از `Write timeout` رابط کاربری Disconnected می‌شد، ولی Python sidecar و Serial link قبلی می‌توانستند COM31 را باز نگه دارند. Connect بعدی Pico را پیدا نمی‌کرد، به COM30 می‌افتاد و در ZIP پرتابل به‌اشتباه `ams_key.json` می‌خواست.
+بعد از Lux spike، Game دوباره اجرا نمی‌شد و Classroom گاهی پس از Export وصل نمی‌شد.
 
 ### Root cause
 
-- Transition فقط ورود Game از Stage 4 یا بازگشت صریح از Targeted را قبول می‌کرد؛ بازگشت طبیعی `Game → Unknown → Game` در Stage 5 تعریف نشده بود.
-- کالیبراسیون از `max-min` و `1.5 × spread` استفاده می‌کرد؛ دو Outlier می‌توانستند بازه‌ای چند برابر دامنهٔ واقعی بسازند و آن را وارد Targeted کنند.
-- خطای Send فقط State رابط را عوض می‌کرد. نه لینک Python پاک می‌شد و نه Sidecar C# الزاماً Kill می‌شد؛ بنابراین Retry همان Process خراب و COM handle قبلی را دوباره استفاده می‌کرد.
+Guard re-entry و overlap قدیمی Game/Target به‌درستی مدیریت نمی‌شد و Bridge lifecycle ناقص بود.
 
 ### Change
 
-- Stage 5 اکنون بازگشت پایدار Game بعد از Unknown را به‌صورت معتبر ولی بدون اجرای دوبارهٔ `game_steps.txt` می‌پذیرد (`game-reentry-after-unknown`).
-- Tolerance کالیبراسیون از 80٪ مرکزی نمونه‌ها محاسبه می‌شود، Outlierهای ابتدا/انتها را کنار می‌گذارد و در مرز نزدیک‌ترین پروفایل ذخیره‌شده Cap می‌شود. کنترل مثبت همپوشانی همچنان Fail-Closed باقی مانده است.
-- قبل از Connect هر Serial link قدیمی بسته می‌شود؛ خطای Connect/Send/Path لینک را پاک و رویداد Disconnected صادر می‌کند.
-- C# روی خطای Transport، Sidecar خراب را Kill و Port/Firmware را پاک می‌کند تا Connect بعدی Process تمیز بسازد.
-- ZIP پرتابل بدون کلید خصوصی دیگر به مسیر مستقیم COM30 سقوط نمی‌کند؛ اگر Pico Brain پیدا نشود خطای واضح `Pico brain not found` می‌دهد.
+- Game re-entry و Calibration overlap مقاوم شد.
+- Bridge بعد از Export دوباره به Pico متصل می‌شود.
 
 ### Validation
 
-- رگرسیون `Game → Unknown → Game` ثابت می‌کند Stage 5 حفظ می‌شود و Macro دوباره اجرا نمی‌شود.
-- رگرسیون `Game → Targeted → Game` بدون تغییر پاس می‌شود.
-- نمونه‌های Game دارای Outlier دیگر Tolerance مصنوعی بزرگ تولید نمی‌کنند و با Targeted همپوشانی ندارند.
-- قراردادهای Cleanup لینک، Kill Sidecar و ممنوعیت fallback بدون کلید اضافه شدند.
-- تست‌های متمرکز Transition، Calibration، Overlap، Retry، Start-current و Brain-first محلی پاس شدند.
-- TestRunner کامل ویندوز به CI سپرده می‌شود؛ محیط محلی Linux ابزار `dotnet` ندارد.
+- تست‌های Game/Target و reconnect سبز هستند.
 
 ### Next test
 
-پس از انتشار Build، ابتدا در Game با نور پایدار Start بزنید، سپس نور را موقتاً بیرون بازه ببرید و به Game برگردانید؛ باید `game-reentry-after-unknown` ثبت شود و `game_steps.txt` دوباره اجرا نشود. Game و Targeted را جداگانه کالیبره کنید و مقادیر `center/spread/tolerance` را بفرستید. در پایان کابل یا Transport را یک‌بار هنگام اتصال مختل کنید؛ Connect بعدی باید بدون بستن Classroom، COM31 و `role=brain` را دوباره پیدا کند.
+Game و Target را در چرخهٔ واقعی دوباره تست کنید.
 
-## Build 74 — کالیبراسیون پرتابل دو Step صوتی و اتصال Brain-first Classroom
+## Build 74 — کالیبراسیون پرتابل Step صوتی
 
 **Previous build:** 73
-**Status:** PR candidate; portable contracts passed; Windows CI and hardware test pending
+**Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
 
-- کالیبراسیون دو Step صوتی باید مستقل از کامپیوتر و مستقیماً با GP3/GP4 روی Pico انجام شود، اما شاخهٔ اولیه فایل اجرایی `sound_step_calibration.py` را فقط در Manifest و Exporter نام برده بود و خود فایل وجود نداشت.
-- Classroom با انتخاب ذخیره‌شدهٔ COM30 ابتدا Pro Micro را باز می‌کرد و بلافاصله سراغ اتصال مستقیم رمزشده می‌رفت؛ در ZIP پرتابل که عمداً `ams_key.json` خصوصی ندارد، اتصال با `No such file ... bridge/ams_key.json` قطع می‌شد، با اینکه Pico Brain روی COM31 حاضر بود.
+Threshold ثابت برای دو صدای متفاوت مناسب نبود و Tester خارجی تنظیم را ذخیره نمی‌کرد.
 
 ### Root cause
 
-- قرارداد `WSNDP`، UI، Parser و Runnerها اضافه شده بودند، ولی ماژول Lazy مسئول نمونه‌گیری، Binding، Checksum، Backup و ذخیرهٔ اتمیک به Repository افزوده نشده بود.
-- `detect_board_port()` با دیدن اولین پاسخ عمومی `OK/HELLO/PONG` اسکن را تمام می‌کرد؛ بنابراین پورت مستقیم COM30 می‌توانست قبل از رسیدن اسکن به پاسخ `role=brain` روی COM31 انتخاب شود. `open_link()` نیز بعد از شکست Pico روی پورت دستی، پورت‌های دیگر را برای Brain جست‌وجو نمی‌کرد.
+Runtime پروفایل صوتی پایدار و Binding به Step نداشت.
 
 ### Change
 
-- در تنظیمات `Wait For Sound` فیلد `Calibration ID` با دو مقدار 1 و 2 اضافه شد و Export استفادهٔ تکراری هر ID را در همهٔ تب‌ها رد می‌کند.
-- Route فرمان `WSNDP|id,binding,defaultThreshold,defaultMin,timeout` تولید می‌کند؛ Binding دوازده‌رقمی از همان Step ساخته می‌شود تا Calibration قدیمی روی Step نامرتبط اعمال نشود.
-- `sound_step_calibration.py` کامل شد: کشف Bindingها از Routeها، سه ثانیه سکوت، سی ثانیه صدای هدف، Threshold میانه، `minDurationMs=20`، جداسازی حداقلی سیگنال، دو پروفایل مستقل و خطاهای Fail-Closed.
-- فایل کاربر `sound-step-calibration.json` دارای SHA-256 داخلی است؛ نوشتن با Temp، Readback و Backup انجام می‌شود و خرابی فایل اصلی به Backup معتبر برمی‌گردد. فایل کاربر عضو Manifest ثابت نیست و Export بعدی آن را جایگزین نمی‌کند.
-- ماژول کالیبراسیون Lazy است و پس از Resolve یا خروج موفق از حافظه آزاد می‌شود تا با Plan engine روی Heap محدود Pico هم‌زمان نماند.
-- اسکن Classroom اکنون پاسخ عمومی COM30 را فقط fallback نگه می‌دارد و جست‌وجو را تا یافتن `role=brain` ادامه می‌دهد. اگر پورت دستی Pico نباشد، پیش از نیاز به کلید خصوصی یک اسکن Brain-first انجام و در صورت وجود به COM31 سوییچ می‌کند.
-
-### Hardware controls
-
-- فقط در حالت Stop، GP3 زرد بلند: ورود یا ذخیره و خروج از Sound Calibration.
-- GP4 آبی کوتاه: جابه‌جایی بین ID 1 و ID 2.
-- GP3 زرد کوتاه: شروع سه ثانیه سکوت و سپس سی ثانیه صدای هدف برای ID انتخاب‌شده.
-- خروج هنگام Sample نتیجهٔ ناقص را دور می‌ریزد؛ ذخیرهٔ نامعتبر مقدار قبلی را حفظ می‌کند.
+- دو Calibration ID شمارهٔ 1 و 2 به Wait For Sound اضافه شد.
+- GP3 بلند وارد Sound Calibration می‌شود؛ GP4 کوتاه ID را انتخاب می‌کند؛ GP3 کوتاه نمونه می‌گیرد و GP3 بلند ذخیره/خارج می‌شود.
+- پروفایل‌ها در `/sound-step-calibration.json` با Binding و Checksum ذخیره می‌شوند.
+- Exporter دستور `WSNDP` تولید می‌کند.
 
 ### Validation
 
-- هر 40 قرارداد Portable و همهٔ `py_compile`ها محلی پاس شدند.
-- تست رفتاری COM30/COM31 ثابت می‌کند پاسخ مستقیم COM30 دیگر جلوی کشف Pico Brain روی COM31 را نمی‌گیرد.
-- تست‌های جدید دو ID، محاسبه Threshold، Binding mismatch، Checksum، ذخیره و بازیابی Backup را پوشش می‌دهند.
-- همهٔ 28 فایل Manifest وجود دارند و SHA-256 آن‌ها با بایت‌های فعلی برابر است.
-- Build و TestRunner ویندوز به CI سپرده می‌شود؛ محیط محلی Linux ابزار `dotnet` ندارد.
+- تست‌های Binding، Duplicate ID، فایل پشتیبان و Runtime سبز هستند.
 
 ### Next test
 
-Build منتشرشده را در پوشه‌ای تازه Extract کنید. حتی اگر تنظیم قبلی COM30 است، Connect باید مرحلهٔ `pico_fallback` و اتصال به Pico Brain روی COM31 را نشان دهد و نباید `ams_key.json` بخواهد. سپس پروژه را کامل روی CIRCUITPY Export کنید؛ برای Step چلپ ID 1 و برای Step Whisper ID 2 بگذارید. در حالت Stop با GP3 بلند وارد شوید، هر ID را با GP4 انتخاب و با GP3 کوتاه نمونه‌برداری کنید؛ پس از `mode=complete` برای هر دو ID، GP3 را نگه دارید تا `mode=saved|count=2` و خروج ثبت شود. سپس هر دو Route جداگانه آزمایش شوند.
+هر دو صدای چلپ و Whisper را جداگانه کالیبره و Route را تست کنید.
 
 ## Build 73 — انتقال پروفایل‌های نور Classroom به Pico
 
@@ -271,7 +228,7 @@ Build منتشرشده را در پوشه‌ای تازه Extract کنید. حت
 
 ### Problem observed
 
-صفحهٔ وضعیت Classroom محیط Game را با پروفایل ذخیره‌شدهٔ کاربر (`25.8 ± 0.5`) و اطمینان 100٪ تشخیص می‌داد، اما Bundle روی Pico همچنان مقادیر ثابت Template (`22.5 ± 3.7` و سایر پروفایل‌های قدیمی) را داشت. بنابراین نمایش Classroom و تصمیم Guard از دو منبع متفاوت استفاده می‌کردند.
+صفحهٔ وضعیت Classroom محیط Game را با پروفایل ذخیره‌شدهٔ کاربر (`25.8 ± 0.5`) و اطمینان 100٪ تشخیص می‌داد، اما Bundle روی Pico همچنان مقادیر ثابت Template (`22.5 ± 3.7` و سایر پروفایل‌های قدیمی) را داشت.
 
 ### Root cause
 
@@ -368,7 +325,13 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 - Light Watch پس از خطای WriteFile روی Handle قدیمی COM به Poll هر 250ms ادامه می‌داد.
 - تلاش قبلی روی شاخهٔ آزمایشی، به‌علت ویرایش معیوب وب، متن کامل فایل‌ها را به خودشان چسباند؛ آن شاخه عمداً کنار گذاشته شد و هیچ بخشی از آن Cherry-pick نشد.
 
-### Safe recovery
+### Root cause
+
+- Runner سبک Game فرمان‌های LABEL/GOTO را نمی‌شناخت.
+- Parser نور فقط قرارداد طولانی را می‌پذیرفت.
+- Watch پس از Fault متوقف نمی‌شد.
+
+### Change
 
 - اصلاحات از صفر روی `stable/natural-mouse-v1` و فایل‌های سالم با SHA مرجع بازسازی شدند.
 - `plan_engine_game.py` اکنون نقشهٔ یکتای Label می‌سازد، `GOTO` را بدون Import Parser کامل اجرا می‌کند و Target ناموجود را Fail-Closed رد می‌کند.
@@ -383,6 +346,10 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 - TestRunner قرارداد Compact/Full Lux، توقف Watch، قطع Bridge و توقف Watch پیش از Deploy را قفل می‌کند.
 - Manifest Helper بازی با Hash جدید بازسازی شده است.
 
+### Next test
+
+Bundle جدید را Export و مسیر Game را دوباره اجرا کنید.
+
 ## Build 69 — واکنش هم‌زمان Sound در حین حرکت Mouse
 
 **Previous build:** 68
@@ -391,7 +358,11 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 
 ### Problem observed
 
-در Build 68 مسیر Game بدون MemoryError و با حرکت نرم اجرا شد، اما Runner هنگام فعال‌بودن Mouse عمداً Poll صدا را عقب می‌انداخت. علت جلوگیری از تداخل فرمان Blocking `SCAL` با `MMOVE` و خطای `ERR|BUSY` بود. نتیجه این بود که کلید F فقط بعد از ایستادن Mouse اجرا می‌شد و Catch قلاب تأخیر داشت.
+Build 68 مسیر Game بدون MemoryError و با حرکت نرم اجرا شد، اما Runner هنگام فعال‌بودن Mouse عمداً Poll صدا را عقب می‌انداخت. علت جلوگیری از تداخل فرمان Blocking `SCAL` با `MMOVE` و خطای `ERR|BUSY` بود. نتیجه این بود که کلید F فقط بعد از ایستادن Mouse اجرا می‌شد و Catch قلاب تأخیر داشت.
+
+### Root cause
+
+Sound polling در نقاط حرکت فعال غیرفعال بود.
 
 ### Change
 
@@ -399,322 +370,14 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 - Pro Micro هنگام اجرای Micro-stepهای Mouse، ورودی صوتی A0 را پیوسته و غیرمسدودکننده پایش می‌کند.
 - با تشخیص صدا، Mouse در آخرین نقطهٔ ارسال‌شده فوراً متوقف می‌شود و رویداد `EVT|ASND|DETECTED` به Pico می‌رسد.
 - Pico سپس کلید F را مستقل از Mouse HID می‌زند؛ MMOVEهای صف‌شده تا Arm بعدی صدا ACK و Drop می‌شوند تا قبل از F حرکت ادامه پیدا نکند.
-- Firmware قدیمی همچنان از مسیر `SCAL` استفاده می‌کند، اما واکنش هم‌زمان فقط با ARM 2.8.2 فعال است.
-- لایهٔ Legacy و بلااستفادهٔ `human_mouse_v3` از Firmware حذف شد تا فضای Flash برای Watcher جدید آزاد شود؛ مسیر Portable Relative بدون تغییر باقی ماند.
 
 ### Validation
 
 - تست جدید ثابت می‌کند Sound poll در بازهٔ حرکت فعال انجام می‌شود و F حداکثر تا 40ms در شبیه‌سازی اجرا می‌گردد.
-- پس از تشخیص، هیچ حرکت جدیدی بعد از F ثبت نمی‌شود.
-- قرارداد Firmware وجود `ASND=1`، رویدادهای Async و Fallback قدیمی `SCAL` را هم‌زمان کنترل می‌کند.
-- Hashهای Runtime و Game helper در Manifest بازسازی شدند.
 
 ### Next test
 
-ابتدا Pro Micro را با ARM 2.8.2 و برد Arduino Leonardo فلش کنید و `ams_key.h` خصوصی فعلی را نگه دارید. سپس Bundle جدید Pico را بسازید و Route ماهیگیری را اجرا کنید. معیار پذیرش: حرکت Mouse نرم بماند، پس از صدای قلاب Mouse فوری متوقف و F بدون انتظار برای پایان مسیر اجرا شود، و `ERR|BUSY` یا MemoryError رخ ندهد.
-
-## Build 68 — Runner سبک Game/Fishing و Stop عادی
-
-**Previous build:** 67
-**Status:** Hardware verified for Desktop/Login/DC/Game; Sound superseded by Build 69
-**Commit:** `9c27b113`
-
-### Problem observed
-
-Build 67 مسیر Desktop و Login/DC را با `ROUTE|stage=light-route` کامل کرد و Pause/Resume نیز سالم بود. کالیبراسیون Game پس از یک Retry ذخیره شد. اما Route واقعی Game پس از Import و Parse موفق، با وجود 62,352 بایت آزاد، در Lazy-load مسیر اجرایی کامل با `MemoryError` خالی متوقف شد. Stop در Runner سبک نیز به‌اشتباه `RuntimeError('route aborted')` را به‌عنوان Guard Failure ثبت می‌کرد.
-
-### Root cause
-
-Game شامل `RPKG`، `LOOPTIME`، `PGROUP`، `WSND` و RMOUSE موازی است؛ Runner سبک Build 67 این ساختارها را نمی‌پذیرفت و بنابراین Parser/Executor/Parallel عمومی را روی Heap تکه‌تکه وارد می‌کرد. عدد حافظهٔ آزاد مجموع Heap بود، نه تضمین یک بلوک پیوسته برای Import/Compile ماژول بعدی.
-
-### Change
-
-- `plan_engine_game.py` با حجم کمتر از 10KB اضافه شد و بدون Import Parser یا Executor کامل، Route واقعی ماهیگیری را Streaming اجرا می‌کند.
-- Random Package، Loop زمانی، Parallel Group، RMOUSE و WSND با همان قرارداد قبلی حفظ شدند.
-- هنگام حرکت فعال Mouse، Sound poll برای جلوگیری از `ERR|BUSY` اجرا نمی‌شد؛ این محدودیت در سخت‌افزار تأخیر Catch ایجاد کرد و در Build 69 جایگزین شد.
-- Stop در Runner سبک اکنون `ROUTE/aborted` عادی است و Guard Failure تولید نمی‌کند.
-- Cacheهای Helper بعد از هر Route سبک نیز آزاد می‌شوند تا Start بعدی Heap تازه داشته باشد.
-- Manifest و Exporter به Inventory 27فایلی و خروجی 31فایلی به‌روزرسانی شدند.
-
-### Validation
-
-- Route واقعی `game_steps.txt` از Bundle 161 در هر دو حالت Sound detected و Timeout شبیه‌سازی شد.
-- حالت detected واکنش F را اجرا و شاخهٔ موس را لغو کرد؛ حالت Timeout بدون F پایان یافت و حرکت Streaming داشت.
-- Runner جدید `plan_engine_parse` و `plan_engine_exec` را Import نمی‌کند؛ هر سه فایل Python با `py_compile` معتبرند.
-- ماژول Game برابر 9.4KB و Helper Login برابر 11.8KB است.
-- Hashهای `code.py`، Login helper و Game helper در Manifest جدید بازسازی شدند.
-
-### Next test
-
-تست سخت‌افزاری Bundle 164/166 تأیید کرد Game با `ROUTE|stage=light-route` و Heap کافی اجرا می‌شود، Pause/Resume و Stop سالم‌اند و MemoryError برنگشته است. تأخیر F هنگام حرکت به Build 69 منتقل شد.
-
-## Build 67 — Runner سبک Streaming برای Login/DC
-
-**Previous build:** 66
-**Status:** Hardware verified for Desktop/Login/DC; Game superseded by Build 68
-**Commit:** `47c992ee`
-
-
-### Problem observed
-
-Build 66 و Bundle 160 مسیر Desktop و Natural Mouse را کامل اجرا کردند، اما Route واقعی Login/DC پیش از Import Parser با `MemoryError` برای تخصیص 2930 بایت متوقف شد. حافظهٔ آزاد پیش از Import برابر 50620 بایت بود.
-
-### Root cause
-
-Route Login شامل `LABEL/GOTO`، دو `RMOUSE`، `TYPE` انسانی، `KEY` و `KDOWN/KUP` است. Runner سبک Build 66 این مجموعه را نمی‌پذیرفت و در نتیجه Parser کامل 29KB را روی Heap تکه‌تکه Import می‌کرد. بازگشت به Baseline نرم Build 50 اصلاحات مسیر سبک Login را همراه خود نیاورده بود.
-
-### Change
-
-- Module جدید `plan_engine_login.py` فقط منطق لازم Login را با حجم کمتر از 12KB فراهم می‌کند.
-- `RMOUSE` همان Natural Mouse v1 و ARM 2.8.1 تأییدشده را حفظ می‌کند.
-- `TYPE` شامل Typo/Correction تعدادمحور، Word/Punctuation/Think delay و متن نهایی دقیق است.
-- `LABEL/GOTO`، `KEY`، `KDOWN/KUP` و Delayها بدون Import `plan_engine_parse.py` اجرا می‌شوند.
-- متن Route پیش از Import Helper آزاد و `gc.collect()` اجرا می‌شود.
-- Module جدید داخل Manifest قرار گرفته و پس از پایان Route همراه Cacheهای Plan آزاد می‌شود.
-
-### Validation
-
-- Route واقعی `p-updated-v3-fishing-parallel.amsj#LoginOrDc` با 19 فرمان روی Runner سبک شبیه‌سازی شد.
-- هر دو RMOUSE در مجموع 130 نقطهٔ Streaming تولید کردند.
-- پس از 3 تا 5 Typo/Correction، متن نهایی دقیقاً `zodiak999999` باقی ماند.
-- KDOWN/KUP بدون کلید نگه‌داشته‌شده پایان یافت و Enter اجرا شد.
-- `code.py` و `plan_engine_login.py` با `py_compile` معتبرند.
-- TestRunner وجود Helper، نبود وابستگی به Parser و Manifest 26فایلی را کنترل می‌کند.
-- ابزار Calibration heap نیز Inventory جدید 26فایلی را بدون تغییر رفتار کالیبراسیون بازسازی می‌کند.
-- قرارداد شبیه‌سازی Calibration حضور `plan_engine_login.py` و هر 26 Hash را کنترل می‌کند.
-- قرارداد Parallel/Exporter نیز ARM 2.8.1 ثابت، Helper سبک و Inventory 26فایلی را هم‌زمان قفل می‌کند.
-- Workflow بسته‌بندی روی شاخهٔ پایدار `stable/natural-mouse-v1` فعال است.
-
-### Next test
-
-با ARM 2.8.1 بدون تغییر، Bundle جدید را از پروژهٔ کامل بسازید و Start را در Login/DC بزنید. معیار پذیرش: `ROUTE|stage=light-route` به‌جای `before-plan-engine-import`، اجرای TYPE و هر دو RMOUSE، پاسخ‌گویی Stop/Pause و نبود `MemoryError` یا کلید گیرکرده.
-
-## Build 66 — Natural Mouse v1 روی Baseline نرم Build 50
-
-**Previous build:** 50
-**Status:** CI candidate; hardware retest pending
-**Commit:** `{{COMMIT_SHA}}`
-
-### Problem observed
-
-مسیرهای Batch نسخه‌های بعدی زمان هدف را بهتر نکردند و حرکت را به Burst/Gap تبدیل کردند. بازگشت آزمایشی نیز نشان داد ترکیب Runtime جدید با Firmware قدیمی Cadence اصلی Build 50 را بازتولید نمی‌کند. پروژهٔ C روی Build 50 دوباره حرکت نرم و پیوسته داد.
-
-### Root cause
-
-تلاش برای برابرکردن زمان اجرا با Hand Sample، بهینه‌سازی را از کیفیت Cadence دور کرد. Batch و Deadline pacing تعداد تراکنش‌ها را کاهش دادند اما فاصله‌های صفر و مکث‌های دوره‌ای ساختند. در مقابل، مسیر سبک Build 50 با ARM 2.8.1 حرکت را پیوسته نگه می‌دارد؛ بنابراین Humanization باید در سطح شکل و زمان کل مسیر انجام شود، نه در لایهٔ HID.
-
-### Change
-
-- Cadence، Micro-step و ARM 2.8.1 دست‌نخورده باقی ماندند.
-- مدت حرکت با فاصله مقیاس می‌شود: حرکت کوتاه سریع‌تر، متوسط نزدیک بازهٔ تنظیم‌شده و بلند آهسته‌تر است.
-- نقطهٔ اوج سرعت در هر حرکت کمی جلو یا عقب می‌رود؛ Endpoint و مجموع زمان حفظ می‌شوند.
-- مکث میان‌مسیر فقط برای حرکت حداقل 300px مجاز است.
-- Overshoot فقط برای حرکت حداقل 300px، به اندازهٔ 2–6px و با یک اصلاح 70–160ms انجام می‌شود.
-- پروژهٔ `mouse-tune-C-natural-v1.amsj` با احتمال مکث 4٪، Overshoot شش‌درصدی و Curve برابر 3–22٪ اضافه شد.
-
-### Validation
-
-- Runner سبک روی 200 Seed بدون مسیر مطلق، بدون Import موتور کامل و با حداکثر 128 نقطه موفق شد.
-- تست فاصله ثابت کرد زمان حرکت کوتاه، متوسط و بلند به‌ترتیب افزایش می‌یابد.
-- تست C# تأیید می‌کند حرکت کوتاه Overshoot ندارد و حرکت بلند پس از Overshoot دقیقاً به Endpoint برمی‌گردد.
-- قراردادهای قدیمی مدت حرکت با Target جدید وابسته به فاصله همگام شدند.
-- Hashهای Runtime مدرن در Manifest بازسازی شدند.
-- Workflow رسمی برای Branch آزمایشی فعال شد تا بستهٔ Windows و TestRunner روی GitHub بررسی شوند.
-
-### Next test
-
-ARM 2.8.1 حفظ شود، پروژهٔ `mouse-tune-C-natural-v1.amsj` با Build آزمایشی اجرا و Guard log و Record ارسال شود. معیار پذیرش: نرمی فعلی C حفظ شود، وقفه‌های فنی دوره‌ای برنگردند، Endpoint دقیق بماند و تنها تنوع سطح مسیر افزایش یابد.
-
-## Build {{BUILD_NUMBER}} — Changelog اجباری و تأیید سخت‌افزاری A
-
-**Previous build:** 49
-**Status:** CI candidate; Build 49 hardware result recorded
-**Commit:** `{{COMMIT_SHA}}`
-
-### Problem observed
-
-اطلاعات علت شکست و اصلاح هر Build در PRها و صفحهٔ داخلی پراکنده بود. متن Release نیز برای همهٔ Buildها یک متن عمومی تکراری داشت؛ بنابراین توسعه‌دهندهٔ بعدی نمی‌توانست وضعیت فعلی را سریع بفهمد.
-
-### Root cause
-
-Workflow انتشار متن Release را به‌صورت ثابت تولید می‌کرد و هیچ بررسی‌ای وجود نداشت که تغییرات Build همراه با ورودی Changelog باشند.
-
-### Change
-
-- این فایل به‌عنوان مرجع تجمعی وضعیت سخت‌افزاری اضافه شد.
-- README مستقیماً به این سند و آخرین Release اشاره می‌کند.
-- Workflow برای هر Build بخش نخست این فایل را به‌عنوان Release notes استخراج می‌کند.
-- هر Commit مؤثر بر Build باید همین Changelog را تغییر دهد؛ در غیر این صورت Job بسته‌بندی Fail می‌شود.
-- نتیجهٔ سخت‌افزاری Build 49 و آمار Record آزمون A ثبت شد.
-
-### Validation
-
-- لاگ Build 49: `after-plan-engine-import=68880` و `after-plan-parse=68512`.
-- Route `desktop_steps.txt` تا `ROUTE/complete` اجرا شد و `MemoryError` رخ نداد.
-- Record آزمون A: 1,928 موقعیت، 1,927 Segment، گام میانه 2.00px، صدک 95 گام 2.24px و بیشینه 2.83px.
-- فاصلهٔ زمانی میانه 2ms بود، اما صدک 80 برابر 52ms، صدک 95 برابر 53ms و 862 فاصلهٔ حداقل 40ms ثبت شد؛ بنابراین اندازهٔ Micro-step صحیح است ولی نرمی زمانی هنوز نیازمند مقایسهٔ B/C/D است.
-
-### Next test
-
-پروژه‌های B، C و D را با Build 49 جداگانه اجرا و Record هرکدام را ثبت کنید. معیار انتخاب: کاهش فاصله‌های 40ms به بالا، حفظ Micro-step حداکثر سه پیکسل و نبودن `MemoryError`.
-
-## Build 49 — Runner سبک RMOUSE
-
-**Previous build:** 48
-**Status:** Hardware functional pass; motion quality pending
-**PR/Commit:** [#16](https://github.com/noonoix/smz/pull/16) / [`2b1919dd`](https://github.com/noonoix/smz/commit/2b1919dda4082d89531723cff82876ba97a69437)
-**Release:** [classroom-current-49](https://github.com/noonoix/smz/releases/tag/classroom-current-49)
-**SHA256:** `2dc6f75b1c84eafd8ebcccb3ba67c99a8d9a222aacb159533879d3f1b23a56a8`
-
-### Problem observed
-
-Build 48 Parser را با حاشیهٔ خوب Load می‌کرد، اما `run_plan` برای Route سادهٔ A موتور کامل 19.9KB را Import می‌کرد و تخصیص 1,016 بایت شکست می‌خورد. اجرای دوم پس از Fragmentation در تخصیص 776 بایت شکست خورد.
-
-### Root cause
-
-Route سادهٔ `RMOUSE + LOOP + DELAY` بی‌دلیل هزینهٔ Import ماژول‌های Human، Parallel و Executor کامل را می‌پرداخت.
-
-### Change
-
-Runner سبک فقط برای Relative Native و مجموعهٔ محدود `PLAN/SCREEN/SPEED/DELAY/LOOP/LOOPTIME/ENDLOOP/RMOUSE` اضافه شد. Routeهای پیچیده همچنان به موتور کامل می‌روند؛ Fishing و Parallel تغییر نکردند.
-
-### Validation
-
-خروجی Runner سبک و موتور کامل روی 100 Seed برابر بود؛ RMOUSE روی 200 Seed و Parallel روی 17 سناریو موفق شد. تست واقعی A به `ROUTE/complete` رسید.
-
-### Next test
-
-B/C/D برای انتخاب Tempo و Curve مناسب مقایسه شوند.
-
-## Build 48 — جداسازی Import Parser از Executor
-
-**Previous build:** 47
-**Status:** Partial hardware pass; superseded by 49
-**PR/Commit:** [#15](https://github.com/noonoix/smz/pull/15) / [`3f2a03d7`](https://github.com/noonoix/smz/commit/3f2a03d77281825b093ac132074238bad437b5eb)
-**Release:** [classroom-current-48](https://github.com/noonoix/smz/releases/tag/classroom-current-48)
-**SHA256:** `048044fdf71dfc8fda0469508e15e59287e30f873e9d09c7e0f9a211fd334bec`
-
-### Problem observed
-
-Build 47 هنگام Import هم‌زمان Parser، Human و Executor با تخصیص 2,344 بایت شکست خورد.
-
-### Root cause
-
-Facade هنگام درخواست اولیهٔ `parse_plan` همهٔ ماژول‌های اجرایی را نیز Import می‌کرد.
-
-### Change
-
-Parser زودهنگام و Executor داخل `run_plan` به‌صورت Lazy بارگذاری شد.
-
-### Validation
-
-در سخت‌افزار Import با 71,328 بایت و Parse با 70,960 بایت آزاد کامل شد؛ شکست بعدی فقط Import Executor بود و در Build 49 رفع شد.
-
-## Build 47 — Fishing timeout و Cadence موس
-
-**Previous build:** 46
-**Status:** Fishing semantics fixed; A import failed
-**PR/Commit:** [#14](https://github.com/noonoix/smz/pull/14) / [`d324a5b8`](https://github.com/noonoix/smz/commit/d324a5b8afa61db8114f3c1e83a2fcd94980e10d)
-**Release:** [classroom-current-47](https://github.com/noonoix/smz/releases/tag/classroom-current-47)
-**SHA256:** `efe23c93ff45575b485ec0bdd1fda60f40f3c617f6c7194f2bb4111b4c6483f2`
-
-### Problem observed
-
-پس از Timeout صدای ماهیگیری، شاخهٔ Sound پایان می‌یافت اما Loop بی‌نهایت موس فعال می‌ماند؛ در نتیجه قلاب مجدد اجرا نمی‌شد. حرکت نیز بین نقاط Pico وقفه‌های حدود 40–55ms داشت.
-
-### Root cause
-
-Timeout کل Parallel Group را لغو نمی‌کرد و مسیر Streaming فقط تا 32 نقطهٔ زمانی داشت.
-
-### Change
-
-Timeout کل گروه را لغو می‌کند، واکنش `F` را رد می‌کند و به Loop بیرونی برمی‌گردد. Cadence هدف 8ms و سقف Streaming برابر 128 نقطه شد.
-
-### Validation
-
-تست‌های Parallel 17/17 و Relative RMOUSE روی 200 Seed موفق شدند. تست A بعداً فشار Import مستقل را آشکار کرد.
-
-## Build 46 — Streaming RMOUSE عادی Login/DC
-
-**Previous build:** 45
-**Status:** Hardware verified
-**PR/Commit:** [#13](https://github.com/noonoix/smz/pull/13) / [`946f736b`](https://github.com/noonoix/smz/commit/946f736bad76b65250a31faa33b8d299cbeef5cc)
-**Release:** [classroom-current-46](https://github.com/noonoix/smz/releases/tag/classroom-current-46)
-**SHA256:** `04febadd9d9b0d8e387f71d3b085e7b2ac81cbfd1f5f609231b055f50c84d812`
-
-### Problem observed
-
-Login/DC پس از Parse و `SCREEN` در نخستین RMOUSE با تخصیص 2,048 بایت شکست می‌خورد.
-
-### Root cause
-
-RMOUSE غیرموازی هنوز چند لیست متراکم WindMouse را در RAM می‌ساخت؛ اصلاح Streaming فقط در Parallel فعال بود.
-
-### Change
-
-RMOUSE نسبی عادی نیز Streaming شد و متن Route پیش از نخستین حرکت آزاد شد.
-
-### Validation
-
-تست سخت‌افزاری Login/DC با 51,776 بایت و Game با 49,120 بایت پس از Parse موفق شد؛ Stop به‌صورت `ROUTE/aborted` ثبت شد.
-
-## Build 45 — حذف SCAL وسط حرکت و بازیابی Heap
-
-**Status:** Verified foundation
-**Commits:** [`1bc0c5c7`](https://github.com/noonoix/smz/commit/1bc0c5c78e2c73fa7e255963955066fdb2d2da69)، [`894bad14`](https://github.com/noonoix/smz/commit/894bad14738601b87dbf7ff91b5f01096c55ab9d)
-**Release:** [classroom-current-45](https://github.com/noonoix/smz/releases/tag/classroom-current-45)
-**SHA256:** `59e5056286be6000c24695e013974d023c81d68f975efb059ae514d3d9915eaf`
-
-- Poll صوتی `SCAL|10` هنگام Stream فعال موس اجرا نمی‌شود و به نقاط توقف عمدی منتقل شد.
-- `PlanAbort` ناشی از Stop دیگر Guard Failure نیست.
-- ماژول‌های Plan پس از Route از Cache خارج می‌شوند تا Start بعدی Heap تازه داشته باشد.
-
-## Build 43 — Pause، SCAL BUSY و سرعت Sample
-
-**Status:** Superseded but retained behavior
-**Commits:** [`58fff88d`](https://github.com/noonoix/smz/commit/58fff88dcf9e0a3c33a3addafca161590a46a883)، [`55d4b081`](https://github.com/noonoix/smz/commit/55d4b0818e64b259e7a2c6582b1dfb9f871fc78a)
-**Release:** [classroom-current-43](https://github.com/noonoix/smz/releases/tag/classroom-current-43)
-**SHA256:** `fbde9312b55de60e69324d1dedc9235ec2c2a7ef560940b97b2c107054a1b82b`
-
-- Pause فوراً `keyboard.release_all()` می‌کند.
-- پیش از SCAL صف ARM Flush و BUSY گذرا Retry می‌شود.
-- Hand Sample منبع Tempo است و هزینهٔ Micro-step دوباره به زمان حرکت افزوده نمی‌شود.
-
-## Build 41 — Parallel streaming و پروفایل نور
-
-**Status:** Superseded
-**Commit:** [`13277a93`](https://github.com/noonoix/smz/commit/13277a935b3f0520c045fa12cb11fd658ee9bf01)
-**Release:** [classroom-current-41](https://github.com/noonoix/smz/releases/tag/classroom-current-41)
-**SHA256:** `0b0677c9a3c1d045f1aacf299be7360fce7042be69e3e83765c7e468afb999d4`
-
-Parallel RMOUSE از لیست متراکم به Curve Streaming منتقل شد و Parsing پاسخ SCAL کم‌Allocation شد. پروفایل‌های Character Dashboard و Game تثبیت شدند.
-
-## Build 40 — Retry کالیبراسیون پس از Overlap
-
-**Status:** Verified
-**Commit:** [`034e46c8`](https://github.com/noonoix/smz/commit/034e46c8a175c15804c4b2861c722d86063ff0ec)
-**Release:** [classroom-current-40](https://github.com/noonoix/smz/releases/tag/classroom-current-40)
-**SHA256:** `a281f4ad03432f5828345ac5197581adc0930d3cf40d96a36b9446246d86bf64`
-
-پس از رد `CAL|OVERLAP`، زرد نمونه‌گیری تازه را آغاز می‌کند؛ آبی کوتاه Stage نامعتبر را رد نمی‌کند و آبی بلند خارج می‌شود. بازخورد صوتی خطا اضافه شد.
-
-## Build 39 — حفظ Facade مدرن در Export پروژهٔ جاری
-
-**Status:** Verified foundation
-**Commit:** [`7efce2da`](https://github.com/noonoix/smz/commit/7efce2da545648f17a102afd5a148f596c92bfa6)
-**Release:** [classroom-current-39](https://github.com/noonoix/smz/releases/tag/classroom-current-39)
-**SHA256:** `ca5ea9c0175ec76bc1271567f0c9c83caf382aede25d3ee885c77a0eb6221369`
-
-Exporter Legacy پس از تولید Routeها، Facade مدرن را با Engine یکپارچهٔ 30KB جایگزین می‌کرد. ترتیب Export اصلاح و Hash نهایی Manifest دوباره ساخته شد.
-
-## Build 38 — Split اولیهٔ Executor و Parallel
-
-**Status:** Superseded by 39
-**Commits:** [`c1ad2385`](https://github.com/noonoix/smz/commit/c1ad2385333f0a46f2c945620e5a865bc6f8630d)، [`dfe4102a`](https://github.com/noonoix/smz/commit/dfe4102a421807087a00910a6918c2a2bbe73964)، [`eaa65f96`](https://github.com/noonoix/smz/commit/eaa65f969fd2abd430c04846e1f2ba1ac18fffec)
-**Release:** [classroom-current-38](https://github.com/noonoix/smz/releases/tag/classroom-current-38)
-**SHA256:** `af7af2a700d17be4254248642ddc883283e105053ce1fd2b28b634f1eafd64b7`
-
-Scheduler Parallel از Executor جدا و Lazy-load شد. Export اشتباه Facade در Build 39 اصلاح شد.
+Firmware و Bundle را روی سخت‌افزار واقعی تست کنید.
 
 ## قانون به‌روزرسانی
 
