@@ -316,6 +316,12 @@ def open_link(port):
                 alternate.close()
             except Exception:
                 pass
+    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ams_key.json")
+    if not os.path.isfile(key_path):
+        raise PicoError(
+            "Pico brain not found on any serial port; portable Classroom "
+            "cannot use direct Pro Micro mode without ams_key.json"
+        )
     from ams_serial import BoardLink   # import تنبل — مسیر پیکو به ams_key.json نیاز ندارد
     link = BoardLink(port=port)
     dev = link.connect()
@@ -363,6 +369,16 @@ def main():
             op = req.get("op")
             try:
                 if op == "connect":
+                    # A prior send fault may have left a live Serial object in
+                    # this sidecar even though the UI already shows Disconnected.
+                    # Always release it before probing/opening another port.
+                    stale = state["link"]
+                    state["link"] = None
+                    if stale is not None:
+                        try:
+                            stale.close()
+                        except Exception:
+                            pass
                     port = req.get("port") or "AUTO"
                     if port.strip().upper() in ("AUTO", ""):
                         port = detect_board_port() or "AUTO"   # v0.9.5 — اسکن خودکار
@@ -494,6 +510,15 @@ def main():
                     emit({"event": "aborted", "reply": "ERR|aborted", "cmd": req.get("cmd")})
                 else:
                     emit({"event": "error", "op": op, "message": str(e)})
+                    if op in ("connect", "send", "send_path"):
+                        failed = state["link"]
+                        state["link"] = None
+                        if failed is not None:
+                            try:
+                                failed.close()
+                            except Exception:
+                                pass
+                        emit({"event": "disconnected"})
 
     threading.Thread(target=worker, daemon=True).start()
 

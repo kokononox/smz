@@ -366,7 +366,23 @@ public sealed class PythonBoardBridge : IBoardBridge
                     _replyTcs?.TrySetException(new InvalidOperationException(msg));
                     if (State == BridgeState.Connecting
                         || (State == BridgeState.Connected && op is ("send" or "send_path")))
+                    {
+                        // Do not reuse a sidecar that may still own the failed
+                        // COM handle. The next Connect creates a clean process.
+                        var failed = _proc;
+                        _proc = null;
+                        _readerCts?.Cancel();
+                        try { failed?.StandardInput.Close(); } catch { }
+                        try
+                        {
+                            if (failed is { HasExited: false })
+                                failed.Kill(entireProcessTree: true);
+                        }
+                        catch { }
+                        FirmwareVersion = null;
+                        Port = null;
                         SetState(BridgeState.Disconnected);
+                    }
                     break;
             }
         }

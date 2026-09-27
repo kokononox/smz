@@ -103,3 +103,32 @@ def find_profile_overlap(profiles, profile_id, candidate, margin=CAL_OVERLAP_MAR
         if proposed > margin and proposed > previous + 0.000001:
             return {"with": other_id, "width": proposed}
     return None
+
+
+def calibrated_profile(values, profiles, profile_id, stable_ms=750):
+    """Build a robust profile and cap it at the nearest saved range."""
+    if profile_id not in PROFILE_IDS or not isinstance(profiles, dict):
+        raise ValueError("profile")
+    clean = sorted(_number(value, "sample") for value in values)
+    if len(clean) < 5:
+        raise ValueError("samples")
+    count = len(clean)
+    center = clean[count // 2]
+    low = clean[int((count - 1) * 0.10)]
+    high = clean[int((count - 1) * 0.90)]
+    tolerance = max(1.0, ((high - low) / 2.0) + 0.5)
+    cap = None
+    for other_id in PROFILE_IDS:
+        if other_id == profile_id or other_id not in profiles:
+            continue
+        other = profiles[other_id]
+        distance = abs(center - float(other["center"])) - float(other["tolerance"])
+        if distance > 0 and (cap is None or distance < cap):
+            cap = distance
+    if cap is not None:
+        tolerance = min(tolerance, cap)
+    return {
+        "center": center,
+        "tolerance": max(0.25, tolerance),
+        "stable_ms": int(stable_ms),
+    }
