@@ -51,9 +51,9 @@ assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in
 assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
 assert 'plan_engine_parallel.py' in bundle and 'plan_engine_game.py' in bundle and 'plan_engine_login.py' in bundle
-assert 'manifestNames.Length != 30' in bundle
-for token in ('RUNFOR', 'AUTORESUME', 'POSTLAUNCH', 'class Marker',
-              'phase = "wait-usb"', 'resume-in=', 'MAX_RESTARTS = 5'):
+assert 'manifestNames.Length != 32' in bundle
+for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
+              'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
 assert 'line.startswith("EVT|HOSTUSB|")' in runtime
 sound_calibration=root/'portable/plan3/CIRCUITPY-MODERN/sound_step_calibration.py'

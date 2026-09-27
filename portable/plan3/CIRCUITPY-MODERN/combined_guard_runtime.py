@@ -12,6 +12,7 @@ import pwmio
 import usb_cdc
 import usb_hid
 import storage
+import microcontroller
 
 class Keyboard:
     """Small boot-keyboard driver; avoids an undeclared adafruit_hid dependency."""
@@ -535,43 +536,23 @@ class Combined:
         overlap = find_profile_overlap(existing_profiles, profile_id, profile)
         if overlap is not None:
             raise CalibrationOverlapError(overlap["with"], overlap["width"])
-        manifest = json.loads(json.dumps(self.bundle["manifest"]))
-        calibration = json.loads(json.dumps(self.bundle["calibration"]))
-        manifest["calibrationRevision"] = revision
-        found = False
-        for item in manifest.get("profiles", []):
-            if item.get("id") == profile_id:
-                item["center"] = profile["center"]; item["tolerance"] = profile["tolerance"]; item["stableMs"] = profile["stable_ms"]; found = True
-        if not found: raise GuardBundleError("profile missing from Guard manifest")
-        calibration["revision"] = revision
-        calibration.setdefault("profiles", {})[profile_id] = {
-            "center": profile["center"], "tolerance": profile["tolerance"], "stable_ms": profile["stable_ms"]}
-        self._ensure_calibration_storage_writable()
-        old_manifest = self._read_text("/guard-transition.json")
-        old_calibration = self._read_text("/guard-calibration.json")
-        old_hashes = self._read_text("/SHA256SUMS.txt")
+        profiles = json.loads(json.dumps(existing_profiles))
+        profiles[profile_id] = {
+            "center": profile["center"], "tolerance": profile["tolerance"],
+            "stable_ms": profile["stable_ms"]}
         try:
-            self._replace_json("/guard-transition.json", json.dumps(manifest))
-            self._replace_json("/guard-calibration.json", json.dumps(calibration))
-            self._replace_text("/SHA256SUMS.txt", self._hash_manifest())
-            new_bundle = load_guard_bundle("/")
-            new_guard = LightStateGuard.from_bundle("/")
+            calibration_nvm.save(microcontroller.nvm, CALIBRATION_BASE_REVISION, profiles)
+            calibration_nvm.apply(self.bundle, profiles)
+            self.guard = LightStateGuard(
+                self.bundle["states"], self.bundle["stable_ms"],
+                self.bundle["hysteresis"], self.bundle["sensor_timeout_ms"])
+            self.guard.bundle = self.bundle
         except Exception as exc:
             self.last_cal_error = type(exc).__name__ + ":" + str(exc)[:80]
             self.emit("ERR|CAL|SAVE|" + self.last_cal_error)
-            rollback_error = None
-            for path, text in (
-                ("/guard-transition.json", old_manifest),
-                ("/guard-calibration.json", old_calibration),
-                ("/SHA256SUMS.txt", old_hashes),
-            ):
-                try:
-                    self._replace_text(path, text)
-                except Exception as exc:
-                    if rollback_error is None: rollback_error = exc
-            if rollback_error is not None: raise RuntimeError("calibration rollback failed") from rollback_error
             raise
-        self.bundle = new_bundle; self.guard = new_guard; self.last_cal_error = None
+        self.last_cal_error = None
+        self.emit("EVT|CAL|storage=nvm|id=" + profile_id)
     def calibration_count(self):
         return len(self.bundle.get("calibration", {}).get("profiles", {}))
     def calget(self):

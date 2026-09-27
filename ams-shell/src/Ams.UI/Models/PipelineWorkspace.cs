@@ -8,6 +8,7 @@ public enum PipelineKind
 {
     Desktop,
     Restart,
+    Startup,
     LoginOrDc,
     Dc,
     CharacterDashboard,
@@ -48,11 +49,12 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },
-        new() { Kind = PipelineKind.Restart, Title = "Restart", FileName = "restart_steps.txt" },
+        new() { Kind = PipelineKind.Restart, Title = "After", FileName = "restart_steps.txt" },
+        new() { Kind = PipelineKind.Startup, Title = "Startup", FileName = "startup_steps.txt" },
         new() { Kind = PipelineKind.LoginOrDc, Title = "Login / DC", FileName = "login_or_dc_steps.txt" },
         new() { Kind = PipelineKind.Dc, Title = "DC", FileName = "dc_steps.txt" },
         new() { Kind = PipelineKind.CharacterDashboard, Title = "Character Dashboard", FileName = "character_dashboard_steps.txt" },

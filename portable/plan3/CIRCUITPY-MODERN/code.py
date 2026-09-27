@@ -110,11 +110,21 @@ runtime.parse_calibration_set = parse_calibration_set
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
               "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
-              "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py"):
+              "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
+              "startup_steps.txt", "calibration_nvm.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES
 _BOOT_BUNDLE = _guard_bundle.load_guard_bundle("/")
+import calibration_nvm as _calibration_nvm
+_CALIBRATION_BASE_REVISION = _BOOT_BUNDLE["revision"]
+_calibration_profiles = _calibration_nvm.load(
+    getattr(_microcontroller, "nvm", None), _CALIBRATION_BASE_REVISION)
+if _calibration_profiles is not None:
+    _calibration_nvm.apply(_BOOT_BUNDLE, _calibration_profiles)
+runtime.calibration_nvm = _calibration_nvm
+runtime.CALIBRATION_BASE_REVISION = _CALIBRATION_BASE_REVISION
+del _calibration_profiles
 del _name, _guard_bundle
 # The runtime is already imported; only the verified boot bundle remains live.
 gc.collect()
@@ -824,7 +834,8 @@ def _diagnostic_route(self, decision):
     if not decision.get("execute"):
         return False
     name = decision.get("route")
-    if name not in self.bundle["manifest"]["routes"].values():
+    if (name not in self.bundle["manifest"]["routes"].values()
+            and name not in ("restart_steps.txt", "startup_steps.txt")):
         raise GuardBundleError("unvalidated route")
     # A parsed plan is consumable: loop/random bookkeeping and the step cursor
     # must never be reused by the next invocation of the same Route. Re-read
@@ -948,6 +959,7 @@ def _audible_loop(self):
                             _debug_event(self, "ROUTE", "aborted %s" % route_name, persist=True)
                         else:
                             _debug_event(self, "ROUTE", "complete %s" % route_name, persist=True)
+                            self.cycle.route_complete(route_name)
                     else:
                         denied = (active, decision.get("reason"))
                         if denied != self.debug_last_denied:

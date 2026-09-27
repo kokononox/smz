@@ -11,7 +11,7 @@ for filename in ("launch_steps.txt", "plan.txt", "launch_recovery.txt", "main_re
     assert filename in model
 assert "FromLegacy" in model and "PipelineKind.Main" in model
 assert "pipelineVersion" in serializer and "FixParents" in serializer
-assert "There is no Restart Launch tab" in spec
+assert "Startup" in model and "startup_steps.txt" in model
 assert "5, 10, 20, 40, 80" in spec
 assert "transient editor UI state" in spec
 assert "SelectedNodes = new()" in viewmodel and "_undo.Clear()" in viewmodel and "_redo.Clear()" in viewmodel

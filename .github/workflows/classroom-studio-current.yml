@@ -48,7 +48,10 @@ jobs:
         run: |
           python tools/apply_calibration_save_heap_fix.py
           python portable/plan3/sim/test_calibration_heap_release.py
-          python -m py_compile portable/plan3/CIRCUITPY-MODERN/code.py
+          python portable/plan3/sim/test_calibration_nvm.py
+          python portable/plan3/sim/test_modern_restart_cycle.py
+          python portable/plan3/sim/test_auto_cycle_export_ui_contract.py
+          python -m py_compile portable/plan3/CIRCUITPY-MODERN/code.py portable/plan3/CIRCUITPY-MODERN/calibration_nvm.py portable/plan3/CIRCUITPY-MODERN/restart_cycle.py
 
       - name: Compile-check bridge stack
         run: python -m py_compile ams-shell/bridge/bridge.py ams-shell/bridge/ams_serial.py ams-shell/bridge/ams_crypto.py

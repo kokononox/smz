@@ -27,10 +27,11 @@ assert "#10151C" in kit and "primary ? OnPrimary : Text" in kit
 assert "ReorderExportSteps" in kit and "PlanStepTag" in ui and "FirmwareStepTag" in firmware_ui
 assert "WrapPanel EnsureExportCard" in kit and "HorizontalAlignment = HorizontalAlignment.Right" in kit
 assert "EnsureAdvancedPanel" in kit and "IsExpanded = false" in kit
-assert "EnsureAdvancedPanel(body)" in essentials_ui and "EnsureAdvancedPanel(body)" in schedule_ui
-assert "ReorderAdvanced" in essentials_ui and "ReorderAdvanced" in schedule_ui
-assert "Restart Launch" in schedule_ui and "PostRestartLaunchEnabled" in schedule_ui
-assert "PostRestartTaskbarSlot" in schedule_ui and "BuildRangeRow" in schedule_ui
+assert "intentionally installs no UI" in essentials_ui
+assert "EnsureAdvancedPanel(body)" in schedule_ui and "ReorderAdvanced" in schedule_ui
+assert "چرخهٔ After و Startup" in schedule_ui
+assert "Resume Essentials" in schedule_ui and "منسوخ" in schedule_ui
+assert "PostRestartLaunchEnabled" not in schedule_ui and "BuildRangeRow" not in schedule_ui
 assert "ساخت و کپی کامل پروژهٔ فعلی به درایو Pico" in ui
 assert "ExportAutoCycleModernCommand" in ui and "ExportAutoCycleCompleteCommand" not in ui
 assert ui.count("AutoCycleUiKit.Action(") == 1
@@ -38,6 +39,6 @@ assert "CapturePipelineWorkspaceForExport()" in modern_vm and "ExportCurrentProj
 assert "PipelinePlanBundle.Export(" in modern_bundle and "PipelineWorkspaceSerializer.Serialize(workspace)" in modern_bundle
 assert "RebuildManifest(stagingDir, manifestNames)" in modern_bundle
 assert "ToolTip" in ui and "ToolTip" in firmware_ui
-assert "GridUnitType.Star" in essentials_ui and "GridUnitType.Star" in schedule_ui
+assert "GridUnitType.Star" in schedule_ui
 assert "PipelineTabs" in tabs_ui and "Ctrl" not in tabs_ui or "ModifierKeys.Control" in tabs_ui
 print("auto-cycle compact UI + pipeline tabs: 26 passed, 0 failed")

@@ -26,6 +26,7 @@ PROFILE_IDS = (
 ROUTE_FILES = {
     "Desktop": "desktop_steps.txt",
     "Restart": "restart_steps.txt",
+    "Startup": "startup_steps.txt",
     "LoginOrDc": "login_or_dc_steps.txt",
     "CharacterDashboard": "character_dashboard_steps.txt",
     "EnteringGameLoading": "entering_game_loading_steps.txt",

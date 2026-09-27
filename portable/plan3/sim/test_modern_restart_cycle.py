@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Modern cycle parser, NVM marker, deadline and USB resume regressions."""
+"""Route-driven After/Startup cycle regressions."""
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,100 +7,56 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[3]
 FW = ROOT / "portable/plan3/CIRCUITPY-MODERN"
 sys.path.insert(0, str(FW))
-
-from restart_cycle import Controller, Marker, parse_policy
-
-
-policy = parse_policy(
-    "PLAN|2\n"
-    "RUNFOR|300,600\n"
-    "AUTORESUME|1,180,300\n"
-    "POSTLAUNCH|0,1,1,3,20,40\n"
-    "DELAY|1\n"
-)
-assert policy["run"] == (300, 600)
-assert policy["auto"] == (True, 180, 300)
-assert policy["launch"] == (False, 1, (1, 3), (20, 40))
-
-for bad in (
-    "PLAN|2\nRUNFOR|300,600\nDELAY|1\nAUTORESUME|1,180,300\n",
-    "PLAN|2\nRUNFOR|0,600\nAUTORESUME|1,180,300\n",
-    "PLAN|2\nAUTORESUME|1,180,300\n",
-):
-    try:
-        parse_policy(bad)
-        raise AssertionError("invalid cycle plan accepted")
-    except ValueError:
-        pass
+from restart_cycle import Controller, Marker
 
 nvm = bytearray(4096)
 marker = Marker(nvm)
 assert marker.available() and not marker.armed() and marker.count() == 0
 assert marker.arm_next() and marker.armed() and marker.count() == 1
-marker.clear_armed()
-assert not marker.armed() and marker.count() == 1
-assert marker.arm_next() and marker.count() == 2
-marker.reset()
-assert not marker.armed() and marker.count() == 0
+marker.clear_armed(); assert not marker.armed() and marker.count() == 1
+marker.arm_next(); assert marker.count() == 2
+marker.reset(); assert not marker.armed() and marker.count() == 0
 assert bytes(nvm[:1536]) == b"\x00" * 1536
 
-
 class Clock:
-    def __init__(self):
-        self.value = 0
+    def __init__(self): self.value = 0
+    def __call__(self): return self.value
 
-    def __call__(self):
-        return self.value
-
-
-class Fixed:
-    def randint(self, low, high):
-        return low
-
+class Controls:
+    def __init__(self): self.running=False; self.aborted=False
+    def start(self): self.running=True; self.aborted=False
 
 class Owner:
     def __init__(self):
-        self.events = []
-        self.controls = SimpleNamespace(running=False, aborted=False)
-        self.keyboard = SimpleNamespace(release_all=lambda: None)
-        self.arm = SimpleNamespace(host_usb_seen=True, host_usb_state="UP")
-        self.guard = SimpleNamespace(reset=lambda: None, last_decision=None)
-        self.debug_last_state = "game"
+        self.events=[]; self.routes=[]; self.controls=Controls()
+        self.arm=SimpleNamespace(host_usb_seen=True, host_usb_state="UP")
+        self.guard=SimpleNamespace(reset=lambda: None, last_decision=None,
+            transition=SimpleNamespace(stage=None))
+        self.debug_last_state="game"; self.debug_last_denied=None
+    def emit(self,line): self.events.append(line)
+    def route(self,decision): self.routes.append(decision["route"]); return True
 
-    def emit(self, line):
-        self.events.append(line)
+clock=Clock(); owner=Owner(); cycle=Controller(owner,nvm,now=clock)
+owner.controls.start(); cycle.tick()
+assert cycle.phase == "run"
+cycle.route_tick(); assert owner.controls.running  # no legacy RUNFOR deadline
+cycle.route_complete("game_steps.txt")
+assert owner.routes == ["restart_steps.txt"]
+assert cycle.phase == "wait-usb" and cycle.marker.armed()
 
-    def plan_context(self):
-        return SimpleNamespace()
+owner.arm.host_usb_state="DOWN"; cycle.tick()
+owner.arm.host_usb_state="UP"; cycle.tick()
+assert any("startup-in=2" in event for event in owner.events)
+clock.value += 2; cycle.tick()
+assert owner.routes == ["restart_steps.txt", "startup_steps.txt"]
+assert cycle.phase == "run" and not cycle.marker.armed()
+assert owner.guard.transition.stage == 1
+assert any("desktop=skip" in event for event in owner.events)
 
-
-clock = Clock()
-owner = Owner()
-controller = Controller(owner, nvm, policy, now=clock, rng=Fixed())
-owner.controls.running = True
-controller.tick()
-assert controller.phase == "run" and controller.deadline == 300
-clock.value = 300
-controller.route_tick()
-assert controller.due and not owner.controls.running and owner.controls.aborted
-
-# A marker surviving reboot starts in wait-usb. It must observe/rely on a real
-# disconnect before scheduling the configured 180-second resume delay.
-marker.arm_next()
-boot_owner = Owner()
-boot = Controller(boot_owner, nvm, policy, now=clock, rng=Fixed())
+# NVM marker survives a Pico reboot and authorizes Startup once.
+marker.arm_next(); boot_owner=Owner(); boot=Controller(boot_owner,nvm,now=clock)
 assert boot.phase == "wait-usb" and boot.down_seen
-boot_owner.arm.host_usb_state = "UP"
-boot.tick()
-assert boot.resume_at == clock.value + 182
-assert any("resume-in=182" in event for event in boot_owner.events)
+boot.tick(); clock.value += 2; boot.tick()
+assert boot_owner.routes == ["startup_steps.txt"]
 
-# A deliberate GP4/host Start while waiting cancels the stale marker and
-# immediately creates a fresh RUNFOR deadline instead of running two sessions.
-boot_owner.controls.running = True
-boot.previous_running = False
-boot.tick()
-assert boot.phase == "run" and not boot.marker.armed()
-assert any("manual-override" in event for event in boot_owner.events)
-
-print("modern restart cycle: parser, NVM, deadline and USB resume passed")
+print("modern restart cycle: immediate After, persistent Startup and Desktop skip passed")

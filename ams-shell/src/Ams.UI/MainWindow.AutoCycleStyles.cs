@@ -139,7 +139,7 @@ internal static class AutoCycleUiKit
         var panel = new StackPanel { FlowDirection = FlowDirection.RightToLeft };
         var expander = new Expander
         {
-            Header = "تنظیمات AutoCycle — Resume Essentials و زمان‌بندی",
+            Header = "چرخهٔ AutoCycle — After و Startup",
             IsExpanded = false,
             Foreground = Text,
             FontWeight = FontWeights.SemiBold,
@@ -164,7 +164,7 @@ internal static class AutoCycleUiKit
 
     internal static void ReorderAdvanced(StackPanel panel)
     {
-        var sections = new[] { EssentialsTag, ScheduleTag }
+        var sections = new[] { ScheduleTag }
             .Select(tag => FindCard(panel, tag)).Where(x => x is not null).Cast<Border>().ToList();
         foreach (var section in sections) panel.Children.Remove(section);
         foreach (var section in sections) panel.Children.Add(section);

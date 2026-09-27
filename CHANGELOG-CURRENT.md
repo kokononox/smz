@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 84:** چرخهٔ زمان‌محور قدیمی حذف شد؛ پایان Game فوراً After را اجرا می‌کند، Marker پس از Restart تب Startup را یک‌بار اجرا می‌کند، Desktop رد می‌شود و مسیر از Login/DC ادامه می‌یابد. CIRCUITPY نیز دوباره در اختیار Windows است و کالیبراسیون فیزیکی در NVM کنترل‌شده ذخیره می‌شود.
 - **Candidate Build 83:** Runtime مدرن اکنون `RUNFOR/AUTORESUME/POSTLAUNCH` را اجرا می‌کند؛ Deadline مسیر جاری را متوقف، Restart ویندوز را ارسال، Marker را در NVM نگه‌داری و پس از USB Down/Up و تأخیر تنظیم‌شده برنامهٔ Pin‌شده را اجرا می‌کند.
 - **Candidate Build 82:** Tolerance کالیبراسیون نور اکنون فاصلهٔ هر سمت از Median را مستقل محاسبه می‌کند؛ نمونهٔ نامتقارن Dashboard دیگر بلافاصله پس از Save به `unknown` تبدیل نمی‌شود.
 - **Candidate Build 81:** خروجی Classroom Studio اکنون با تست صریح بسته‌بندی کنترل می‌شود تا Runtime سازگار با ARM 2.8.2-S4 شامل شروع ASND، تشخیص/Timeout و Telemetry موازی باشد؛ این Build جایگزین Release قدیمی Build 98 می‌شود.
@@ -21,6 +22,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 84 | تست سخت‌افزاری لازم است | After/Startup مستقل، حذف تایمرهای قدیمی، Desktop skip و NVM calibration | CI candidate |
 | 83 | تست سخت‌افزاری لازم است | اجرای واقعی Restart Cycle، NVM Marker، HOSTUSB و Auto Resume | CI candidate |
 | 82 | Dashboard با center=13.3، spread=2.5 و live=15.8 به unknown رفت | محاسبهٔ دامنهٔ نامتقارن P5/P95 نسبت به Median | CI candidate |
 | 81 | S4 + Bundle 203 دستی Catch را پاس کرد | انتشار Classroom با Runtime داخلی سازگار با S4 | CI candidate |
@@ -49,6 +51,39 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 84 — چرخهٔ Route-driven After/Startup و مالکیت امن CIRCUITPY
+
+**Previous build:** 83 / Classroom release 102
+**Status:** CI candidate; staged hardware test required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+چرخهٔ Build 83 یک Deadline مستقل `RUNFOR` داشت و پس از پایان آن مستقیماً توالی داخلی Restart را اجرا می‌کرد. در نتیجه مدت Game از استپ‌های خود Game جدا شده بود، تب Restart پروژه عملاً منبع After نبود و پس از بالا آمدن Windows نیز Resume با تأخیرهای قدیمی اجرا می‌شد. همچنین `boot.py` مالکیت نوشتن FAT را به CircuitPython داده بود و Windows درایو را Read-only می‌دید.
+
+### Change
+
+- زمان اجرا فقط داخل `game_steps.txt` و استپ‌هایی مانند `LOOPTIME` تعریف می‌شود؛ هیچ تایمر سراسری پیش از Restart وجود ندارد.
+- با پایان موفق Game، `restart_steps.txt` با عنوان **After** فوراً اجرا می‌شود و Marker قبل از آن در NVM ثبت می‌گردد.
+- تب و فایل مستقل `startup_steps.txt` اضافه شد؛ پس از Restart و USB پایدار دقیقاً یک‌بار اجرا می‌شود.
+- پس از Startup، Stage روی Login تنظیم می‌شود؛ Desktop اجرا نمی‌شود و جریان از Login/DC ادامه می‌یابد.
+- Resume Essentials، RUNFOR، AUTORESUME و POSTLAUNCH از UI و خروجی مدرن حذف شدند؛ تنظیم‌های قدیمی فقط برای سازگاری فایل تنظیمات باقی مانده‌اند.
+- CIRCUITPY به Windows واگذار شد. کالیبراسیون نور در ناحیهٔ میانی NVM با Magic، طول، Checksum و اتصال به Revision پروژه ذخیره می‌شود؛ Debug در ۰..۱۵۳۵ و Marker در ۱۶ بایت انتهایی دست‌نخورده‌اند.
+- ساختار After برای روش‌های بعدی Restart آماده است؛ فعلاً محتوای تب After اجرا می‌شود و روش Alt+F4 با Hold تصادفی ۸۸–۱۸۸ms در صف توسعه باقی می‌ماند.
+
+### Validation
+
+- تست چرخه پایان Game → After → USB Down/Up → Startup → Login و Desktop skip پاس شد.
+- تست NVM شامل Checksum، Revision binding و عدم تداخل با Debug/Restart Marker پاس شد.
+- Manifest مدرن ۳۲ فایل دارد و Startup/NVM module در Hash verification قرار گرفته‌اند.
+- تست‌های UI، Export، FAT isolation، Guard transitions و Runtime sound/mouse contract پاس شدند.
+
+### Hardware test
+
+1. Game با `LOOPTIME` کوتاه تمام شود و لاگ بلافاصله `CYCLE|after-start` را نشان دهد.
+2. پس از Restart، لاگ `CYCLE|usb|state=UP|startup-in=2`، سپس `startup-start` و `startup-complete|next=login-or-dc|desktop=skip` را نشان دهد.
+3. در Windows، CIRCUITPY قابل‌نوشتن باشد و ذخیرهٔ کالیبراسیون رویداد `CAL|storage=nvm` ایجاد کند.
 
 ## Build 83 — Restart Cycle و Auto Resume واقعی در Runtime مدرن
 

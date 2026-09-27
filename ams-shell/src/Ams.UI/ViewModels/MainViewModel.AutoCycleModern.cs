@@ -69,7 +69,7 @@ public partial class MainViewModel
                 {
                     ModernAutoCycleFirmwareBundle.VerifyExportedTarget(targetRoot);
                     verifyError = null;
-                    Log("pico current-project verification: 30/30 hashes and Guard revisions OK");
+                    Log("pico current-project verification: 32/32 hashes and Guard revisions OK");
                     break;
                 }
                 catch (Exception ex)
@@ -85,7 +85,7 @@ public partial class MainViewModel
 
             MessageBox.Show(
                 $"پروژهٔ باز فعلی همراه Bundle مدرن روی CIRCUITPY کپی شد ({files.Length} فایل).\n"
-                + "تمام Routeها، پروفایل‌ها و ۲۸ Hash مستقیماً از CIRCUITPY بازخوانی و تأیید شدند.",
+                + "تمام Routeها، پروفایل‌ها و ۳۲ Hash مستقیماً از CIRCUITPY بازخوانی و تأیید شدند.",
                 "Current project Pico export", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)

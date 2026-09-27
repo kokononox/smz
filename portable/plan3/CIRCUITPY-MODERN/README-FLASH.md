@@ -44,3 +44,11 @@ checksum and `sound-step-calibration.bak`. These two user files are intentionall
 outside `SHA256SUMS.txt`, so rebuilding the application bundle does not overwrite
 the on-device calibration. A saved value is used only when its binding matches
 the exact exported `Wait For Sound` step.
+
+## Route-driven cycle
+
+- `game_steps.txt` owns the active duration.
+- `restart_steps.txt` is the **After** route and starts immediately when Game completes.
+- `startup_steps.txt` runs once after the Windows restart and stable USB reconnect.
+- Desktop is skipped after Startup; the optical sequence continues at Login/DC.
+- Legacy RUNFOR, AUTORESUME, POSTLAUNCH and Resume Essentials scheduling is not used.

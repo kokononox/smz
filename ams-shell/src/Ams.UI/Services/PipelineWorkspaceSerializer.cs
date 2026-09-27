@@ -67,7 +67,8 @@ public static class PipelineWorkspaceSerializer
         return name switch
         {
             "Desktop" => PipelineKind.Desktop,
-            "Restart" => PipelineKind.Restart,
+            "Restart" or "After" => PipelineKind.Restart,
+            "Startup" => PipelineKind.Startup,
             "LoginOrDc" or "Login" => PipelineKind.LoginOrDc,
             "Dc" or "DC" => PipelineKind.Dc,
             "CharacterDashboard" => PipelineKind.CharacterDashboard,

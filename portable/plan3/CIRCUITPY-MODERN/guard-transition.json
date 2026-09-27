@@ -33,7 +33,8 @@
     "Game": "game_steps.txt",
     "Targeted": "targeted_steps.txt",
     "Resumable": "resumable_steps.txt",
-    "Restart": "restart_steps.txt"
+    "Restart": "restart_steps.txt",
+    "Startup": "startup_steps.txt"
   },
   "profiles": [
     {

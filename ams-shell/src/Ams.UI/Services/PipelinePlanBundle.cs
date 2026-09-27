@@ -29,6 +29,10 @@ public static class PipelinePlanBundle
         var desktop = NormalizeRecoveryCalls(workspace[PipelineKind.Desktop].Steps);
         var written = AutoCyclePlanBundle.Export(planPath, desktop, settings, screenW, screenH,
             sourceName + "#desktop", machine).ToList();
+        // Modern AutoCycle is route-driven: Game owns its own duration and
+        // After/Startup run without legacy global scheduling directives.
+        File.WriteAllText(planPath, StripLegacyCycleHeaders(File.ReadAllText(planPath)),
+            new UTF8Encoding(false));
         var directory = Path.GetDirectoryName(Path.GetFullPath(planPath))
             ?? throw new IOException("مسیر خروجی Pipeline نامعتبر است.");
 
@@ -109,6 +113,14 @@ public static class PipelinePlanBundle
         || text.Contains("AUTORESUME|", StringComparison.Ordinal)
         || text.Contains("POSTLAUNCH|", StringComparison.Ordinal)
         || text.Contains("LAUNCH|", StringComparison.Ordinal);
+
+    private static string StripLegacyCycleHeaders(string text)
+        => string.Join("\n", text.Replace("\r\n", "\n").Replace('\r', '\n')
+            .Split('\n')
+            .Where(line => !line.StartsWith("RUNFOR|", StringComparison.Ordinal)
+                        && !line.StartsWith("AUTORESUME|", StringComparison.Ordinal)
+                        && !line.StartsWith("POSTLAUNCH|", StringComparison.Ordinal)
+                        && !line.StartsWith("LAUNCH|", StringComparison.Ordinal)));
 
     private static void ValidateRecoveryCalls(PipelineWorkspace workspace)
     {
