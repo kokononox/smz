@@ -47,9 +47,9 @@ the exact exported `Wait For Sound` step.
 
 ## Route-driven cycle
 
-- `game_steps.txt` owns the active duration.
-- `restart_steps.txt` is the **After** route and starts immediately when Game completes.
+- Root `RUNFOR|min,max` bounds the complete active cycle (default 110–130 minutes).
+- `restart_steps.txt` is the **After** route and starts when Game completes or the cycle deadline expires.
 - `startup_steps.txt` runs once after the Windows restart and stable USB reconnect.
 - Desktop is skipped after Startup; the optical sequence continues at Login/DC.
-- Legacy RUNFOR, AUTORESUME, POSTLAUNCH and Resume Essentials scheduling is not used.
+- Legacy AUTORESUME, POSTLAUNCH and Resume Essentials scheduling is not used.
 - Physical light calibration is stored in checksummed board NVM and survives normal Classroom exports; legacy CAL1 snapshots are migrated automatically. Use `CALSTATUS` to confirm `source=nvm`.
