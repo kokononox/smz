@@ -79,7 +79,7 @@
 ### Validation
 
 - تست استقلال Revision، مهاجرت CAL1، Checksum خراب و مرزهای رزروشدهٔ NVM پاس شد.
-- قراردادهای Restart Cycle، Export، FAT isolation، Guard Start و Sound/Mouse بدون تغییر باید پاس شوند.
+- قراردادهای Restart Cycle، Export، FAT isolation، Guard Start و Sound/Mouse پاس شدند؛ Windows TestRunner نیز رشد کنترل‌شدهٔ Entry Point را در سقف ۵۵KB تأیید می‌کند.
 - Manifest همهٔ فایل‌های Runtime تغییرکرده را با SHA-256 جدید پوشش می‌دهد.
 
 ### Next test
