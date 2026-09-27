@@ -4316,9 +4316,10 @@ class TestRunner
                    && repairedTransition.Contains("\"execute\": False"),
                 "Game re-entry after an optical spike restores stage 5 without replaying the macro");
             Assert(repairedCalibration.Contains("def calibrated_profile(")
-                   && repairedCalibration.Contains("0.90")
+                   && repairedCalibration.Contains("0.95")
+                   && repairedCalibration.Contains("max(center - low, high - center)")
                    && repairedCalibration.Contains("tolerance = min(tolerance, cap)"),
-                "light calibration uses robust central samples and caps tolerance at adjacent profiles");
+                "light calibration covers asymmetric samples and caps tolerance at adjacent profiles");
             var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
                    && repairedVm.Contains("private void OnBridgeStateChanged")

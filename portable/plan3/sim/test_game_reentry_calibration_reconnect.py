@@ -62,6 +62,16 @@ assert game["center"] == 22.5
 assert 1.0 <= game["tolerance"] <= 1.5
 assert find_profile_overlap(profiles, "game", game) is None
 
+# Hardware regression: Character Dashboard spent most of the five-second
+# window at 13.3 lux but repeatedly reached 15.8. The former symmetric
+# half-width formula saved 13.3 +/- 1.0, so the live 15.8 state became unknown.
+dashboard_samples = [13.3] * 18 + [15.8] * 2
+dashboard = calibrated_profile(dashboard_samples, profiles, "character-dashboard")
+assert dashboard["center"] == 13.3
+assert dashboard["tolerance"] >= 3.0
+assert dashboard["center"] + dashboard["tolerance"] >= 15.8
+assert find_profile_overlap(profiles, "character-dashboard", dashboard) is None
+
 bridge = (ROOT / "ams-shell/bridge/bridge.py").read_text(encoding="utf-8")
 assert 'stale = state["link"]' in bridge
 assert 'failed = state["link"]' in bridge
