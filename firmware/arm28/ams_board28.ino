@@ -20,7 +20,7 @@ static void arm28_sound_cancel();
 #include "ams_board26_impl.h"
 #undef setup
 #undef loop
-// ARM 2.8.2-S1 intentionally drops the unused legacy absolute HumanMouse layer.
+// ARM 2.8.2-S2 intentionally drops the unused legacy absolute HumanMouse layer.
 // Portable mode uses native relative MMOVE; the recovered flash is used for a
 // concurrent sound watcher.  S1 restores the hardware-proven 2.8.1 mouse
 // cadence: ADC sampling runs between MMOVE commands, never between HID
@@ -51,7 +51,7 @@ static bool arm28_sound_tick(){
   return false;
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S1|REL=1|ASND=1");return true;}
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S2|REL=1|ASND=1");return true;}
   if(!strncmp(line,"ASND|",5)){
     int thr=60;unsigned long minimum=60,timeout=30000;
     sscanf(line+5,"%d,%lu,%lu",&thr,&minimum,&timeout);
@@ -76,7 +76,10 @@ void loop(){
     if(!arm27_handle(g_line1)) handle(g_line1);
     g_out=0;
   }
-  if(!g_secure){if(Serial)do_handshake(40);else delay(1);return;}
+  // An open CDC/DTR port is not proof that a HELLO frame is waiting. Polling
+  // do_handshake(40) merely because COM is open injects a 40-52 ms stall
+  // between Serial1 mouse commands. Only real queued bytes may start it.
+  if(!g_secure){if(Serial.available())do_handshake(40);else delay(1);return;}
   if(Serial.available()&&read_line_blocking(50)){
     static char cmd[MAX_PT];
     if(decrypt_to(g_line,cmd,MAX_PT)){g_lastFrameMs=millis();handle(cmd);}

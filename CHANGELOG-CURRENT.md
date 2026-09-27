@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 78:** ARM 2.8.2-S2 مانع توقف ۴۰–۵۲ms ناشی از بازبودن COM بدون HELLO می‌شود؛ پایش صدا و Cadence یک‌میلی‌ثانیه‌ای حفظ شده‌اند.
 - **Candidate Build 77:** ARM 2.8.2-S1 پایش صدا را از حلقهٔ Micro-step خارج می‌کند تا Cadence نرم 2.8.1 برگردد؛ Typo نیز دوباره فاصلهٔ کاراکتری واقعی است.
 - **Baseline سخت‌افزاری:** Build 68 مسیرهای Desktop/Login/DC/Game را بدون MemoryError روی Pico اجرا کرد؛ حرکت Natural Mouse v1 حفظ شد.
 - **مسئلهٔ باز Build 68:** برای جلوگیری از `ERR|BUSY`، Sound فقط هنگام توقف Mouse Poll می‌شد و واکنش F به صدای قلاب دیر می‌رسید.
@@ -14,6 +15,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 78 | Build 95: میانهٔ 51ms و 1,194 وقفهٔ حداقل 40ms | USB handshake فقط با بایت واقعی؛ حذف stall هنگام بازبودن COM | Local candidate |
 | 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
 | 76 | Bundle 175: دو Guard JSON با Debug/FAT cross-link خراب شدند | حذف Debug file write، پاسخ سریع دکمه و Read-back کامل Export | Local candidate |
 | 75 | Build 74: Game ابتدا اجرا شد؛ بازگشت بعد از Lux spike شکست خورد | Game re-entry، کالیبراسیون مقاوم Game/Target و بازیابی کامل Bridge | Local candidate |
@@ -36,6 +38,40 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 78 — حذف توقف ۵۰ms هنگام بازبودن COM
+
+**Previous build:** 77
+**Status:** Local candidate; hardware record analyzed; CI and hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- Record سخت‌افزاری Build 95 شامل 2,230 موقعیت و 2,229 Segment بود.
+- فاصلهٔ فعال میانه 51ms، صدک 95 برابر 53ms و 1,194 فاصلهٔ حداقل 40ms ثبت شد.
+- Baseline نرم Natural Mouse v1 روی Recordهای قبلی میانهٔ 15–16ms و فقط 1–2 فاصلهٔ حداقل 40ms داشت؛ بنابراین شکستگی گزارش‌شده واقعی و شدید است.
+
+### Root cause
+
+- حلقهٔ ARM 2.8.2-S1 در حالت Session امن‌نشده، صرفاً با بازبودن USB CDC وارد `do_handshake(40)` می‌شد؛ حتی وقتی هیچ HELLO یا بایتی در COM وجود نداشت.
+- بازبودن COM توسط Arduino IDE، Serial Monitor، Classroom یا هر Scanner می‌توانست بین فرمان‌های Mouse یک انتظار حدود 40–52ms تزریق کند.
+- الگوی ثبت‌شدهٔ غالب 52ms در برابر Burstهای 1ms دقیقاً با همین Timeout منطبق است.
+
+### Change
+
+- Firmware به `ARM 2.8.2-S2` ارتقا یافت.
+- Secure USB handshake فقط وقتی اجرا می‌شود که `Serial.available()` بایت واقعی گزارش کند؛ بازبودن سادهٔ DTR/COM مسیر Serial1 و HID را متوقف نمی‌کند.
+- Async Sound، DDA، Pace یک‌میلی‌ثانیه‌ای، سقف سه‌پیکسلی، Checksum، Fail-Closed و Keyboard روی Pico تغییر نکرده‌اند.
+
+### Validation
+
+- قرارداد Firmware وجود شرط `Serial.available()` و نبود شرط Blocking قدیمی `if(Serial)` را قفل می‌کند.
+- تست Exhaustive Endpoint و سقف سه‌پیکسلی با نسخهٔ S2 حفظ می‌شود.
+- Record کاربر مستقلاً Parse شد و شمارش 1,194 وقفهٔ فعال حداقل 40ms از دو مسیر محاسبه یکسان بود.
+
+### Next test
+
+ARM 2.8.2-S2 را روی Pro Micro فلش کنید. Classroom و Arduino Serial Monitor می‌توانند باز بمانند؛ بازبودن COM نباید دیگر حرکت را خراب کند. همان `mouse-tune-C-balanced.amsj` را با Bundle تازه اجرا و Record را ارسال کنید. معیار پذیرش: حذف قلهٔ 51–53ms، بازگشت فاصله‌ها نزدیک Baseline 15–20ms، حداکثر Micro-step سه پیکسل و Route کامل.
 
 ## Build 77 — بازیابی نرمی موس و فاصلهٔ واقعی Typo
 
