@@ -20,6 +20,16 @@
 #include "portable_relative_mouse.h"
 #include "ams_key.h"   // static const uint8_t AMS_PSK[16] = {...};
 
+#ifndef ARM_SOUND_TICK
+#define ARM_SOUND_TICK() false
+#endif
+#ifndef ARM_SOUND_BLOCKS_MOVE
+#define ARM_SOUND_BLOCKS_MOVE() false
+#endif
+#ifndef ARM_SOUND_CANCEL
+#define ARM_SOUND_CANCEL() ((void)0)
+#endif
+
 // fw 2.6 (11 Sep 2026): debounced HOSTUSB UP/SUSPEND/DOWN events on Serial1; no PC helper.
 // fw 2.3 (09 Sep 2026): paced catch-up + optional integrity frames on the brain link.
 //   14k-record field evidence (09 Sep 2026): after a lost OK|MMOVE the Pico coalesced
@@ -55,7 +65,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.1"
+#define FW_VER   "2.8.2"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
@@ -275,10 +285,18 @@ static void mouse_move_steps(int32_t x, int32_t y, uint16_t steps, uint8_t paceM
   }
   int32_t sx = g_curX, sy = g_curY;
   int32_t dx = x - sx, dy = y - sy;
+  int32_t px = sx, py = sy;
   for (uint16_t i = 1; i <= steps; i++) {
-    int32_t px = sx + (int32_t)((dx * (int32_t)i) / (int32_t)steps);
-    int32_t py = sy + (int32_t)((dy * (int32_t)i) / (int32_t)steps);
+    px = sx + (int32_t)((dx * (int32_t)i) / (int32_t)steps);
+    py = sy + (int32_t)((dy * (int32_t)i) / (int32_t)steps);
     mouse_report(px, py);
+    // ARM 2.8.2: the private sound watcher samples between HID micro-steps.
+    // Detection stops the current move at the last emitted point; queued
+    // MMOVEs are acknowledged but ignored until the next ASND arm command.
+    if (ARM_SOUND_TICK()) {
+      g_curX = px; g_curY = py;
+      return;
+    }
     if (i < steps && paceMs) delay(paceMs);
   }
   g_curX = x; g_curY = y;
@@ -554,6 +572,7 @@ static bool read_line_blocking(uint16_t timeoutMs) {
 
 // ================= HALT =================
 static void do_halt() {
+  ARM_SOUND_CANCEL();
   g_buttons = 0;
   PortableMouse.releaseAll();
   mouse_report(g_curX, g_curY);
@@ -633,6 +652,10 @@ static void handle(char* cmd) {
     return;
   }
   if (!strcmp(cmd, "MMOVE")) {
+    if (ARM_SOUND_BLOCKS_MOVE()) {
+      reply_ok("MMOVE");
+      return;
+    }
     int x = 0, y = 0; char mode[8] = "abs"; char hm[4] = "1";
     if (sscanf(args, "%d,%d,%7[^,],%3s", &x, &y, mode, hm) >= 3) {
       if (!strcmp(mode, "rel")) {

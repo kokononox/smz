@@ -144,7 +144,9 @@ def _parallel(commands, start, end, ctx, state):
                 if task not in tasks: continue
                 if task["sound"]:
                     if now < task["poll"]: continue
-                    if any(other is not task and other["moving"] for other in tasks):
+                    concurrent = getattr(ctx, "sound_parallel_safe", None)
+                    if (not (concurrent and concurrent()) and
+                            any(other is not task and other["moving"] for other in tasks)):
                         task["poll"] = now + 10; continue
                     result = ctx.sound_poll(); task["poll"] = now + 10
                     if result is None: continue

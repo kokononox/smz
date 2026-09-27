@@ -8,25 +8,65 @@
 static bool read_line_blocking(uint16_t timeoutMs);
 static bool decrypt_to(const char* line, char* out, uint8_t outMax);
 static void do_halt();
+static bool arm28_sound_tick();
+static bool arm28_sound_blocks_move();
+static void arm28_sound_cancel();
 
+#define ARM_SOUND_TICK() arm28_sound_tick()
+#define ARM_SOUND_BLOCKS_MOVE() arm28_sound_blocks_move()
+#define ARM_SOUND_CANCEL() arm28_sound_cancel()
 #define setup arm26_setup
 #define loop arm26_loop
 #include "ams_board26_impl.h"
 #undef setup
 #undef loop
-#include "human_mouse_v3.h"
+// ARM 2.8.2 intentionally drops the unused legacy absolute HumanMouse layer.
+// Portable mode uses native relative MMOVE; the recovered flash is used for a
+// concurrent sound watcher that remains active while HID movement is streaming.
+static uint8_t asndState=0; // 0=off, 1=listening, 2=detected/block moves
+static uint16_t asndThreshold=0,asndMinimum=0;
+static uint32_t asndDeadline=0,asndHighSince=0;
 
-static bool arm27_human_command(const char* line){
-  return !strcmp(line,"HVER")||!strncmp(line,"HCFG|",5)||!strncmp(line,"HPAUSE|",7)||!strncmp(line,"HMOVE|",6)||!strncmp(line,"HRANDOM|",8)||!strncmp(line,"HSETCUR|",8);
+static void asnd_event(const __FlashStringHelper* value){
+  Serial1.print(F("EVT|ASND|")); Serial1.println(value); Serial1.flush();
+}
+static void arm28_sound_cancel(){asndState=0;asndHighSince=0;}
+static bool arm28_sound_blocks_move(){return asndState==2;}
+static bool arm28_sound_tick(){
+  if(asndState!=1)return asndState==2;
+  uint32_t now=millis();
+  if((int32_t)(now-asndDeadline)>=0){
+    asndState=0;asnd_event(F("TIMEOUT"));return false;
+  }
+  int d=analogRead(SND_PIN)-512;if(d<0)d=-d;
+  if((uint16_t)d>=asndThreshold){
+    if(!asndHighSince)asndHighSince=now;
+    if(now-asndHighSince>=asndMinimum){
+      asndState=2;asnd_event(F("DETECTED"));return true;
+    }
+  }else asndHighSince=0;
+  return false;
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.0|HMOUSE=1|REL=1");return true;}
-  if(!arm27_human_command(line))return false;
-  return human_mouse_v3_handle(line);
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2|REL=1|ASND=1");return true;}
+  if(!strncmp(line,"ASND|",5)){
+    int thr=60;unsigned long minimum=60,timeout=30000;
+    sscanf(line+5,"%d,%lu,%lu",&thr,&minimum,&timeout);
+    asndThreshold=(uint16_t)max(1,thr);
+    asndMinimum=(uint16_t)max(1UL,minimum);
+    asndDeadline=millis()+max(1UL,timeout);
+    asndHighSince=0;asndState=1;
+    send_line("OK|ASND");return true;
+  }
+  if(!strcmp(line,"ASNDCANCEL")){
+    arm28_sound_cancel();send_line("OK|ASNDCANCEL");return true;
+  }
+  return false;
 }
 
 void setup(){ arm26_setup(); }
 void loop(){
+  arm28_sound_tick();
   poll_host_usb();
   if(serial1_line_ready()){
     g_out=&Serial1;

@@ -114,7 +114,7 @@ class Arm:
     def __init__(self):
         self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
         self.buf = bytearray(); self.pending = 0; self.held = set()
-        self.relative_ready = None
+        self.relative_ready = None; self.async_sound = None; self.sound_result = None
     def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
     def write(self, line):
         data = self.frame(line); count = self.uart.write(data)
@@ -126,6 +126,10 @@ class Arm:
             raw, self.buf = self.buf.split(b"\n", 1); line = raw.decode("utf-8", "replace").strip()
             if line.startswith("OK|MMOVE"):
                 self.pending = max(0, self.pending - 1)
+            elif line == "EVT|ASND|DETECTED":
+                self.sound_result = True; print(line)
+            elif line == "EVT|ASND|TIMEOUT":
+                self.sound_result = False; print(line)
             elif line.startswith("EVT|"): print(line)
             elif line: replies.append(line)
         return replies
@@ -140,6 +144,7 @@ class Arm:
         if self.relative_ready is None:
             reply = self.send("HVER", 3)
             self.relative_ready = "|REL=1" in reply
+            self.async_sound = "|ASND=1" in reply
         if not self.relative_ready:
             raise RuntimeError("ARM 2.8 relative mouse firmware required")
         end = time.monotonic() + 2
@@ -314,11 +319,27 @@ class PlanContext:
         reply = self.r.arm.send("WSND|%d,%d,%d" % (threshold, minimum, timeout), timeout / 1000 + 3)
         return True if "DETECTED" in reply else False if "TIMEOUT" in reply else None
     def sound_start(self, threshold, minimum, timeout):
+        arm = self.r.arm
+        if arm.relative_ready is None:
+            reply = arm.send("HVER", 3)
+            arm.relative_ready = "|REL=1" in reply
+            arm.async_sound = "|ASND=1" in reply
+        if arm.async_sound:
+            arm.sound_result = None
+            arm.send("ASND|%d,%d,%d" % (threshold, minimum, timeout), 2)
+            self._parallel_sound = "async"
+            return
         self._parallel_sound = {
             "threshold": int(threshold), "minimum": max(10, int(minimum)),
             "deadline": time.monotonic() + max(1, int(timeout)) / 1000,
             "sustained": 0, "polls": 0}
     def sound_poll(self):
+        if self._parallel_sound == "async":
+            self.r.arm.pump()
+            result = self.r.arm.sound_result
+            if result is not None:
+                self._parallel_sound = None
+            return result
         state = self._parallel_sound
         if state is None:
             return False
@@ -374,7 +395,12 @@ class PlanContext:
             state["sustained"] = 0
         return None
     def sound_cancel(self):
+        if self._parallel_sound == "async":
+            self.r.arm.flush()
+            self.r.arm.send("ASNDCANCEL", 2)
         self._parallel_sound = None
+    def sound_parallel_safe(self):
+        return self.r.arm.async_sound is True
     def trg_sound(self, threshold, minimum, timeout, action, rmin, rmax, hmin, hmax):
         return self.r.arm.send("TRGSND|%d,%d,%d,%d,%d,%d,%d,%d" % (threshold, minimum, timeout, action, rmin, rmax, hmin, hmax), timeout / 1000 + 3).startswith("OK|")
     def beep(self, frequency, duration):

@@ -4234,6 +4234,8 @@ class TestRunner
             var modernExec = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_exec.py"));
             Assert(modernRuntime.Contains("mouse_mode = \"relative\"")
                    && modernRuntime.Contains("MMOVE|%d,%d,rel,2")
+                   && modernRuntime.Contains("ASND|%d,%d,%d")
+                   && modernRuntime.Contains("def sound_parallel_safe")
                    && modernExec.Contains("ctx.mmove_relative(dx, dy)")
                    && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("relative-native-before-route"),
                 "modern AutoCycle export uses hostless relative mouse without a cursor bridge");
@@ -4261,6 +4263,7 @@ class TestRunner
                    && !gameHelper.Contains("import plan_engine_exec")
                    && gameHelper.Contains("def run_game(")
                    && gameHelper.Contains("def _parallel(")
+                   && gameHelper.Contains("sound_parallel_safe")
                    && gameHelper.Length < 14000,
                 "Game light helper streams RPKG/PGROUP/WSND without the full parser or executor");
 
