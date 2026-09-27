@@ -122,6 +122,7 @@ _calibration_profiles = _calibration_nvm.load(
     getattr(_microcontroller, "nvm", None), _CALIBRATION_BASE_REVISION)
 if _calibration_profiles is not None:
     _calibration_nvm.apply(_BOOT_BUNDLE, _calibration_profiles)
+runtime.CALIBRATION_NVM_PROFILE_COUNT = len(_calibration_profiles or {})
 runtime.calibration_nvm = _calibration_nvm
 runtime.CALIBRATION_BASE_REVISION = _CALIBRATION_BASE_REVISION
 del _calibration_profiles
@@ -268,12 +269,20 @@ def _memory_safe_init(self):
     self.blue_start_consumed = False
     self.blue_start_pending = False
     self.last_cal_error = None
-    self.debug_last_state = None
+    # Force the first sensor sample to emit STATE/unknown + lux instead of
+    # silently comparing None == None.
+    self.debug_last_state = "__boot__"
     self.debug_last_denied = None
+    self.calibration_source = (
+        "nvm" if getattr(runtime, "CALIBRATION_NVM_PROFILE_COUNT", 0) else "file")
     import restart_cycle
     self.cycle = restart_cycle.Controller.from_root(
         self, getattr(_microcontroller, "nvm", None))
-    _debug_event(self, "BOOT", "bundle=valid profiles=%d" % len(runtime.PROFILES), persist=True)
+    _debug_event(self, "BOOT", "bundle=valid profiles=%d cal=%s" %
+                 (len(runtime.PROFILES), self.calibration_source), persist=True)
+    if self.calibration_source == "nvm":
+        self.emit("EVT|CAL|storage=nvm|loaded=%d" %
+                  runtime.CALIBRATION_NVM_PROFILE_COUNT)
 
 _CAL_NOTES = (262, 294, 330, 349, 392, 440)
 _GUARD_START_PATTERN = ((784, 160), (988, 160), (1175, 200), (0, 80), (1175, 280))
@@ -1066,7 +1075,7 @@ def _live_host_poll(self):
                 # again without power-cycling the Pico.
                 self.guard.reset()
                 self.guard.last_decision = None
-                self.debug_last_state = None
+                self.debug_last_state = "__start__"
                 self.debug_last_denied = None
                 _apply_pending_cursor(self, force=True)
                 self.controls.start()

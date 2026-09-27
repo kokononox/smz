@@ -1,7 +1,8 @@
 """Compact, checksummed physical-calibration store outside the CIRCUITPY FAT."""
 import json
 
-MAGIC = b"CAL1"
+MAGIC = b"CAL2"
+LEGACY_MAGIC = b"CAL1"
 BASE = 1536
 HEADER = 8
 
@@ -29,7 +30,8 @@ def load(nvm, base_revision):
     if end < BASE + HEADER:
         return None
     try:
-        if bytes(nvm[BASE:BASE + 4]) != MAGIC:
+        magic = bytes(nvm[BASE:BASE + 4])
+        if magic not in (MAGIC, LEGACY_MAGIC):
             return None
         size = int(nvm[BASE + 4]) | (int(nvm[BASE + 5]) << 8)
         expected = int(nvm[BASE + 6]) | (int(nvm[BASE + 7]) << 8)
@@ -39,7 +41,10 @@ def load(nvm, base_revision):
         if _sum16(payload) != expected:
             return None
         data = json.loads(payload.decode("utf-8"))
-        if data.get("base") != base_revision or not isinstance(data.get("profiles"), dict):
+        # Physical calibration belongs to the board/profile IDs, not to one
+        # exported bundle revision. CAL1 included a base revision; accept and
+        # migrate it so a normal Classroom export never discards calibration.
+        if not isinstance(data.get("profiles"), dict):
             return None
         return data["profiles"]
     except Exception:
@@ -50,7 +55,7 @@ def save(nvm, base_revision, profiles):
     end = _limit(nvm)
     if end < BASE + HEADER:
         raise RuntimeError("calibration NVM unavailable")
-    payload = json.dumps({"base": base_revision, "profiles": profiles}, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps({"schema": 1, "profiles": profiles}, separators=(",", ":")).encode("utf-8")
     if BASE + HEADER + len(payload) > end:
         raise RuntimeError("calibration NVM full")
     clear(nvm)

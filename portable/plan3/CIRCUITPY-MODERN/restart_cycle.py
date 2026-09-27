@@ -168,7 +168,7 @@ class Controller:
         if transition is not None:
             transition.stage = 1
         self.owner.guard.last_decision = None
-        self.owner.debug_last_state = None
+        self.owner.debug_last_state = "__resume__"
         self.owner.debug_last_denied = None
         self._emit("startup-complete", "next=login-or-dc|desktop=skip")
         self._begin_run(True)

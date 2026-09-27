@@ -52,3 +52,4 @@ the exact exported `Wait For Sound` step.
 - `startup_steps.txt` runs once after the Windows restart and stable USB reconnect.
 - Desktop is skipped after Startup; the optical sequence continues at Login/DC.
 - Legacy RUNFOR, AUTORESUME, POSTLAUNCH and Resume Essentials scheduling is not used.
+- Physical light calibration is stored in checksummed board NVM and survives normal Classroom exports; legacy CAL1 snapshots are migrated automatically. Use `CALSTATUS` to confirm `source=nvm`.

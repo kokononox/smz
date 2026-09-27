@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 85:** کالیبراسیون فیزیکی نور دیگر به Revision خروجی وابسته نیست؛ Snapshot قدیمی CAL1 بازیابی/مهاجرت می‌شود و منبع مؤثر با `CALSTATUS source=nvm` قابل مشاهده است.
 - **Candidate Build 84:** چرخهٔ زمان‌محور قدیمی حذف شد؛ پایان Game فوراً After را اجرا می‌کند، Marker پس از Restart تب Startup را یک‌بار اجرا می‌کند، Desktop رد می‌شود و مسیر از Login/DC ادامه می‌یابد. CIRCUITPY نیز دوباره در اختیار Windows است و کالیبراسیون فیزیکی در NVM کنترل‌شده ذخیره می‌شود.
 - **Candidate Build 83:** Runtime مدرن اکنون `RUNFOR/AUTORESUME/POSTLAUNCH` را اجرا می‌کند؛ Deadline مسیر جاری را متوقف، Restart ویندوز را ارسال، Marker را در NVM نگه‌داری و پس از USB Down/Up و تأخیر تنظیم‌شده برنامهٔ Pin‌شده را اجرا می‌کند.
 - **Candidate Build 82:** Tolerance کالیبراسیون نور اکنون فاصلهٔ هر سمت از Median را مستقل محاسبه می‌کند؛ نمونهٔ نامتقارن Dashboard دیگر بلافاصله پس از Save به `unknown` تبدیل نمی‌شود.
@@ -22,6 +23,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 85 | تست سخت‌افزاری لازم است | ماندگاری کالیبراسیون فیزیکی بین Exportها و Telemetry منبع NVM | CI candidate |
 | 84 | تست سخت‌افزاری لازم است | After/Startup مستقل، حذف تایمرهای قدیمی، Desktop skip و NVM calibration | CI candidate |
 | 83 | تست سخت‌افزاری لازم است | اجرای واقعی Restart Cycle، NVM Marker، HOSTUSB و Auto Resume | CI candidate |
 | 82 | Dashboard با center=13.3، spread=2.5 و live=15.8 به unknown رفت | محاسبهٔ دامنهٔ نامتقارن P5/P95 نسبت به Median | CI candidate |
@@ -51,6 +53,40 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 85 — ماندگاری کالیبراسیون فیزیکی بین Exportها
+
+**Previous build:** 84 / Classroom release 104
+**Status:** CI candidate; Dashboard hardware retest required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+کالیبراسیون فیزیکی Dashboard با موفقیت Save می‌شد، اما پس از Export عادی پروژه، Runtime دوباره بازهٔ فایل (`14.8..16.8`) را استفاده می‌کرد و نور واقعی نزدیک `13.3` به `unknown` می‌رفت. مانیتور نیز فقط فایل JSON را نشان می‌داد و مشخص نبود منبع مؤثر File است یا NVM.
+
+### Root cause
+
+فرمت CAL1 Snapshot را به Revision دقیق Bundle متصل کرده بود. هر Export Revision را عوض می‌کرد و Loader، Snapshot سالم همان برد و همان Profile IDها را رد می‌کرد. همچنین مقدار اولیهٔ Debug برای State ناشناخته `None` بود و اولین `unknown` همیشه ثبت نمی‌شد.
+
+### Change
+
+- فرمت CAL2 کالیبراسیون را به برد و Profile IDها متصل نگه می‌دارد، نه Revision موقت Export.
+- Snapshotهای CAL1 قدیمی بدون نیاز به کالیبراسیون مجدد خوانده و در Save بعدی به CAL2 مهاجرت می‌شوند.
+- `CALSTATUS` اکنون `source=nvm|file` را گزارش می‌کند و Boot تعداد Profileهای بازیابی‌شده از NVM را ثبت می‌کند.
+- اولین State ناشناخته بعد از Boot، Start و Startup Resume حتماً Telemetry می‌دهد.
+- تغییر کاربر از Shuffle All به Random Subset مستقل از این Patch حفظ شده است.
+
+### Validation
+
+- تست استقلال Revision، مهاجرت CAL1، Checksum خراب و مرزهای رزروشدهٔ NVM پاس شد.
+- قراردادهای Restart Cycle، Export، FAT isolation، Guard Start و Sound/Mouse بدون تغییر باید پاس شوند.
+- Manifest همهٔ فایل‌های Runtime تغییرکرده را با SHA-256 جدید پوشش می‌دهد.
+
+### Next test
+
+1. Build را بدون پاک‌کردن NVM روی برد Export کنید؛ کالیبراسیون مجدد نباید لازم باشد.
+2. در Boot باید `CAL|storage=nvm|loaded=...` و در `CALSTATUS` مقدار `source=nvm` دیده شود.
+3. Start در Dashboard باید `STATE/character-dashboard` و Route مربوط را ثبت کند؛ اگر `source=file` بود، یک‌بار Stage 3 را Save کنید.
 
 ## Build 84 — چرخهٔ Route-driven After/Startup و مالکیت امن CIRCUITPY
 

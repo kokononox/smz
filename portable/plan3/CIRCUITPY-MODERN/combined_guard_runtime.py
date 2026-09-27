@@ -552,6 +552,7 @@ class Combined:
             self.emit("ERR|CAL|SAVE|" + self.last_cal_error)
             raise
         self.last_cal_error = None
+        self.calibration_source = "nvm"
         self.emit("EVT|CAL|storage=nvm|id=" + profile_id)
     def calibration_count(self):
         return len(self.bundle.get("calibration", {}).get("profiles", {}))
@@ -568,8 +569,10 @@ class Combined:
                 float(item.get("tolerance", 0)),
                 int(item.get("stable_ms", 750))))
         error = (self.last_cal_error or "none").replace("|", "/").replace("\n", " ")[:80]
-        return "OK|CALSTATUS|revision=%s|count=%d|profiles=%s|last_error=%s" % (
-            self.bundle.get("revision", "unknown"), len(profiles), ";".join(parts), error)
+        return "OK|CALSTATUS|revision=%s|source=%s|count=%d|profiles=%s|last_error=%s" % (
+            self.bundle.get("revision", "unknown"),
+            getattr(self, "calibration_source", "file"),
+            len(profiles), ";".join(parts), error)
     def calset(self, line):
         if self.controls.running or self.calibrating: return "ERR|CALSET|BUSY"
         payload, error = parse_calibration_set(line)
