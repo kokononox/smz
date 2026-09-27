@@ -4320,8 +4320,17 @@ class TestRunner
                 Type = "comment",
                 Props = new Dictionary<string, object?> { ["text"] = "CURRENT-MOUSE-TEST-ONLY" },
             });
+            var exportedLightProfiles = new[]
+            {
+                new LightStateProfile { Id="desktop", Name="Desktop", Enabled=true, LuxCenter=43.3, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="login-or-dc", Name="Login", Enabled=true, LuxCenter=4, LuxTolerance=2, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="character-dashboard", Name="Character", Enabled=true, LuxCenter=16.7, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="entering-game-loading", Name="Loading", Enabled=true, LuxCenter=38.3, LuxTolerance=1, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="game", Name="Game", Enabled=true, LuxCenter=25.8, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="targeted", Name="Targeted", Enabled=true, LuxCenter=20, LuxTolerance=2, StableDurationMs=750, HysteresisLux=1 },
+            };
             ModernAutoCycleFirmwareBundle.ExportCurrentProject(
-                Path.Combine(modernTmp, "code.py"), current, new AppSettings(),
+                Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
                 1920, 1080, "test mous.amsj", "CURRENT-PROJECT-REGRESSION");
             var currentDesktop = File.ReadAllText(Path.Combine(modernTmp, "desktop_steps.txt"));
             var currentSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
@@ -4330,6 +4339,22 @@ class TestRunner
                    && currentSnapshot.Contains("CURRENT-MOUSE-TEST-ONLY")
                    && !currentDesktop.Contains("Win+2", StringComparison.OrdinalIgnoreCase),
                 "modern one-click export replaces template routes and snapshot with the open project");
+            using var exportedCalibration = JsonDocument.Parse(File.ReadAllText(Path.Combine(modernTmp, "guard-calibration.json")));
+            using var exportedTransition = JsonDocument.Parse(File.ReadAllText(Path.Combine(modernTmp, "guard-transition.json")));
+            var calRoot = exportedCalibration.RootElement;
+            var transitionRoot = exportedTransition.RootElement;
+            var calRevision = calRoot.GetProperty("revision").GetString();
+            var transitionRevision = transitionRoot.GetProperty("calibrationRevision").GetString();
+            var exportedGame = calRoot.GetProperty("profiles").GetProperty("game");
+            var transitionGame = transitionRoot.GetProperty("profiles").EnumerateArray()
+                .Single(item => item.GetProperty("id").GetString() == "game");
+            Assert(calRevision == transitionRevision
+                   && exportedGame.GetProperty("center").GetDouble() == 25.8
+                   && exportedGame.GetProperty("tolerance").GetDouble() == 0.5
+                   && transitionGame.GetProperty("center").GetDouble() == 25.8
+                   && transitionGame.GetProperty("stableMs").GetInt32() == 750,
+                "Build 73: current editable light profiles replace both Pico Guard contracts");
+
             Assert(currentEngine.Length < 8000
                    && currentEngine.Contains("from plan_engine_parse import")
                    && currentEngine.Contains("def run_plan(plan, ctx):")
@@ -4349,6 +4374,15 @@ class TestRunner
                 File.ReadAllBytes(Path.Combine(modernTmp, "plan_engine.py")))).ToLowerInvariant();
             Assert(manifestEngine == engineHash + "  plan_engine.py",
                 "modern one-click export hashes the restored split-engine facade");
+            foreach (var profileFile in new[] { "guard-calibration.json", "guard-transition.json" })
+            {
+                var manifestProfile = File.ReadLines(Path.Combine(modernTmp, "SHA256SUMS.txt"))
+                    .Single(line => line.EndsWith("  " + profileFile, StringComparison.Ordinal));
+                var profileHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                    File.ReadAllBytes(Path.Combine(modernTmp, profileFile)))).ToLowerInvariant();
+                Assert(manifestProfile == profileHash + "  " + profileFile,
+                    "Build 73: manifest hashes exported " + profileFile);
+            }
         }
         finally { if (Directory.Exists(modernTmp)) Directory.Delete(modernTmp, true); }
 

@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ams.UI.Models;
 
 namespace Ams.UI.Services;
@@ -75,6 +77,7 @@ public static class ModernAutoCycleFirmwareBundle
     /// </summary>
     public static IReadOnlyList<string> ExportCurrentProject(
         string codePyPath, PipelineWorkspace workspace, AppSettings settings,
+        IEnumerable<LightStateProfile> lightProfiles,
         int screenW, int screenH, string sourceName, string machine)
     {
         var files = Export(codePyPath);
@@ -97,10 +100,73 @@ public static class ModernAutoCycleFirmwareBundle
         File.WriteAllText(Path.Combine(stagingDir, "autocycle.amsj"),
             PipelineWorkspaceSerializer.Serialize(workspace), new UTF8Encoding(false));
 
+        // Build 73: the Status/Calibration profiles are the operator's source of truth.
+        // Replace both fixed template contracts before hashing the final bundle.
+        WriteLightProfiles(stagingDir, lightProfiles);
+
         var manifestNames = ReadManifestNames(
             Path.Combine(AppContext.BaseDirectory, "portable-modern-runtime", "SHA256SUMS.txt"));
         RebuildManifest(stagingDir, manifestNames);
         return files;
+    }
+
+
+    private static readonly string[] RequiredLightProfileIds =
+    {
+        "desktop", "login-or-dc", "character-dashboard",
+        "entering-game-loading", "game", "targeted",
+    };
+
+    private static void WriteLightProfiles(string stagingDir, IEnumerable<LightStateProfile> source)
+    {
+        var profiles = LightStateProfileStore.Normalize(source).Where(p => p.Enabled).ToArray();
+        var byId = profiles.ToDictionary(p => p.Id, StringComparer.Ordinal);
+        if (profiles.Length != RequiredLightProfileIds.Length
+            || RequiredLightProfileIds.Any(id => !byId.ContainsKey(id)))
+            throw new IOException("خروجی Pico به هر شش پروفایل نور فعال و معتبر نیاز دارد.");
+
+        var revisionHash = ReadOnlyLightGateCoordinator.ComputeProfileRevision(profiles).ToLowerInvariant();
+        var revision = "guard-" + revisionHash[..16];
+        var calibrationProfiles = new JsonObject();
+        foreach (var id in RequiredLightProfileIds)
+        {
+            var profile = byId[id];
+            calibrationProfiles[id] = new JsonObject
+            {
+                ["center"] = profile.LuxCenter,
+                ["tolerance"] = profile.LuxTolerance,
+                ["stable_ms"] = profile.StableDurationMs,
+            };
+        }
+        var calibration = new JsonObject
+        {
+            ["format"] = 1,
+            ["revision"] = revision,
+            ["profiles"] = calibrationProfiles,
+        };
+
+        var transitionPath = Path.Combine(stagingDir, "guard-transition.json");
+        var transition = JsonNode.Parse(File.ReadAllText(transitionPath))?.AsObject()
+            ?? throw new IOException("guard-transition.json نامعتبر است.");
+        transition["calibrationRevision"] = revision;
+        var transitionProfiles = transition["profiles"]?.AsArray()
+            ?? throw new IOException("پروفایل‌های guard-transition.json نامعتبرند.");
+        foreach (var node in transitionProfiles)
+        {
+            var item = node?.AsObject() ?? throw new IOException("پروفایل Guard نامعتبر است.");
+            var id = item["id"]?.GetValue<string>() ?? "";
+            if (!byId.TryGetValue(id, out var profile))
+                throw new IOException("پروفایل Guard ناشناخته است: " + id);
+            item["center"] = profile.LuxCenter;
+            item["tolerance"] = profile.LuxTolerance;
+            item["stableMs"] = profile.StableDurationMs;
+        }
+
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        File.WriteAllText(Path.Combine(stagingDir, "guard-calibration.json"),
+            calibration.ToJsonString(jsonOptions) + Environment.NewLine, new UTF8Encoding(false));
+        File.WriteAllText(transitionPath,
+            transition.ToJsonString(jsonOptions) + Environment.NewLine, new UTF8Encoding(false));
     }
 
     private static string[] ReadManifestNames(string sourceManifest)
