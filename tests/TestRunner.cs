@@ -4282,7 +4282,10 @@ class TestRunner
             var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
             var repairedBridge = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
             var repairedDeploy = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.AutoCycleModern.cs"));
-            Assert(repairedWatch.Contains("WatchFaulted?.Invoke(ex);\n                break;"),
+            var watchFault = repairedWatch.IndexOf("WatchFaulted?.Invoke(ex);", StringComparison.Ordinal);
+            var watchDelay = repairedWatch.IndexOf("var remaining", watchFault, StringComparison.Ordinal);
+            Assert(watchFault >= 0 && watchDelay > watchFault
+                   && repairedWatch.Substring(watchFault, watchDelay - watchFault).Contains("break;"),
                 "Light Watch stops polling after one transport fault");
             Assert(repairedBridge.Contains("op is (\"send\" or \"send_path\")")
                    && repairedBridge.Contains("SetState(BridgeState.Disconnected)"),
