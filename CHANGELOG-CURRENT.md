@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 86:** صدای خطای کالیبراسیون برای Sample ناپایدار و فشار زرد هنگام Busy اضافه شد؛ بازهٔ کامل چرخه با پیش‌فرض ۱۱۰–۱۳۰ دقیقه به UI و Runtime برگشت؛ فایل شش‌پروفایلی به‌روز با Dashboard برابر `13.3 ± 3.0 lux` همیشه داخل بستهٔ Classroom قرار می‌گیرد.
 - **Candidate Build 85:** کالیبراسیون فیزیکی نور دیگر به Revision خروجی وابسته نیست؛ Snapshot قدیمی CAL1 بازیابی/مهاجرت می‌شود و منبع مؤثر با `CALSTATUS source=nvm` قابل مشاهده است.
 - **Candidate Build 84:** چرخهٔ زمان‌محور قدیمی حذف شد؛ پایان Game فوراً After را اجرا می‌کند، Marker پس از Restart تب Startup را یک‌بار اجرا می‌کند، Desktop رد می‌شود و مسیر از Login/DC ادامه می‌یابد. CIRCUITPY نیز دوباره در اختیار Windows است و کالیبراسیون فیزیکی در NVM کنترل‌شده ذخیره می‌شود.
 - **Candidate Build 83:** Runtime مدرن اکنون `RUNFOR/AUTORESUME/POSTLAUNCH` را اجرا می‌کند؛ Deadline مسیر جاری را متوقف، Restart ویندوز را ارسال، Marker را در NVM نگه‌داری و پس از USB Down/Up و تأخیر تنظیم‌شده برنامهٔ Pin‌شده را اجرا می‌کند.
@@ -23,6 +24,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 86 | تست سخت‌افزاری لازم است | بازخورد صوتی Fail کالیبراسیون، بازهٔ ۱۱۰–۱۳۰ دقیقه و پروفایل نور همراه بسته | CI candidate |
 | 85 | تست سخت‌افزاری لازم است | ماندگاری کالیبراسیون فیزیکی بین Exportها و Telemetry منبع NVM | CI candidate |
 | 84 | تست سخت‌افزاری لازم است | After/Startup مستقل، حذف تایمرهای قدیمی، Desktop skip و NVM calibration | CI candidate |
 | 83 | تست سخت‌افزاری لازم است | اجرای واقعی Restart Cycle، NVM Marker، HOSTUSB و Auto Resume | CI candidate |
@@ -53,6 +55,42 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 86 — بازخورد کالیبراسیون، Deadline چرخه و پروفایل همراه
+
+**Previous build:** 85 / Classroom release 107
+**Status:** CI candidate; calibration and timed-cycle hardware retest required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در کالیبراسیون فیزیکی Dashboard، اگر Sample ناپایدار می‌شد فقط رخداد CDC ثبت می‌شد و کاربر هیچ صدای خطایی نمی‌شنید؛ فشار دوبارهٔ زرد هنگام Sampling نیز از نظر صوتی ساکت بود. هم‌زمان حذف زمان‌بندی‌های قدیمی، بازهٔ لازم چرخهٔ ۱۱۰ تا ۱۳۰ دقیقه را نیز از UI و Runtime حذف کرده بود. فایل `light-state-profiles.json` ارسالی هم Dashboard قدیمی `15.8 ± 1.0` را داشت و همیشه داخل ZIP برنامه نبود.
+
+### Root cause
+
+Wrapper صوتی فقط مسیر موفق `result=dict` را پوشش می‌داد و انتقال `sampling → None` را نادیده می‌گرفت. در معماری Build 84 همهٔ Headerهای چرخه، از جمله `RUNFOR`، با Resume/PostLaunch قدیمی یکجا Strip شدند. پروفایل‌های پیش‌فرض نیز فقط در کد بودند و فایل قابل‌ویرایش پروفایل به Output پروژه اضافه نشده بود.
+
+### Change
+
+- Sample ناپایدار و فشار زرد هنگام Busy اکنون Tone خطا و Telemetry پایدار تولید می‌کنند؛ Save موفق همچنان Tone صعودی قبلی را دارد.
+- کنترل بازهٔ چرخه به Play Options برگشت و پیش‌فرض آن ۱۱۰ تا ۱۳۰ دقیقه است.
+- فقط `RUNFOR|min,max` در `plan.txt` مدرن حفظ می‌شود؛ `AUTORESUME` و `POSTLAUNCH` قدیمی همچنان حذف می‌شوند.
+- Runtime در Start یک Deadline تصادفی از بازه انتخاب می‌کند؛ در انقضا Route را تمیز Abort می‌کند و پس از آزادشدن Parser، تب After را اجرا می‌کند.
+- پایان طبیعی Game نیز همچنان بلافاصله After را اجرا می‌کند.
+- فایل شش‌پروفایلی داخل همهٔ بسته‌های Classroom قرار می‌گیرد. Dashboard به مقدار سخت‌افزاری `13.3 ± 3.0 lux` به‌روزرسانی شد؛ سایر بازه‌ها حفظ شدند.
+
+### Validation
+
+- تست Deadline در کران ۱۱۰ دقیقه، پایان طبیعی Game، Marker، Startup و Desktop skip پاس شد.
+- تست Tone و Telemetry برای Sample ناپایدار، Overlap retry، CAL2 و NVM migration پاس شد.
+- Hashهای Bundle 220 مستقل بررسی شدند: هر ۳۲ فایل سالم بود؛ پروفایل قدیمی Dashboard در آن تأیید شد.
+- تست قرارداد UI/Exporter تأیید کرد که RUNFOR حفظ و Headerهای بازنشسته حذف می‌شوند.
+
+### Next test
+
+1. Build تازه را Extract کنید و وجود `light-state-profiles.json` با Dashboard برابر `13.3 ± 3.0` را بررسی کنید.
+2. برای تست سریع، بازهٔ چرخه را موقتاً ۵ تا ۶ دقیقه تنظیم و Export کنید؛ `plan.txt` باید `RUNFOR|300,360` داشته باشد و پس از Deadline تب After اجرا شود.
+3. در کالیبراسیون Stage 3، زرد را بزنید: Save موفق باید Tone صعودی بدهد؛ Sample ناپایدار یا فشار زرد هنگام Busy باید Tone خطا بدهد؛ آبی بلند باید با Tone خروج از Calibration خارج شود.
 
 ## Build 85 — ماندگاری کالیبراسیون فیزیکی بین Exportها
 
