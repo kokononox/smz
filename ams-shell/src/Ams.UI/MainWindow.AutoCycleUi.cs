@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using Ams.UI.ViewModels;
 
@@ -36,7 +37,7 @@ public partial class MainWindow
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = AutoCycleUiKit.Title("چرخهٔ After و Startup");
-        var status = AutoCycleUiKit.Badge("خودکار · بدون تایمر اضافه", AutoCycleUiKit.Success);
+        var status = AutoCycleUiKit.Badge("بازهٔ فعال", AutoCycleUiKit.Success);
         Grid.SetColumn(title, 0);
         Grid.SetColumn(status, 1);
         head.Children.Add(title);
@@ -45,16 +46,65 @@ public partial class MainWindow
 
         section.Children.Add(StageCard(
             "۱ · After",
-            "بلافاصله پس از پایان Game اجرا می‌شود. مدت کار داخل خود استپ‌های Game تعریف می‌شود؛ سپس یکی از روش‌های Restart در تب After اجرا خواهد شد."));
+            "با پایان Game یا رسیدن Deadline چرخه اجرا می‌شود؛ سپس یکی از روش‌های Restart در تب After اجرا خواهد شد."));
+        section.Children.Add(CycleRangeRow());
         section.Children.Add(StageCard(
             "۲ · Startup",
             "پس از Restart و بازگشت پایدار USB فقط یک‌بار اجرا می‌شود. سپس Desktop رد می‌شود و جریان از Login / DC ادامه پیدا می‌کند."));
         section.Children.Add(AutoCycleUiKit.Helper(
-            "Resume Essentials و زمان‌بندی‌های Restart/USB/PostLaunch منسوخ شده‌اند و دیگر در خروجی جدید نوشته نمی‌شوند."));
+            "بازه از لحظهٔ Start انتخاب می‌شود و پیش‌فرض آن ۱۱۰ تا ۱۳۰ دقیقه است. Resume Essentials و زمان‌بندی‌های USB/PostLaunch منسوخ شده‌اند."));
 
         advanced.Children.Add(AutoCycleUiKit.Card(AutoCycleUiKit.ScheduleTag, section));
         AutoCycleUiKit.ReorderAdvanced(advanced);
         AutoCycleUiKit.Reorder(body);
+    }
+
+    private static Grid CycleRangeRow()
+    {
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        AddLabel("بازهٔ چرخه:", 0);
+        AddBox(nameof(MainViewModel.RestartMinMinutes), 1);
+        AddLabel("تا", 2);
+        AddBox(nameof(MainViewModel.RestartMaxMinutes), 3);
+        AddLabel("دقیقه", 4);
+        return row;
+
+        void AddLabel(string text, int column)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                Foreground = AutoCycleUiKit.Muted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 6, 0),
+            };
+            Grid.SetColumn(label, column);
+            row.Children.Add(label);
+        }
+
+        void AddBox(string property, int column)
+        {
+            var box = new TextBox
+            {
+                MinHeight = 30,
+                Margin = new Thickness(4, 0, 4, 0),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            box.SetBinding(TextBox.TextProperty, new Binding(property)
+            {
+                Mode = BindingMode.TwoWay,
+                UpdateSourceTrigger = UpdateSourceTrigger.LostFocus,
+            });
+            Grid.SetColumn(box, column);
+            row.Children.Add(box);
+        }
     }
 
     private static Border StageCard(string title, string description)
