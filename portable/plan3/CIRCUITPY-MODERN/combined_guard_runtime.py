@@ -118,6 +118,7 @@ class Arm:
         self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
         self.buf = bytearray(); self.pending = 0; self.held = set()
         self.relative_ready = None; self.async_sound = None; self.sound_result = None
+        self.sound_detail = None
     def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
     def write(self, line):
         data = self.frame(line); count = self.uart.write(data)
@@ -129,10 +130,14 @@ class Arm:
             raw, self.buf = self.buf.split(b"\n", 1); line = raw.decode("utf-8", "replace").strip()
             if line.startswith("OK|MMOVE"):
                 self.pending = max(0, self.pending - 1)
-            elif line == "EVT|ASND|DETECTED":
-                self.sound_result = True; print(line)
-            elif line == "EVT|ASND|TIMEOUT":
-                self.sound_result = False; print(line)
+            elif line.startswith("EVT|ASND|DETECTED"):
+                self.sound_result = True
+                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "peak=unknown"
+                print(line)
+            elif line.startswith("EVT|ASND|TIMEOUT"):
+                self.sound_result = False
+                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "max=unknown"
+                print(line)
             elif line.startswith("EVT|"): print(line)
             elif line: replies.append(line)
         return replies
@@ -340,8 +345,10 @@ class PlanContext:
             arm.relative_ready = "|REL=1" in reply
             arm.async_sound = "|ASND=1" in reply
         if arm.async_sound:
-            arm.sound_result = None
+            arm.sound_result = None; arm.sound_detail = None
             arm.send("ASND|%d,%d,%d" % (threshold, minimum, timeout), 2)
+            self.r.emit("EVT|SOUND|listen|source=async|threshold=%d|min=%d|timeout=%d" %
+                        (threshold, minimum, timeout))
             self._parallel_sound = "async"
             return
         self._parallel_sound = {
@@ -353,6 +360,9 @@ class PlanContext:
             self.r.arm.pump()
             result = self.r.arm.sound_result
             if result is not None:
+                detail = self.r.arm.sound_detail or "peak=unknown"
+                self.r.emit("EVT|SOUND|result=%s|mode=async|%s" %
+                            ("detected" if result else "timeout", detail))
                 self._parallel_sound = None
             return result
         state = self._parallel_sound

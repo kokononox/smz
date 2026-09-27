@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 80:** ARM 2.8.2-S4 با ADC آزادِ پس‌زمینه، Peak صدا را حین حرکت بدون قرار دادن `analogRead` در Cadence موس نگه می‌دارد؛ مقیاس ASND دوباره با SCAL یکسان است.
 - **Candidate Build 79:** WSND اکنون Peak واقعی را در تشخیص/Timeout گزارش می‌کند و Timeout عادی دیگر Guard Failure نیست؛ مسیر موس و Cadence تغییر نکرده‌اند.
 
 - **Candidate Build 78:** ARM 2.8.2-S2 مانع توقف ۴۰–۵۲ms ناشی از بازبودن COM بدون HELLO می‌شود؛ پایش صدا و Cadence یک‌میلی‌ثانیه‌ای حفظ شده‌اند.
@@ -17,6 +18,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 80 | تست سخت‌افزاری لازم است | بازیابی شنیدن پیوسته بدون شکستن نرمی موس | CI candidate |
 | 79 | تست سخت‌افزاری لازم است | Peak telemetry برای WSND و Timeout غیرخطایی | CI candidate |
 | 78 | Build 95: میانهٔ 51ms و 1,194 وقفهٔ حداقل 40ms | USB handshake فقط با بایت واقعی؛ حذف stall هنگام بازبودن COM | Local candidate |
 | 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
@@ -42,6 +44,34 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
+
+## Build 80 — ADC پیوسته و Peak-Latch برای Sound موازی
+
+**Previous build:** 79  
+**Status:** CI candidate; hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+تستر Blocking با SCAL برای چلپ واقعی Peak حدود 143–145 و برای سکوت حداکثر 6 ثبت کرد، اما Listener موازی ASND در Route ماهیگیری فقط Peakهای 12–22 می‌دید و تقریباً از هر سه یا چهار چلپ فقط یکی را Catch می‌کرد. پایین‌آوردن Threshold از مقدار کالیبرهٔ حدود 76 به 12 فقط Workaround بود و نشان می‌داد دو مسیر اندازه‌گیری مقیاس یکسانی ندارند.
+
+### Root cause
+
+Build 77 برای بازیابی نرمی ARM 2.8.1، `ARM_SOUND_TICK()` را به‌درستی از حلقهٔ Micro-step موس حذف کرد، اما ASND پس از آن فقط یک `analogRead` بین فرمان‌های MMOVE انجام می‌داد. هنگام اجرای DDA، ADC عملاً گوش نمی‌داد و بیشتر قلهٔ کوتاه چلپ از دست می‌رفت؛ در مقابل SCAL در پنجره‌های 10ms صدها نمونه می‌گرفت و Peak واقعی را می‌دید.
+
+### Change
+
+- ARM 2.8.2-S4 ADC سخت‌افزاری ATmega32U4 را فقط هنگام ASND در حالت Free-Running فعال می‌کند.
+- ISR سبک، پنجره‌های تقریباً 10ms با 96 نمونه می‌سازد؛ Peak، Sustained Duration و بیشینهٔ کل را بدون `analogRead` داخل Micro-step نگه می‌دارد.
+- Cadence یک‌میلی‌ثانیه‌ای، DDA و Micro-step سه‌پیکسلی S3 دست‌نخورده‌اند.
+- رویدادهای Async اکنون Peak واقعی را گزارش می‌کنند و Pico شروع/نتیجهٔ Listener موازی را در GuardHardwareMonitor ثبت می‌کند.
+- HALT، Cancel، Detect و Timeout همگی ADC Interrupt را خاموش می‌کنند.
+
+### Validation
+
+- قرارداد Firmware وجود ADC Free-Running، ISR، پنجرهٔ 96 نمونه‌ای و نبود `ARM_SOUND_TICK()`/`analogRead` در حلقهٔ Mouse را کنترل می‌کند.
+- Runtime قالب جدید `EVT|ASND|DETECTED|peak=...` و `TIMEOUT|peak=...` را می‌پذیرد و جزئیات را به لاگ Guard منتقل می‌کند.
+- معیار تست سخت‌افزاری: Threshold کالیبرهٔ حدود 76 با Peak نزدیک 143 کار کند، Catch چندباره پایدار باشد و نرمی Mouse نسبت به S3 افت نکند.
 
 ## Build 79 — Peak واقعی WSND و Timeout غیرخطایی
 
