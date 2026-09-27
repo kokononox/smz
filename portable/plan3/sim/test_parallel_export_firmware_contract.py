@@ -15,8 +15,9 @@ bundle=(root/'ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs').r
 assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
-# ARM 2.8.2-S1 keeps relative HID and moves ADC work out of the HID cadence.
-assert '#define FW_VER   "2.8.2-S1"' in arm
+# ARM 2.8.2-S2 keeps relative HID, moves ADC work out of the HID cadence, and
+# never treats an open-but-idle CDC port as a pending secure handshake.
+assert '#define FW_VER   "2.8.2-S2"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('ASND|', 'ASNDCANCEL', 'ASND=1', 'EVT|ASND|'):
     assert token in arm28, token
@@ -25,7 +26,11 @@ move_steps = arm.split("static void mouse_move_steps", 1)[1].split(
 assert "ARM_SOUND_TICK()" not in move_steps
 main_loop = arm28.split("void loop()", 1)[1]
 assert "arm28_sound_tick();" in main_loop
-assert "OK|HVER|2.8.2-S1|REL=1|ASND=1" in arm28
+assert "OK|HVER|2.8.2-S2|REL=1|ASND=1" in arm28
+assert "if(!g_secure){if(Serial.available())do_handshake(40);else delay(1);return;}" in arm28
+assert "if(!g_secure){if(Serial)do_handshake(40)" not in arm28
+assert "if (Serial.available()) do_handshake(40);" in arm
+assert "if (Serial) do_handshake(40);" not in arm
 for token in ('def sound_start','def sound_poll','def sound_cancel','def sound_parallel_safe','async_sound','sound_result','ASND|','ASNDCANCEL','def type_char','SCAL|10'):
     assert token in runtime, token
 assert '"polls": 0' in runtime and 'state["polls"] >= 32' in runtime
