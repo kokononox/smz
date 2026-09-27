@@ -522,11 +522,8 @@ def _audible_cal_tick(self):
     was_sampling = self.result == "sampling"
     _original_cal_tick(self)
     if was_sampling and isinstance(self.result, dict):
-        # The raw float samples are no longer needed once center/spread exist.
-        # Drop them before the atomic JSON/manifest write to reduce heap pressure.
         self.samples = []
         _prepare_calibration_heap(self)
-        # Sampling completion is silent; save_cal emits the single success cue.
         self.save_cal()
 
 def _audible_save_cal(self):
@@ -539,15 +536,9 @@ def _audible_save_cal(self):
         else:
             self.cal_save_success_tone()
     elif had_pending_result and not self.saved and self.last_cal_error:
-        # A rejected overlap or storage failure must be audible. Previously
-        # the user heard nothing and the UNSAVED guard made both short buttons
-        # appear dead even though the runtime was deliberately holding stage.
         self.cal_save_error_tone()
 
 def _repeatable_yellow_action(self):
-    # Handle both first samples and same-position retries explicitly. A saved
-    # value remains active during a retry and is replaced only after the fresh
-    # result completes and the user presses yellow again to save it.
     if not self.calibrating:
         was_paused = self.controls.paused
         _original_yellow_action(self)
@@ -568,10 +559,6 @@ def _repeatable_yellow_action(self):
         return
     if isinstance(self.result, dict) and not self.saved:
         if (self.last_cal_error or "").startswith("OVERLAP:"):
-            # Re-saving the identical rejected sample can never fix an overlap.
-            # A yellow press therefore starts a fresh five-second sample on the
-            # same stage; short blue remains blocked until a valid save, while
-            # long blue can still exit Calibration.
             self.samples = []
             self.sample_started = runtime.time.monotonic()
             self.result = "sampling"
@@ -759,10 +746,6 @@ def _run_light_route(ctx, commands):
         elif command == "KUP":
             ctx.kup(int(args))
         elif command == "RAW":
-            # Hand-sampled mouse paths are already portable Arm commands
-            # (MMOVE|dx,dy,rel,2). They must use the asynchronous move ledger:
-            # Arm.send() cannot wait for MMOVE because Arm.pump() deliberately
-            # consumes OK|MMOVE to decrement pending back-pressure.
             if args.startswith("MMOVE|"):
                 fields = args[6:].split(",")
                 if len(fields) != 4 or fields[2].strip().lower() != "rel":
@@ -1069,9 +1052,6 @@ def _live_host_poll(self):
             elif line.startswith("CALSET|"):
                 reply = self.calset(line)
             elif line.startswith("CURSOR|"):
-                # Coalesce cursor packets. The ARM must not receive HSETCUR while
-                # a human mouse path is executing; the newest value is applied at
-                # idle or immediately before the next route.
                 global _CURSOR_PENDING
                 fields = line.split("|", 1)[1].split(",")
                 if len(fields) != 2:
@@ -1103,9 +1083,6 @@ def _live_host_poll(self):
                 lux = self.sensor.lux()
                 reply = "OK|LUX|lux=%.1f|sensor=ok" % lux
             elif line.startswith("SCAL|"):
-                # Build 72: Classroom connects to the Pico brain, while the sound
-                # sensor lives on the Pro Micro. Proxy the bounded calibration
-                # window over the private UART instead of answering UNKNOWN.
                 ms = int(line.split("|", 1)[1])
                 if ms < 1 or ms > 10000:
                     raise ValueError("SCAL range")
