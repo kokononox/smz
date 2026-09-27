@@ -5,6 +5,7 @@ exporter=(root/'ams-shell/src/Ams.UI/Services/PlanExporter.cs').read_text()
 arm=(root/'firmware/arm28/ams_board26_impl.h').read_text()
 arm28=(root/'firmware/arm28/ams_board28.ino').read_text()
 runtime=(root/'portable/plan3/CIRCUITPY-MODERN/combined_guard_runtime.py').read_text()
+cycle=(root/'portable/plan3/CIRCUITPY-MODERN/restart_cycle.py').read_text()
 executor=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_exec.py'
 parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parallel.py'
 human=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_human.py'
@@ -50,7 +51,11 @@ assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in
 assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
 assert 'plan_engine_parallel.py' in bundle and 'plan_engine_game.py' in bundle and 'plan_engine_login.py' in bundle
-assert 'manifestNames.Length != 28' in bundle
+assert 'manifestNames.Length != 30' in bundle
+for token in ('RUNFOR', 'AUTORESUME', 'POSTLAUNCH', 'class Marker',
+              'phase = "wait-usb"', 'resume-in=', 'MAX_RESTARTS = 5'):
+    assert token in cycle, token
+assert 'line.startswith("EVT|HOSTUSB|")' in runtime
 sound_calibration=root/'portable/plan3/CIRCUITPY-MODERN/sound_step_calibration.py'
 assert sound_calibration.exists() and sound_calibration.stat().st_size > 4000
 assert 'def _parallel_relative_mouse_events' in parallel.read_text()

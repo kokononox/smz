@@ -118,7 +118,7 @@ class Arm:
         self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
         self.buf = bytearray(); self.pending = 0; self.held = set()
         self.relative_ready = None; self.async_sound = None; self.sound_result = None
-        self.sound_detail = None
+        self.sound_detail = None; self.host_usb_state = None; self.host_usb_seen = False
     def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
     def write(self, line):
         data = self.frame(line); count = self.uart.write(data)
@@ -137,6 +137,12 @@ class Arm:
             elif line.startswith("EVT|ASND|TIMEOUT"):
                 self.sound_result = False
                 self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "max=unknown"
+                print(line)
+            elif line.startswith("EVT|HOSTUSB|"):
+                state = line.rsplit("|", 1)[-1]
+                if state in ("UP", "SUSPEND", "DOWN"):
+                    self.host_usb_state = state
+                    self.host_usb_seen = True
                 print(line)
             elif line.startswith("EVT|"): print(line)
             elif line: replies.append(line)

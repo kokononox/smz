@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 83:** Runtime مدرن اکنون `RUNFOR/AUTORESUME/POSTLAUNCH` را اجرا می‌کند؛ Deadline مسیر جاری را متوقف، Restart ویندوز را ارسال، Marker را در NVM نگه‌داری و پس از USB Down/Up و تأخیر تنظیم‌شده برنامهٔ Pin‌شده را اجرا می‌کند.
 - **Candidate Build 82:** Tolerance کالیبراسیون نور اکنون فاصلهٔ هر سمت از Median را مستقل محاسبه می‌کند؛ نمونهٔ نامتقارن Dashboard دیگر بلافاصله پس از Save به `unknown` تبدیل نمی‌شود.
 - **Candidate Build 81:** خروجی Classroom Studio اکنون با تست صریح بسته‌بندی کنترل می‌شود تا Runtime سازگار با ARM 2.8.2-S4 شامل شروع ASND، تشخیص/Timeout و Telemetry موازی باشد؛ این Build جایگزین Release قدیمی Build 98 می‌شود.
 - **Candidate Build 80:** ARM 2.8.2-S4 با ADC آزادِ پس‌زمینه، Peak صدا را حین حرکت بدون قرار دادن `analogRead` در Cadence موس نگه می‌دارد؛ مقیاس ASND دوباره با SCAL یکسان است.
@@ -20,6 +21,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 83 | تست سخت‌افزاری لازم است | اجرای واقعی Restart Cycle، NVM Marker، HOSTUSB و Auto Resume | CI candidate |
 | 82 | Dashboard با center=13.3، spread=2.5 و live=15.8 به unknown رفت | محاسبهٔ دامنهٔ نامتقارن P5/P95 نسبت به Median | CI candidate |
 | 81 | S4 + Bundle 203 دستی Catch را پاس کرد | انتشار Classroom با Runtime داخلی سازگار با S4 | CI candidate |
 | 80 | S4 + Bundle 203 دستی Catch را پاس کرد | بازیابی شنیدن پیوسته بدون شکستن نرمی موس | Hardware pass |
@@ -47,6 +49,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 83 — Restart Cycle و Auto Resume واقعی در Runtime مدرن
+
+**Previous build:** 82
+**Status:** CI candidate; staged hardware test required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Exporter تنظیم‌های `RUNFOR|300,600`، `AUTORESUME|1,180,300` و `POSTLAUNCH|1,1,1,3,20,40` را درست داخل `plan.txt` می‌نوشت، اما Runtime مدرن هیچ Parser یا Schedulerای برای آن‌ها نداشت. پس از بیش از ده دقیقه Game هیچ Restart رخ نمی‌داد؛ بازگشت دستی به Desktop نیز چون Guard هنوز در Session قبلی Game بود با `desktop-only-valid-at-start` رد می‌شد.
+
+### Root cause
+
+پس از مهاجرت به Runtime کم‌حافظهٔ Guard، ماژول‌های چرخهٔ قدیمی در Export مدرن حذف شدند و فقط Directiveها باقی ماندند. همچنین رویدادهای `EVT|HOSTUSB|DOWN/SUSPEND/UP` در UART چاپ می‌شدند ولی State آن‌ها برای Auto Resume نگه‌داری نمی‌شد.
+
+### Change
+
+- Parser سبک و مستقل برای Headerهای Root بدون Import کردن Plan Engine کامل اضافه شد.
+- Deadline در مسیرهای طولانی نیز از طریق Control Gate بررسی و Route جاری به‌صورت Fail-safe متوقف می‌شود.
+- Restart طبیعی با توالی انسانی Windows اجرا می‌شود؛ Stop دستی هرگز Restart ایجاد نمی‌کند.
+- پیش از Restart، Marker و شمارندهٔ حداکثر پنج Restart در انتهای NVM ذخیره می‌شود؛ 1536 بایت Debug دست‌نخورده می‌ماند.
+- Auto Resume فقط پس از Marker معتبر و USB Down/Suspend سپس UP انجام می‌شود؛ Fallback داخلی Pico نیز حفظ شده است.
+- پس از تأخیر ۳ تا ۵ دقیقه، `POSTLAUNCH` با Taskbar Slot تنظیم‌شده اجرا، Guard Reset و RUNFOR تازه مسلح می‌شود.
+- Start دستی هنگام انتظار، Marker قبلی را لغو و یک Session تازه ایجاد می‌کند.
+- پیام تکراری `duplicate-stable-state` فقط یک بار برای هر Reason/State ثبت می‌شود.
+
+### Validation
+
+- تست واحد Parser، NVM Marker، Deadline، Boot Marker، USB Resume و Manual Override را کنترل می‌کند.
+- قرارداد Export وجود دو ماژول Restart، HOSTUSB State و 30 Hash معتبر را بررسی می‌کند.
+- تست‌های S4 Sound، Mouse، Heap calibration، FAT isolation و Game re-entry بدون تغییر باید پاس شوند.
+
+### Next test
+
+1. ابتدا با `RUNFOR|60,90` و `AUTORESUME|1,20,30` تست کوتاه انجام شود.
+2. لاگ باید `CYCLE|armed`، `CYCLE|deadline`، `CYCLE|restart-sent`، `CYCLE|usb|state=DOWN/UP`، `CYCLE|postlaunch` و `CYCLE|resumed` را نشان دهد.
+3. پس از تأیید، تنظیم واقعی ۵ تا ۱۰ دقیقه و Auto Resume سه تا پنج دقیقه دوباره Export شود.
 
 ## Build 82 — پوشش نمونه‌های نامتقارن کالیبراسیون نور
 
