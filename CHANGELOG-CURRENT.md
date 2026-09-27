@@ -5,15 +5,16 @@
 ## وضعیت فعلی در یک نگاه
 
 - **Baseline سخت‌افزاری انتخاب‌شده:** Build 50 + ARM 2.8.1 + پروژهٔ C
-- **وضعیت حرکت:** Natural Mouse v1 در Build 66 و Bundle 160 از نظر نرمی، Endpoint و حافظهٔ Desktop تأیید شده است.
-- **مسئلهٔ باز:** Login/DC در Import Parser کامل با تخصیص 2930 بایت شکست خورد؛ Build 67 آن را به Runner سبک منتقل می‌کند.
+- **وضعیت حرکت:** Natural Mouse v1 و Login/DC سبک در Build 67 روی سخت‌افزار تأیید شدند.
+- **مسئلهٔ باز:** Game در Build 67 پس از Parse با وجود 62,352 بایت آزاد، هنگام Lazy-load مسیر اجرایی کامل با `MemoryError` متوقف شد؛ Build 68 آن را به Runner سبک منتقل می‌کند.
 - **اصل معماری:** Cadence و Micro-step تأییدشدهٔ Build 50 دست‌نخورده می‌ماند؛ Humanization فقط در سطح مسیر اعمال می‌شود.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Runner سبک Streaming برای Login/DC | CI candidate |
+| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Runner سبک Game/Fishing و Stop عادی | CI candidate |
+| 67 | Desktop و Login/DC سبک پاس؛ Calibration ذخیره شد | Runner سبک Streaming برای Login/DC | Hardware pass؛ Game superseded |
 | 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable؛ Login superseded |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
 | 48 | Import و Parse موفق؛ اجرا شکست خورد | Lazy import Parser/Executor | Superseded by 49 |
@@ -26,11 +27,47 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — Runner سبک Streaming برای Login/DC
+## Build {{BUILD_NUMBER}} — Runner سبک Game/Fishing و Stop عادی
+
+**Previous build:** 67
+**Status:** CI candidate; Game hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 67 مسیر Desktop و Login/DC را با `ROUTE|stage=light-route` کامل کرد و Pause/Resume نیز سالم بود. کالیبراسیون Game پس از یک Retry ذخیره شد. اما Route واقعی Game پس از Import و Parse موفق، با وجود 62,352 بایت آزاد، در Lazy-load مسیر اجرایی کامل با `MemoryError` خالی متوقف شد. Stop در Runner سبک نیز به‌اشتباه `RuntimeError('route aborted')` را به‌عنوان Guard Failure ثبت می‌کرد.
+
+### Root cause
+
+Game شامل `RPKG`، `LOOPTIME`، `PGROUP`، `WSND` و RMOUSE موازی است؛ Runner سبک Build 67 این ساختارها را نمی‌پذیرفت و بنابراین Parser/Executor/Parallel عمومی را روی Heap تکه‌تکه وارد می‌کرد. عدد حافظهٔ آزاد مجموع Heap بود، نه تضمین یک بلوک پیوسته برای Import/Compile ماژول بعدی.
+
+### Change
+
+- `plan_engine_game.py` با حجم کمتر از 10KB اضافه شد و بدون Import Parser یا Executor کامل، Route واقعی ماهیگیری را Streaming اجرا می‌کند.
+- Random Package، Loop زمانی، Parallel Group، RMOUSE و WSND با همان قرارداد قبلی حفظ شدند.
+- هنگام حرکت فعال موس، Sound poll اجرا نمی‌شود؛ تشخیص صدا خواهرها را لغو و F را اجرا می‌کند، Timeout کل گروه را بدون F می‌بندد تا Loop بیرونی دوباره Cast کند.
+- Stop در Runner سبک اکنون `ROUTE/aborted` عادی است و Guard Failure تولید نمی‌کند.
+- Cacheهای Helper بعد از هر Route سبک نیز آزاد می‌شوند تا Start بعدی Heap تازه داشته باشد.
+- Manifest و Exporter به Inventory 27فایلی و خروجی 31فایلی به‌روزرسانی شدند.
+
+### Validation
+
+- Route واقعی `game_steps.txt` از Bundle 161 در هر دو حالت Sound detected و Timeout شبیه‌سازی شد.
+- حالت detected واکنش F را اجرا و شاخهٔ موس را لغو کرد؛ حالت Timeout بدون F پایان یافت و حرکت Streaming داشت.
+- Runner جدید `plan_engine_parse` و `plan_engine_exec` را Import نمی‌کند؛ هر سه فایل Python با `py_compile` معتبرند.
+- ماژول Game برابر 9.4KB و Helper Login برابر 11.8KB است.
+- Hashهای `code.py`، Login helper و Game helper در Manifest جدید بازسازی شدند.
+
+### Next test
+
+Bundle جدید را روی CIRCUITPY جایگزین و Start را مستقیماً در Game بزنید. معیار پذیرش: `ROUTE|stage=light-route` (نه `before-plan-engine-import`)، آغاز Cast/Fishing، حرکت نرم موس، عملکرد Sound/F و نبود `MemoryError`. GP4 Stop باید فقط `ROUTE/aborted` ثبت کند.
+
+## Build 67 — Runner سبک Streaming برای Login/DC
 
 **Previous build:** 66
-**Status:** CI candidate; Login/DC hardware retest pending
-**Commit:** `{{COMMIT_SHA}}`
+**Status:** Hardware verified for Desktop/Login/DC; Game superseded by Build 68
+**Commit:** `47c992ee`
+
 
 ### Problem observed
 

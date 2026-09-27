@@ -105,10 +105,10 @@ runtime.load_guard_bundle = _guard_bundle.load_guard_bundle
 runtime.build_calibration_get = build_calibration_get
 runtime.parse_calibration_set = parse_calibration_set
 
-# Classroom Studio's complete 21-file export hashes every payload except the
+# Classroom Studio's complete hashed export hashes every payload except the
 # hash manifest itself. Extend the verifier inventory before loading the bundle.
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
-              "plan_engine_human.py", "plan_engine_login.py",
+              "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
@@ -437,8 +437,8 @@ _original_cal_tick = runtime.Combined.cal_tick
 _original_save_cal = runtime.Combined.save_cal
 _original_yellow_action = runtime.Combined.yellow_action
 
-_PLAN_MODULES = ("plan_engine_exec", "plan_engine_human", "plan_engine_login",
-                 "plan_engine_parallel", "plan_engine_parse")
+_PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_human",
+                 "plan_engine_login", "plan_engine_parallel", "plan_engine_parse")
 
 def _release_plan_heap(self, emit_cal=False):
     # Complex routes lazily import the split plan engine. CircuitPython keeps
@@ -640,7 +640,8 @@ runtime.PlanContext.beep = _diagnostic_beep
 
 _LIGHT_ROUTE_COMMANDS = {
     "PLAN", "SCREEN", "SPEED", "BEEP", "DELAY", "KEY", "KDOWN", "KUP", "RAW",
-    "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO",
+    "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO", "RPKG",
+    "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND",
     "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
@@ -664,12 +665,20 @@ def _light_route_lines(text):
             if args or loop_depth <= 0:
                 return None
             loop_depth -= 1
+        elif command in ("PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR"):
+            if args:
+                return None
         elif len(parts) != 2:
             return None
         commands.append((command, args))
     return commands if loop_depth == 0 else None
 
 def _run_light_route(ctx, commands):
+    if any(item[0] == "PGROUP" for item in commands):
+        gc.collect()
+        import plan_engine_game
+        plan_engine_game.run_game(commands, ctx)
+        return
     index = 0
     loops = []  # [LOOP/LOOPTIME command index, remaining count, deadline]
     labels = {}
@@ -850,7 +859,13 @@ def _diagnostic_route(self, decision):
             gc.collect()
             self.emit("EVT|DEBUG|ROUTE|stage=light-route|free=%d" % gc.mem_free())
             # Keep simple Pico-only routes off the large plan_engine import.
-            _run_light_route(runtime.PlanContext(self), commands)
+            try:
+                _run_light_route(runtime.PlanContext(self), commands)
+            except RuntimeError as exc:
+                if str(exc) == "route aborted":
+                    self.emit("EVT|DEBUG|ROUTE/aborted " + name)
+                    return False
+                raise
         else:
             self.emit("EVT|DEBUG|ROUTE|stage=before-plan-engine-import|free=%d" % gc.mem_free())
             try:
@@ -900,8 +915,7 @@ def _diagnostic_route(self, decision):
             self.arm.release(False)
         except Exception as cleanup:
             _debug_event(self, "CLEANUP", "mouse " + type(cleanup).__name__)
-        if commands is None:
-            _release_plan_heap(self)
+        _release_plan_heap(self)
         try:
             self.arm.flush()
         except Exception as cleanup:
