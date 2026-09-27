@@ -8,11 +8,12 @@
 - **مسئلهٔ باز Build 68:** برای جلوگیری از `ERR|BUSY`، Sound فقط هنگام توقف Mouse Poll می‌شد و واکنش F به صدای قلاب دیر می‌رسید.
 - **راه‌حل Build 69:** ARM 2.8.2 صدا را درون حلقهٔ Mouse به‌صورت Async پایش می‌کند، حرکت را همان لحظه متوقف می‌کند و Pico کلید F را بدون انتظار برای پایان Mouse می‌زند.
 - **اصل معماری:** Pico مسئول Keyboard/Guard/Route است؛ Pro Micro مسئول Mouse HID و پایش Sound هم‌زمان است.
-- **کالیبراسیون Game:** مقدار مرجع برنامه `22.5 ± 3.7` با پایداری 750ms است.
+- **کالیبراسیون Game:** در Export مدرن از پروفایل ذخیره‌شدهٔ فعلی Classroom استفاده می‌شود؛ مقدار ثابت Template دیگر منبع اجرا نیست.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
 | 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
@@ -30,6 +31,37 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 73 — انتقال پروفایل‌های نور Classroom به Pico
+
+**Previous build:** 72  
+**Status:** CI candidate; Guard hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+صفحهٔ وضعیت Classroom محیط Game را با پروفایل ذخیره‌شدهٔ کاربر (`25.8 ± 0.5`) و اطمینان 100٪ تشخیص می‌داد، اما Bundle روی Pico همچنان مقادیر ثابت Template (`22.5 ± 3.7` و سایر پروفایل‌های قدیمی) را داشت. بنابراین نمایش Classroom و تصمیم Guard از دو منبع متفاوت استفاده می‌کردند.
+
+### Root cause
+
+`ExportCurrentProject` فقط Routeها، Plan و Snapshot پروژهٔ باز را جایگزین می‌کرد. فایل‌های `guard-calibration.json` و `guard-transition.json` بدون تغییر از پوشهٔ `portable-modern-runtime` کپی می‌شدند و `light-state-profiles.json` هیچ‌گاه وارد قرارداد Pico نمی‌شد.
+
+### Change
+
+- Export مدرن هر شش پروفایل فعال و معتبر فعلی Classroom را دریافت می‌کند.
+- Center، Tolerance و StableDuration در هر دو قرارداد `guard-calibration.json` و `guard-transition.json` نوشته می‌شوند.
+- Revision جدید مشترک تولید می‌شود تا Loader اختلاف دو فایل را Fail-Closed تشخیص دهد.
+- SHA256 هر دو فایل پس از تولید نهایی در Manifest بازسازی می‌شود.
+- اگر یکی از شش پروفایل حذف، غیرفعال یا نامعتبر باشد، Export قبل از نوشتن روی Pico متوقف می‌شود.
+
+### Validation
+
+- تست رگرسیون مقادیر واقعی Game برابر `25.8 ± 0.5` را در هر دو قرارداد و Revision مشترک کنترل می‌کند.
+- تست Manifest، Hash نهایی هر دو فایل پروفایل را با بایت‌های Exportشده تطبیق می‌دهد.
+
+### Next test
+
+با Classroom جدید پروژه را دوباره روی CIRCUITPY خروجی بگیرید. سپس روی درایو بررسی کنید `guard-calibration.json` برای Game مقدار `25.8` و `0.5` دارد. پس از Reboot، GP4 را در Game بزنید؛ Guard باید Start-at-current-state و سپس `ROUTE/start game_steps.txt` ثبت کند.
 
 ## Build 72 — کالیبراسیون واقعی صدا از مسیر Pico → Pro Micro
 

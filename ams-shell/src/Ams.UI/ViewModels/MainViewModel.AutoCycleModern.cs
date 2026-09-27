@@ -33,7 +33,7 @@ public partial class MainViewModel
             Directory.CreateDirectory(staging);
             var workspace = CapturePipelineWorkspaceForExport();
             var files = ModernAutoCycleFirmwareBundle.ExportCurrentProject(
-                    Path.Combine(staging, "code.py"), workspace, _settings,
+                    Path.Combine(staging, "code.py"), workspace, _settings, LightStateProfiles,
                     (int)SystemParameters.PrimaryScreenWidth, (int)SystemParameters.PrimaryScreenHeight,
                     _currentFile ?? "untitled", Environment.MachineName)
                 .OrderBy(path => Path.GetFileName(path).Equals("code.py", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
@@ -49,7 +49,7 @@ public partial class MainViewModel
             }
             MessageBox.Show(
                 $"پروژهٔ باز فعلی همراه Bundle مدرن روی CIRCUITPY کپی شد ({files.Length} فایل).\n"
-                + "تمام Routeها، plan.txt و autocycle.amsj از تب‌های همین پروژه ساخته شدند؛ code.py آخر کپی شد.",
+                + "تمام Routeها، plan.txt، autocycle.amsj و پروفایل‌های نور فعلی منتقل شدند؛ code.py آخر کپی شد.",
                 "Current project Pico export", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
