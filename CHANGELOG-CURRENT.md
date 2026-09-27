@@ -60,6 +60,7 @@ Route Login شامل `LABEL/GOTO`، دو `RMOUSE`، `TYPE` انسانی، `KEY` 
 - ابزار Calibration heap نیز Inventory جدید 26فایلی را بدون تغییر رفتار کالیبراسیون بازسازی می‌کند.
 - قرارداد شبیه‌سازی Calibration حضور `plan_engine_login.py` و هر 26 Hash را کنترل می‌کند.
 - قرارداد Parallel/Exporter نیز ARM 2.8.1 ثابت، Helper سبک و Inventory 26فایلی را هم‌زمان قفل می‌کند.
+- Workflow بسته‌بندی روی شاخهٔ پایدار `stable/natural-mouse-v1` فعال است.
 
 ### Next test
 
