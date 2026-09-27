@@ -96,6 +96,7 @@ public sealed class LightWatchService : IAsyncDisposable
             catch (Exception ex)
             {
                 WatchFaulted?.Invoke(ex);
+                break;
             }
 
             var remaining = interval - elapsed.Elapsed;

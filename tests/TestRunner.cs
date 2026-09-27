@@ -34,6 +34,15 @@ class TestRunner
         Assert(StepDefinitions.Get("waitForLight").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("stopWithAlarm")),
             "waitForLight exposes a per-step timeout policy");
 
+        var compactLux = LightTelemetryParser.Parse("OK|LUX|lux=60.0|sensor=ok");
+        Assert(compactLux.Status == LightTelemetryStatus.Ok && compactLux.Lux == 60.0
+               && compactLux.Sequence is null && compactLux.Mode is null,
+            "Light telemetry accepts compact Pico OK|LUX response");
+        var fullLux = LightTelemetryParser.Parse("OK|LUX|seq=7|lux=41.7|mode=hires|sensor=ok");
+        Assert(fullLux.Status == LightTelemetryStatus.Ok && fullLux.Sequence == 7
+               && fullLux.Mode == "hires" && fullLux.Lux == 41.7,
+            "Light telemetry preserves the full sequenced response");
+
         var def = StepDefinitions.Get("openFile");
         Assert(def.Label == "Open File / Program", "openFile definition exists");
 
@@ -4264,8 +4273,23 @@ class TestRunner
                    && gameHelper.Contains("def run_game(")
                    && gameHelper.Contains("def _parallel(")
                    && gameHelper.Contains("sound_parallel_safe")
+                   && gameHelper.Contains("elif op == \"LABEL\"")
+                   && gameHelper.Contains("elif op == \"GOTO\"")
+                   && gameHelper.Contains("GOTO label not found")
                    && gameHelper.Length < 14000,
-                "Game light helper streams RPKG/PGROUP/WSND without the full parser or executor");
+                "Game light helper streams fishing and supports LABEL/GOTO without the full parser");
+
+            var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
+            var repairedBridge = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
+            var repairedDeploy = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.AutoCycleModern.cs"));
+            Assert(repairedWatch.Contains("WatchFaulted?.Invoke(ex);\n                break;"),
+                "Light Watch stops polling after one transport fault");
+            Assert(repairedBridge.Contains("op is (\"send\" or \"send_path\")")
+                   && repairedBridge.Contains("SetState(BridgeState.Disconnected)"),
+                "bridge invalidates a stale COM connection after send faults");
+            Assert(repairedDeploy.Contains("private async Task ExportAutoCycleModern()")
+                   && repairedDeploy.Contains("await StopLightWatchAsync();"),
+                "Pico deployment stops Light Watch before USB autoreload");
 
             var current = new PipelineWorkspace();
             foreach (var tab in current.Tabs) tab.Steps.Clear();

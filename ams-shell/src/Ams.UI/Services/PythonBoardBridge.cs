@@ -361,9 +361,12 @@ public sealed class PythonBoardBridge : IBoardBridge
 
                 case "error":
                     var msg = root.TryGetProperty("message", out var m) ? m.GetString() ?? "unknown error" : "unknown error";
+                    var op = root.TryGetProperty("op", out var operation) ? operation.GetString() ?? "" : "";
                     _connectTcs.TrySetException(new InvalidOperationException(msg));
                     _replyTcs?.TrySetException(new InvalidOperationException(msg));
-                    if (State == BridgeState.Connecting) SetState(BridgeState.Disconnected);
+                    if (State == BridgeState.Connecting
+                        || (State == BridgeState.Connected && op is ("send" or "send_path")))
+                        SetState(BridgeState.Disconnected);
                     break;
             }
         }
