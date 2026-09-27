@@ -109,7 +109,8 @@ runtime.parse_calibration_set = parse_calibration_set
 # hash manifest itself. Extend the verifier inventory before loading the bundle.
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
               "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
-              "plan_engine_exec.py", "plan_engine_parallel.py"):
+              "plan_engine_exec.py", "plan_engine_parallel.py",
+              "sound_step_calibration.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES
@@ -279,6 +280,15 @@ def _memory_safe_init(self):
     self.usb = runtime.usb_cdc.data or runtime.usb_cdc.console
     self.host = bytearray()
     self.calibrating = False
+    self.sound_calibrating = False
+    self.sound_calibration_id = 1
+    self.sound_calibration_phase = None
+    self.sound_calibration_started = 0
+    self.sound_calibration_silence = 0
+    self.sound_calibration_peak = 0
+    self.sound_calibration_pending = None
+    self.sound_bindings = {}
+    self.sound_profiles = {}
     self.stage = 0
     self.samples = []
     self.sample_started = 0
@@ -304,6 +314,30 @@ _GUARD_RESUME_PATTERN = ((659, 150), (784, 150), (988, 150), (784, 150), (988, 3
 _CAL_ENTER_PATTERN = ((523, 100), (659, 120), (784, 180))
 _CAL_EXIT_PATTERN = ((784, 100), (659, 120), (523, 220))
 _CAL_SAVE_ERROR_PATTERN = ((220, 140), (0, 80), (220, 260))
+def _sound_module():
+    module = sys.modules.get("sound_step_calibration")
+    if module is None:
+        gc.collect()
+        module = __import__("sound_step_calibration")
+    return module
+
+def _sound_profile(self, profile_id, binding, threshold, minimum):
+    return _sound_module().resolve(self, profile_id, binding, threshold, minimum)
+
+def _sound_start_calibration(self):
+    return _sound_module().start(self)
+
+def _sound_select_next(self):
+    return _sound_module().select_next(self)
+
+def _sound_begin_sample(self):
+    return _sound_module().begin_sample(self)
+
+def _sound_calibration_tick(self):
+    return _sound_module().tick(self)
+
+def _sound_end_calibration(self):
+    return _sound_module().finish(self)
 
 def _cal_beep(self, frequency, duration_ms):
     tone = None
@@ -583,6 +617,20 @@ def _audible_buttons(self):
         _debug_event(self, "GP4", "long calibrating=%s" % self.calibrating, persist=True)
     elif blue == "up":
         _debug_event(self, "GP4", "up", persist=True)
+    if yellow == "long":
+        _debug_event(self, "GP3", "long sound-calibrating=%s" % self.sound_calibrating, persist=True)
+    if self.sound_calibrating:
+        if yellow == "long":
+            self.sound_end_calibration()
+        elif blue == "up" and not self.blue.long:
+            self.sound_select_next()
+        elif yellow == "up" and not self.yellow.long:
+            self.sound_begin_sample()
+        self.sound_calibration_tick()
+        return
+    if yellow == "long" and not self.calibrating and not self.controls.running:
+        self.sound_start_calibration()
+        return
     if blue == "down" and not self.calibrating and self.controls.running:
         # Stop is fail-safe and should acknowledge immediately on press. This
         # consumes the blue press so the later release/long-hold path cannot
@@ -641,7 +689,7 @@ runtime.PlanContext.beep = _diagnostic_beep
 _LIGHT_ROUTE_COMMANDS = {
     "PLAN", "SCREEN", "SPEED", "BEEP", "DELAY", "KEY", "KDOWN", "KUP", "RAW",
     "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO", "RPKG",
-    "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND",
+    "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND", "WSNDP",
     "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
@@ -827,6 +875,24 @@ def _run_light_route(ctx, commands):
                     index = top[0]
                 else:
                     loops.pop()
+        elif command in ("WSND", "WSNDP"):
+            fields = args.replace(",", " ").split()
+            if command == "WSND":
+                if len(fields) != 3:
+                    raise ValueError("WSND needs threshold,min,timeout")
+                threshold, minimum, timeout_ms = int(fields[0]), int(fields[1]), int(fields[2])
+            else:
+                if len(fields) != 5:
+                    raise ValueError("WSNDP needs id,binding,threshold,min,timeout")
+                profile_id = int(fields[0])
+                threshold, minimum = ctx.sound_profile(
+                    profile_id, fields[1], int(fields[2]), int(fields[3]))
+                timeout_ms = int(fields[4])
+            heard = ctx.wait_sound(threshold, minimum, timeout_ms)
+            if heard is None:
+                raise RuntimeError("route aborted")
+            ctx.log(("wsndp" if command == "WSNDP" else "wsnd") +
+                (" heard" if heard else " timeout - continue"))
         elif command == "BEEP":
             fields = args.replace(",", " ").split()
             if len(fields) != 2:
@@ -930,7 +996,7 @@ def _audible_loop(self):
         self.host_poll()
         self.buttons()
         self.arm.pump()
-        if (self.controls.running and not self.calibrating and
+        if (self.controls.running and not self.calibrating and not self.sound_calibrating and
                 not getattr(self, "blue_start_pending", False) and
                 runtime.time.monotonic() - last >= .25):
             last = runtime.time.monotonic()
@@ -999,7 +1065,7 @@ def _apply_pending_cursor(self, force=False):
     acknowledged origin exists.
     """
     global _CURSOR_PENDING, _CURSOR_LAST_APPLIED, _CURSOR_SYNC_READY
-    if self.calibrating:
+    if self.calibrating or self.sound_calibrating:
         return False
     if self.controls.running and not force:
         return True
@@ -1147,6 +1213,13 @@ runtime.Combined.guard_pause_tone = _guard_pause_tone
 runtime.Combined.guard_resume_tone = _guard_resume_tone
 runtime.Combined.calibration_enter_tone = _calibration_enter_tone
 runtime.Combined.calibration_exit_tone = _calibration_exit_tone
+runtime.Combined.prepare_calibration_heap = _prepare_calibration_heap
+runtime.Combined.sound_profile = _sound_profile
+runtime.Combined.sound_start_calibration = _sound_start_calibration
+runtime.Combined.sound_select_next = _sound_select_next
+runtime.Combined.sound_begin_sample = _sound_begin_sample
+runtime.Combined.sound_calibration_tick = _sound_calibration_tick
+runtime.Combined.sound_end_calibration = _sound_end_calibration
 runtime.Combined.immediate_audible_stop = _immediate_audible_stop
 runtime.Combined.silent_shutdown = _silent_shutdown
 runtime.Combined.immediate_audible_start = _immediate_audible_start
