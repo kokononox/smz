@@ -36,7 +36,7 @@ def _audible_start_cal(self):
 """,
         """_original_yellow_action = runtime.Combined.yellow_action
 
-_PLAN_MODULES = (\"plan_engine_exec\", \"plan_engine_human\", \"plan_engine_login\", \"plan_engine_parallel\", \"plan_engine_parse\")
+_PLAN_MODULES = (\"plan_engine_exec\", \"plan_engine_game\", \"plan_engine_human\", \"plan_engine_login\", \"plan_engine_parallel\", \"plan_engine_parse\")
 
 def _prepare_calibration_heap(self):
     # Complex routes lazily import the split plan engine. CircuitPython keeps
@@ -92,7 +92,7 @@ for line in MANIFEST.read_text(encoding="utf-8").splitlines():
         digest = code_hash
         found = True
     lines.append(digest + "  " + name)
-if not found or len(lines) != 26:
+if not found or len(lines) != 27:
     raise RuntimeError("modern manifest inventory mismatch")
 MANIFEST.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print("calibration save heap fix applied", code_hash)

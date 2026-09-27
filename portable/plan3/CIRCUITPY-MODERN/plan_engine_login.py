@@ -149,7 +149,7 @@ def _mouse_events(pos, tx, ty, cfg, pauses):
         yield ("wait", long_pause, 0, 0)
 
 
-def run_rmouse(args, ctx, pauses, pos, route_speed):
+def mouse_events(args, ctx, pauses, pos, route_speed):
     prm = _fields(args)
     if "region" not in prm:
         raise ValueError("RMOUSE needs region")
@@ -185,12 +185,17 @@ def run_rmouse(args, ctx, pauses, pos, route_speed):
     tx = sx + (xmag if random.randint(0, 1) else -xmag)
     ty = sy + (ymag if random.randint(0, 1) else -ymag)
     pos[0], pos[1] = sx, sy
-    for event, delay, dx, dy in _mouse_events(pos, tx, ty, cfg, pauses):
+    for event in _mouse_events(pos, tx, ty, cfg, pauses):
+        yield event
+    del cfg, prm
+
+
+def run_rmouse(args, ctx, pauses, pos, route_speed):
+    for event, delay, dx, dy in mouse_events(args, ctx, pauses, pos, route_speed):
         if event == "move" and (dx or dy):
             ctx.mmove_relative(dx, dy)
         if delay and not ctx.sleep_ms(delay):
             raise RuntimeError("route aborted")
-    del cfg, prm
     gc.collect()
 
 

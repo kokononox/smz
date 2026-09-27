@@ -4215,18 +4215,19 @@ class TestRunner
         try
         {
             var modernWritten = ModernAutoCycleFirmwareBundle.Export(Path.Combine(modernTmp, "code.py"));
-            Assert(modernWritten.Count == 30
+            Assert(modernWritten.Count == 31
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
-                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 26,
+                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 27,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
             // Windows checkout expands LF to CRLF and the packaging workflow applies the
             // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
             // pinning the old pre-overlay byte count.
-            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 48000
+            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 50000
                    && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("DeferredPlanEngine"),
                 "modern AutoCycle export uses the small deferred-loading entrypoint");
             var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
@@ -4255,6 +4256,13 @@ class TestRunner
                    && loginHelper.Contains("def run_type(")
                    && loginHelper.Length < 14000,
                 "Login/DC light helper preserves Natural Mouse and typing without importing the full parser");
+            var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
+            Assert(!gameHelper.Contains("import plan_engine_parse")
+                   && !gameHelper.Contains("import plan_engine_exec")
+                   && gameHelper.Contains("def run_game(")
+                   && gameHelper.Contains("def _parallel(")
+                   && gameHelper.Length < 14000,
+                "Game light helper streams RPKG/PGROUP/WSND without the full parser or executor");
 
             var current = new PipelineWorkspace();
             foreach (var tab in current.Tabs) tab.Steps.Clear();
