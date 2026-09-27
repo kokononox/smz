@@ -403,9 +403,9 @@ public static class PlanExporter
                 if (t1 > 0) parts.Add("think=" + tch + ":" + t0 + "," + t1);
             }
             var (y0, y1) = Pair(PropEx.GetInt(p, "typoEveryMin", 0), PropEx.GetInt(p, "typoEveryMax", 0));
-            if (y1 > 0) parts.Add("typos=" + y0 + "," + y1);
+            if (y1 > 0) parts.Add("typochars=" + y0 + "," + y1);
             else if (PropEx.GetInt(p, "typoChance", 0) > 0)
-                Flag(n, "legacy typoChance % is not portable - use the per-text typo count (typoEveryMin/Max); "
+                Flag(n, "legacy typoChance % is not portable - use the character interval (typoEveryMin/Max); "
                         + "the step types WITHOUT typos in this plan");
             Emit(n, new[] { "TYPE|text=" + text + "|" + string.Join("|", parts) }, "TYPE");
         }
@@ -2003,18 +2003,37 @@ def plan_typing(text, p):
     typo_count_min = max(0, typo_count_min)
     typo_count_max = max(0, typo_count_max)
     typo_count_mode = typo_count_max > 0
+    typo_char_min, typo_char_max = p.get('typochars', (0, 0))
+    if typo_char_max < typo_char_min:
+        typo_char_min, typo_char_max = typo_char_max, typo_char_min
+    typo_char_min = max(1, typo_char_min)
+    typo_char_max = max(0, typo_char_max)
+    typo_char_mode = typo_char_max > 0
     typo_min, typo_max = p.get('typo', (0, 0))
-    typo_cadence = not typo_count_mode and typo_max > 0
+    typo_cadence = not typo_char_mode and not typo_count_mode and typo_max > 0
     next_typo_at = max(1, rand_range(typo_min, typo_max)) if typo_cadence else -1
     words_since_typo = 0
-    word_mode = wmax > 0 or pmax > 0 or think_chance > 0 or typo_count_mode or typo_cadence
+    word_mode = (wmax > 0 or pmax > 0 or think_chance > 0 or
+                 typo_char_mode or typo_count_mode or typo_cadence)
     cmds = []
     lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
     line_words = [[wd for wd in line.split() if wd] for line in lines]
     pending = []
     typo_positions = {}
 
-    if typo_count_mode:
+    if typo_char_mode:
+        candidates = []
+        for li, words in enumerate(line_words):
+            for wi, word in enumerate(words):
+                for pos, ch in enumerate(word):
+                    if ch.lower() in '1234567890qwertyuiopasdfghjklzxcvbnm':
+                        candidates.append((li, wi, pos))
+        cursor = rand_range(typo_char_min, typo_char_max) - 1
+        while cursor < len(candidates):
+            li, wi, pos = candidates[cursor]
+            typo_positions.setdefault((li, wi), []).append(pos)
+            cursor += rand_range(typo_char_min, typo_char_max)
+    elif typo_count_mode:
         candidates = []
         for li, words in enumerate(line_words):
             for wi, word in enumerate(words):

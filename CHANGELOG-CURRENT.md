@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 77:** ARM 2.8.2-S1 پایش صدا را از حلقهٔ Micro-step خارج می‌کند تا Cadence نرم 2.8.1 برگردد؛ Typo نیز دوباره فاصلهٔ کاراکتری واقعی است.
 - **Baseline سخت‌افزاری:** Build 68 مسیرهای Desktop/Login/DC/Game را بدون MemoryError روی Pico اجرا کرد؛ حرکت Natural Mouse v1 حفظ شد.
 - **مسئلهٔ باز Build 68:** برای جلوگیری از `ERR|BUSY`، Sound فقط هنگام توقف Mouse Poll می‌شد و واکنش F به صدای قلاب دیر می‌رسید.
 - **راه‌حل Build 69:** ARM 2.8.2 صدا را درون حلقهٔ Mouse به‌صورت Async پایش می‌کند، حرکت را همان لحظه متوقف می‌کند و Pico کلید F را بدون انتظار برای پایان Mouse می‌زند.
@@ -13,6 +14,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 77 | Build 94: حرکت پس از ARM 2.8.2 شکسته و Typo 7–12 تقریباً روی هر حرف اجرا شد | بازیابی Cadence 2.8.1 با Sound بین فرمان‌ها؛ Typo با فاصلهٔ کاراکتری | Local candidate |
 | 76 | Bundle 175: دو Guard JSON با Debug/FAT cross-link خراب شدند | حذف Debug file write، پاسخ سریع دکمه و Read-back کامل Export | Local candidate |
 | 75 | Build 74: Game ابتدا اجرا شد؛ بازگشت بعد از Lux spike شکست خورد | Game re-entry، کالیبراسیون مقاوم Game/Target و بازیابی کامل Bridge | Local candidate |
 | 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
@@ -20,10 +22,10 @@
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
 | 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
-| 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
+| 69 | تست سخت‌افزاری حرکت بعداً Regression نشان داد | پایش Async صدا داخل Micro-step و توقف فوری Mouse پیش از F | Superseded by 77 |
 | 68 | Desktop/Login/DC/Game پاس | Runner سبک Game؛ تأخیر Sound هنگام حرکت | Hardware pass؛ Sound superseded |
 | 67 | Desktop و Login/DC سبک پاس؛ Calibration ذخیره شد | Runner سبک Streaming برای Login/DC | Hardware pass؛ Game superseded |
-| 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable؛ Login superseded |
+| 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable baseline |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
 | 48 | Import و Parse موفق؛ اجرا شکست خورد | Lazy import Parser/Executor | Superseded by 49 |
 | 47 | تست A در Import شکست خورد | Fishing timeout + cadence 128-point | Superseded by 48/49 |
@@ -34,6 +36,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 77 — بازیابی نرمی موس و فاصلهٔ واقعی Typo
+
+**Previous build:** 76
+**Status:** Local candidate; focused contracts passed; Windows CI and hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- پس از ARM 2.8.2 حرکت موس نسبت به Baseline سخت‌افزاری Natural Mouse v1 شکسته و خوشه‌ای حس شد.
+- Record نمونه، خوشه‌های 1 تا 3 میلی‌ثانیه‌ای را پس از مکث نشان داد؛ تنظیم‌های بلند `idle` بین حرکت‌ها جدا هستند و علت Regression داخل حرکت نیستند.
+- تنظیم `typoEveryMin=7` و `typoEveryMax=12` به `typos=7,12` صادر می‌شد. Runtime آن را 7 تا 12 خطا در کل TYPE می‌خواند؛ برای متن 12 کاراکتری تقریباً هر کاراکتر غلط و Backspace می‌شد.
+
+### Root cause
+
+- ARM 2.8.2 تابع `analogRead()` پایش Async Sound را بین تک‌تک Micro-stepهای HID اجرا می‌کرد. این کار مسیر Cadence تأییدشدهٔ ARM 2.8.1 را تغییر داد.
+- نام‌های ذخیره‌شدهٔ `typoEveryMin/Max` فاصله را القا می‌کردند، اما Exporter و Runtime آن‌ها را به تعداد کل خطا تغییر داده بودند.
+
+### Change
+
+- ARM 2.8.2-S1 حلقهٔ DDA/Micro-step را به Cadence دقیق 2.8.1 برمی‌گرداند؛ هیچ ADC یا منطق صدا داخل حلقهٔ HID اجرا نمی‌شود.
+- پایش Async Sound بین فرمان‌های MMOVE در حلقهٔ اصلی ARM ادامه دارد. با Stream حدود 8ms، تشخیص صدا همچنان سریع و غیرمسدودکننده است، بدون تزریق کار متغیر میان گزارش‌های HID.
+- HVER نسخهٔ `2.8.2-S1` را اعلام می‌کند تا فریمور اصلاح‌شده با 2.8.2 قبلی اشتباه نشود.
+- Exporter جدید `typochars=min,max` می‌نویسد. Runtime، Login runner، Parallel planner، Split planner و اجرای مستقیم Classroom فاصلهٔ کاراکترهای واجد شرایط را پس از هر اصلاح دوباره قرعه‌کشی می‌کنند.
+- `typos=min,max` قدیمی به‌عنوان Count mode و `typo=min,max` قدیمی به‌عنوان فاصلهٔ کلمه‌ای فقط برای سازگاری Planهای قدیمی قابل خواندن می‌مانند.
+- متن رابط فارسی و انگلیسی صریحاً «فاصلهٔ بین خطاها برحسب کاراکتر» را نمایش می‌دهد.
+
+### Validation
+
+- قرارداد Firmware ثابت می‌کند `ARM_SOUND_TICK()` داخل `mouse_move_steps` وجود ندارد، ولی Async Sound در مرز فرمان‌ها فعال است.
+- تست Exhaustive تمام Deltaهای `-127..127` حفظ Endpoint دقیق و سقف سه‌پیکسلی را تأیید می‌کند.
+- تست Typo روی 40 Seed ثابت می‌کند مقدار 7–12 برای متن `zodiak999999` دقیقاً یک اصلاح می‌سازد و متن نهایی صحیح می‌ماند.
+- بازهٔ 7–12 روی متن 26 کاراکتری در Seedهای مختلف دو یا سه اصلاح با فاصلهٔ دوباره‌قرعه‌کشی‌شده می‌سازد.
+- قراردادهای Legacy Count و Word cadence همچنان پاس می‌شوند.
+
+### Next test
+
+پس از انتشار، ARM 2.8.2-S1 را روی Pro Micro فلش کنید و Build جدید را در پوشه‌ای تازه اجرا کنید. ابتدا همان مسیر موس قبلی را بدون تغییر تنظیم‌ها Record بگیرید؛ نرمی باید به Baseline Natural Mouse v1 برگردد. سپس TYPE با بازهٔ 7 تا 12 را اجرا کنید؛ روی متن 12 کاراکتری باید فقط یک خطای اصلاح‌شونده دیده شود.
 
 ## Build 76 — جداسازی FAT و تأیید واقعی Export
 

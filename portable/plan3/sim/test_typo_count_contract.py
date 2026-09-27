@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Per-TYPE human typo count contract.
+"""Human typo interval contract.
 
-The persisted Studio keys remain typoEveryMin/Max for .amsj compatibility, but
-new portable plans use typos=min,max. Legacy typo=min,max cadence stays readable.
+The persisted Studio keys remain typoEveryMin/Max for .amsj compatibility.
+New portable plans use typochars=min,max, meaning the eligible-character
+distance between corrections. Legacy typos=count and typo=word-cadence plans
+remain readable.
 """
 from pathlib import Path
 import importlib.util
@@ -27,7 +29,7 @@ for module_name in ("plan_engine_parse", "plan_engine_human"):
     sys.modules.pop(module_name, None)
 parse = __import__("plan_engine_parse")
 human = __import__("plan_engine_human")
-split_typing = load("typo_count_split", SPLIT / "plan_typing.py")
+split_typing = load("typo_interval_split", SPLIT / "plan_typing.py")
 
 
 def replay(commands):
@@ -43,49 +45,55 @@ def replay(commands):
 
 
 plan = parse.parse_plan(
-    "PLAN|2\nTYPE|text=zodiak999999|h=111,250|typos=3,5"
+    "PLAN|2\nTYPE|text=zodiak999999|h=111,250|typochars=7,12"
 )
 params = plan[1][1]
-assert params["typos"] == (3, 5)
+assert params["typochars"] == (7, 12)
 
 for planner in (human.plan_typing, split_typing.plan_typing):
-    observed = set()
+    # A 12-character password gets one correction, never 7..12 corrections.
     for seed in range(40):
         random.seed(seed)
         final_text, count = replay(planner(params["text"], params))
         assert final_text == "zodiak999999"
-        assert 3 <= count <= 5
+        assert count == 1, (seed, count)
+
+    # Intervals are re-rolled and remain within the configured character bounds.
+    text = "abcdefghijklmnopqrstuvwxyz"
+    observed = set()
+    for seed in range(80):
+        random.seed(seed)
+        commands = planner(text, {"h": (1, 1), "typochars": (7, 12)})
+        final_text, count = replay(commands)
+        assert final_text == text
+        assert 2 <= count <= 3, (seed, count)
         observed.add(count)
-    assert observed == {3, 4, 5}, observed
+    assert observed == {2, 3}, observed
 
-    # Count mode applies to characters, including a one-character text.
+    # Legacy explicit count plans remain readable.
     random.seed(7)
-    final_text, count = replay(planner("a", {"h": (1, 1), "typos": (1, 1)}))
-    assert final_text == "a" and count == 1
+    final_text, count = replay(planner("abcdef", {"h": (1, 1), "typos": (2, 2)}))
+    assert final_text == "abcdef" and count == 2
 
-    # An impossible requested count is safely capped at eligible characters.
-    random.seed(9)
-    final_text, count = replay(planner("a!", {"h": (1, 1), "typos": (4, 8)}))
-    assert final_text == "a!" and count == 1
-
-    # The old every-N-words wire contract remains readable for old plan files.
+    # Legacy every-N-words wire contract remains readable.
     random.seed(11)
     final_text, count = replay(planner("one two", {"h": (1, 1), "typo": (1, 1)}))
     assert final_text == "one two" and count == 2
 
 
 route = (MODERN / "login_or_dc_steps.txt").read_text(encoding="utf-8")
-assert "|typos=3,5" in route and "|typo=3,5" not in route
+assert "|typochars=3,5" in route and "|typos=3,5" not in route
 
 exporter = (REPO / "ams-shell/src/Ams.UI/Services/PlanExporter.cs").read_text(encoding="utf-8")
-assert 'parts.Add("typos=" + y0 + "," + y1)' in exporter
-assert "for k in ('h', 'w', 'p', 'typo', 'typos')" in exporter
-assert "typo_count_mode = typo_count_max > 0" in exporter
+assert 'parts.Add("typochars=" + y0 + "," + y1)' in exporter
+assert '"typochars"' in (MODERN / "plan_engine_parse.py").read_text(encoding="utf-8")
+assert "typo_char_mode = typo_char_max > 0" in (
+    MODERN / "plan_engine_human.py").read_text(encoding="utf-8")
 
 labels = (REPO / "ams-shell/src/Ams.UI/Models/StepTextsFa.cs").read_text(encoding="utf-8")
-assert "تعداد خطای تایپی در همین متن" in labels
+assert "فاصلهٔ بین خطاهای تایپی" in labels
 
 generator = (ROOT / "tools/plan_gen.py").read_text(encoding="utf-8")
-assert 'parts.append("typos=%d,%d"' in generator
+assert 'parts.append("typochars=%d,%d"' in generator
 
-print("per-TYPE typo count contract: PASS")
+print("human typo character interval contract: PASS")

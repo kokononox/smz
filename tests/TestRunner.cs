@@ -176,15 +176,15 @@ class TestRunner
         Assert(typoTyped.Length == "hello world".Length + 2,
             $"typo sequence types exactly one slip char per word before correcting (typed {typoTyped.Length} chars)");
 
-        // ── Per-TYPE typo count: min/max corrected slips across eligible characters ──
+        // ── Typo interval: corrected slip every N eligible characters ──
         var tenWords = string.Join(" ", Enumerable.Range(0, 10).Select(i => $"word{i}"));
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
-            Props = new Dictionary<string, object?> { { "text", "zodiak999999" }, { "typoEveryMin", 3 }, { "typoEveryMax", 3 } }
+            Props = new Dictionary<string, object?> { { "text", "zodiak999999" }, { "typoEveryMin", 7 }, { "typoEveryMax", 12 } }
         });
-        Assert(cmds.Count(c => c == "KCOMBO|8") == 3,
-            $"typo count 3/3 injects three corrections into one word (got {cmds.Count(c => c == "KCOMBO|8")})");
+        Assert(cmds.Count(c => c == "KCOMBO|8") == 1,
+            $"typo interval 7–12 injects one correction into a 12-character password (got {cmds.Count(c => c == "KCOMBO|8")})");
 
         int countMin = int.MaxValue, countMax = 0;
         var correctionCounts = new HashSet<int>();
@@ -193,32 +193,32 @@ class TestRunner
             var cc = StepDefinitions.GetCommands(new StepNode
             {
                 Type = "typeText",
-                Props = new Dictionary<string, object?> { { "text", "zodiak999999" }, { "typoEveryMin", 2 }, { "typoEveryMax", 4 } }
+                Props = new Dictionary<string, object?> { { "text", "abcdefghijklmnopqrstuvwxyz" }, { "typoEveryMin", 7 }, { "typoEveryMax", 12 } }
             }, seed);
             int bs = cc.Count(x => x == "KCOMBO|8");
             countMin = Math.Min(countMin, bs); countMax = Math.Max(countMax, bs);
             correctionCounts.Add(bs);
         }
-        Assert(countMin >= 2 && countMax <= 4,
-            $"typo count 2–4 stays in exact bounds (got {countMin}–{countMax} corrections)");
+        Assert(countMin >= 2 && countMax <= 3,
+            $"typo interval 7–12 spaces corrections across 26 characters (got {countMin}–{countMax})");
         Assert(correctionCounts.Count > 1,
-            $"typo count is re-rolled for each TYPE execution (distinct counts: {string.Join(",", correctionCounts.OrderBy(x=>x))})");
+            $"typo interval is re-rolled after corrections (distinct counts: {string.Join(",", correctionCounts.OrderBy(x=>x))})");
 
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
-            Props = new Dictionary<string, object?> { { "text", "a" }, { "typoEveryMin", 1 }, { "typoEveryMax", 1 } }
+            Props = new Dictionary<string, object?> { { "text", "abcdefg" }, { "typoEveryMin", 7 }, { "typoEveryMax", 7 } }
         });
         Assert(cmds.Count(c => c == "KCOMBO|8") == 1,
-            $"single-character text supports one corrected slip (got {cmds.Count(c => c == "KCOMBO|8")})");
+            $"the interval boundary itself receives one corrected slip (got {cmds.Count(c => c == "KCOMBO|8")})");
 
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
             Props = new Dictionary<string, object?> { { "text", tenWords }, { "typoChance", 100 }, { "typoEveryMin", 5 }, { "typoEveryMax", 5 } }
         });
-        Assert(cmds.Count(c => c == "KCOMBO|8") == 5,
-            $"per-text count takes precedence over legacy typoChance (got {cmds.Count(c => c == "KCOMBO|8")}, chance mode would give 10)");
+        Assert(cmds.Count(c => c == "KCOMBO|8") > 5,
+            $"character interval takes precedence over legacy typoChance (got {cmds.Count(c => c == "KCOMBO|8")})");
 
         // ── v0.9.13 — word-pause probability + stream merging (no fixed gap after space) ──
         cmds = StepDefinitions.GetCommands(new StepNode

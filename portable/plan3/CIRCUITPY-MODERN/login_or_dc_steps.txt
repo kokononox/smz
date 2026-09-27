@@ -8,7 +8,7 @@ LABEL|label1
 RMOUSE|region=1301,0,378,1049|before=20,69|after=20,85|curve=1,200|mid=50:142,528|over=29|mt=171,2457|idle=5,12:800,3000
 DELAY|2000,5000
 DELAY|500,2000
-TYPE|text=zodiak999999|h=111,250|w=130,220|wp=60|p=88,177|think=66:800,2200|typos=3,5
+TYPE|text=zodiak999999|h=111,250|w=130,220|wp=60|p=88,177|think=66:800,2200|typochars=3,5
 DELAY|333,1500
 KEY|combo=13|hold=88,190
 DELAY|1000

@@ -20,9 +20,12 @@ static void arm28_sound_cancel();
 #include "ams_board26_impl.h"
 #undef setup
 #undef loop
-// ARM 2.8.2 intentionally drops the unused legacy absolute HumanMouse layer.
+// ARM 2.8.2-S1 intentionally drops the unused legacy absolute HumanMouse layer.
 // Portable mode uses native relative MMOVE; the recovered flash is used for a
-// concurrent sound watcher that remains active while HID movement is streaming.
+// concurrent sound watcher.  S1 restores the hardware-proven 2.8.1 mouse
+// cadence: ADC sampling runs between MMOVE commands, never between HID
+// micro-steps.  With Pico's ~8 ms stream this still detects a sustained sound
+// promptly without injecting variable work into the motion loop.
 static uint8_t asndState=0; // 0=off, 1=listening, 2=detected/block moves
 static uint16_t asndThreshold=0,asndMinimum=0;
 static uint32_t asndDeadline=0,asndHighSince=0;
@@ -48,7 +51,7 @@ static bool arm28_sound_tick(){
   return false;
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2|REL=1|ASND=1");return true;}
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S1|REL=1|ASND=1");return true;}
   if(!strncmp(line,"ASND|",5)){
     int thr=60;unsigned long minimum=60,timeout=30000;
     sscanf(line+5,"%d,%lu,%lu",&thr,&minimum,&timeout);
