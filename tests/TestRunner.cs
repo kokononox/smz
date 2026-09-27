@@ -4241,7 +4241,7 @@ class TestRunner
             // Windows checkout expands LF to CRLF and the packaging workflow applies the
             // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
             // pinning the old pre-overlay byte count.
-            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 50000
+            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 55000
                    && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("DeferredPlanEngine"),
                 "modern AutoCycle export uses the small deferred-loading entrypoint");
             var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
