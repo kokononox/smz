@@ -3875,7 +3875,9 @@ class TestRunner
             var pexPar=PexStep("parallelGroup"); pexPar.Children.Add(PexStep("mouseClick"));
             pexPar.Children.Add(PexStep("mouseScroll",new Dictionary<string,object?>{{"delta",1}})); pexParity.Add(pexPar);
             var pexParityText=PlanExporter.Compile(pexParity,pexSettings,1920,1080,"f","T").Text;
-            foreach(var op in new[]{"WSND|91,70,8000","KEY|combo=162+65","KDOWN|160","KUP|160","WHEEL|-3","LABEL|again","GOTO|again","RAW|PING","RPKG|all,1,2","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR"})
+            Assert(pexParityText.Contains("WSNDP|1,") && pexParityText.Contains(",91,70,8000"),
+                "Build 74: C# parity emits bound WSNDP for Wait For Sound");
+            foreach(var op in new[]{"KEY|combo=162+65","KDOWN|160","KUP|160","WHEEL|-3","LABEL|again","GOTO|again","RAW|PING","RPKG|all,1,2","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR"})
                 Assert(pexParityText.Contains(op),"v0.9.66: C# parity emits "+op);
             Assert(pexParityText.Split('\n').Count(x=>x=="KEY|combo=91+82|hold=40,90")==3,
                 "v0.9.66: runExe/openFile/playAudio emit Win+R macros");
@@ -4224,14 +4226,15 @@ class TestRunner
         try
         {
             var modernWritten = ModernAutoCycleFirmwareBundle.Export(Path.Combine(modernTmp, "code.py"));
-            Assert(modernWritten.Count == 31
+            Assert(modernWritten.Count == 32
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
-                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 27,
+                   && File.Exists(Path.Combine(modernTmp, "sound_step_calibration.py"))
+                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 28,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
             // Windows checkout expands LF to CRLF and the packaging workflow applies the
             // verified calibration-heap overlay. Keep a bounded deferred entrypoint without

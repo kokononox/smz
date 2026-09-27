@@ -280,15 +280,10 @@ def _memory_safe_init(self):
     self.usb = runtime.usb_cdc.data or runtime.usb_cdc.console
     self.host = bytearray()
     self.calibrating = False
-    self.sound_calibrating = False
-    self.sound_calibration_id = 1
-    self.sound_calibration_phase = None
-    self.sound_calibration_started = 0
-    self.sound_calibration_silence = 0
-    self.sound_calibration_peak = 0
-    self.sound_calibration_pending = None
-    self.sound_bindings = {}
-    self.sound_profiles = {}
+    self.sound_calibrating, self.sound_calibration_id = False, 1
+    self.sound_calibration_phase = self.sound_calibration_pending = None
+    self.sound_calibration_started = self.sound_calibration_silence = self.sound_calibration_peak = 0
+    self.sound_bindings, self.sound_profiles = {}, {}
     self.stage = 0
     self.samples = []
     self.sample_started = 0
@@ -302,11 +297,7 @@ def _memory_safe_init(self):
     self.debug_last_state = None
     _debug_event(self, "BOOT", "bundle=valid profiles=%d" % len(runtime.PROFILES), persist=True)
 
-# The six calibration positions use distinct ascending notes: C4 through A4.
 _CAL_NOTES = (262, 294, 330, 349, 392, 440)
-# Board control cues are short rhythmic signatures instead of long continuous tones.
-# Each pattern stays near one second and uses 3-6 notes so Start/Stop/Pause/Resume
-# remain recognizable without sounding like a stuck alarm.
 _GUARD_START_PATTERN = ((784, 160), (988, 160), (1175, 200), (0, 80), (1175, 280))
 _GUARD_STOP_PATTERN = ((392, 180), (330, 160), (262, 260), (0, 60), (196, 260))
 _GUARD_PAUSE_PATTERN = ((523, 180), (0, 100), (523, 180), (0, 100), (523, 340))
@@ -315,42 +306,21 @@ _CAL_ENTER_PATTERN = ((523, 100), (659, 120), (784, 180))
 _CAL_EXIT_PATTERN = ((784, 100), (659, 120), (523, 220))
 _CAL_SAVE_ERROR_PATTERN = ((220, 140), (0, 80), (220, 260))
 def _sound_module():
-    module = sys.modules.get("sound_step_calibration")
-    if module is None:
-        gc.collect()
-        module = __import__("sound_step_calibration")
-    return module
+    gc.collect(); return sys.modules.get("sound_step_calibration") or __import__("sound_step_calibration")
+
+def _drop_sound_module(self):
+    if not self.sound_calibrating: sys.modules.pop("sound_step_calibration", None); gc.collect()
 
 def _sound_profile(self, profile_id, binding, threshold, minimum):
-    module = _sound_module()
-    try:
-        return module.resolve(self, profile_id, binding, threshold, minimum)
-    finally:
-        # Route execution only needs the resolved pair. Drop the calibration
-        # implementation before a plan engine is imported on the tight Pico heap.
-        if not self.sound_calibrating:
-            sys.modules.pop("sound_step_calibration", None)
-            gc.collect()
+    try: return _sound_module().resolve(self, profile_id, binding, threshold, minimum)
+    finally: _drop_sound_module(self)
 
-def _sound_start_calibration(self):
-    return _sound_module().start(self)
-
-def _sound_select_next(self):
-    return _sound_module().select_next(self)
-
-def _sound_begin_sample(self):
-    return _sound_module().begin_sample(self)
-
-def _sound_calibration_tick(self):
-    return _sound_module().tick(self)
-
+def _sound_start_calibration(self): return _sound_module().start(self)
+def _sound_select_next(self): return _sound_module().select_next(self)
+def _sound_begin_sample(self): return _sound_module().begin_sample(self)
+def _sound_calibration_tick(self): return _sound_module().tick(self)
 def _sound_end_calibration(self):
-    module = _sound_module()
-    result = module.finish(self)
-    if not self.sound_calibrating:
-        sys.modules.pop("sound_step_calibration", None)
-        gc.collect()
-    return result
+    result = _sound_module().finish(self); _drop_sound_module(self); return result
 
 def _cal_beep(self, frequency, duration_ms):
     tone = None
@@ -633,21 +603,11 @@ def _audible_buttons(self):
     if yellow == "long":
         _debug_event(self, "GP3", "long sound-calibrating=%s" % self.sound_calibrating, persist=True)
     if self.sound_calibrating:
-        if yellow == "long":
-            self.sound_end_calibration()
-        elif blue == "up" and not self.blue.long:
-            self.sound_select_next()
-        elif yellow == "up" and not self.yellow.long:
-            self.sound_begin_sample()
-        self.sound_calibration_tick()
-        return
+        _sound_module().handle_buttons(self, blue, yellow); return
     if yellow == "long" and not self.calibrating and not self.controls.running:
         self.sound_start_calibration()
         return
     if blue == "down" and not self.calibrating and self.controls.running:
-        # Stop is fail-safe and should acknowledge immediately on press. This
-        # consumes the blue press so the later release/long-hold path cannot
-        # re-start the Guard or enter calibration accidentally.
         self.blue_stop_consumed = True
         self.immediate_audible_stop()
     elif blue == "down" and not self.calibrating and not self.controls.running:
@@ -889,23 +849,7 @@ def _run_light_route(ctx, commands):
                 else:
                     loops.pop()
         elif command in ("WSND", "WSNDP"):
-            fields = args.replace(",", " ").split()
-            if command == "WSND":
-                if len(fields) != 3:
-                    raise ValueError("WSND needs threshold,min,timeout")
-                threshold, minimum, timeout_ms = int(fields[0]), int(fields[1]), int(fields[2])
-            else:
-                if len(fields) != 5:
-                    raise ValueError("WSNDP needs id,binding,threshold,min,timeout")
-                profile_id = int(fields[0])
-                threshold, minimum = ctx.sound_profile(
-                    profile_id, fields[1], int(fields[2]), int(fields[3]))
-                timeout_ms = int(fields[4])
-            heard = ctx.wait_sound(threshold, minimum, timeout_ms)
-            if heard is None:
-                raise RuntimeError("route aborted")
-            ctx.log(("wsndp" if command == "WSNDP" else "wsnd") +
-                (" heard" if heard else " timeout - continue"))
+            _sound_module().run_wait(ctx, command, args); _drop_sound_module(ctx.r)
         elif command == "BEEP":
             fields = args.replace(",", " ").split()
             if len(fields) != 2:

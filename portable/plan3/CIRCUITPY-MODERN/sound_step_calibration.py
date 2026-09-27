@@ -209,6 +209,31 @@ def _sample(owner):
     return average, peak
 
 
+def run_wait(ctx, command, args):
+    fields = args.replace(",", " ").split()
+    need = 3 if command == "WSND" else 5
+    if len(fields) != need:
+        raise ValueError(command + " has bad fields")
+    if command == "WSND":
+        threshold, minimum = int(fields[0]), int(fields[1])
+    else:
+        threshold, minimum = ctx.sound_profile(
+            int(fields[0]), fields[1], int(fields[2]), int(fields[3]))
+    heard = ctx.wait_sound(threshold, minimum, int(fields[-1]))
+    if heard is None:
+        raise RuntimeError("route aborted")
+    ctx.log(command.lower() + (" heard" if heard else " timeout - continue"))
+
+def handle_buttons(owner, blue, yellow):
+    if yellow == "long":
+        finish(owner)
+    elif blue == "up" and not owner.blue.long:
+        select_next(owner)
+    elif yellow == "up" and not owner.yellow.long:
+        begin_sample(owner)
+    tick(owner)
+
+
 def resolve(owner, profile_id, binding, threshold, minimum):
     profile_id = int(profile_id)
     binding = str(binding).lower()
