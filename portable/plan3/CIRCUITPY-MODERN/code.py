@@ -108,7 +108,8 @@ runtime.parse_calibration_set = parse_calibration_set
 # Classroom Studio's complete 21-file export hashes every payload except the
 # hash manifest itself. Extend the verifier inventory before loading the bundle.
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
-              "plan_engine_human.py", "plan_engine_exec.py", "plan_engine_parallel.py"):
+              "plan_engine_human.py", "plan_engine_login.py",
+              "plan_engine_exec.py", "plan_engine_parallel.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES
@@ -436,7 +437,8 @@ _original_cal_tick = runtime.Combined.cal_tick
 _original_save_cal = runtime.Combined.save_cal
 _original_yellow_action = runtime.Combined.yellow_action
 
-_PLAN_MODULES = ("plan_engine_exec", "plan_engine_human", "plan_engine_parallel", "plan_engine_parse")
+_PLAN_MODULES = ("plan_engine_exec", "plan_engine_human", "plan_engine_login",
+                 "plan_engine_parallel", "plan_engine_parse")
 
 def _release_plan_heap(self, emit_cal=False):
     # Complex routes lazily import the split plan engine. CircuitPython keeps
@@ -638,7 +640,8 @@ runtime.PlanContext.beep = _diagnostic_beep
 
 _LIGHT_ROUTE_COMMANDS = {
     "PLAN", "SCREEN", "SPEED", "BEEP", "DELAY", "KEY", "KDOWN", "KUP", "RAW",
-    "HANDPATH", "LOOP", "LOOPTIME", "ENDLOOP",
+    "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO",
+    "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
 def _light_route_lines(text):
@@ -669,6 +672,16 @@ def _light_route_lines(text):
 def _run_light_route(ctx, commands):
     index = 0
     loops = []  # [LOOP/LOOPTIME command index, remaining count, deadline]
+    labels = {}
+    for label_index, item in enumerate(commands):
+        if item[0] == "LABEL":
+            if not item[1] or item[1] in labels:
+                raise ValueError("LABEL needs a unique name")
+            labels[item[1]] = label_index
+    route_speed = [0, 2000]
+    mouse_pos = [ctx.screen_w // 2, ctx.screen_h // 2]
+    login_helper = None
+    login_pauses = None
     while index < len(commands):
         command, args = commands[index]
         if command == "PLAN":
@@ -680,8 +693,12 @@ def _run_light_route(ctx, commands):
             ctx.screen_w, ctx.screen_h = int(fields[0]), int(fields[1])
             _debug_event(ctx.r, "STEP", "SCREEN metadata %dx%d" % (ctx.screen_w, ctx.screen_h), persist=True)
         elif command == "SPEED":
-            # Speed is route metadata; BEEP/DELAY do not need the Arm.
-            pass
+            fields = args.replace(",", " ").split()
+            if len(fields) != 2:
+                raise ValueError("SPEED needs min,max")
+            route_speed[0], route_speed[1] = int(fields[0]), int(fields[1])
+            if route_speed[1] < route_speed[0]:
+                route_speed[0], route_speed[1] = route_speed[1], route_speed[0]
         elif command == "DELAY":
             fields = args.replace(",", " ").split()
             if len(fields) == 1:
@@ -756,6 +773,24 @@ def _run_light_route(ctx, commands):
                 start = end + 1
             if not count:
                 raise ValueError("HANDPATH is empty")
+        elif command in ("RMOUSE", "TYPE"):
+            if login_helper is None:
+                gc.collect()
+                import plan_engine_login as login_helper
+                login_pauses = login_helper.PausePlanner()
+            if command == "RMOUSE":
+                login_helper.run_rmouse(args, ctx, login_pauses, mouse_pos, route_speed)
+            else:
+                login_helper.run_type(args, ctx)
+        elif command == "LABEL":
+            pass
+        elif command == "GOTO":
+            target = labels.get(args)
+            if target is None:
+                raise ValueError("GOTO label not found")
+            loops[:] = []
+            index = target
+            continue
         elif command == "LOOP":
             count = int(args)
             if count < 0:
@@ -808,6 +843,11 @@ def _diagnostic_route(self, decision):
     commands = _light_route_lines(text)
     try:
         if commands is not None:
+            # The Login helper is intentionally independent from the full
+            # parser. Reclaim the source route before its lazy import so the
+            # fragmented RP2040 heap never needs the old 29 KB parser module.
+            del text
+            gc.collect()
             self.emit("EVT|DEBUG|ROUTE|stage=light-route|free=%d" % gc.mem_free())
             # Keep simple Pico-only routes off the large plan_engine import.
             _run_light_route(runtime.PlanContext(self), commands)

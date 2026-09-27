@@ -21,7 +21,8 @@ public static class ModernAutoCycleFirmwareBundle
         "guard_calibration_protocol.py", "guard_transition.py",
         "live_light_guard.py", "login_or_dc_steps.txt", "pico-calibration.json",
         "plan.txt", "plan_engine.py", "plan_engine_exec.py",
-        "plan_engine_human.py", "plan_engine_parallel.py", "plan_engine_parse.py", "restart_steps.txt",
+        "plan_engine_human.py", "plan_engine_login.py", "plan_engine_parallel.py",
+        "plan_engine_parse.py", "restart_steps.txt",
         "resumable_steps.txt", "settings.toml", "targeted_steps.txt",
     };
 
@@ -35,7 +36,7 @@ public static class ModernAutoCycleFirmwareBundle
         if (!File.Exists(sourceManifest))
             throw new IOException("Manifest Bundle مدرن پیدا نشد.");
         var manifestNames = ReadManifestNames(sourceManifest);
-        if (manifestNames.Length != 25)
+        if (manifestNames.Length != 26)
             throw new IOException("تعداد فایل‌های Manifest Bundle مدرن نامعتبر است.");
         foreach (var name in Files.Concat(manifestNames).Distinct(StringComparer.OrdinalIgnoreCase))
         {

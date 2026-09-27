@@ -4215,12 +4215,13 @@ class TestRunner
         try
         {
             var modernWritten = ModernAutoCycleFirmwareBundle.Export(Path.Combine(modernTmp, "code.py"));
-            Assert(modernWritten.Count == 29
+            Assert(modernWritten.Count == 30
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
-                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 25,
+                   && File.ReadAllText(Path.Combine(modernTmp, "SHA256SUMS.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 26,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
             // Windows checkout expands LF to CRLF and the packaging workflow applies the
             // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
@@ -4237,12 +4238,23 @@ class TestRunner
                 "modern AutoCycle export uses hostless relative mouse without a cursor bridge");
             var modernCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
             Assert(modernCode.Contains("_LIGHT_ROUTE_COMMANDS")
+                   && modernCode.Contains("\"RMOUSE\"")
+                   && modernCode.Contains("\"TYPE\"")
+                   && modernCode.Contains("\"LABEL\"")
+                   && modernCode.Contains("\"GOTO\"")
+                   && modernCode.Contains("import plan_engine_login as login_helper")
                    && modernCode.Contains("\"RAW\"")
                    && modernCode.Contains("\"LOOPTIME\"")
                    && modernCode.Contains("\"ENDLOOP\"")
                    && modernCode.Contains("elif command == \"RAW\":")
                    && modernCode.Contains("ctx.mmove_relative(int(fields[0]), int(fields[1]))"),
                 "looped hand-sampled RAW/MMOVE routes stay on the low-memory light-route executor");
+            var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
+            Assert(!loginHelper.Contains("import plan_engine_parse")
+                   && loginHelper.Contains("def run_rmouse(")
+                   && loginHelper.Contains("def run_type(")
+                   && loginHelper.Length < 14000,
+                "Login/DC light helper preserves Natural Mouse and typing without importing the full parser");
 
             var current = new PipelineWorkspace();
             foreach (var tab in current.Tabs) tab.Steps.Clear();

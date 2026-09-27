@@ -7,6 +7,7 @@ runtime=(root/'portable/plan3/CIRCUITPY-MODERN/combined_guard_runtime.py').read_
 executor=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_exec.py'
 parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parallel.py'
 human=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_human.py'
+login=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login.py'
 facade=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine.py'
 bundle=(root/'ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs').read_text()
 assert '"forLoop" or "randomPackage"' in exporter
@@ -22,7 +23,9 @@ assert 'for field in reply.split("|")' not in runtime
 assert parallel.exists() and parallel.stat().st_size > 8000
 assert executor.stat().st_size < 20000, executor.stat().st_size
 assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
-assert 'plan_engine_parallel.py' in bundle and 'manifestNames.Length != 25' in bundle
+assert login.exists() and login.stat().st_size < 14000
+assert 'plan_engine_parallel.py' in bundle and 'plan_engine_login.py' in bundle
+assert 'manifestNames.Length != 26' in bundle
 assert 'def _parallel_relative_mouse_events' in parallel.read_text()
 assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
@@ -34,4 +37,4 @@ assert 'self.keyboard.release_all()' in code and 'GP3", "pause"' in code
 assert 'except runtime.plan_engine.PlanAbort:' in code
 assert '_release_plan_heap(self)' in code
 assert 'other["moving"] for other in tasks' in parallel.read_text()
-print('parallel export/firmware contract: 26 passed, 0 failed')
+print('parallel export/firmware contract: 29 passed, 0 failed')

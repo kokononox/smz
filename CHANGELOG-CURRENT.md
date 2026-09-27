@@ -1,18 +1,20 @@
 # Classroom Studio — Current Hardware Changelog
 
-این سند مرجع سریع وضعیت شاخهٔ فعال `fix/portable-relative-mouse` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
+این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
 ## وضعیت فعلی در یک نگاه
 
 - **Baseline سخت‌افزاری انتخاب‌شده:** Build 50 + ARM 2.8.1 + پروژهٔ C
-- **وضعیت حرکت:** نرم و بدون شکستگی دوره‌ای؛ Natural Mouse v1 آمادهٔ تست است.
+- **وضعیت حرکت:** Natural Mouse v1 در Build 66 و Bundle 160 از نظر نرمی، Endpoint و حافظهٔ Desktop تأیید شده است.
+- **مسئلهٔ باز:** Login/DC در Import Parser کامل با تخصیص 2930 بایت شکست خورد؛ Build 67 آن را به Runner سبک منتقل می‌کند.
 - **اصل معماری:** Cadence و Micro-step تأییدشدهٔ Build 50 دست‌نخورده می‌ماند؛ Humanization فقط در سطح مسیر اعمال می‌شود.
 - **معماری:** Pico مسئول Keyboard/Guard/Route، و Pro Micro مسئول Mouse HID و Sound است.
 - **Golden 100:** جدا و بدون تغییر باقی مانده است.
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Natural Mouse v1 روی Baseline 50 | CI candidate |
+| {{BUILD_NUMBER}} | تست سخت‌افزاری لازم است | Runner سبک Streaming برای Login/DC | CI candidate |
+| 66 | Desktop و Natural Mouse پاس؛ Login/DC MemoryError | Natural Mouse v1 روی Baseline 50 | Mouse-stable؛ Login superseded |
 | 49 | Route تست A کامل شد | Runner سبک RMOUSE بدون Executor کامل | Functional pass؛ کیفیت حرکت در حال تیون |
 | 48 | Import و Parse موفق؛ اجرا شکست خورد | Lazy import Parser/Executor | Superseded by 49 |
 | 47 | تست A در Import شکست خورد | Fishing timeout + cadence 128-point | Superseded by 48/49 |
@@ -24,7 +26,46 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
-## Build {{BUILD_NUMBER}} — Natural Mouse v1 روی Baseline نرم Build 50
+## Build {{BUILD_NUMBER}} — Runner سبک Streaming برای Login/DC
+
+**Previous build:** 66
+**Status:** CI candidate; Login/DC hardware retest pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 66 و Bundle 160 مسیر Desktop و Natural Mouse را کامل اجرا کردند، اما Route واقعی Login/DC پیش از Import Parser با `MemoryError` برای تخصیص 2930 بایت متوقف شد. حافظهٔ آزاد پیش از Import برابر 50620 بایت بود.
+
+### Root cause
+
+Route Login شامل `LABEL/GOTO`، دو `RMOUSE`، `TYPE` انسانی، `KEY` و `KDOWN/KUP` است. Runner سبک Build 66 این مجموعه را نمی‌پذیرفت و در نتیجه Parser کامل 29KB را روی Heap تکه‌تکه Import می‌کرد. بازگشت به Baseline نرم Build 50 اصلاحات مسیر سبک Login را همراه خود نیاورده بود.
+
+### Change
+
+- Module جدید `plan_engine_login.py` فقط منطق لازم Login را با حجم کمتر از 12KB فراهم می‌کند.
+- `RMOUSE` همان Natural Mouse v1 و ARM 2.8.1 تأییدشده را حفظ می‌کند.
+- `TYPE` شامل Typo/Correction تعدادمحور، Word/Punctuation/Think delay و متن نهایی دقیق است.
+- `LABEL/GOTO`، `KEY`، `KDOWN/KUP` و Delayها بدون Import `plan_engine_parse.py` اجرا می‌شوند.
+- متن Route پیش از Import Helper آزاد و `gc.collect()` اجرا می‌شود.
+- Module جدید داخل Manifest قرار گرفته و پس از پایان Route همراه Cacheهای Plan آزاد می‌شود.
+
+### Validation
+
+- Route واقعی `p-updated-v3-fishing-parallel.amsj#LoginOrDc` با 19 فرمان روی Runner سبک شبیه‌سازی شد.
+- هر دو RMOUSE در مجموع 130 نقطهٔ Streaming تولید کردند.
+- پس از 3 تا 5 Typo/Correction، متن نهایی دقیقاً `zodiak999999` باقی ماند.
+- KDOWN/KUP بدون کلید نگه‌داشته‌شده پایان یافت و Enter اجرا شد.
+- `code.py` و `plan_engine_login.py` با `py_compile` معتبرند.
+- TestRunner وجود Helper، نبود وابستگی به Parser و Manifest 26فایلی را کنترل می‌کند.
+- ابزار Calibration heap نیز Inventory جدید 26فایلی را بدون تغییر رفتار کالیبراسیون بازسازی می‌کند.
+- قرارداد شبیه‌سازی Calibration حضور `plan_engine_login.py` و هر 26 Hash را کنترل می‌کند.
+- قرارداد Parallel/Exporter نیز ARM 2.8.1 ثابت، Helper سبک و Inventory 26فایلی را هم‌زمان قفل می‌کند.
+
+### Next test
+
+با ARM 2.8.1 بدون تغییر، Bundle جدید را از پروژهٔ کامل بسازید و Start را در Login/DC بزنید. معیار پذیرش: `ROUTE|stage=light-route` به‌جای `before-plan-engine-import`، اجرای TYPE و هر دو RMOUSE، پاسخ‌گویی Stop/Pause و نبود `MemoryError` یا کلید گیرکرده.
+
+## Build 66 — Natural Mouse v1 روی Baseline نرم Build 50
 
 **Previous build:** 50
 **Status:** CI candidate; hardware retest pending
