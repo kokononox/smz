@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
 | 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
 | 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
@@ -29,6 +30,37 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 72 — کالیبراسیون واقعی صدا از مسیر Pico → Pro Micro
+
+**Previous build:** 71  
+**Status:** CI candidate; sound hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+لاگ واقعی نشان داد اتصال Bridge سالم بود، اما Pico برای هر دو فرمان `SCAL` و `WSND` پاسخ `ERR|UNKNOWN` می‌داد. Classroom این پاسخ نامعتبر را به‌اشتباه «quiet» تلقی کرد و Binary Search همیشه به سقف 200 و Threshold ثابت 300 رسید. هم‌زمان ACK دوره‌ای `OK|CURSOR` هر 250ms لاگ اپراتور را پر می‌کرد.
+
+### Root cause
+
+سنسور صدا روی Pro Micro است، اما Classroom به COM31 و Pico Brain متصل می‌شود. Host command handler پیکو فقط فرمان‌هایی مانند `PING/LUX/CURSOR` را می‌پذیرفت و `SCAL/WSND` را به UART خصوصی Pro Micro منتقل نمی‌کرد. کد کالیبراسیون نیز `ERR|UNKNOWN` را از Timeout واقعی تفکیک نمی‌کرد.
+
+### Change
+
+- Pico اکنون `SCAL` و `WSND` را با Timeout محدود به Pro Micro Proxy می‌کند و پاسخ واقعی را به Classroom برمی‌گرداند.
+- Classroom فقط `ERR|TIMEOUT|WSND` را Quiet معتبر می‌داند؛ `UNKNOWN/EXEC` دیگر Threshold 300 تولید نمی‌کند.
+- هنگام Bundle قدیمی، پیام روشن برای خروجی‌گرفتن مجدد روی CIRCUITPY نمایش داده می‌شود.
+- ACK موفق `OK|CURSOR` از Serial Log مخفی شد؛ خطاهای Cursor همچنان ثبت می‌شوند.
+- ARM 2.8.2، الگوریتم سنسور، Async Sound و Natural Mouse تغییر نکرده‌اند.
+
+### Validation
+
+- TestRunner قرارداد Proxy هر دو فرمان، تفکیک Timeout از Unknown و فیلتر Cursor ACK را قفل می‌کند.
+- `code.py` با `py_compile` بررسی و SHA256 آن در Manifest بازسازی شد.
+
+### Next test
+
+با Classroom جدید پروژهٔ فعلی را دوباره روی CIRCUITPY خروجی بگیرید؛ صرفاً تعویض EXE کافی نیست. پس از Reboot و Connect، دکمهٔ کالیبره را در سکوت بزنید. پاسخ باید `OK|SCAL|avg=...|max=...` باشد و عدد Threshold از اندازه‌گیری واقعی بیاید.
 
 ## Build 71 — اتصال واقعی برای تست و کالیبراسیون سنسور صدا
 

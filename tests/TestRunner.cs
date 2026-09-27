@@ -4299,6 +4299,16 @@ class TestRunner
             Assert(repairedVm.Contains("_bridge.State != BridgeState.Connected")
                    && repairedVm.Contains("Connect را بزنید"),
                 "Build 71: sound calibration rejects a stale bridge before SCAL/WSND probes");
+            Assert(repairedVm.Contains("OK|CURSOR", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|UNKNOWN|SCAL", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|UNKNOWN|WSND", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|TIMEOUT|WSND", StringComparison.Ordinal),
+                "Build 72: cursor ACK noise is hidden and unsupported sound replies never become threshold 300");
+            Assert(modernCode.Contains("elif line.startswith(\"SCAL|\"):")
+                   && modernCode.Contains("elif line.startswith(\"WSND|\"):")
+                   && modernCode.Contains("reply = self.arm.send(line, ms / 1000.0 + 3)")
+                   && modernCode.Contains("reply = self.arm.send(line, timeout_ms / 1000.0 + 3)"),
+                "Build 72: Pico host commands proxy sound calibration and probes to the Pro Micro");
             Assert(repairedDeploy.Contains("private async Task ExportAutoCycleModern()")
                    && repairedDeploy.Contains("await StopLightWatchAsync();"),
                 "Pico deployment stops Light Watch before USB autoreload");

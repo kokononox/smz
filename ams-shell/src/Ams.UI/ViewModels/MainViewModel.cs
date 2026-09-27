@@ -2250,6 +2250,14 @@ public partial class MainViewModel : ObservableObject
 
             }
 
+            else if (reply.StartsWith("ERR|UNKNOWN|SCAL", StringComparison.Ordinal))
+            {
+                Log("calibrate: Pico bundle does not proxy SCAL to the Pro Micro");
+                System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
+                    "این Bundle پیکو فرمان تست صدا را پشتیبانی نمی‌کند. ابتدا با همین نسخهٔ Classroom پروژه را دوباره روی CIRCUITPY خروجی بگیرید.",
+                    "کالیبره", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
             else
 
                 Log("calibrate: SCAL reply unexpected (" + reply + ") — falling back to WSND probing");
@@ -2284,7 +2292,23 @@ public partial class MainViewModel : ObservableObject
 
                 catch { probeErrors++; probe = ""; }
 
+                if (probe.StartsWith("ERR|UNKNOWN|WSND", StringComparison.Ordinal)
+                    || probe.StartsWith("ERR|EXEC|WSND", StringComparison.Ordinal))
+                {
+                    Log("calibrate probe failed: " + probe);
+                    System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
+                        "فرمان تست صدا به Pro Micro نرسید. Bundle جدید را روی CIRCUITPY خروجی بگیرید و اتصال UART بردها را بررسی کنید.",
+                        "کالیبره", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return null;
+                }
                 bool fired = probe.StartsWith("OK|", StringComparison.Ordinal) || probe.StartsWith("EVT|", StringComparison.Ordinal);
+                bool quiet = probe.StartsWith("ERR|TIMEOUT|WSND", StringComparison.Ordinal);
+                if (!fired && !quiet)
+                {
+                    probeErrors++;
+                    Log("calibrate probe invalid reply: " + probe);
+                    continue;
+                }
 
                 Log($"calibrate probe: WSND ≥{mid} → {(fired ? "fired" : "quiet")}");
 
@@ -2422,7 +2446,13 @@ public partial class MainViewModel : ObservableObject
 
 
 
-    private void OnBridgeLine(object? sender, string line) => Log("bridge: " + line);
+    private void OnBridgeLine(object? sender, string line)
+    {
+        // Build 72 — cursor origin sync runs four times per second. Successful ACKs are
+        // transport housekeeping, not operator diagnostics; keep errors and all other lines.
+        if (line.Contains("OK|CURSOR", StringComparison.Ordinal)) return;
+        Log("bridge: " + line);
+    }
 
     // Build 71 — transport state is authoritative. A sidecar/COM failure must not leave
     // the status bar green while every later command throws "Bridge is not connected."
