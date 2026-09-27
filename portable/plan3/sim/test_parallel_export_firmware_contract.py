@@ -32,7 +32,7 @@ assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in
 assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
 assert 'plan_engine_parallel.py' in bundle and 'plan_engine_game.py' in bundle and 'plan_engine_login.py' in bundle
-assert 'manifestNames.Length != 27' in bundle
+assert 'manifestNames.Length != 28' in bundle
 assert 'def _parallel_relative_mouse_events' in parallel.read_text()
 assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
