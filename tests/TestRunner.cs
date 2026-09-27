@@ -4251,6 +4251,11 @@ class TestRunner
                    && modernExec.Contains("ctx.mmove_relative(dx, dy)")
                    && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("relative-native-before-route"),
                 "modern AutoCycle export uses hostless relative mouse without a cursor bridge");
+            Assert(modernRuntime.Contains("line.startswith(\"EVT|ASND|DETECTED\")")
+                   && modernRuntime.Contains("line.startswith(\"EVT|ASND|TIMEOUT\")")
+                   && modernRuntime.Contains("EVT|SOUND|listen|source=async")
+                   && modernRuntime.Contains("mode=async"),
+                "Build 81: packaged Classroom runtime preserves the ARM 2.8.2-S4 async sound contract");
             var modernCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
             Assert(modernCode.Contains("_LIGHT_ROUTE_COMMANDS")
                    && modernCode.Contains("\"RMOUSE\"")
