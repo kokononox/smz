@@ -322,7 +322,15 @@ def _sound_module():
     return module
 
 def _sound_profile(self, profile_id, binding, threshold, minimum):
-    return _sound_module().resolve(self, profile_id, binding, threshold, minimum)
+    module = _sound_module()
+    try:
+        return module.resolve(self, profile_id, binding, threshold, minimum)
+    finally:
+        # Route execution only needs the resolved pair. Drop the calibration
+        # implementation before a plan engine is imported on the tight Pico heap.
+        if not self.sound_calibrating:
+            sys.modules.pop("sound_step_calibration", None)
+            gc.collect()
 
 def _sound_start_calibration(self):
     return _sound_module().start(self)
@@ -337,7 +345,12 @@ def _sound_calibration_tick(self):
     return _sound_module().tick(self)
 
 def _sound_end_calibration(self):
-    return _sound_module().finish(self)
+    module = _sound_module()
+    result = module.finish(self)
+    if not self.sound_calibrating:
+        sys.modules.pop("sound_step_calibration", None)
+        gc.collect()
+    return result
 
 def _cal_beep(self, frequency, duration_ms):
     tone = None

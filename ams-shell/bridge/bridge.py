@@ -93,6 +93,7 @@ def detect_board_port():
         if any(k in d for k in KEYS): s += 50
         return s
     cands = sorted(list_ports.comports(), key=score, reverse=True)
+    fallback = None
     for p in cands:
         try:
             ser = serial.Serial(p.device, 115200, timeout=0.4, write_timeout=0.4)
@@ -104,15 +105,18 @@ def detect_board_port():
                     buf += ser.read(64)
                     if b"role=brain" in buf or b"pico-light" in buf:
                         return p.device      # Pico brain found — use it even if the arm is attached
-                    if b"PONG" in buf or b"HELLO" in buf or b"OK" in buf:
-                        return p.device      # fallback: any PONG/HELLO/OK
+                    if (b"PONG" in buf or b"HELLO" in buf or b"OK" in buf) and fallback is None:
+                        # Remember a direct/legacy board, but keep scanning: the Pico brain
+                        # may be on the next COM port and never needs ams_key.json.
+                        fallback = p.device
+                        break
                     if not buf or len(buf) < 1:
                         time.sleep(0.02)
             finally:
                 ser.close()
         except Exception:
             continue
-    return cands[0].device if cands and score(cands[0]) >= 50 else None
+    return fallback or (cands[0].device if cands and score(cands[0]) >= 50 else None)
 
 
 class PicoError(Exception):
@@ -296,6 +300,22 @@ def open_link(port):
             link.close()
         except Exception:
             pass
+    # A saved manual COM can point at the Pro Micro after Windows renumbers USB
+    # ports. Before requiring the private direct-link key, scan every port and
+    # transparently prefer the Pico brain. This fixes portable Classroom ZIPs
+    # that correctly omit ams_key.json.
+    detected = detect_board_port()
+    if detected and str(detected).upper() != str(port).upper():
+        alternate = PicoLink(port=detected)
+        try:
+            dev = alternate.connect()
+            emit({"event": "stage", "stage": "pico_fallback", "from": port, "port": detected})
+            return alternate, dev
+        except Exception:
+            try:
+                alternate.close()
+            except Exception:
+                pass
     from ams_serial import BoardLink   # import تنبل — مسیر پیکو به ams_key.json نیاز ندارد
     link = BoardLink(port=port)
     dev = link.connect()

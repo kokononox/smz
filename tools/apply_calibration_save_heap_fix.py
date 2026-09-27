@@ -92,7 +92,7 @@ for line in MANIFEST.read_text(encoding="utf-8").splitlines():
         digest = code_hash
         found = True
     lines.append(digest + "  " + name)
-if not found or len(lines) != 27:
+if not found or len(lines) != 28:
     raise RuntimeError("modern manifest inventory mismatch")
 MANIFEST.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print("calibration save heap fix applied", code_hash)

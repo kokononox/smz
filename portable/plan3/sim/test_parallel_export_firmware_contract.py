@@ -33,6 +33,8 @@ assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
 assert 'plan_engine_parallel.py' in bundle and 'plan_engine_game.py' in bundle and 'plan_engine_login.py' in bundle
 assert 'manifestNames.Length != 28' in bundle
+sound_calibration=root/'portable/plan3/CIRCUITPY-MODERN/sound_step_calibration.py'
+assert sound_calibration.exists() and sound_calibration.stat().st_size > 4000
 assert 'def _parallel_relative_mouse_events' in parallel.read_text()
 assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
