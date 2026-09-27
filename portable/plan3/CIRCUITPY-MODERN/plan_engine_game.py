@@ -183,7 +183,7 @@ def _parallel(commands, start, end, ctx, state):
         if sound_owner is not None: ctx.sound_cancel()
 
 
-def _run(commands, start, end, ctx, state):
+def _run(commands, start, end, ctx, state, labels):
     i = start
     while i < end:
         op, args = commands[i]
@@ -202,30 +202,44 @@ def _run(commands, start, end, ctx, state):
             mouse.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])
         elif op == "RPKG":
             finish, parts, order = _package(commands, i)
-            for selected in order: _run(commands, parts[selected][0], parts[selected][1], ctx, state)
+            for selected in order: _run(commands, parts[selected][0], parts[selected][1], ctx, state, labels)
             i = finish
         elif op in ("LOOP", "LOOPTIME"):
             finish = _end(commands, i, op, "ENDLOOP")
             if op == "LOOP":
                 remaining = int(args)
                 while remaining == 0 or remaining > 0:
-                    _run(commands, i + 1, finish, ctx, state)
+                    _run(commands, i + 1, finish, ctx, state, labels)
                     if remaining > 0: remaining -= 1
             else:
                 deadline = ctx.now() + float(args)
-                while ctx.now() < deadline: _run(commands, i + 1, finish, ctx, state)
+                while ctx.now() < deadline: _run(commands, i + 1, finish, ctx, state, labels)
             i = finish
         elif op == "PGROUP":
             finish = _end(commands, i, "PGROUP", "ENDPAR")
             _parallel(commands, i + 1, finish, ctx, state); i = finish
+        elif op == "LABEL":
+            pass
+        elif op == "GOTO":
+            target = labels.get(args)
+            if target is None:
+                raise ValueError("GOTO label not found")
+            i = target
+            continue
         else: raise ValueError("unsupported Game command " + op)
         i += 1
 
 
 def run_game(commands, ctx):
+    labels = {}
+    for label_index, item in enumerate(commands):
+        if item[0] == "LABEL":
+            if not item[1] or item[1] in labels:
+                raise ValueError("LABEL needs a unique name")
+            labels[item[1]] = label_index
     state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
              "pauses": mouse.PausePlanner()}
-    try: _run(commands, 0, len(commands), ctx, state)
+    try: _run(commands, 0, len(commands), ctx, state, labels)
     except RuntimeError as exc:
         if str(exc) == "route aborted": _abort()
         raise

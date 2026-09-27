@@ -10,7 +10,7 @@ public partial class MainViewModel
 {
     /// <summary>Copies the split-memory modern bundle; Golden 100 remains a separate export.</summary>
     [RelayCommand]
-    private void ExportAutoCycleModern()
+    private async Task ExportAutoCycleModern()
     {
         using var dialog = new Forms.FolderBrowserDialog
         {
@@ -24,6 +24,11 @@ public partial class MainViewModel
         string? staging = null;
         try
         {
+            if (IsLightWatchRunning)
+            {
+                await StopLightWatchAsync();
+                Log("light watch stopped — Pico export restarts the USB serial connection");
+            }
             staging = Path.Combine(Path.GetTempPath(), "ClassroomStudio-modern-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             var workspace = CapturePipelineWorkspaceForExport();

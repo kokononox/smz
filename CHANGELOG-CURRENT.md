@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
 | 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
 | 68 | Desktop/Login/DC/Game پاس | Runner سبک Game؛ تأخیر Sound هنگام حرکت | Hardware pass؛ Sound superseded |
 | 67 | Desktop و Login/DC سبک پاس؛ Calibration ذخیره شد | Runner سبک Streaming برای Login/DC | Hardware pass؛ Game superseded |
@@ -27,6 +28,34 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 70 — بازیابی امن LABEL/GOTO و Light Watch
+
+**Previous build:** 69  
+**Status:** CI candidate; hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- Runner سبک Game با Route دارای `LABEL/GOTO` روی `unsupported Game command LABEL` متوقف شد.
+- Classroom Studio پاسخ معتبر و کوتاه `OK|LUX|lux=...|sensor=ok` را رد می‌کرد.
+- Light Watch پس از خطای WriteFile روی Handle قدیمی COM به Poll هر 250ms ادامه می‌داد.
+- تلاش قبلی روی شاخهٔ آزمایشی، به‌علت ویرایش معیوب وب، متن کامل فایل‌ها را به خودشان چسباند؛ آن شاخه عمداً کنار گذاشته شد و هیچ بخشی از آن Cherry-pick نشد.
+
+### Safe recovery
+
+- اصلاحات از صفر روی `stable/natural-mouse-v1` و فایل‌های سالم با SHA مرجع بازسازی شدند.
+- `plan_engine_game.py` اکنون نقشهٔ یکتای Label می‌سازد، `GOTO` را بدون Import Parser کامل اجرا می‌کند و Target ناموجود را Fail-Closed رد می‌کند.
+- Parser نور هر دو قرارداد کامل شش‌بخشی و کوتاه چهاربخشی Pico را می‌پذیرد؛ Field تکراری، Sensor نامعتبر و Shapeهای دیگر همچنان رد می‌شوند.
+- Light Watch پس از اولین Fault متوقف می‌شود و Bridge روی خطای `send/send_path` وضعیت اتصال را Disconnected می‌کند.
+- Export مدرن پیش از کپی روی CIRCUITPY، Light Watch را متوقف می‌کند تا Auto-reload روی Handle باز رخ ندهد.
+- Workflow، ARM 2.8.2، Async Sound، Natural Mouse v1 و Golden 100 دست‌نخورده مانده‌اند.
+
+### Validation
+
+- تست مستقل Game اجرای `LABEL → KEY A → GOTO → KEY C` و Skip شدن KEY B را کنترل می‌کند.
+- TestRunner قرارداد Compact/Full Lux، توقف Watch، قطع Bridge و توقف Watch پیش از Deploy را قفل می‌کند.
+- Manifest Helper بازی با Hash جدید بازسازی شده است.
 
 ## Build 69 — واکنش هم‌زمان Sound در حین حرکت Mouse
 
