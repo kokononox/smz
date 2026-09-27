@@ -67,18 +67,15 @@ def _audible_start_cal(self):
 text = replace_once(
     text,
     """    if was_sampling and isinstance(self.result, dict):
-        # Sampling completion is silent; save_cal emits the single success cue.
         self.save_cal()
 """,
     """    if was_sampling and isinstance(self.result, dict):
-        # The raw float samples are no longer needed once center/spread exist.
-        # Drop them before the atomic JSON/manifest write to reduce heap pressure.
         self.samples = []
         _prepare_calibration_heap(self)
-        # Sampling completion is silent; save_cal emits the single success cue.
         self.save_cal()
 """,
 )
+
 if text.count("_prepare_calibration_heap(self)") != 4:
     raise RuntimeError("unexpected calibration heap helper call count")
 CODE.write_text(text, encoding="utf-8")
