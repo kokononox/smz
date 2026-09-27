@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **GuardHardwareMonitor 2.0:** مانیتور امن و حرفه‌ای با reconnect، لاگ JSONL، Summary، تشخیص Start بدون State و تحلیل نزدیک‌ترین پروفایل نور آمادهٔ Build ویندوز است.
 - **Candidate Build 77:** ARM 2.8.2-S1 پایش صدا را از حلقهٔ Micro-step خارج می‌کند تا Cadence نرم 2.8.1 برگردد؛ Typo نیز دوباره فاصلهٔ کاراکتری واقعی است.
 - **Baseline سخت‌افزاری:** Build 68 مسیرهای Desktop/Login/DC/Game را بدون MemoryError روی Pico اجرا کرد؛ حرکت Natural Mouse v1 حفظ شد.
 - **مسئلهٔ باز Build 68:** برای جلوگیری از `ERR|BUSY`، Sound فقط هنگام توقف Mouse Poll می‌شد و واکنش F به صدای قلاب دیر می‌رسید.
