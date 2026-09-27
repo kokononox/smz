@@ -1,0 +1,56 @@
+[
+  {
+    "Id": "desktop",
+    "Name": "دسکتاپ",
+    "Enabled": true,
+    "LuxCenter": 45,
+    "LuxTolerance": 5,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "login-or-dc",
+    "Name": "صفحه لاگین یا DC",
+    "Enabled": true,
+    "LuxCenter": 2.5,
+    "LuxTolerance": 1,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "character-dashboard",
+    "Name": "داشبورد انتخاب کرکترها",
+    "Enabled": true,
+    "LuxCenter": 13.3,
+    "LuxTolerance": 3,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "entering-game-loading",
+    "Name": "صفحه لود ورود به بازی",
+    "Enabled": true,
+    "LuxCenter": 38.3,
+    "LuxTolerance": 1,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "game",
+    "Name": "محیط بازی",
+    "Enabled": true,
+    "LuxCenter": 25,
+    "LuxTolerance": 2,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "targeted",
+    "Name": "تارگت شدن توسط افراد",
+    "Enabled": true,
+    "LuxCenter": 20,
+    "LuxTolerance": 1,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  }
+]
