@@ -65,7 +65,7 @@
 //   Now the tracker boots at centre and every button/wheel report carries the TRACKED
 //   position (cursor_sync). Bonus: rel-MMOVE and MDRAG moved by AXIS units (+-127 of
 //   32767 ~ 7 px!) instead of pixels - both go through mouse_move_abs now.
-#define FW_VER   "2.8.2-S3"
+#define FW_VER   "2.8.2-S4"
 // 0 = disabled. If > 0, an idle secure session is dropped after this many ms
 // (releases mouse buttons and allows a fresh HELLO). Keep 0 for long scripts.
 #define SESSION_IDLE_MS 0UL
