@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
 | 70 | تست سخت‌افزاری لازم است | بازیابی امن LABEL/GOTO و Light Watch | CI candidate |
 | 69 | تست سخت‌افزاری لازم است | پایش Async صدا و توقف فوری Mouse پیش از F | CI candidate |
 | 68 | Desktop/Login/DC/Game پاس | Runner سبک Game؛ تأخیر Sound هنگام حرکت | Hardware pass؛ Sound superseded |
@@ -28,6 +29,36 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 71 — اتصال واقعی برای تست و کالیبراسیون سنسور صدا
+
+**Previous build:** 70  
+**Status:** CI candidate; sound hardware retest pending  
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Classroom Studio در نوار وضعیت اتصال سبز نشان می‌داد، اما Bridge داخلی قبلاً قطع شده بود. کالیبراسیون `SCAL` با `Bridge is not connected` شکست می‌خورد و سپس همهٔ Probeهای `WSND` نیز همان لحظه و بدون تماس با سنسور به‌صورت `quiet` ثبت می‌شدند. این خطا مربوط به سنسور یا آستانهٔ 90 نبود.
+
+### Root cause
+
+`PythonBoardBridge` وضعیت واقعی را به `Disconnected` تغییر می‌داد، ولی `MainViewModel` به رویداد `StateChanged` متصل نبود. شرط اولیهٔ کالیبراسیون نیز فقط وضعیت نمایشی UI را کنترل می‌کرد، نه وضعیت واقعی Bridge.
+
+### Change
+
+- UI به `IBoardBridge.StateChanged` متصل شد و با قطع Sidecar/COM فوراً به حالت Connect برمی‌گردد.
+- چراغ‌های Pico/Pro Micro و Cursor Sync هنگام قطع واقعی پاک می‌شوند.
+- کالیبراسیون صدا پیش از `SCAL/WSND` وضعیت واقعی Bridge را بررسی می‌کند و به‌جای Probe جعلی، درخواست اتصال مجدد می‌دهد.
+- Firmware، ARM 2.8.2، Runtime Pico، Natural Mouse و منطق Async Sound دست‌نخورده‌اند.
+
+### Validation
+
+- TestRunner وجود اتصال `StateChanged`، برگشت UI به Disconnected و Guard وضعیت واقعی پیش از کالیبراسیون را قفل می‌کند.
+- رفتار مورد انتظار: پس از Fault، دکمه Connect نمایش داده می‌شود؛ کاربر یک‌بار Connect می‌زند و سپس همان دکمهٔ نمونه‌برداری صدا نقش تست مستقل سنسور را دارد.
+
+### Next test
+
+برنامه را باز کنید، Connect را بزنید و در Step «Wait For Sound» دکمهٔ نمونه‌برداری از سنسور صدا را اجرا کنید. ابتدا دو ثانیه سکوت و سپس صدای واقعی قلاب را آزمایش کنید؛ لاگ باید پاسخ `SCAL` یا Probe واقعی `WSND` را با فاصلهٔ زمانی نشان دهد، نه شش خط هم‌زمان.
 
 ## Build 70 — بازیابی امن LABEL/GOTO و Light Watch
 

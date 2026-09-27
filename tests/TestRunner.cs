@@ -4290,6 +4290,15 @@ class TestRunner
             Assert(repairedBridge.Contains("op is (\"send\" or \"send_path\")")
                    && repairedBridge.Contains("SetState(BridgeState.Disconnected)"),
                 "bridge invalidates a stale COM connection after send faults");
+            var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+            Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
+                   && repairedVm.Contains("private void OnBridgeStateChanged")
+                   && repairedVm.Contains("Connection = ConnectionState.Disconnected")
+                   && repairedVm.Contains("ConnectButtonText = \"Connect\""),
+                "Build 71: UI follows authoritative bridge disconnects instead of staying green");
+            Assert(repairedVm.Contains("_bridge.State != BridgeState.Connected")
+                   && repairedVm.Contains("Connect را بزنید"),
+                "Build 71: sound calibration rejects a stale bridge before SCAL/WSND probes");
             Assert(repairedDeploy.Contains("private async Task ExportAutoCycleModern()")
                    && repairedDeploy.Contains("await StopLightWatchAsync();"),
                 "Pico deployment stops Light Watch before USB autoreload");
