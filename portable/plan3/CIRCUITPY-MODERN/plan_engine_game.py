@@ -105,6 +105,13 @@ def _events(commands, start, end, ctx, state):
             values = [int(v) for v in args.replace(",", " ").split()]
             if len(values) != 3: raise ValueError("WSND needs threshold,min,timeout")
             yield ("sound", values[0], values[1], values[2])
+        elif op == "WSNDP":
+            values = args.replace(" ", "").split(",")
+            if len(values) != 5: raise ValueError("WSNDP needs id,binding,threshold,min,timeout")
+            profile_id = int(values[0])
+            threshold, minimum = ctx.sound_profile(
+                profile_id, values[1], int(values[2]), int(values[3]))
+            yield ("sound", threshold, minimum, int(values[4]))
         elif op == "RPKG":
             finish, parts, order = _package(commands, i)
             for selected in order:
@@ -200,6 +207,20 @@ def _run(commands, start, end, ctx, state, labels):
             combo, hold = _key(args); ctx.key_combo(combo, hold[0], hold[1])
         elif op == "RMOUSE":
             mouse.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])
+        elif op in ("WSND", "WSNDP"):
+            values = args.replace(" ", "").split(",")
+            if op == "WSND":
+                if len(values) != 3: raise ValueError("WSND needs threshold,min,timeout")
+                threshold, minimum, timeout = int(values[0]), int(values[1]), int(values[2])
+            else:
+                if len(values) != 5: raise ValueError("WSNDP needs id,binding,threshold,min,timeout")
+                threshold, minimum = ctx.sound_profile(
+                    int(values[0]), values[1], int(values[2]), int(values[3]))
+                timeout = int(values[4])
+            heard = ctx.wait_sound(threshold, minimum, timeout)
+            if heard is None: _abort()
+            ctx.log(("wsndp" if op == "WSNDP" else "wsnd") +
+                    (" heard" if heard else " timeout - continue"))
         elif op == "RPKG":
             finish, parts, order = _package(commands, i)
             for selected in order: _run(commands, parts[selected][0], parts[selected][1], ctx, state, labels)

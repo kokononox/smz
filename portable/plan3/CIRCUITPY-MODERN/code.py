@@ -109,7 +109,8 @@ runtime.parse_calibration_set = parse_calibration_set
 # hash manifest itself. Extend the verifier inventory before loading the bundle.
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
               "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
-              "plan_engine_exec.py", "plan_engine_parallel.py"):
+              "plan_engine_exec.py", "plan_engine_parallel.py",
+              "sound_step_calibration.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES
@@ -279,6 +280,10 @@ def _memory_safe_init(self):
     self.usb = runtime.usb_cdc.data or runtime.usb_cdc.console
     self.host = bytearray()
     self.calibrating = False
+    self.sound_calibrating, self.sound_calibration_id = False, 1
+    self.sound_calibration_phase = self.sound_calibration_pending = None
+    self.sound_calibration_started = self.sound_calibration_silence = self.sound_calibration_peak = 0
+    self.sound_bindings, self.sound_profiles = {}, {}
     self.stage = 0
     self.samples = []
     self.sample_started = 0
@@ -292,11 +297,7 @@ def _memory_safe_init(self):
     self.debug_last_state = None
     _debug_event(self, "BOOT", "bundle=valid profiles=%d" % len(runtime.PROFILES), persist=True)
 
-# The six calibration positions use distinct ascending notes: C4 through A4.
 _CAL_NOTES = (262, 294, 330, 349, 392, 440)
-# Board control cues are short rhythmic signatures instead of long continuous tones.
-# Each pattern stays near one second and uses 3-6 notes so Start/Stop/Pause/Resume
-# remain recognizable without sounding like a stuck alarm.
 _GUARD_START_PATTERN = ((784, 160), (988, 160), (1175, 200), (0, 80), (1175, 280))
 _GUARD_STOP_PATTERN = ((392, 180), (330, 160), (262, 260), (0, 60), (196, 260))
 _GUARD_PAUSE_PATTERN = ((523, 180), (0, 100), (523, 180), (0, 100), (523, 340))
@@ -304,6 +305,22 @@ _GUARD_RESUME_PATTERN = ((659, 150), (784, 150), (988, 150), (784, 150), (988, 3
 _CAL_ENTER_PATTERN = ((523, 100), (659, 120), (784, 180))
 _CAL_EXIT_PATTERN = ((784, 100), (659, 120), (523, 220))
 _CAL_SAVE_ERROR_PATTERN = ((220, 140), (0, 80), (220, 260))
+def _sound_module():
+    gc.collect(); return sys.modules.get("sound_step_calibration") or __import__("sound_step_calibration")
+
+def _drop_sound_module(self):
+    if not self.sound_calibrating: sys.modules.pop("sound_step_calibration", None); gc.collect()
+
+def _sound_profile(self, profile_id, binding, threshold, minimum):
+    try: return _sound_module().resolve(self, profile_id, binding, threshold, minimum)
+    finally: _drop_sound_module(self)
+
+def _sound_start_calibration(self): return _sound_module().start(self)
+def _sound_select_next(self): return _sound_module().select_next(self)
+def _sound_begin_sample(self): return _sound_module().begin_sample(self)
+def _sound_calibration_tick(self): return _sound_module().tick(self)
+def _sound_end_calibration(self):
+    result = _sound_module().finish(self); _drop_sound_module(self); return result
 
 def _cal_beep(self, frequency, duration_ms):
     tone = None
@@ -505,11 +522,8 @@ def _audible_cal_tick(self):
     was_sampling = self.result == "sampling"
     _original_cal_tick(self)
     if was_sampling and isinstance(self.result, dict):
-        # The raw float samples are no longer needed once center/spread exist.
-        # Drop them before the atomic JSON/manifest write to reduce heap pressure.
         self.samples = []
         _prepare_calibration_heap(self)
-        # Sampling completion is silent; save_cal emits the single success cue.
         self.save_cal()
 
 def _audible_save_cal(self):
@@ -522,15 +536,9 @@ def _audible_save_cal(self):
         else:
             self.cal_save_success_tone()
     elif had_pending_result and not self.saved and self.last_cal_error:
-        # A rejected overlap or storage failure must be audible. Previously
-        # the user heard nothing and the UNSAVED guard made both short buttons
-        # appear dead even though the runtime was deliberately holding stage.
         self.cal_save_error_tone()
 
 def _repeatable_yellow_action(self):
-    # Handle both first samples and same-position retries explicitly. A saved
-    # value remains active during a retry and is replaced only after the fresh
-    # result completes and the user presses yellow again to save it.
     if not self.calibrating:
         was_paused = self.controls.paused
         _original_yellow_action(self)
@@ -551,10 +559,6 @@ def _repeatable_yellow_action(self):
         return
     if isinstance(self.result, dict) and not self.saved:
         if (self.last_cal_error or "").startswith("OVERLAP:"):
-            # Re-saving the identical rejected sample can never fix an overlap.
-            # A yellow press therefore starts a fresh five-second sample on the
-            # same stage; short blue remains blocked until a valid save, while
-            # long blue can still exit Calibration.
             self.samples = []
             self.sample_started = runtime.time.monotonic()
             self.result = "sampling"
@@ -583,10 +587,14 @@ def _audible_buttons(self):
         _debug_event(self, "GP4", "long calibrating=%s" % self.calibrating, persist=True)
     elif blue == "up":
         _debug_event(self, "GP4", "up", persist=True)
+    if yellow == "long":
+        _debug_event(self, "GP3", "long sound-calibrating=%s" % self.sound_calibrating, persist=True)
+    if self.sound_calibrating:
+        _sound_module().handle_buttons(self, blue, yellow); return
+    if yellow == "long" and not self.calibrating and not self.controls.running:
+        self.sound_start_calibration()
+        return
     if blue == "down" and not self.calibrating and self.controls.running:
-        # Stop is fail-safe and should acknowledge immediately on press. This
-        # consumes the blue press so the later release/long-hold path cannot
-        # re-start the Guard or enter calibration accidentally.
         self.blue_stop_consumed = True
         self.immediate_audible_stop()
     elif blue == "down" and not self.calibrating and not self.controls.running:
@@ -641,7 +649,7 @@ runtime.PlanContext.beep = _diagnostic_beep
 _LIGHT_ROUTE_COMMANDS = {
     "PLAN", "SCREEN", "SPEED", "BEEP", "DELAY", "KEY", "KDOWN", "KUP", "RAW",
     "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO", "RPKG",
-    "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND",
+    "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND", "WSNDP",
     "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
@@ -738,10 +746,6 @@ def _run_light_route(ctx, commands):
         elif command == "KUP":
             ctx.kup(int(args))
         elif command == "RAW":
-            # Hand-sampled mouse paths are already portable Arm commands
-            # (MMOVE|dx,dy,rel,2). They must use the asynchronous move ledger:
-            # Arm.send() cannot wait for MMOVE because Arm.pump() deliberately
-            # consumes OK|MMOVE to decrement pending back-pressure.
             if args.startswith("MMOVE|"):
                 fields = args[6:].split(",")
                 if len(fields) != 4 or fields[2].strip().lower() != "rel":
@@ -827,6 +831,8 @@ def _run_light_route(ctx, commands):
                     index = top[0]
                 else:
                     loops.pop()
+        elif command in ("WSND", "WSNDP"):
+            _sound_module().run_wait(ctx, command, args); _drop_sound_module(ctx.r)
         elif command == "BEEP":
             fields = args.replace(",", " ").split()
             if len(fields) != 2:
@@ -930,7 +936,7 @@ def _audible_loop(self):
         self.host_poll()
         self.buttons()
         self.arm.pump()
-        if (self.controls.running and not self.calibrating and
+        if (self.controls.running and not self.calibrating and not self.sound_calibrating and
                 not getattr(self, "blue_start_pending", False) and
                 runtime.time.monotonic() - last >= .25):
             last = runtime.time.monotonic()
@@ -999,7 +1005,7 @@ def _apply_pending_cursor(self, force=False):
     acknowledged origin exists.
     """
     global _CURSOR_PENDING, _CURSOR_LAST_APPLIED, _CURSOR_SYNC_READY
-    if self.calibrating:
+    if self.calibrating or self.sound_calibrating:
         return False
     if self.controls.running and not force:
         return True
@@ -1046,9 +1052,6 @@ def _live_host_poll(self):
             elif line.startswith("CALSET|"):
                 reply = self.calset(line)
             elif line.startswith("CURSOR|"):
-                # Coalesce cursor packets. The ARM must not receive HSETCUR while
-                # a human mouse path is executing; the newest value is applied at
-                # idle or immediately before the next route.
                 global _CURSOR_PENDING
                 fields = line.split("|", 1)[1].split(",")
                 if len(fields) != 2:
@@ -1080,9 +1083,6 @@ def _live_host_poll(self):
                 lux = self.sensor.lux()
                 reply = "OK|LUX|lux=%.1f|sensor=ok" % lux
             elif line.startswith("SCAL|"):
-                # Build 72: Classroom connects to the Pico brain, while the sound
-                # sensor lives on the Pro Micro. Proxy the bounded calibration
-                # window over the private UART instead of answering UNKNOWN.
                 ms = int(line.split("|", 1)[1])
                 if ms < 1 or ms > 10000:
                     raise ValueError("SCAL range")
@@ -1147,6 +1147,13 @@ runtime.Combined.guard_pause_tone = _guard_pause_tone
 runtime.Combined.guard_resume_tone = _guard_resume_tone
 runtime.Combined.calibration_enter_tone = _calibration_enter_tone
 runtime.Combined.calibration_exit_tone = _calibration_exit_tone
+runtime.Combined.prepare_calibration_heap = _prepare_calibration_heap
+runtime.Combined.sound_profile = _sound_profile
+runtime.Combined.sound_start_calibration = _sound_start_calibration
+runtime.Combined.sound_select_next = _sound_select_next
+runtime.Combined.sound_begin_sample = _sound_begin_sample
+runtime.Combined.sound_calibration_tick = _sound_calibration_tick
+runtime.Combined.sound_end_calibration = _sound_end_calibration
 runtime.Combined.immediate_audible_stop = _immediate_audible_stop
 runtime.Combined.silent_shutdown = _silent_shutdown
 runtime.Combined.immediate_audible_start = _immediate_audible_start

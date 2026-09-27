@@ -25,7 +25,8 @@ public static class ModernAutoCycleFirmwareBundle
         "plan.txt", "plan_engine.py", "plan_engine_exec.py", "plan_engine_game.py",
         "plan_engine_human.py", "plan_engine_login.py", "plan_engine_parallel.py",
         "plan_engine_parse.py", "restart_steps.txt",
-        "resumable_steps.txt", "settings.toml", "targeted_steps.txt",
+        "resumable_steps.txt", "settings.toml", "sound_step_calibration.py",
+        "targeted_steps.txt",
     };
 
     public static IReadOnlyList<string> Export(string codePyPath)
@@ -38,7 +39,7 @@ public static class ModernAutoCycleFirmwareBundle
         if (!File.Exists(sourceManifest))
             throw new IOException("Manifest Bundle مدرن پیدا نشد.");
         var manifestNames = ReadManifestNames(sourceManifest);
-        if (manifestNames.Length != 27)
+        if (manifestNames.Length != 28)
             throw new IOException("تعداد فایل‌های Manifest Bundle مدرن نامعتبر است.");
         foreach (var name in Files.Concat(manifestNames).Distinct(StringComparer.OrdinalIgnoreCase))
         {

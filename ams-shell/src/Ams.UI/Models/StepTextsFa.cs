@@ -76,6 +76,7 @@ public static class StepTextsFa
         // ── sound (waitForSound) ──
         ["threshold"] = "آستانه (واحد سنسور — از Calibrate استفاده کن، پیش‌فرض ۹۰)",
         ["minDurationMs"] = "حداقل مدت (ms) — رویداد معمولاً ۱٫۵–۲٫۲ ثانیه است؛ ۶۰–۱۰۰ امن است",
+        ["calibrationId"] = "شناسهٔ کالیبراسیون همین Step صوتی (فقط ۱ یا ۲؛ در هر پروژه یکتا)",
         ["timeoutMs"] = "Timeout (ms)",
         ["armed"] = "واکنش مسلح: برد خودش هنگام تشخیص کلیک می‌کند (TRGSND)",
         ["act"] = "دکمه‌ی کلیک مسلح",

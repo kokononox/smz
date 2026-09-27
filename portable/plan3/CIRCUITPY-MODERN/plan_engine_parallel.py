@@ -144,6 +144,10 @@ def _parallel_events(ops, ctx, pos, pauses, inc):
                 yield event
         elif op == "WSND":
             yield ("sound", prm["a"][0], prm["a"][1], prm["a"][2])
+        elif op == "WSNDP":
+            threshold, minimum = ctx.sound_profile(
+                prm["profile_id"], prm["binding"], prm["threshold"], prm["minimum"])
+            yield ("sound", threshold, minimum, prm["timeout"])
         else:
             yield ("op", op, prm)
         i += 1

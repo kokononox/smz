@@ -13,6 +13,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 74 | تست سخت‌افزاری لازم است | کالیبراسیون پرتابل دو Step صوتی با GP3/GP4 و Binding Hash | Local candidate |
 | 73 | تست سخت‌افزاری لازم است | انتقال پروفایل‌های نور فعلی Classroom به Pico | CI candidate |
 | 72 | تست سخت‌افزاری لازم است | Proxy صدا از Pico به Pro Micro و حذف نویز Cursor | CI candidate |
 | 71 | تست سخت‌افزاری لازم است | رفع اتصال سبز کاذب و کالیبراسیون صوتی روی Bridge قطع‌شده | CI candidate |
@@ -32,10 +33,54 @@
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
 
+## Build 74 — کالیبراسیون پرتابل دو Step صوتی و اتصال Brain-first Classroom
+
+**Previous build:** 73
+**Status:** PR candidate; portable contracts passed; Windows CI and hardware test pending
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+- کالیبراسیون دو Step صوتی باید مستقل از کامپیوتر و مستقیماً با GP3/GP4 روی Pico انجام شود، اما شاخهٔ اولیه فایل اجرایی `sound_step_calibration.py` را فقط در Manifest و Exporter نام برده بود و خود فایل وجود نداشت.
+- Classroom با انتخاب ذخیره‌شدهٔ COM30 ابتدا Pro Micro را باز می‌کرد و بلافاصله سراغ اتصال مستقیم رمزشده می‌رفت؛ در ZIP پرتابل که عمداً `ams_key.json` خصوصی ندارد، اتصال با `No such file ... bridge/ams_key.json` قطع می‌شد، با اینکه Pico Brain روی COM31 حاضر بود.
+
+### Root cause
+
+- قرارداد `WSNDP`، UI، Parser و Runnerها اضافه شده بودند، ولی ماژول Lazy مسئول نمونه‌گیری، Binding، Checksum، Backup و ذخیرهٔ اتمیک به Repository افزوده نشده بود.
+- `detect_board_port()` با دیدن اولین پاسخ عمومی `OK/HELLO/PONG` اسکن را تمام می‌کرد؛ بنابراین پورت مستقیم COM30 می‌توانست قبل از رسیدن اسکن به پاسخ `role=brain` روی COM31 انتخاب شود. `open_link()` نیز بعد از شکست Pico روی پورت دستی، پورت‌های دیگر را برای Brain جست‌وجو نمی‌کرد.
+
+### Change
+
+- در تنظیمات `Wait For Sound` فیلد `Calibration ID` با دو مقدار 1 و 2 اضافه شد و Export استفادهٔ تکراری هر ID را در همهٔ تب‌ها رد می‌کند.
+- Route فرمان `WSNDP|id,binding,defaultThreshold,defaultMin,timeout` تولید می‌کند؛ Binding دوازده‌رقمی از همان Step ساخته می‌شود تا Calibration قدیمی روی Step نامرتبط اعمال نشود.
+- `sound_step_calibration.py` کامل شد: کشف Bindingها از Routeها، سه ثانیه سکوت، سی ثانیه صدای هدف، Threshold میانه، `minDurationMs=20`، جداسازی حداقلی سیگنال، دو پروفایل مستقل و خطاهای Fail-Closed.
+- فایل کاربر `sound-step-calibration.json` دارای SHA-256 داخلی است؛ نوشتن با Temp، Readback و Backup انجام می‌شود و خرابی فایل اصلی به Backup معتبر برمی‌گردد. فایل کاربر عضو Manifest ثابت نیست و Export بعدی آن را جایگزین نمی‌کند.
+- ماژول کالیبراسیون Lazy است و پس از Resolve یا خروج موفق از حافظه آزاد می‌شود تا با Plan engine روی Heap محدود Pico هم‌زمان نماند.
+- اسکن Classroom اکنون پاسخ عمومی COM30 را فقط fallback نگه می‌دارد و جست‌وجو را تا یافتن `role=brain` ادامه می‌دهد. اگر پورت دستی Pico نباشد، پیش از نیاز به کلید خصوصی یک اسکن Brain-first انجام و در صورت وجود به COM31 سوییچ می‌کند.
+
+### Hardware controls
+
+- فقط در حالت Stop، GP3 زرد بلند: ورود یا ذخیره و خروج از Sound Calibration.
+- GP4 آبی کوتاه: جابه‌جایی بین ID 1 و ID 2.
+- GP3 زرد کوتاه: شروع سه ثانیه سکوت و سپس سی ثانیه صدای هدف برای ID انتخاب‌شده.
+- خروج هنگام Sample نتیجهٔ ناقص را دور می‌ریزد؛ ذخیرهٔ نامعتبر مقدار قبلی را حفظ می‌کند.
+
+### Validation
+
+- هر 40 قرارداد Portable و همهٔ `py_compile`ها محلی پاس شدند.
+- تست رفتاری COM30/COM31 ثابت می‌کند پاسخ مستقیم COM30 دیگر جلوی کشف Pico Brain روی COM31 را نمی‌گیرد.
+- تست‌های جدید دو ID، محاسبه Threshold، Binding mismatch، Checksum، ذخیره و بازیابی Backup را پوشش می‌دهند.
+- همهٔ 28 فایل Manifest وجود دارند و SHA-256 آن‌ها با بایت‌های فعلی برابر است.
+- Build و TestRunner ویندوز به CI سپرده می‌شود؛ محیط محلی Linux ابزار `dotnet` ندارد.
+
+### Next test
+
+Build منتشرشده را در پوشه‌ای تازه Extract کنید. حتی اگر تنظیم قبلی COM30 است، Connect باید مرحلهٔ `pico_fallback` و اتصال به Pico Brain روی COM31 را نشان دهد و نباید `ams_key.json` بخواهد. سپس پروژه را کامل روی CIRCUITPY Export کنید؛ برای Step چلپ ID 1 و برای Step Whisper ID 2 بگذارید. در حالت Stop با GP3 بلند وارد شوید، هر ID را با GP4 انتخاب و با GP3 کوتاه نمونه‌برداری کنید؛ پس از `mode=complete` برای هر دو ID، GP3 را نگه دارید تا `mode=saved|count=2` و خروج ثبت شود. سپس هر دو Route جداگانه آزمایش شوند.
+
 ## Build 73 — انتقال پروفایل‌های نور Classroom به Pico
 
-**Previous build:** 72  
-**Status:** CI candidate; Guard hardware retest pending  
+**Previous build:** 72
+**Status:** CI candidate; Guard hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -65,8 +110,8 @@
 
 ## Build 72 — کالیبراسیون واقعی صدا از مسیر Pico → Pro Micro
 
-**Previous build:** 71  
-**Status:** CI candidate; sound hardware retest pending  
+**Previous build:** 71
+**Status:** CI candidate; sound hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -96,8 +141,8 @@
 
 ## Build 71 — اتصال واقعی برای تست و کالیبراسیون سنسور صدا
 
-**Previous build:** 70  
-**Status:** CI candidate; sound hardware retest pending  
+**Previous build:** 70
+**Status:** CI candidate; sound hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -126,8 +171,8 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 
 ## Build 70 — بازیابی امن LABEL/GOTO و Light Watch
 
-**Previous build:** 69  
-**Status:** CI candidate; hardware retest pending  
+**Previous build:** 69
+**Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -154,8 +199,8 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 
 ## Build 69 — واکنش هم‌زمان Sound در حین حرکت Mouse
 
-**Previous build:** 68  
-**Status:** CI candidate; hardware retest pending  
+**Previous build:** 68
+**Status:** CI candidate; hardware retest pending
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -184,8 +229,8 @@ Classroom Studio در نوار وضعیت اتصال سبز نشان می‌دا
 
 ## Build 68 — Runner سبک Game/Fishing و Stop عادی
 
-**Previous build:** 67  
-**Status:** Hardware verified for Desktop/Login/DC/Game; Sound superseded by Build 69  
+**Previous build:** 67
+**Status:** Hardware verified for Desktop/Login/DC/Game; Sound superseded by Build 69
 **Commit:** `9c27b113`
 
 ### Problem observed
@@ -296,8 +341,8 @@ ARM 2.8.1 حفظ شود، پروژهٔ `mouse-tune-C-natural-v1.amsj` با Build
 
 ## Build {{BUILD_NUMBER}} — Changelog اجباری و تأیید سخت‌افزاری A
 
-**Previous build:** 49  
-**Status:** CI candidate; Build 49 hardware result recorded  
+**Previous build:** 49
+**Status:** CI candidate; Build 49 hardware result recorded
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -329,10 +374,10 @@ Workflow انتشار متن Release را به‌صورت ثابت تولید م
 
 ## Build 49 — Runner سبک RMOUSE
 
-**Previous build:** 48  
-**Status:** Hardware functional pass; motion quality pending  
-**PR/Commit:** [#16](https://github.com/noonoix/smz/pull/16) / [`2b1919dd`](https://github.com/noonoix/smz/commit/2b1919dda4082d89531723cff82876ba97a69437)  
-**Release:** [classroom-current-49](https://github.com/noonoix/smz/releases/tag/classroom-current-49)  
+**Previous build:** 48
+**Status:** Hardware functional pass; motion quality pending
+**PR/Commit:** [#16](https://github.com/noonoix/smz/pull/16) / [`2b1919dd`](https://github.com/noonoix/smz/commit/2b1919dda4082d89531723cff82876ba97a69437)
+**Release:** [classroom-current-49](https://github.com/noonoix/smz/releases/tag/classroom-current-49)
 **SHA256:** `2dc6f75b1c84eafd8ebcccb3ba67c99a8d9a222aacb159533879d3f1b23a56a8`
 
 ### Problem observed
@@ -357,10 +402,10 @@ B/C/D برای انتخاب Tempo و Curve مناسب مقایسه شوند.
 
 ## Build 48 — جداسازی Import Parser از Executor
 
-**Previous build:** 47  
-**Status:** Partial hardware pass; superseded by 49  
-**PR/Commit:** [#15](https://github.com/noonoix/smz/pull/15) / [`3f2a03d7`](https://github.com/noonoix/smz/commit/3f2a03d77281825b093ac132074238bad437b5eb)  
-**Release:** [classroom-current-48](https://github.com/noonoix/smz/releases/tag/classroom-current-48)  
+**Previous build:** 47
+**Status:** Partial hardware pass; superseded by 49
+**PR/Commit:** [#15](https://github.com/noonoix/smz/pull/15) / [`3f2a03d7`](https://github.com/noonoix/smz/commit/3f2a03d77281825b093ac132074238bad437b5eb)
+**Release:** [classroom-current-48](https://github.com/noonoix/smz/releases/tag/classroom-current-48)
 **SHA256:** `048044fdf71dfc8fda0469508e15e59287e30f873e9d09c7e0f9a211fd334bec`
 
 ### Problem observed
@@ -381,10 +426,10 @@ Parser زودهنگام و Executor داخل `run_plan` به‌صورت Lazy ب�
 
 ## Build 47 — Fishing timeout و Cadence موس
 
-**Previous build:** 46  
-**Status:** Fishing semantics fixed; A import failed  
-**PR/Commit:** [#14](https://github.com/noonoix/smz/pull/14) / [`d324a5b8`](https://github.com/noonoix/smz/commit/d324a5b8afa61db8114f3c1e83a2fcd94980e10d)  
-**Release:** [classroom-current-47](https://github.com/noonoix/smz/releases/tag/classroom-current-47)  
+**Previous build:** 46
+**Status:** Fishing semantics fixed; A import failed
+**PR/Commit:** [#14](https://github.com/noonoix/smz/pull/14) / [`d324a5b8`](https://github.com/noonoix/smz/commit/d324a5b8afa61db8114f3c1e83a2fcd94980e10d)
+**Release:** [classroom-current-47](https://github.com/noonoix/smz/releases/tag/classroom-current-47)
 **SHA256:** `efe23c93ff45575b485ec0bdd1fda60f40f3c617f6c7194f2bb4111b4c6483f2`
 
 ### Problem observed
@@ -405,10 +450,10 @@ Timeout کل گروه را لغو می‌کند، واکنش `F` را رد می�
 
 ## Build 46 — Streaming RMOUSE عادی Login/DC
 
-**Previous build:** 45  
-**Status:** Hardware verified  
-**PR/Commit:** [#13](https://github.com/noonoix/smz/pull/13) / [`946f736b`](https://github.com/noonoix/smz/commit/946f736bad76b65250a31faa33b8d299cbeef5cc)  
-**Release:** [classroom-current-46](https://github.com/noonoix/smz/releases/tag/classroom-current-46)  
+**Previous build:** 45
+**Status:** Hardware verified
+**PR/Commit:** [#13](https://github.com/noonoix/smz/pull/13) / [`946f736b`](https://github.com/noonoix/smz/commit/946f736bad76b65250a31faa33b8d299cbeef5cc)
+**Release:** [classroom-current-46](https://github.com/noonoix/smz/releases/tag/classroom-current-46)
 **SHA256:** `04febadd9d9b0d8e387f71d3b085e7b2ac81cbfd1f5f609231b055f50c84d812`
 
 ### Problem observed
@@ -429,9 +474,9 @@ RMOUSE نسبی عادی نیز Streaming شد و متن Route پیش از نخ�
 
 ## Build 45 — حذف SCAL وسط حرکت و بازیابی Heap
 
-**Status:** Verified foundation  
-**Commits:** [`1bc0c5c7`](https://github.com/noonoix/smz/commit/1bc0c5c78e2c73fa7e255963955066fdb2d2da69)، [`894bad14`](https://github.com/noonoix/smz/commit/894bad14738601b87dbf7ff91b5f01096c55ab9d)  
-**Release:** [classroom-current-45](https://github.com/noonoix/smz/releases/tag/classroom-current-45)  
+**Status:** Verified foundation
+**Commits:** [`1bc0c5c7`](https://github.com/noonoix/smz/commit/1bc0c5c78e2c73fa7e255963955066fdb2d2da69)، [`894bad14`](https://github.com/noonoix/smz/commit/894bad14738601b87dbf7ff91b5f01096c55ab9d)
+**Release:** [classroom-current-45](https://github.com/noonoix/smz/releases/tag/classroom-current-45)
 **SHA256:** `59e5056286be6000c24695e013974d023c81d68f975efb059ae514d3d9915eaf`
 
 - Poll صوتی `SCAL|10` هنگام Stream فعال موس اجرا نمی‌شود و به نقاط توقف عمدی منتقل شد.
@@ -440,9 +485,9 @@ RMOUSE نسبی عادی نیز Streaming شد و متن Route پیش از نخ�
 
 ## Build 43 — Pause، SCAL BUSY و سرعت Sample
 
-**Status:** Superseded but retained behavior  
-**Commits:** [`58fff88d`](https://github.com/noonoix/smz/commit/58fff88dcf9e0a3c33a3addafca161590a46a883)، [`55d4b081`](https://github.com/noonoix/smz/commit/55d4b0818e64b259e7a2c6582b1dfb9f871fc78a)  
-**Release:** [classroom-current-43](https://github.com/noonoix/smz/releases/tag/classroom-current-43)  
+**Status:** Superseded but retained behavior
+**Commits:** [`58fff88d`](https://github.com/noonoix/smz/commit/58fff88dcf9e0a3c33a3addafca161590a46a883)، [`55d4b081`](https://github.com/noonoix/smz/commit/55d4b0818e64b259e7a2c6582b1dfb9f871fc78a)
+**Release:** [classroom-current-43](https://github.com/noonoix/smz/releases/tag/classroom-current-43)
 **SHA256:** `fbde9312b55de60e69324d1dedc9235ec2c2a7ef560940b97b2c107054a1b82b`
 
 - Pause فوراً `keyboard.release_all()` می‌کند.
@@ -451,36 +496,36 @@ RMOUSE نسبی عادی نیز Streaming شد و متن Route پیش از نخ�
 
 ## Build 41 — Parallel streaming و پروفایل نور
 
-**Status:** Superseded  
-**Commit:** [`13277a93`](https://github.com/noonoix/smz/commit/13277a935b3f0520c045fa12cb11fd658ee9bf01)  
-**Release:** [classroom-current-41](https://github.com/noonoix/smz/releases/tag/classroom-current-41)  
+**Status:** Superseded
+**Commit:** [`13277a93`](https://github.com/noonoix/smz/commit/13277a935b3f0520c045fa12cb11fd658ee9bf01)
+**Release:** [classroom-current-41](https://github.com/noonoix/smz/releases/tag/classroom-current-41)
 **SHA256:** `0b0677c9a3c1d045f1aacf299be7360fce7042be69e3e83765c7e468afb999d4`
 
 Parallel RMOUSE از لیست متراکم به Curve Streaming منتقل شد و Parsing پاسخ SCAL کم‌Allocation شد. پروفایل‌های Character Dashboard و Game تثبیت شدند.
 
 ## Build 40 — Retry کالیبراسیون پس از Overlap
 
-**Status:** Verified  
-**Commit:** [`034e46c8`](https://github.com/noonoix/smz/commit/034e46c8a175c15804c4b2861c722d86063ff0ec)  
-**Release:** [classroom-current-40](https://github.com/noonoix/smz/releases/tag/classroom-current-40)  
+**Status:** Verified
+**Commit:** [`034e46c8`](https://github.com/noonoix/smz/commit/034e46c8a175c15804c4b2861c722d86063ff0ec)
+**Release:** [classroom-current-40](https://github.com/noonoix/smz/releases/tag/classroom-current-40)
 **SHA256:** `a281f4ad03432f5828345ac5197581adc0930d3cf40d96a36b9446246d86bf64`
 
 پس از رد `CAL|OVERLAP`، زرد نمونه‌گیری تازه را آغاز می‌کند؛ آبی کوتاه Stage نامعتبر را رد نمی‌کند و آبی بلند خارج می‌شود. بازخورد صوتی خطا اضافه شد.
 
 ## Build 39 — حفظ Facade مدرن در Export پروژهٔ جاری
 
-**Status:** Verified foundation  
-**Commit:** [`7efce2da`](https://github.com/noonoix/smz/commit/7efce2da545648f17a102afd5a148f596c92bfa6)  
-**Release:** [classroom-current-39](https://github.com/noonoix/smz/releases/tag/classroom-current-39)  
+**Status:** Verified foundation
+**Commit:** [`7efce2da`](https://github.com/noonoix/smz/commit/7efce2da545648f17a102afd5a148f596c92bfa6)
+**Release:** [classroom-current-39](https://github.com/noonoix/smz/releases/tag/classroom-current-39)
 **SHA256:** `ca5ea9c0175ec76bc1271567f0c9c83caf382aede25d3ee885c77a0eb6221369`
 
 Exporter Legacy پس از تولید Routeها، Facade مدرن را با Engine یکپارچهٔ 30KB جایگزین می‌کرد. ترتیب Export اصلاح و Hash نهایی Manifest دوباره ساخته شد.
 
 ## Build 38 — Split اولیهٔ Executor و Parallel
 
-**Status:** Superseded by 39  
-**Commits:** [`c1ad2385`](https://github.com/noonoix/smz/commit/c1ad2385333f0a46f2c945620e5a865bc6f8630d)، [`dfe4102a`](https://github.com/noonoix/smz/commit/dfe4102a421807087a00910a6918c2a2bbe73964)، [`eaa65f96`](https://github.com/noonoix/smz/commit/eaa65f969fd2abd430c04846e1f2ba1ac18fffec)  
-**Release:** [classroom-current-38](https://github.com/noonoix/smz/releases/tag/classroom-current-38)  
+**Status:** Superseded by 39
+**Commits:** [`c1ad2385`](https://github.com/noonoix/smz/commit/c1ad2385333f0a46f2c945620e5a865bc6f8630d)، [`dfe4102a`](https://github.com/noonoix/smz/commit/dfe4102a421807087a00910a6918c2a2bbe73964)، [`eaa65f96`](https://github.com/noonoix/smz/commit/eaa65f969fd2abd430c04846e1f2ba1ac18fffec)
+**Release:** [classroom-current-38](https://github.com/noonoix/smz/releases/tag/classroom-current-38)
 **SHA256:** `af7af2a700d17be4254248642ddc883283e105053ce1fd2b28b634f1eafd64b7`
 
 Scheduler Parallel از Executor جدا و Lazy-load شد. Export اشتباه Facade در Build 39 اصلاح شد.

@@ -28,10 +28,19 @@ Keep `ams_board28.ino`, `ams_board26_impl.h`, `human_mouse_v3.h`, and your priva
 ## Wiring
 
 - BH1750: `VCC -> 3V3`, `GND -> GND`, `SDA -> GP20`, `SCL -> GP21`, `ADDR -> GND`.
-- GP4: short Start/Stop; long enter/exit calibration.
-- GP3: Pause/Resume outside calibration; sample inside calibration.
+- GP4: short Start/Stop; long enter/exit light calibration. During sound-step
+  calibration, short GP4 selects calibration ID 1 or 2.
+- GP3: short Pause/Resume while a macro runs. While stopped, long GP3 enters
+  sound-step calibration; short GP3 starts 3 s silence + 30 s target sampling;
+  long GP3 saves a completed sample and exits.
 - GP6: passive piezo.
 - Pico UART0 to Pro Micro: GP16 TX, GP17 RX, 57600 8N1, common GND.
 
 `resumable_steps.txt` remains archived/inactive. `targeted_steps.txt` remains an
 existing route only; this change adds no new Targeted behavior.
+
+Sound-step user values are stored in `sound-step-calibration.json` with a
+checksum and `sound-step-calibration.bak`. These two user files are intentionally
+outside `SHA256SUMS.txt`, so rebuilding the application bundle does not overwrite
+the on-device calibration. A saved value is used only when its binding matches
+the exact exported `Wait For Sound` step.

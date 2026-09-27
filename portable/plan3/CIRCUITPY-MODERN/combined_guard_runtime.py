@@ -318,6 +318,8 @@ class PlanContext:
     def wait_sound(self, threshold, minimum, timeout):
         reply = self.r.arm.send("WSND|%d,%d,%d" % (threshold, minimum, timeout), timeout / 1000 + 3)
         return True if "DETECTED" in reply else False if "TIMEOUT" in reply else None
+    def sound_profile(self, profile_id, binding, threshold, minimum):
+        return self.r.sound_profile(profile_id, binding, threshold, minimum)
     def sound_start(self, threshold, minimum, timeout):
         arm = self.r.arm
         if arm.relative_ready is None:

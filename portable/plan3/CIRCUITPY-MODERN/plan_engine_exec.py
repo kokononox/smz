@@ -210,6 +210,14 @@ def run_plan(ops, ctx, _pos=None, _pauses=None, _inc=()):
             if r is None:
                 raise PlanAbort()
             ctx.log("wsnd " + ("heard" if r else "timeout - continue"))
+        elif op == "WSNDP":
+            threshold, minimum = ctx.sound_profile(
+                prm["profile_id"], prm["binding"], prm["threshold"], prm["minimum"])
+            r = ctx.wait_sound(threshold, minimum, prm["timeout"])
+            if r is None:
+                raise PlanAbort()
+            ctx.log("wsndp %d " % prm["profile_id"] +
+                    ("heard" if r else "timeout - continue"))
         elif op == "IFSND":
             r = ctx.wait_sound(prm["a"][0], prm["a"][1], prm["a"][2])
             if r is None:
