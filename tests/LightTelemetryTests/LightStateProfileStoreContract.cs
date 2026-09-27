@@ -30,8 +30,21 @@ internal static class LightStateProfileStoreContract
 
             File.WriteAllText(path, "{not-json");
             var recovered = LightStateProfileStore.Load(path);
-            Check(recovered.Count == 6 && recovered.Single(x => x.Id == "desktop").LuxCenter == 0,
-                "corrupt profile storage falls back to the six safe defaults");
+            var recoveredDashboard = recovered.Single(x => x.Id == "character-dashboard");
+            Check(recovered.Count == 6
+                  && recovered.Single(x => x.Id == "desktop").LuxCenter == 45
+                  && recoveredDashboard.LuxCenter == 13.3
+                  && recoveredDashboard.LuxTolerance == 3,
+                "corrupt profile storage falls back to the six hardware-derived defaults");
+
+            var packagedPath = Path.Combine(AppContext.BaseDirectory, "light-state-profiles.json");
+            var packaged = LightStateProfileStore.Load(packagedPath);
+            var packagedDashboard = packaged.Single(x => x.Id == "character-dashboard");
+            Check(File.Exists(packagedPath)
+                  && packaged.Count == 6
+                  && packagedDashboard.LuxCenter == 13.3
+                  && packagedDashboard.LuxTolerance == 3,
+                "Classroom package always carries the updated six-profile light file");
 
             var duplicate = LightStateDefaults.CreateInitialProfiles();
             duplicate.Add(new LightStateProfile { Id = "game", Name = "duplicate", LuxCenter = 999 });
