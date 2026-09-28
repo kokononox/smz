@@ -85,6 +85,7 @@ source = code_path.read_text(encoding="utf-8")
 assert 'self.route_active_profile = decision.get("profile")' in source
 assert 'self.route_active_profile = None' in source
 assert 'if self.controls.running:\n                        self.controls.aborted = False' in source
-assert 'commands = _light_route_file(name)' in source
+assert 'commands = name if name == "game_steps.txt" else _light_route_file(name)' in source
+assert "plan_engine_game.run_game_file(commands, ctx)" in source
 assert 'with open("/" + name, "r") as fh: text = fh.read()' not in source
 print("stable light-state route preemption and streaming route read passed")
