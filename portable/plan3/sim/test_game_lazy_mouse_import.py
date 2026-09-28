@@ -44,6 +44,9 @@ assert "plan_engine_login_mouse" in sys.modules
 assert "plan_engine_login_type" not in sys.modules
 helper._typing(ctx)
 assert "plan_engine_login_type" in sys.modules
+typing = sys.modules["plan_engine_login_type"]
+assert typing._QWERTY_ROWS == ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm")
+assert typing._qwerty_neighbor("q") == "w"
 
 code = (FW / "code.py").read_text(encoding="utf-8")
 for stage in ("before-engine-import", "engine-import-memoryerror", "after-engine-import"):
@@ -76,4 +79,4 @@ assert windows_size("plan_engine_login.py") < 4000
 assert windows_size("plan_engine_login_core.py") < 5000
 assert windows_size("plan_engine_login_mouse.py") < 7000
 assert windows_size("plan_engine_login_type.py") < 7000
-print("Game facade loads core/runtime/mouse/parallel sequentially")
+print("Game facade loads core/runtime/mouse/type/parallel sequentially")

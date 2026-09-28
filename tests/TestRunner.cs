@@ -4332,6 +4332,7 @@ class TestRunner
                    && loginMouse.Contains("def _mouse_events(")
                    && loginMouse.Contains("def run_rmouse(")
                    && loginMouse.Length < 7000
+                   && loginType.Contains("_QWERTY_ROWS")
                    && loginType.Contains("def _typing_commands(")
                    && loginType.Contains("def run_type(")
                    && loginType.Length < 7000,

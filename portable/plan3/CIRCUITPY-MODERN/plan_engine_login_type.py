@@ -8,6 +8,7 @@ def bind(core):
     _core = core
 
 _PUNCT = ".,!?;:"
+_QWERTY_ROWS = ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm")
 
 
 def _qwerty_neighbor(ch):

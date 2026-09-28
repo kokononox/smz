@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 105:** Bundle 340 ثابت کرد Mouse و Type جدید با حاشیهٔ مناسب Import می‌شوند، اما اولین Typo به‌دلیل جاافتادن ثابت `_QWERTY_ROWS` از فایل Split Type با `NameError` متوقف شد. جدول QWERTY و تست اجرای واقعی Neighbor به `plan_engine_login_type.py` اضافه شدند؛ الگوریتم Typo، Natural Mouse، ARM و Sound تغییر نکرده‌اند.
 - **Candidate Build 104:** Bundle 330 تمام Importهای تقسیم‌شده Game، ایندکس ۳۶۹ فرمان، Parallel و مرحلهٔ قلاب را پاس کرد؛ آخرین شکست در Import یک‌تکهٔ 12.8KB Login/Mouse با free=42,912 رخ داد. Login به Facade، Core، Mouse و Type زیر 5.6KB تقسیم شد و هر بخش ترتیبی/تنبل با تله‌متری مستقل بارگذاری می‌شود.
 - **Candidate Build 103:** Bundle 320 ثابت کرد خود Import یک‌تکهٔ موتور 23KB Game حافظه را از 60,144 به 444 بایت می‌رساند و پیش از `file-index` برای allocation=1784 شکست می‌خورد. موتور به Facade، Core، Runtime و Parallel با Import ترتیبی/تنبل و تله‌متری هر مرز تقسیم شد؛ بزرگ‌ترین ماژول اکنون زیر 10KB است.
 - **Candidate Build 102:** شکست Bundle 310 پیش از `file-index` به Import تو‌در‌توی Game→Login محدود شد. Runner موس دیگر هنگام Compile موتور Game وارد نمی‌شود؛ پس از تثبیت Engine و ایندکس Flash، فقط با اولین `RMOUSE` و بین دو GC بارگذاری می‌شود و تله‌متری مرحله‌ای Heap محل هر شکست احتمالی را مشخص می‌کند.
@@ -42,6 +43,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 105 | Bundle 340: Mouse و Type import پاس؛ اولین Typo با `_QWERTY_ROWS` NameError متوقف شد | بازیابی جدول QWERTY در ماژول Split Type و تست Neighbor واقعی | Local candidate؛ Mouse/ARM unchanged |
 | 104 | Bundle 330: Game/Core/Runtime/File-index/Parallel پاس؛ اولین Mouse import با free=42912 و allocation=896 شکست خورد | تقسیم Login به Facade 2.3KB، Core 2.7KB، Mouse 4.6KB و Type 5.5KB | CI candidate؛ hardware retest pending |
 | 103 | Bundle 320: Route read پاس؛ `before-engine-import=60144` سپس import یک‌تکه با free=444 شکست خورد | Facade 1KB + Core 6.7KB + Runtime 10KB + Parallel 6.8KB با Import ترتیبی | CI candidate؛ hardware retest pending |
 | 102 | Bundle 310: Preemption و خواندن فایل پاس؛ شکست پیش از `file-index` با allocation=1386 | حذف Import تو‌در‌توی Login و Lazy-load موس در اولین RMOUSE با تله‌متری Heap | CI candidate؛ Game hardware retest pending |
@@ -91,6 +93,38 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 105 — بازیابی جدول QWERTY در Human Type Split
+
+**Previous build:** 104 / Classroom release 202
+**Status:** local candidate; Login Typo hardware retest required
+
+### Problem observed
+
+Bundle 340 تقسیم حافظهٔ Build 104 را تأیید کرد:
+`LOGIN|after-mouse-runtime-import|free=53648` و
+`LOGIN|after-type-import|free=50704` ثبت شدند. بااین‌حال اولین TYPE دارای Typo با
+`NameError: name '_QWERTY_ROWS' isn't defined` متوقف شد.
+
+### Root cause
+
+تابع `_qwerty_neighbor` به فایل Split جدید `plan_engine_login_type.py` منتقل شده
+بود، اما ثابت داده‌ای `_QWERTY_ROWS` همراه آن منتقل نشده بود. تست Build 104 فقط
+Lazy import ماژول Type و وجود توابع را کنترل می‌کرد و تابع Neighbor را اجرا
+نمی‌کرد.
+
+### Change
+
+- جدول ثابت چهار ردیف QWERTY به `plan_engine_login_type.py` اضافه شد.
+- تست Lazy import اکنون `_qwerty_neighbor("q") == "w"` را واقعاً اجرا می‌کند.
+- Windows TestRunner وجود ثابت را در Bundle نهایی کنترل می‌کند.
+- Hash فایل Type در Manifest مدرن بازسازی شد.
+- الگوریتم انتخاب همسایه، تعداد/فاصلهٔ Typo، Natural Mouse، ARM و Sound تغییر نکرده‌اند.
+
+### Validation
+
+- تست اجرای واقعی QWERTY Neighbor باید سبز شود.
+- 53 قرارداد Portable، Windows TestRunner، Manifest 40/40 و Read-back باید پیش از انتشار سبز شوند.
 
 ## Build 104 — تقسیم ترتیبی Login، Natural Mouse و Human Type
 
