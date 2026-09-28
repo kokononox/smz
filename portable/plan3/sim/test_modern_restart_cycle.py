@@ -71,6 +71,23 @@ natural.route_complete("game_steps.txt")
 assert natural_owner.routes == ["restart_steps.txt"]
 assert natural.phase == "wait-usb"
 
+# USB may go DOWN and back UP while the After route is still finishing. That
+# evidence must survive route completion so Startup cannot remain stuck.
+marker.reset(); clock.value = 0
+race_owner=Owner()
+race=Controller(race_owner,nvm,now=clock,run_for=(6600,7800),
+    choose=lambda minimum, maximum: minimum)
+race_owner.controls.start(); race.tick()
+race.marker.arm_next(); race.phase = "after"
+race_owner.arm.host_usb_state = "DOWN"; race.route_tick()
+clock.value += 1
+race_owner.arm.host_usb_state = "UP"; race.route_tick()
+assert race.down_seen and race.up_since == 1
+race.phase = "wait-usb"
+clock.value += 2; race.tick()
+assert race_owner.routes == ["startup_steps.txt"]
+assert race.phase == "run"
+
 # NVM marker survives a Pico reboot and authorizes Startup once.
 marker.reset(); marker.arm_next(); boot_owner=Owner()
 boot=Controller(boot_owner,nvm,now=clock,run_for=(6600,7800),
