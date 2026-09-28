@@ -117,11 +117,7 @@ public partial class MainViewModel
     {
         if (!ConfirmDiscard()) return;
         InitializePipelineTabs();
-        foreach (var tab in _pipelineWorkspace.Tabs)
-        {
-            tab.Steps.Clear();
-            tab.IsDirty = false;
-        }
+        _pipelineWorkspace = new PipelineWorkspace();
         _pipelineWorkspace.EnsureDcDefaults();
         _activePipelineTab = _pipelineWorkspace[PipelineKind.Main];
         _currentFile = null;
@@ -132,6 +128,7 @@ public partial class MainViewModel
         OnPropertyChanged(nameof(ActivePipelineTitle));
         OnPropertyChanged(nameof(IsLaunchPipeline));
         OnPropertyChanged(nameof(IsMainPipeline));
+        NotifySoundProfilesChanged();
         UpdateFileText();
         Log("new pipeline workspace: " + PipelineCounts());
     }
@@ -162,6 +159,7 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(ActivePipelineTitle));
             OnPropertyChanged(nameof(IsLaunchPipeline));
         OnPropertyChanged(nameof(IsMainPipeline));
+            NotifySoundProfilesChanged();
             UpdateFileText();
             Log("pipeline workspace opened in " + targetKind + ": " + dialog.FileName + " — " + PipelineCounts());
         }
