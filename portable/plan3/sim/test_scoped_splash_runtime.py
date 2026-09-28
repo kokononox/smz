@@ -63,3 +63,14 @@ assert ('key',(71,)) in timeout.ev,timeout.ev
 assert any(e==('log','scoped splash timeout -> next cast') for e in timeout.ev),timeout.ev
 assert .08 <= timeout.t <= .13,timeout.t
 print('scoped Splash: random timeout, Whisper interrupt, response and next-cast semantics passed')
+
+# The real Pico context must not recursively service the Game callback from
+# poll_profile_wait().  Cooperative sleep_ms() owns callback polling; keeping
+# the scoped accessor passive protects CircuitPython's bounded pystack when
+# WPROFILE is nested under PGROUP/RPKG/LOOP.
+runtime_source=(root/'CIRCUITPY-MODERN'/'combined_guard_runtime.py').read_text(encoding='utf-8')
+profile_wait=runtime_source.split('    def poll_profile_wait(self, profile_id):',1)[1].split(
+    '    def end_profile_wait(self):',1)[0]
+assert '_sound_watch_callback' not in profile_wait,profile_wait
+assert 'return state.get("scope_result")' in profile_wait,profile_wait
+print('scoped Splash: profile waiter is passive; sleep_ms exclusively services callback')
