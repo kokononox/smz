@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Hardware-passed Build 89:** بستهٔ E اتصال مجدد CDC ویندوز را تشخیص داد، Pico را یک‌بار Reset کرد، `CIRCUITPY` دوباره قابل‌نوشتن شد و Startup/Mouse ادامه یافت. نوت‌های مرحله‌ای پذیرفته‌شده نیز به Runtime استاندارد منتقل شدند. کالیبراسیون صدا هنوز تست سخت‌افزاری نشده است.
 - **Hardware-passed Build 88:** بستهٔ تشخیصی A پس از Warm Restart بدون Start دستی زنده ماند و Startup را اجرا کرد. همین مسیر Marker + USB fusion اکنون مسیر استاندارد خروجی Classroom است.
 - **Candidate Build 87:** USB DOWN/UP که حین انتهای Route After رخ می‌دهد دیگر پاک نمی‌شود؛ Startup پس از بازگشت Windows ادامه می‌یابد. صدای Save کالیبراسیون نیز به یک الگوی سه‌نتی واضح‌تر ارتقا یافت و نتیجهٔ Save در NVM Debug ثبت می‌شود.
 - **Candidate Build 86:** صدای خطای کالیبراسیون برای Sample ناپایدار و فشار زرد هنگام Busy اضافه شد؛ بازهٔ کامل چرخه با پیش‌فرض ۱۱۰–۱۳۰ دقیقه به UI و Runtime برگشت؛ فایل شش‌پروفایلی به‌روز با Dashboard برابر `13.3 ± 3.0 lux` همیشه داخل بستهٔ Classroom قرار می‌گیرد.
@@ -26,6 +27,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 89 | بستهٔ E پاس: Startup، Mouse، نوت‌ها و نوشتن/حذف TEST.txt؛ Sound calibration تست نشده | Reset یک‌بارهٔ Pico پس از CDC reconnect برای Remount قابل‌نوشتن | Hardware pass؛ Sound pending |
 | 88 | بستهٔ A پاس: Restart، Resume خودکار و اجرای Startup بدون Start دستی | Resume با Marker معتبر حتی وقتی Windows هیچ USB DOWN گزارش نمی‌کند | Hardware pass |
 | 87 | Build 124: Restart انجام شد ولی Startup خودکار اجرا نشد؛ Tone ذخیره شنیده نشد | حفظ USB transition حین After و تقویت/ثبت Tone ذخیره | CI candidate |
 | 86 | تست سخت‌افزاری لازم است | بازخورد صوتی Fail کالیبراسیون، بازهٔ ۱۱۰–۱۳۰ دقیقه و پروفایل نور همراه بسته | CI candidate |
@@ -59,6 +61,41 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 89 — Remount قابل‌نوشتن پس از Restart
+
+**Previous build:** 88 / Classroom release 136
+**Status:** Hardware passed with diagnostic package E; sound calibration remains untested
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+بستهٔ A چرخه را پس از Restart زنده نگه داشت، اما `CIRCUITPY` پس از بازگشت Windows همچنان Write-protected بود. بستهٔ D با Reset زمان‌محور نیز نه Startup/Mouse را اجرا کرد و نه Read-only را رفع کرد.
+
+### Root cause
+
+روی RP2040 روشن‌شده از USB پایدار، Restart میزبان الزاماً Pico را Reset نمی‌کند. CircuitPython ممکن است Mass Storage را هنگام بازگشت میزبان به‌صورت Read-only معرفی کند. Reset باید بعد از بازگشت واقعی Windows انجام شود؛ تایمر ثابت به‌تنهایی با زمان بوت میزبان هم‌تراز نیست.
+
+### Change
+
+- Controller پس از After منتظر قطع و اتصال مجدد CDC می‌ماند.
+- پنج ثانیه پس از CDC reconnect، Marker را با `RESET_DONE` علامت می‌زند و Pico را یک‌بار Reset می‌کند.
+- اگر CDC reconnect تشخیص داده نشود، Fallback پس از ۱۲۰ ثانیه Reset را انجام می‌دهد.
+- Boot بعدی Marker را بازیابی، از حلقهٔ Reset جلوگیری و مسیر استاندارد Startup را اجرا می‌کند.
+- نوت‌های پذیرفته‌شدهٔ تست E در خروجی استاندارد حفظ شدند: یک نت بم هنگام مسلح‌شدن Watcher، دو نت پیش از Reset، سه نت پس از بازیابی Marker و ملودی صعودی پس از تکمیل Startup.
+- فشار دستی Start در فاز انتظار، چرخهٔ Pending را لغو و یک Run تازه آغاز می‌کند.
+
+### Validation
+
+- بستهٔ E روی سخت‌افزار پاس شد: تمام نوت‌های مرحله‌ای، Startup و حرکت Mouse اجرا شدند و `TEST.txt` روی `CIRCUITPY` ساخته و حذف شد.
+- Regression مسیر `CDC DOWN → UP → stable 5s → one-shot reset → boot marker → Startup` پاس شد.
+- Fallback صدوبیست‌ثانیه‌ای، Manual override، USB stale، Deadline، Desktop skip و Marker reserved region پوشش داده شدند.
+- Manifest مدرن ۳۲/۳۲ صحیح و تست‌های FAT isolation، NVM calibration و بازخورد صوتی کالیبراسیون پاس شدند.
+- **کالیبراسیون صدای فیزیکی هنوز توسط کاربر تست نشده و Hardware pass آن ادعا نمی‌شود.**
+
+### Next test
+
+خروجی استاندارد **Current project Pico export** را با چرخهٔ کوتاه تست کنید و سپس کالیبراسیون صدای فیزیکی را جداگانه کامل کنید: ورود به Sound Calibration، انتخاب هر Profile، Sample/Save، خروج و اجرای یک Step صوتی واقعی. نتیجهٔ Sound calibration باید جداگانه ثبت شود.
 
 ## Build 88 — حذف وابستگی Resume به USB DOWN
 
