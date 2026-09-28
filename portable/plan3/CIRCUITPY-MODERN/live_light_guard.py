@@ -44,6 +44,9 @@ REQUIRED_BUNDLE_FILES = (
     "guard_calibration_protocol.py",
     "error_policy.py",
     "combined_guard_runtime.py",
+    "plan_engine_login_core.py",
+    "plan_engine_login_mouse.py",
+    "plan_engine_login_type.py",
     "SHA256SUMS.txt",
 )
 HASHED_BUNDLE_FILES = tuple(

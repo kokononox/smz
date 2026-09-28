@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 104:** Bundle 330 تمام Importهای تقسیم‌شده Game، ایندکس ۳۶۹ فرمان، Parallel و مرحلهٔ قلاب را پاس کرد؛ آخرین شکست در Import یک‌تکهٔ 12.8KB Login/Mouse با free=42,912 رخ داد. Login به Facade، Core، Mouse و Type زیر 5.6KB تقسیم شد و هر بخش ترتیبی/تنبل با تله‌متری مستقل بارگذاری می‌شود.
 - **Candidate Build 103:** Bundle 320 ثابت کرد خود Import یک‌تکهٔ موتور 23KB Game حافظه را از 60,144 به 444 بایت می‌رساند و پیش از `file-index` برای allocation=1784 شکست می‌خورد. موتور به Facade، Core، Runtime و Parallel با Import ترتیبی/تنبل و تله‌متری هر مرز تقسیم شد؛ بزرگ‌ترین ماژول اکنون زیر 10KB است.
 - **Candidate Build 102:** شکست Bundle 310 پیش از `file-index` به Import تو‌در‌توی Game→Login محدود شد. Runner موس دیگر هنگام Compile موتور Game وارد نمی‌شود؛ پس از تثبیت Engine و ایندکس Flash، فقط با اولین `RMOUSE` و بین دو GC بارگذاری می‌شود و تله‌متری مرحله‌ای Heap محل هر شکست احتمالی را مشخص می‌کند.
 - **Candidate Build 101:** Game بزرگ دیگر به لیست Tupleهای RAM تبدیل نمی‌شود؛ خطوط روی Flash می‌مانند و فقط Offset چهار‌بایتی نگه‌داری می‌شود. Random Packageهای بزرگ نیز با Reservoir Sampling فقط همان ۱–۲ گزینهٔ لازم را نگه می‌دارند و فهرست تمام ۱۶۵ آیتم را نمی‌سازند.
@@ -41,6 +42,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 104 | Bundle 330: Game/Core/Runtime/File-index/Parallel پاس؛ اولین Mouse import با free=42912 و allocation=896 شکست خورد | تقسیم Login به Facade 2.3KB، Core 2.7KB، Mouse 4.6KB و Type 5.5KB | CI candidate؛ hardware retest pending |
 | 103 | Bundle 320: Route read پاس؛ `before-engine-import=60144` سپس import یک‌تکه با free=444 شکست خورد | Facade 1KB + Core 6.7KB + Runtime 10KB + Parallel 6.8KB با Import ترتیبی | CI candidate؛ hardware retest pending |
 | 102 | Bundle 310: Preemption و خواندن فایل پاس؛ شکست پیش از `file-index` با allocation=1386 | حذف Import تو‌در‌توی Login و Lazy-load موس در اولین RMOUSE با تله‌متری Heap | CI candidate؛ Game hardware retest pending |
 | 101 | Bundle 308: Preemption تمام انتقال‌ها را پاس کرد؛ Game پس از Parse ۳۶۹ فرمان با Heap حدود 40KB شکست خورد | فرمان‌های فایل‌محور با Offset فشرده و Reservoir Sampling برای RPKG بزرگ | CI candidate؛ Game hardware retest pending |
@@ -89,6 +91,41 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 104 — تقسیم ترتیبی Login، Natural Mouse و Human Type
+
+**Previous build:** 103 / Classroom release 201
+**Status:** local candidate; Bundle 330 hardware retest required
+
+### Problem observed
+
+Bundle 330 تمام مراحل جدید Game را پاس کرد: Facade، Core، Runtime، ایندکس 369 فرمان با 1,476 بایت Offset و Parallel همگی بدون MemoryError بارگذاری شدند و ماکرو تا قلاب‌انداختن پیش رفت. شکست نهایی هنگام اولین RMOUSE بود: `before-mouse-import=42912` و Import یک‌تکهٔ فایل 12.8KB Login/Mouse برای تخصیص 896 بایت شکست خورد.
+
+### Root cause
+
+Natural Mouse یا تعداد پترن‌ها اجرا نشده بود؛ Compiler فایل ترکیبی Login/Mouse/Typing روی Heap ازقبل‌مصرف‌شدهٔ Game به بلوک پیوستهٔ کافی دسترسی نداشت.
+
+### Change
+
+- `plan_engine_login.py` به Facade حدود 2.3KB تبدیل شد.
+- `plan_engine_login_core.py` حدود 2.7KB شامل Rangeها و PausePlanner است.
+- `plan_engine_login_mouse.py` حدود 4.6KB همان الگوریتم Natural Mouse را بدون تغییر نگه می‌دارد.
+- `plan_engine_login_type.py` حدود 5.5KB فقط هنگام اولین TYPE بارگذاری می‌شود.
+- Core، Mouse و Type ترتیبی و تنبل بارگذاری می‌شوند و هر مرز before/after/failure تله‌متری دارد.
+- cleanup پس از Route و کالیبراسیون هر چهار ماژول Login را آزاد می‌کند.
+- Manifest، Exporter و Read-back از 37 به 40 فایل ارتقا یافت.
+- مسیر، سرعت، مکث‌ها، Typo، ARM، Sound، Light و Cycle تغییر نکرده‌اند.
+
+### Validation
+
+- Facade هیچ Core/Mouse/Type را زودهنگام وارد نمی‌کند.
+- PausePlanner فقط Core، اولین RMOUSE فقط Mouse و اولین TYPE فقط Type را بارگذاری می‌کند.
+- size gate ویندوز: Facade <4KB، Core <5KB، Mouse <7KB و Type <7KB.
+- تمام تست‌های Game/Parallel/Splash/Sound و قرارداد Natural Mouse حفظ شده‌اند.
+
+### Next test
+
+پس از `before-mouse-import` و `after-mouse-import` باید Stageهای `LOGIN|before-core-import`، `after-core-import`، سپس `before-mouse-runtime-import` و `after-mouse-runtime-import` دیده شوند و حرکت قلاب بدون MemoryError ادامه یابد.
 
 ## Build 103 — تقسیم Compiler Peak موتور Game به Importهای ترتیبی
 
