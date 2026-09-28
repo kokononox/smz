@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 108:** Build 107 خطای pystack را حذف کرد، اما Bundle 371 پس از ۲۱ ثانیه Prelude و با وجود 45KB Heap آزاد، هنگام Compile دیرهنگام ماژول Parallel به‌دلیل Fragmentation نتوانست بلوک پیوستهٔ 1388 بایتی بگیرد. Route فایل‌محور پیش از Load اسکن می‌شود و در صورت داشتن PGROUP، همان Scheduler موجود بلافاصله پس از Game Runtime و روی Heap تازه Preload می‌شود؛ منطق Parallel، Sound، Mouse و ARM تغییر نکرده‌اند.
 - **Candidate Build 107:** Build 106 Poll تو‌در‌توی SoundWatch را حذف کرد و Listener از مرحلهٔ Arm عبور کرد، اما Bundle 355 هنگام اولین RMOUSE در ساختار `PGROUP→LOOP→RPKG` و پس از Lazy import کامل موس با `pystack exhausted` متوقف شد. Generator بازگشتی Containerهای Game با Stack تکرارشوندهٔ صریح جایگزین شد؛ تولید/ارسال موس، ARM و Cadence بدون تغییرند.
 - **Candidate Build 106:** Bundle 350 کل مسیر Desktop→Login→Dashboard→Loading→Game، Split Type و ایندکس ۳۶۹ فرمان را پاس کرد. در نخستین `WPROFILE`، Poll همان SoundWatch هم داخل scoped waiter و هم از callback تعاونی `sleep_ms` انجام می‌شد و با وجود 43KB Heap آزاد، pystack را خالی می‌کرد. scoped waiter اکنون فقط نتیجه را می‌خواند و `sleep_ms` تنها مالک Poll callback است؛ ARM، Natural Mouse و Cadence تغییر نکرده‌اند.
 - **Candidate Build 105:** Bundle 340 ثابت کرد Mouse و Type جدید با حاشیهٔ مناسب Import می‌شوند، اما اولین Typo به‌دلیل جاافتادن ثابت `_QWERTY_ROWS` از فایل Split Type با `NameError` متوقف شد. جدول QWERTY و تست اجرای واقعی Neighbor به `plan_engine_login_type.py` اضافه شدند؛ الگوریتم Typo، Natural Mouse، ARM و Sound تغییر نکرده‌اند.
@@ -45,6 +46,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 108 | Bundle 371: انتقال‌ها و file-index پاس؛ Compile دیرهنگام Parallel با free=45952 و allocation=1388 شکست خورد | Preload مشروط Scheduler پیش از File index و Prelude روی Heap تازه | Local candidate؛ scheduler/mouse/ARM unchanged |
 | 107 | Bundle 355: SoundWatch arm و همهٔ Lazy importها پاس؛ اولین RMOUSE داخل LOOP/RPKG با `pystack exhausted` متوقف شد | تبدیل Generator بازگشتی Containerهای Game به Stack Iterative | Local candidate؛ ARM/Mouse path unchanged |
 | 106 | Bundle 350: تمام انتقال‌ها، Login Type، Game index و Parallel import پاس؛ نخستین WPROFILE با `pystack exhausted` متوقف شد | حذف Poll تو‌در‌توی callback از scoped waiter؛ `sleep_ms` تنها مالک سرویس SoundWatch | Local candidate؛ ARM/Mouse unchanged |
 | 105 | Bundle 340: Mouse و Type import پاس؛ اولین Typo با `_QWERTY_ROWS` NameError متوقف شد | بازیابی جدول QWERTY در ماژول Split Type و تست Neighbor واقعی | Local candidate؛ Mouse/ARM unchanged |
@@ -97,6 +99,47 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 108 — پیش‌بارگذاری Parallel روی Heap تازه
+
+**Previous build:** 107 / Classroom release 206
+**Status:** local candidate; Parallel preload hardware retest required
+
+### Problem observed
+
+Bundle 371 مسیر کامل تا Game، Runtime و ایندکس ۳۶۹ فرمان را پاس کرد. پس از
+حدود ۲۱ ثانیه Prelude، مقدار `before-parallel-import=45952` بود، اما Compile
+ماژول Parallel Heap را Fragment کرد و تخصیص پیوستهٔ 1388 بایت با
+`parallel-import-memoryerror` شکست خورد.
+
+### Root cause
+
+مجموع حافظه کافی بود، ولی Scheduler درست در لحظهٔ رسیدن به PGROUP و پس از
+Delay/Packageهای متعدد برای اولین بار Compile می‌شد. تخصیص‌های موقت Compiler
+به بلوک پیوسته‌ای بزرگ‌تر از موجودی Fragment‌شده نیاز داشتند.
+
+### Change
+
+- فایل Game پیش از بارگذاری Runtime فقط برای وجود `PGROUP` اسکن می‌شود.
+- در Routeهای دارای Parallel، همان `plan_engine_game_parallel` موجود بلافاصله
+  پس از Game Runtime و پیش از File index/Prelude روی Heap تازه Compile می‌شود.
+- هنگام رسیدن واقعی به PGROUP، Import از Cache انجام می‌شود.
+- Scheduler، SoundWatch، Natural Mouse، Firmware ARM، DDA و Cadence تغییر
+  نکرده‌اند.
+- تله‌متری `before/after-parallel-preload` و تست فایل‌محور اضافه شد.
+
+### Validation
+
+- تست فایل‌محور وجود PGROUP را تشخیص می‌دهد، Preload را ثبت می‌کند و اجرای
+  Parallel را کامل می‌کند.
+- تست Nested Container/RMOUSE و همهٔ قراردادهای قبلی باید سبز بمانند.
+
+### Next test
+
+با Build 108 Bundle را کامل بازسازی کنید. در Game باید
+`before-parallel-preload` و `after-parallel-preload` پیش از `file-index`
+ثبت شوند. رسیدن بعدی به PGROUP نباید `MemoryError` بدهد؛ سپس اولین RMOUSE،
+Splash واقعی، Timeout هجده تا بیست‌ودو ثانیه‌ای و نرمی موس بررسی شوند.
 
 ## Build 107 — Stack تکرارشوندهٔ Containerهای Game
 

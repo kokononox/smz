@@ -53,6 +53,25 @@ class Context:
 game.run_game_file(route_name, Context())
 Path("/" + route_name).unlink()
 
+# File-backed PGROUP routes must compile Parallel before indexing/execution,
+# while the heap is still fresh rather than after a long package prelude.
+parallel_rows = ["PLAN|2", "PGROUP", "DELAY|0,0", "PARITEM",
+                 "DELAY|0,0", "ENDPAR"]
+with tempfile.NamedTemporaryFile("w", delete=False) as route:
+    route.write("\n".join(parallel_rows) + "\n")
+    parallel_name = route.name.lstrip("/")
+sys.modules.pop("plan_engine_game_parallel", None)
+telemetry = []
+class ParallelContext(Context):
+    class R:
+        def emit(self, value): telemetry.append(value)
+    r = R()
+game.run_game_file(parallel_name, ParallelContext())
+Path("/" + parallel_name).unlink()
+assert "plan_engine_game_parallel" in sys.modules
+assert any("before-parallel-preload" in value for value in telemetry), telemetry
+assert any("after-parallel-preload" in value for value in telemetry), telemetry
+
 # PGROUP branches must flatten nested LOOP/RPKG containers without recursively
 # nesting _events generators around the lazy mouse generator.  That call shape
 # exhausted CircuitPython's pystack on the first fishing RMOUSE while heap was
