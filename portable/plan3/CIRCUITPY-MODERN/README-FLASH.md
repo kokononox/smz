@@ -53,3 +53,7 @@ the exact exported `Wait For Sound` step.
 - Desktop is skipped after Startup; the optical sequence continues at Login/DC.
 - Legacy AUTORESUME, POSTLAUNCH and Resume Essentials scheduling is not used.
 - Physical light calibration is stored in checksummed board NVM and survives normal Classroom exports; legacy CAL1 snapshots are migrated automatically. Use `CALSTATUS` to confirm `source=nvm`.
+
+## Game-wide sound reactions
+
+`whisper_steps.txt` and `splash_steps.txt` are resumable response routes. The single ADC listener classifies Peak ranges, pauses the cooperative Game scheduler, runs the selected response, then resumes the exact Game iterator.
