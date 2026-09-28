@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 91:** دو Wait For Sound هم‌زمان دیگر Listener دوم روی ARM باز نمی‌کنند. Scheduler یک Listener فیزیکی با پایین‌ترین Threshold می‌سازد و با Peak گزارش‌شده، بالاترین پروفایل منطبق را برای اجرای Buzzer انتخاب می‌کند.
 - **Candidate Build 90:** پروژهٔ `s1.amsj` دیگر به‌خاطر دو Buzzer داخل شاخه‌های موازی Wait For Sound مسدود نمی‌شود؛ Buzzer اکنون به `BEEP/DELAY` قابل‌اجرای Pico تبدیل می‌شود و متن خطاهای واقعی نیز مستقیماً در پنجرهٔ Export نمایش داده می‌شود.
 - **Hardware-passed Build 89:** بستهٔ E اتصال مجدد CDC ویندوز را تشخیص داد، Pico را یک‌بار Reset کرد، `CIRCUITPY` دوباره قابل‌نوشتن شد و Startup/Mouse ادامه یافت. نوت‌های مرحله‌ای پذیرفته‌شده نیز به Runtime استاندارد منتقل شدند. کالیبراسیون صدا هنوز تست سخت‌افزاری نشده است.
 - **Hardware-passed Build 88:** بستهٔ تشخیصی A پس از Warm Restart بدون Start دستی زنده ماند و Startup را اجرا کرد. همین مسیر Marker + USB fusion اکنون مسیر استاندارد خروجی Classroom است.
@@ -28,6 +29,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 91 | Build 143: Runtime با `only one WSND listener is allowed` متوقف شد | Listener مشترک ADC و انتخاب پروفایل با Peak | CI candidate؛ Sound pending |
 | 90 | `s1.amsj`: Export با ۲ خطا Block شد | پشتیبانی Buzzer داخل ForLoop شاخه‌های Parallel و نمایش جزئیات خطا | CI candidate؛ Sound pending |
 | 89 | بستهٔ E پاس: Startup، Mouse، نوت‌ها و نوشتن/حذف TEST.txt؛ Sound calibration تست نشده | Reset یک‌بارهٔ Pico پس از CDC reconnect برای Remount قابل‌نوشتن | Hardware pass؛ Sound pending |
 | 88 | بستهٔ A پاس: Restart، Resume خودکار و اجرای Startup بدون Start دستی | Resume با Marker معتبر حتی وقتی Windows هیچ USB DOWN گزارش نمی‌کند | Hardware pass |
@@ -63,6 +65,41 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 91 — Listener مشترک برای Parallel Sound
+
+**Previous build:** 90 / Classroom release 143
+**Status:** CI candidate; two-profile physical sound test required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+Build 143 پروژهٔ `s1.amsj` را با موفقیت Export کرد، اما در اجرای Desktop هر دو شاخهٔ Parallel تقریباً هم‌زمان به Wait For Sound رسیدند. Listener اول با Threshold 130 فعال شد و Listener دوم باعث `ValueError('only one WSND listener is allowed')` و توقف Guard شد.
+
+### Root cause
+
+Pro Micro فقط یک ADC و یک State ماشین `ASND` دارد. Scheduler هر Wait For Sound منطقی را به‌عنوان Listener فیزیکی مستقل اجرا می‌کرد؛ بنابراین ساختار معتبر دو پروفایلی پروژه با محدودیت سخت‌افزار برخورد می‌کرد.
+
+### Change
+
+- همهٔ Wait For Soundهای هم‌زمان یک Parallel Group در یک Listener فیزیکی ادغام می‌شوند.
+- Listener مشترک با پایین‌ترین Threshold، کوتاه‌ترین Minimum و نزدیک‌ترین Timeout شروع می‌شود.
+- اگر Listener دوم در همان دور Scheduler برسد، Listener اولیه Cancel و فوراً با قرارداد مشترک Restart می‌شود.
+- پس از Detection، Peak واقعی ARM خوانده می‌شود و بالاترین Threshold منطبق بر Peak برنده می‌شود.
+- فقط شاخهٔ برنده ادامه پیدا می‌کند و Buzzer مربوط به همان پروفایل اجرا می‌شود.
+- اگر بیش از یک پروفایل وجود داشته باشد ولی Firmware Peak telemetry ندهد، مسیر Fail-closed باقی می‌ماند.
+
+### Validation
+
+- تست Peak برابر ۱۴۰ تأیید کرد شاخهٔ Threshold 130 و Buzzer هشدار اجرا می‌شود.
+- تست Peak برابر ۸۰ تأیید کرد شاخهٔ Threshold 30 و Buzzer موفقیت اجرا می‌شود.
+- تست Listener تکی، Mouse هم‌زمان، Timeout، Cancel و ARM Async Sound همچنان پاس شد.
+- خطای قدیمی `only one WSND listener may be active` از Scheduler حذف شد.
+- کالیبراسیون صدای فیزیکی هنوز تست نشده و Hardware pass آن ادعا نمی‌شود.
+
+### Next test
+
+پس از کالیبراسیون IDهای ۱ و ۲، پروژهٔ `s1.amsj` را اجرا کنید. صدای با Peak بالاتر از پروفایل ۱ باید فقط Tone هشدار و صدای بین Thresholdهای ۲ و ۱ باید فقط Tone موفقیت را اجرا کند؛ Guard نباید متوقف شود.
 
 ## Build 90 — Buzzer داخل Parallel Sound
 
