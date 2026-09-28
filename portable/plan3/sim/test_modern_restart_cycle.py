@@ -80,6 +80,22 @@ clock.value += 2; natural.tick()
 assert natural_owner.routes == ["restart_steps.txt", "startup_steps.txt"]
 assert natural.phase == "run" and not natural.marker.armed()
 
+# A stale Pro Micro DOWN must not mask Pico UP after After has armed the marker.
+marker.reset(); clock.value = 0
+sys.modules["supervisor"] = SimpleNamespace(
+    runtime=SimpleNamespace(usb_connected=True))
+stale_owner=Owner(); stale_owner.arm.host_usb_state = "DOWN"
+stale=Controller(stale_owner,nvm,now=clock,run_for=(6600,7800),
+    choose=lambda minimum, maximum: minimum)
+stale_owner.controls.start(); stale.tick()
+stale.route_complete("game_steps.txt")
+stale.tick()
+assert any("source=marker-no-down" in event for event in stale_owner.events)
+clock.value += 2; stale.tick()
+assert stale_owner.routes == ["restart_steps.txt", "startup_steps.txt"]
+assert stale.phase == "run"
+sys.modules.pop("supervisor", None)
+
 # USB may go DOWN and back UP while the After route is still finishing. That
 # evidence must survive route completion so Startup cannot remain stuck.
 marker.reset(); clock.value = 0
