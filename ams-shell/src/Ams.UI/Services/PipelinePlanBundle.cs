@@ -48,7 +48,7 @@ public static class PipelinePlanBundle
                     sourceName + "#" + tab.Kind, machine).Text;
             text = ExpandRecoveryCalls(text);
             if (tab.Kind == PipelineKind.Game)
-                text = WrapGameSoundWatch(text, workspace.SoundProfiles, workspace);
+                text = AddGameSoundWatch(text, workspace.SoundProfiles, workspace);
             if (tab.Kind != PipelineKind.Desktop && ContainsCycleDirective(text))
                 throw new PlanExporter.PlanBlockedException(new[] { tab.FileName + ": directive چرخه فقط در plan.txt مجاز است." });
             payloads.Add((tab.FileName, new UTF8Encoding(false).GetBytes(text)));
@@ -101,6 +101,7 @@ public static class PipelinePlanBundle
             foreach (var node in nodes)
             {
                 if (!node.IsDisabled && node.Type == "waitForSound"
+                    && PropEx.GetString(node.Props, "responseRoute", "inline") != "splash"
                     && !PropEx.GetBool(node.Props, "armed")
                     && !PropEx.GetBool(node.Props, "insertIfElse"))
                 {
@@ -120,19 +121,10 @@ public static class PipelinePlanBundle
         }
     }
 
-    private static string WrapGameSoundWatch(string text, IEnumerable<SoundWatchProfile> profiles,
+    private static string AddGameSoundWatch(string text, IEnumerable<SoundWatchProfile> profiles,
         PipelineWorkspace workspace)
     {
         var enabled = profiles.Where(x => x.Enabled).OrderBy(x => x.Id).ToList();
-        if (enabled.Count == 0) return text;
-        var body = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
-            .Where(line => line.Length > 0 && !line.StartsWith("PLAN|", StringComparison.Ordinal)).ToList();
-        if (body.Count == 0)
-            throw new PlanExporter.PlanBlockedException(new[]
-            {
-                "Game: برای فعال‌کردن شنوندهٔ سراسری صدا، تب Game نباید خالی باشد."
-            });
-
         var errors = new List<string>();
         foreach (var profile in enabled)
         {
@@ -141,32 +133,35 @@ public static class PipelinePlanBundle
                 errors.Add(profile.Name + ": بازهٔ Peak باید 0 <= Min <= Max <= 511 باشد.");
             if (profile.Priority is < -100 or > 100) errors.Add(profile.Name + ": Priority باید بین -100 و 100 باشد.");
             if (profile.MinDurationMs is < 10 or > 5000) errors.Add(profile.Name + ": Min duration باید بین 10 و 5000 ms باشد.");
-            if (profile.ListenWindowMs is < 100 or > 60000) errors.Add(profile.Name + ": Listen window باید بین 100 و 60000 ms باشد.");
             if (profile.CooldownMs is < 0 or > 60000) errors.Add(profile.Name + ": Cooldown باید بین 0 و 60000 ms باشد.");
             var responseTab = workspace[profile.ResponseTab];
             if (responseTab.Steps.Count == 0)
                 errors.Add(profile.Name + ": تب واکنش " + responseTab.Title + " خالی است.");
             ValidateSoundResponse(responseTab.Steps, responseTab.Title, errors);
         }
+        var hasScopedSplash = HasScopedSplash(workspace[PipelineKind.Game].Steps);
+        if (hasScopedSplash && enabled.All(x => x.ResponseTab != PipelineKind.Splash))
+            errors.Add("Game: برای Wait For Sound با رفتار Splash scoped، پروفایل Splash را کنار خروجی Pico فعال کنید.");
         if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
+        if (enabled.Count == 0) return text;
 
-        var lines = new List<string> { "PLAN|2", "PGROUP" };
-        lines.AddRange(body);
-        foreach (var profile in enabled)
-        {
-            var response = workspace[profile.ResponseTab].FileName;
-            var seed = Encoding.UTF8.GetBytes(profile.Id + "|game-watch|" + profile.Name + "|30|" + profile.MinDurationMs);
-            var binding = Convert.ToHexString(SHA256.HashData(seed)).ToLowerInvariant()[..12];
-            lines.Add("PARITEM");
-            lines.Add("LOOP|0");
-            lines.Add("WSNDP|" + profile.Id + "," + binding + ",30," + profile.MinDurationMs + ","
-                + profile.ListenWindowMs + "," + profile.PeakMin + "," + profile.PeakMax + ","
-                + profile.Priority + "," + response + "," + profile.CooldownMs);
-            lines.Add("ENDLOOP");
-        }
-        lines.Add("ENDPAR");
-        return string.Join("\n", lines) + "\n";
+        var payload = string.Join(";", enabled.Select(profile => string.Join(",",
+            profile.ResponseTab == PipelineKind.Whisper ? "whisper" : "splash",
+            profile.PeakMin, profile.PeakMax, profile.MinDurationMs, profile.Priority,
+            profile.CooldownMs, workspace[profile.ResponseTab].FileName,
+            profile.ResponseTab == PipelineKind.Whisper ? "global" : "scoped")));
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var firstNewline = normalized.IndexOf('\n');
+        if (!normalized.StartsWith("PLAN|2", StringComparison.Ordinal) || firstNewline < 0)
+            throw new PlanExporter.PlanBlockedException(new[] { "game_steps.txt: هدر PLAN|2 نامعتبر است." });
+        return normalized.Insert(firstNewline + 1, "SOUNDWATCH|" + payload + "\n");
     }
+
+    private static bool HasScopedSplash(IEnumerable<StepNode> nodes)
+        => nodes.Any(node => !node.IsDisabled
+            && ((node.Type == "waitForSound"
+                    && PropEx.GetString(node.Props, "responseRoute", "inline") == "splash")
+                || HasScopedSplash(node.Children)));
 
     private static void ValidateSoundResponse(IEnumerable<StepNode> nodes, string tab, List<string> errors)
     {
