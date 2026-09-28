@@ -91,6 +91,7 @@
 - Buzzer ویسپر بین دو حرکت/کلید Game اجرا شد و پس از آن Iterator اصلی ادامه یافت.
 - تست‌های Shared Listener، Timeout، Mouse streaming، Sound calibration، USB FAT read-back و Restart cycle پاس شدند.
 - تست سخت‌افزاری نهایی صدا و بررسی چشمی نرمی موس هنوز لازم است.
+- مجموعهٔ نهایی ۳۴ فایل Bundle و ۲۸ فایل تغییر‌یافته پس از انتشار با نسخهٔ تست‌شده تطبیق داده شد.
 
 ## Build 91 — Listener مشترک برای Parallel Sound
 
