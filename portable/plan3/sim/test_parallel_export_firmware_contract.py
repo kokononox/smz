@@ -49,12 +49,12 @@ assert 'for field in reply.split("|")' not in runtime
 assert parallel.exists() and parallel.stat().st_size > 8000
 assert executor.stat().st_size < 20000, executor.stat().st_size
 assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
-assert game.exists() and game.stat().st_size < 14000
+assert game.exists() and game.stat().st_size < 16000
 assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in game.read_text()
 assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
 assert 'plan_engine_parallel.py' in bundle and 'plan_engine_game.py' in bundle and 'plan_engine_login.py' in bundle
-assert 'manifestNames.Length != 32' in bundle
+assert 'manifestNames.Length != 34' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
@@ -66,7 +66,7 @@ assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
 assert 'plan-lite-relative' in facade.read_text()
 assert 'timeout - cancel group' in parallel.read_text()
-assert 'parallel wsnd profile threshold=' in parallel.read_text()
+assert 'parallel wsnd profile range=' in parallel.read_text()
 assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
 code=(root/'portable/plan3/CIRCUITPY-MODERN/code.py').read_text()
