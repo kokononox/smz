@@ -13,7 +13,10 @@ nvm = bytearray(4096)
 marker = Marker(nvm)
 assert marker.available() and not marker.armed() and marker.count() == 0
 assert marker.arm_next() and marker.armed() and marker.count() == 1
+assert not marker.reset_done()
+marker.mark_reset_done(); assert marker.reset_done()
 marker.clear_armed(); assert not marker.armed() and marker.count() == 1
+assert not marker.reset_done()
 marker.arm_next(); assert marker.count() == 2
 marker.reset(); assert not marker.armed() and marker.count() == 0
 assert bytes(nvm[:1536]) == b"\x00" * 1536
@@ -29,13 +32,15 @@ class Controls:
 
 class Owner:
     def __init__(self):
-        self.events=[]; self.routes=[]; self.controls=Controls()
+        self.events=[]; self.routes=[]; self.tones=[]; self.controls=Controls()
         self.arm=SimpleNamespace(host_usb_seen=True, host_usb_state="UP")
+        self.usb=SimpleNamespace(connected=True)
         self.guard=SimpleNamespace(reset=lambda: None, last_decision=None,
             transition=SimpleNamespace(stage=None))
         self.debug_last_state="game"; self.debug_last_denied=None
     def emit(self,line): self.events.append(line)
     def route(self,decision): self.routes.append(decision["route"]); return True
+    def _cal_beep(self,frequency,duration): self.tones.append((frequency,duration))
 
 clock=Clock(); owner=Owner(); cycle=Controller(
     owner,nvm,now=clock,run_for=(110 * 60,130 * 60),
@@ -50,16 +55,40 @@ assert cycle.deadline_expired and not owner.controls.running
 # After is deferred until the route stack has unwound.
 cycle.tick()
 assert owner.routes == ["restart_steps.txt"]
-assert cycle.phase == "wait-usb" and cycle.marker.armed()
+assert cycle.phase == "wait-host-cdc" and cycle.marker.armed()
+assert owner.tones[-1] == (330, 220)
 
-owner.arm.host_usb_state="DOWN"; cycle.tick()
-owner.arm.host_usb_state="UP"; cycle.tick()
-assert any("startup-in=2" in event for event in owner.events)
-clock.value += 2; cycle.tick()
-assert owner.routes == ["restart_steps.txt", "startup_steps.txt"]
-assert cycle.phase == "run" and not cycle.marker.armed()
-assert owner.guard.transition.stage == 1
-assert any("desktop=skip" in event for event in owner.events)
+# Windows CDC disconnect/reconnect authorizes one Pico reset. Resetting after
+# the host returns makes CIRCUITPY enumerate read/write again.
+owner.usb.connected = False; cycle.tick()
+owner.usb.connected = True; cycle.tick()
+clock.value += 5
+class ResetNow:
+    @staticmethod
+    def reset(): raise SystemExit("simulated Pico reset")
+sys.modules["microcontroller"] = ResetNow
+try:
+    cycle.tick()
+except SystemExit:
+    pass
+assert cycle.marker.armed() and cycle.marker.reset_done()
+assert any("source=cdc-reconnected" in event for event in owner.events)
+assert owner.tones[-2:] == [(659, 160), (988, 260)]
+
+# Fresh Pico boot consumes the reset-done marker, runs Startup once, and then
+# returns to the normal light-driven cycle.
+resumed_owner=Owner()
+resumed=Controller(resumed_owner,nvm,now=clock,run_for=(6600,7800),
+    choose=lambda minimum, maximum: minimum)
+assert resumed.phase == "wait-usb" and resumed.down_seen
+assert resumed_owner.tones == [(1175, 100), (1175, 100), (1568, 220)]
+resumed.tick(); clock.value += 2; resumed.tick()
+assert resumed_owner.routes == ["startup_steps.txt"]
+assert resumed.phase == "run" and not resumed.marker.armed()
+assert resumed_owner.guard.transition.stage == 1
+assert any("desktop=skip" in event for event in resumed_owner.events)
+assert resumed_owner.tones[-3:] == [(880, 160), (1175, 220), (1568, 360)]
+sys.modules.pop("microcontroller", None)
 
 # Natural Game completion still starts After before the selected deadline.
 marker.reset(); clock.value = 0
@@ -69,30 +98,21 @@ natural=Controller(natural_owner,nvm,now=clock,run_for=(6600,7800),
 natural_owner.controls.start(); natural.tick()
 natural.route_complete("game_steps.txt")
 assert natural_owner.routes == ["restart_steps.txt"]
-assert natural.phase == "wait-usb"
+assert natural.phase == "wait-host-cdc"
 
-# On affected Windows hardware a warm restart keeps USB configured/UP for the
-# whole reboot, so there is no DOWN edge to observe. The armed marker must
-# still start the Startup route instead of deadlocking until a manual Start.
-natural.tick()
-assert any("source=marker-no-down" in event for event in natural_owner.events)
-clock.value += 2; natural.tick()
-assert natural_owner.routes == ["restart_steps.txt", "startup_steps.txt"]
-assert natural.phase == "run" and not natural.marker.armed()
-
-# A stale Pro Micro DOWN must not mask Pico UP after After has armed the marker.
+# After the intentional Pico reset, a stale Pro Micro DOWN must not mask Pico
+# UP or prevent the marker-authorized Startup.
 marker.reset(); clock.value = 0
+marker.arm_next(); marker.mark_reset_done()
 sys.modules["supervisor"] = SimpleNamespace(
     runtime=SimpleNamespace(usb_connected=True))
 stale_owner=Owner(); stale_owner.arm.host_usb_state = "DOWN"
 stale=Controller(stale_owner,nvm,now=clock,run_for=(6600,7800),
     choose=lambda minimum, maximum: minimum)
-stale_owner.controls.start(); stale.tick()
-stale.route_complete("game_steps.txt")
 stale.tick()
-assert any("source=marker-no-down" in event for event in stale_owner.events)
+assert any("startup-in=2" in event for event in stale_owner.events)
 clock.value += 2; stale.tick()
-assert stale_owner.routes == ["restart_steps.txt", "startup_steps.txt"]
+assert stale_owner.routes == ["startup_steps.txt"]
 assert stale.phase == "run"
 sys.modules.pop("supervisor", None)
 
@@ -113,12 +133,20 @@ clock.value += 2; race.tick()
 assert race_owner.routes == ["startup_steps.txt"]
 assert race.phase == "run"
 
-# NVM marker survives a Pico reboot and authorizes Startup once.
+# An armed marker without reset-done waits for CDC; the 120-second fallback
+# still resets the Pico if DTR reconnect is missed.
 marker.reset(); marker.arm_next(); boot_owner=Owner()
 boot=Controller(boot_owner,nvm,now=clock,run_for=(6600,7800),
     choose=lambda minimum, maximum: minimum)
-assert boot.phase == "wait-usb" and boot.down_seen
-boot.tick(); clock.value += 2; boot.tick()
-assert boot_owner.routes == ["startup_steps.txt"]
+assert boot.phase == "wait-host-cdc"
+clock.value += 120
+sys.modules["microcontroller"] = ResetNow
+try:
+    boot.tick()
+except SystemExit:
+    pass
+assert boot.marker.reset_done()
+assert any("source=timeout-fallback" in event for event in boot_owner.events)
+sys.modules.pop("microcontroller", None)
 
-print("modern restart cycle: 110-130 deadline, persistent Startup and Desktop skip passed")
+print("modern restart cycle: CDC remount reset, persistent Startup and Desktop skip passed")
