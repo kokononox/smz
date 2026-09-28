@@ -35,9 +35,10 @@ assert game._mouse_module is helper
 assert state["pauses"] is not None
 
 source = (FW / "code.py").read_text(encoding="utf-8")
-assert "stage=before-engine-import|free=%d" in source
-assert "stage=engine-import-memoryerror|free=%d" in source
-assert "stage=after-engine-import|free=%d" in source
+assert 'def _game_heap(ctx, stage):' in source
+assert '_game_heap(ctx, "before-engine-import")' in source
+assert '_game_heap(ctx, "engine-import-memoryerror")' in source
+assert '_game_heap(ctx, "after-engine-import")' in source
 
 game_source = (FW / "plan_engine_game.py").read_text(encoding="utf-8")
 assert "import plan_engine_login as mouse" not in game_source
