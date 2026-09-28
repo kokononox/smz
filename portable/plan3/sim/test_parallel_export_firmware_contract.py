@@ -16,6 +16,9 @@ bundle=(root/'ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs').r
 assert '"forLoop" or "randomPackage"' in exporter
 assert 'n.Type=="waitForSound"' in exporter
 assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
+assert 'case "buzzer":EmitBuzzer(n)' in exporter
+assert '"comment","buzzer"' in exporter
+assert 'StepDefinitions.BuildBuzzerCommands' in exporter
 # ARM 2.8.2-S4 keeps relative HID, latches ADC peaks outside HID cadence, and
 # never treats an open-but-idle CDC port as a pending secure handshake.
 assert '#define FW_VER   "2.8.2-S4"' in arm
