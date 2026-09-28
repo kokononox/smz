@@ -1,0 +1,23 @@
+name: Bug report
+description: گزارش خطای قابل بازتولید در برنامه، Firmware یا Export
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes: {label: خلاصه مشکل, description: انتظار چه بود و چه اتفاقی افتاد؟}
+    validations: {required: true}
+  - type: textarea
+    id: reproduction
+    attributes: {label: مراحل بازتولید, description: Build، Bundle، پروژه و ترتیب اقدامات را بنویسید.}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: شواهد, description: خطوط مرتبط GuardHardwareMonitor/CI را بدون اطلاعات حساس قرار دهید.}
+    validations: {required: true}
+  - type: input
+    id: versions
+    attributes: {label: نسخه‌ها, description: Classroom release، Pico runtime، ARM firmware و Windows}
+  - type: textarea
+    id: safety
+    attributes: {label: اثر و ریسک سخت‌افزاری, description: Mouse، Keyboard، Sound، Restart، Calibration یا Read-only شدن}

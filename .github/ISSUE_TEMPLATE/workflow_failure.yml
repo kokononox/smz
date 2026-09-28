@@ -1,0 +1,25 @@
+name: Workflow failure
+description: گزارش شکست CI، packaging یا release
+title: "[CI]: "
+labels: ["ci"]
+body:
+  - type: input
+    id: run
+    attributes: {label: لینک Run و SHA}
+    validations: {required: true}
+  - type: dropdown
+    id: classification
+    attributes:
+      label: وضعیت
+      options: [Failed, Cancelled, Skipped, Stalled, Superseded by newer SHA]
+    validations: {required: true}
+  - type: textarea
+    id: failure
+    attributes: {label: اولین خطای واقعی, description: اولین failure و context کوتاه را قرار دهید.}
+    validations: {required: true}
+  - type: textarea
+    id: attempts
+    attributes: {label: تلاش‌های انجام‌شده, description: retry تکراری نکنید؛ فرضیه‌ها و نتیجه را بنویسید.}
+  - type: textarea
+    id: recovery
+    attributes: {label: برنامه بازیابی, description: Fix، regression test، rollback یا rerun روی SHA جدید}

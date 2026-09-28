@@ -1,0 +1,6 @@
+# Repository owner reviews all behavior, firmware, workflow, and release changes.
+* @noonoix
+/.github/ @noonoix
+/portable/plan3/CIRCUITPY-MODERN/ @noonoix
+/ams-shell/ @noonoix
+/tests/ @noonoix
