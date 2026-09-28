@@ -126,6 +126,12 @@ Lazy import ماژول Type و وجود توابع را کنترل می‌کرد
 - تست اجرای واقعی QWERTY Neighbor باید سبز شود.
 - 53 قرارداد Portable، Windows TestRunner، Manifest 40/40 و Read-back باید پیش از انتشار سبز شوند.
 
+### Next test
+
+Build 105 را نصب و Bundle پروژه را کامل دوباره روی CIRCUITPY بساز. در Login/DC
+باید `after-mouse-runtime-import` و `after-type-import` ثبت شوند، TYPE دارای Typo
+بدون `_QWERTY_ROWS` NameError کامل شود و سپس مسیر تا Game و حرکت قلاب ادامه یابد.
+
 ## Build 104 — تقسیم ترتیبی Login، Natural Mouse و Human Type
 
 **Previous build:** 103 / Classroom release 201
