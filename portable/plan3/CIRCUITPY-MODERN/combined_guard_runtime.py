@@ -426,6 +426,24 @@ class PlanContext:
         else:
             state["sustained"] = 0
         return None
+    def sound_peak(self):
+        detail = self.r.arm.sound_detail or ""
+        marker = detail.find("peak=")
+        if marker < 0:
+            marker = detail.find("max=")
+        if marker < 0:
+            return None
+        marker += 5 if detail[marker:marker + 5] == "peak=" else 4
+        value = 0
+        digits = 0
+        while marker < len(detail):
+            code = ord(detail[marker])
+            if code < 48 or code > 57:
+                break
+            value = value * 10 + code - 48
+            digits += 1
+            marker += 1
+        return value if digits else None
     def sound_cancel(self):
         if self._parallel_sound == "async":
             self.r.arm.flush()
