@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 97:** رد فوری هم‌پوشانی کالیبراسیون با Fit تطبیقی جایگزین شد؛ ابتدا دامنهٔ جدید و در صورت Center-inside دامنهٔ مجاور فقط از Tolerance عقب می‌روند، Centerها ثابت و ذخیرهٔ دوطرفه اتمیک است. حداقل Tolerance برابر ۰٫۵ و Gap برابر ۰٫۲۵ lux حفظ می‌شود.
 - **Candidate Build 96:** Start فیزیکی GP4 اکنون همیشه سنجش/Telemetry تازه ایجاد و منبع مؤثر کالیبراسیون NVM/File و بازهٔ Dashboard را گزارش می‌کند؛ حاشیهٔ Drift پس از نمونه‌گیری از ۰٫۵ به ۱٫۰ lux افزایش یافت و همچنان با پروفایل‌های مجاور Cap می‌شود.
 - **Candidate Build 95:** `Wait For Sound` عمومی از مسیر ساخت پروژهٔ جدید خارج شد. استپ اختصاصی `Splash Listener` فقط محل Scoped هر Cast را مشخص می‌کند و Timeout حداقل/حداکثر اکنون مستقیماً در کارت پروفایل Splash تنظیم می‌شود. فایل‌های قدیمی `responseRoute=splash` هنگام بازشدن خودکار Migration می‌شوند؛ قرارداد `WPROFILE` و Runtime/ARM/Mouse تغییر نکرده‌اند.
 - **Candidate Build 94:** خطای Boot خروجی Build 93 رفع شد؛ `splash_steps.txt` و `whisper_steps.txt` اکنون پیش از اعتبارسنجی Manifest وارد موجودی Hash Runtime می‌شوند. Routeهای نوری Guard، فریمور Pro Micro و مسیر Natural Mouse هیچ تغییری نکرده‌اند.
@@ -34,6 +35,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 97 | تست کالیبراسیون هم‌پوشان لازم است | Fit یک‌طرفه/دوطرفهٔ اتمیک با Center ثابت، Min=0.5 و Gap=0.25 | CI candidate؛ Mouse/ARM unchanged |
 | 96 | تست Dashboard و تکرار Stop/Start لازم است | رفع suppression در unknown→unknown و افزایش کنترل‌شدهٔ حاشیه Drift کالیبراسیون | CI candidate؛ Mouse/ARM unchanged |
 | 95 | تست Export و Migration پروژهٔ ماهیگیری لازم است | حذف Wait For Sound از منو، Splash Listener اختصاصی و انتقال Timeout به پروفایل Splash | Local candidate؛ Runtime/ARM/Mouse unchanged |
 | 94 | تست Boot و اجرای Game لازم است | پذیرش دو Route جدید Whisper/Splash در موجودی ۳۴فایلی Boot verifier | Local candidate؛ Mouse/ARM unchanged |
@@ -75,6 +77,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 97 — Fit تطبیقی یک‌طرفه و دوطرفهٔ کالیبراسیون
+
+**Previous build:** 96 / Classroom release 194
+**Status:** local candidate; overlapping calibration hardware retest required
+
+### Problem observed
+
+وقتی Tolerance پیشنهادی وارد دامنهٔ دیگری می‌شد، Save فوراً با `CAL|OVERLAP` رد می‌شد. حتی در حالتی که با کاهش کنترل‌شدهٔ دامنهٔ جدید یا عقب‌بردن محدود دامنهٔ مجاور می‌شد دو پروفایل امن ساخت، کاربر مجبور به نمونه‌گیری دوباره بود.
+
+### Root cause
+
+Publish فقط یک Guard دودویی داشت: Candidate بدون تغییر پذیرفته یا رد می‌شد. Cap اولیه نیز فقط دامنهٔ جدید را در حالتی که Center بیرون دامنهٔ دیگر بود محدود می‌کرد و Center-inside را حل نمی‌کرد.
+
+### Change
+
+- قبل از ذخیره، Fit اتمیک روی مجموعهٔ کامل پروفایل‌ها اجرا می‌شود.
+- ابتدا Tolerance دامنهٔ جدید تا حداقل `0.5 lux` کاهش می‌یابد.
+- اگر هنوز هم‌پوشانی باقی باشد، Tolerance دامنهٔ مجاور فقط به‌اندازهٔ لازم عقب می‌رود؛ هیچ Centerای جابه‌جا نمی‌شود.
+- بین دو دامنه Gap ثابت `0.25 lux` حفظ می‌شود و پروفایل‌های قدیمی باریک هرگز بزرگ نمی‌شوند.
+- تغییرات با `CAL|FIT` یا `CAL|FIT-PAIR` شامل مقدار درخواستی/اعمال‌شده و دامنهٔ مجاور ثبت می‌شوند.
+- اگر فاصلهٔ Centerها برای دو دامنهٔ حداقلی به‌علاوهٔ Gap کافی نباشد، ذخیره همچنان با `CAL|FIT|reason=centers-too-close` Fail-Closed می‌شود.
+- همهٔ تغییرات یک‌بار در NVM ذخیره و سپس هم‌زمان روی Guard فعال اعمال می‌شوند.
+- Firmware Pro Micro، ARM، Mouse، Sound و Routeها تغییر نکرده‌اند.
+
+### Validation
+
+- سناریوی هم‌پوشانی عادی فقط Candidate را تا مرز امن عقب می‌برد.
+- سناریوی Center-inside، Candidate و همسایه را با Min/Gap ثابت Fit می‌کند.
+- سناریوی Centerهای بسیار نزدیک بدون نوشتن NVM رد می‌شود.
+- قرارداد ترتیب Fit پیش از `calibration_nvm.save` و Telemetry یک‌طرفه/دوطرفه تست می‌شود.
+
+### Next test
+
+1. یک Stage با Tolerance هم‌پوشان ذخیره کنید؛ به‌جای `OVERLAP` باید `CAL|FIT` یا `CAL|FIT-PAIR` و سپس `saved-stage` دیده شود.
+2. `CALSTATUS` را بررسی کنید؛ Centerها باید ثابت و فقط Toleranceهای گزارش‌شده کاهش یافته باشند.
+3. هر دو محیط در دو Start جدا باید State صحیح خود را بگیرند و بین Rangeهای گزارش‌شده حداقل ۰٫۲۵ lux فاصله باشد.
 
 ## Build 96 — سنجش تازه در Start فیزیکی و حاشیهٔ Drift کالیبراسیون
 
