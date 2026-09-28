@@ -171,7 +171,8 @@ class Controller:
             # A Pro Micro DOWN can remain stale after Windows returns. The Pico
             # USB signal may promote it to UP only after this process observed
             # a real Pico DOWN (or booted with an armed restart marker).
-            if pico_state == "UP" and self.pico_usb_down_seen:
+            if pico_state == "UP" and (
+                    self.pico_usb_down_seen or self.marker.armed()):
                 return "UP"
             return arm_state
         return pico_state
