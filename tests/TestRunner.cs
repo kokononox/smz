@@ -3882,6 +3882,35 @@ class TestRunner
             Assert(pexParityText.Split('\n').Count(x=>x=="KEY|combo=91+82|hold=40,90")==3,
                 "v0.9.66: runExe/openFile/playAudio emit Win+R macros");
 
+            // Build 90: buzzer is a Pico-local cooperative op. It must remain
+            // exportable after a plain Wait For Sound inside looped parallel branches.
+            var soundParallel = PexStep("parallelGroup");
+            foreach (var id in new[] { 1, 2 })
+            {
+                var branch = PexStep("forLoop", new Dictionary<string, object?>
+                {
+                    ["mode"] = "count", ["count"] = 1,
+                });
+                branch.Children.Add(PexStep("waitForSound", new Dictionary<string, object?>
+                {
+                    ["calibrationId"] = id, ["threshold"] = id == 1 ? 130 : 30,
+                    ["minDurationMs"] = 60, ["timeoutMs"] = 20000,
+                    ["armed"] = false, ["insertIfElse"] = false,
+                }));
+                branch.Children.Add(PexStep("buzzer", new Dictionary<string, object?>
+                {
+                    ["preset"] = id == 1 ? "warning" : "success",
+                }));
+                soundParallel.Children.Add(branch);
+            }
+            var soundParallelText = PlanExporter.Compile(
+                new List<StepNode> { soundParallel }, pexSettings, 1920, 1080, "s1.amsj", "T").Text;
+            Assert(soundParallelText.Contains("PGROUP\nLOOP|1\nWSNDP|1,")
+                   && soundParallelText.Contains("\nPARITEM\nLOOP|1\nWSNDP|2,")
+                   && soundParallelText.Contains("BEEP|700,180")
+                   && soundParallelText.Contains("BEEP|900,120"),
+                "Build 90: looped parallel Wait For Sound + Buzzer exports cooperatively");
+
             // findImage remains an explicit blocking error.
             try { PlanExporter.Compile(new List<StepNode>{PexStep("findImage")},pexSettings,1920,1080,"f","T"); Assert(false,"v0.9.66: findImage must block"); }
             catch(PlanExporter.PlanBlockedException bx){Assert(bx.Errors.Any(e=>e.Contains("machine vision")),"v0.9.66: findImage blocks explicitly");}
