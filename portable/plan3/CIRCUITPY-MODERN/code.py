@@ -335,9 +335,13 @@ def _cal_stage_complete_tone(self):
     self._cal_beep(note, 190)
 
 def _cal_save_success_tone(self):
-    self._cal_beep(880, 90)
-    runtime.time.sleep(.05)
-    self._cal_beep(1320, 180)
+    # A longer, unmistakable rising confirmation. The previous 270 ms pair
+    # was easy to miss next to the stage-position cue on the passive piezo.
+    self._cal_beep(880, 160)
+    runtime.time.sleep(.06)
+    self._cal_beep(1175, 220)
+    runtime.time.sleep(.06)
+    self._cal_beep(1568, 360)
 
 def _cal_save_error_tone(self):
     self._guard_pattern(_CAL_SAVE_ERROR_PATTERN)
@@ -524,11 +528,16 @@ def _audible_save_cal(self):
     had_pending_result = isinstance(self.result, dict) and not self.saved
     _original_save_cal(self)
     if had_pending_result and self.saved:
+        _debug_event(self, "CAL", "save-ok stage=%d id=%s source=nvm" %
+            (self.stage + 1, runtime.PROFILES[self.stage]), persist=True)
         if not profile_was_saved and len(self.saved_ids) == len(runtime.PROFILES):
             self.cal_complete_melody()
         else:
             self.cal_save_success_tone()
     elif had_pending_result and not self.saved and self.last_cal_error:
+        _debug_event(self, "CAL", "save-failed stage=%d id=%s error=%s" %
+            (self.stage + 1, runtime.PROFILES[self.stage],
+             self.last_cal_error), persist=True)
         self.cal_save_error_tone()
 
 def _repeatable_yellow_action(self):
@@ -571,6 +580,8 @@ def _repeatable_yellow_action(self):
     self.result = "sampling"
     self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d|retry=%d" %
         (self.stage + 1, runtime.PROFILES[self.stage], len(self.saved_ids), retry))
+    _debug_event(self, "GP3", "calibration-start stage=%d id=%s wait=5s" %
+        (self.stage + 1, runtime.PROFILES[self.stage]), persist=True)
     self.cal_record_start_tone()
 
 def _audible_buttons(self):
