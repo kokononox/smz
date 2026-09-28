@@ -254,6 +254,7 @@ public static class PlanExporter
                 case "mouseClick":EmitMouseClick(n);return; case "mouseScroll":EmitMouseScroll(n);return;
                 case "keystroke":EmitKeystroke(n);return; case "keyDown":EmitKeyState(n,true);return; case "keyUp":EmitKeyState(n,false);return;
                 case "typeText":EmitTypeText(n);return; case "forLoop":EmitForLoop(n);return;
+                case "buzzer":EmitBuzzer(n);return;
                 case "waitForSound":EmitWaitForSound(n);return; case "waitForLight":EmitWaitForLight(n);return;
                 case "label":EmitLabel(n);return; case "gotoLabel":EmitGoto(n);return; case "rawCommand":EmitRaw(n);return;
                 case "randomPackage":EmitRandomPackage(n);return; case "parallelGroup":EmitParallelGroup(n);return;
@@ -273,6 +274,29 @@ public static class PlanExporter
         {
             var (lo, hi) = Pair(PropEx.GetInt(n.Props, "minMs", 0), PropEx.GetInt(n.Props, "maxMs", 333));
             Emit(n, new[] { hi > lo ? "DELAY|" + lo + "," + hi : "DELAY|" + lo }, "DELAY");
+        }
+
+        private void EmitBuzzer(StepNode n)
+        {
+            IReadOnlyList<string> commands;
+            try { commands = StepDefinitions.BuildBuzzerCommands(n.Props); }
+            catch (FormatException ex) { Error(n, ex.Message); return; }
+            foreach (var command in commands)
+            {
+                if (command.StartsWith("BEEP|", StringComparison.Ordinal))
+                {
+                    Lines.Add(command);
+                    Count("BEEP");
+                }
+                else if (command.StartsWith("DLY|", StringComparison.Ordinal)
+                         && int.TryParse(command[4..], NumberStyles.Integer,
+                             CultureInfo.InvariantCulture, out var pause))
+                {
+                    Lines.Add("DELAY|" + pause + "," + pause);
+                    Count("DELAY");
+                }
+            }
+            EmitDelay(n);
         }
 
         /// <summary>The humanized-move layers; PLAN|2 forces EVERY key explicit (its built-in defaults
@@ -436,7 +460,7 @@ public static class PlanExporter
         private void EmitGoto(StepNode n){var name=PropEx.GetString(n.Props,"label").Trim();if(name.Length==0){Error(n,"Go To Label with no label chosen");return;}Emit(n,new[]{"GOTO|"+name},"GOTO");}
         private void EmitRaw(StepNode n){var cmd=PropEx.GetString(n.Props,"cmd","PING").Trim();if(cmd.Length==0||cmd.Contains('\n')||cmd.Contains('\r')){Error(n,"raw command must be one non-empty line");return;}Emit(n,new[]{"RAW|"+cmd},"RAW");}
         private void EmitRandomPackage(StepNode n){var kids=n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).ToList();if(kids.Count==0){Error(n,"random package has no enabled children");return;}if(kids.Any(c=>Conditional.Contains(c.Type)&&PropEx.GetBool(c.Props,"insertIfElse"))){Error(n,"an If/Else structure cannot live inside a Random Package");return;}var mode=PropEx.GetString(n.Props,"mode","shuffleAll");int mn=1,mx=kids.Count;string em="all";if(mode=="randomSubset"){em="pick";mn=Math.Max(0,PropEx.GetInt(n.Props,"minCount",1));mx=Math.Min(kids.Count,PropEx.GetInt(n.Props,"maxCount",10));if(mn>mx)(mn,mx)=(mx,mn);}else if(mode!="shuffleAll"){Error(n,"unknown random package mode '"+mode+"'");return;}Lines.Add("RPKG|"+em+","+mn+","+mx);Count("RPKG");for(int i=0;i<kids.Count;i++){if(i>0)Lines.Add("PKGITEM");Walk(new List<StepNode>{kids[i]});}Lines.Add("ENDPKG");EmitDelay(n);}
-        private static readonly HashSet<string> ParallelLeaf=new(){"randomMousePosition","mouseMove","mouseClick","mouseScroll","keystroke","keyDown","keyUp","typeText","delay","rawCommand","comment"};
+        private static readonly HashSet<string> ParallelLeaf=new(){"randomMousePosition","mouseMove","mouseClick","mouseScroll","keystroke","keyDown","keyUp","typeText","delay","rawCommand","comment","buzzer"};
         private bool ParallelCompatible(StepNode n)
         {
             if(n.Type=="waitForSound")
