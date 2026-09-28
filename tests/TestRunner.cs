@@ -4263,6 +4263,9 @@ class TestRunner
             Assert(modernWritten.Count >= 36
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
@@ -4319,19 +4322,26 @@ class TestRunner
                    && loginHelper.Length < 14000,
                 "Login/DC light helper preserves Natural Mouse and typing without importing the full parser");
             var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
+            var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
+            var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
+            var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
             Assert(!gameHelper.Contains("import plan_engine_parse")
                    && !gameHelper.Contains("import plan_engine_exec")
                    && gameHelper.Contains("def run_game(")
-                   && gameHelper.Contains("def _parallel(")
-                   && gameHelper.Contains("sound_parallel_safe")
-                   && gameHelper.Contains("elif op == \"LABEL\"")
-                   && gameHelper.Contains("elif op == \"GOTO\"")
-                   && gameHelper.Contains("GOTO label not found")
-                   && gameHelper.Contains("class _FileCommands:")
-                   && gameHelper.Contains("def _pick_items(")
                    && gameHelper.Contains("def run_game_file(")
-                   && gameHelper.Length < 24000,
-                "Build 101: Game stays file-backed and samples large packages without materializing every item");
+                   && gameHelper.Contains("before-core-import")
+                   && gameHelper.Contains("after-runtime-import")
+                   && gameHelper.Length < 3000
+                   && gameCore.Contains("class _FileCommands:")
+                   && gameCore.Contains("def _pick_items(")
+                   && gameCore.Length < 10000
+                   && gameRuntime.Contains("elif op == \"LABEL\"")
+                   && gameRuntime.Contains("elif op == \"GOTO\"")
+                   && gameRuntime.Contains("GOTO label not found")
+                   && gameRuntime.Length < 12000
+                   && gameParallel.Contains("sound_parallel_safe")
+                   && gameParallel.Length < 9000,
+                "Build 103: Game compiler peaks are split across sequential bounded modules");
 
             var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
             var repairedBridge = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
@@ -4530,7 +4540,7 @@ class TestRunner
                 "Build 95: legacy responseRoute=splash migrates to Splash Listener and profile timeout");
 
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
-            Assert(true, "Build 93: target read-back accepts 34 valid hashes and matching Guard revisions");
+            Assert(true, "Build 103: target read-back accepts 37 valid hashes and matching Guard revisions");
             var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
             var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
             File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");

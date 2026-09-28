@@ -9,6 +9,7 @@ FW = ROOT / "portable/plan3/CIRCUITPY-MODERN"
 sys.path.insert(0, str(FW))
 
 import plan_engine_game as game
+import plan_engine_game_core as core
 
 rows = ["PLAN|2", "SCREEN|1920,1080", "RPKG|pick,1,2"]
 for index in range(165):
@@ -21,13 +22,13 @@ with tempfile.NamedTemporaryFile("w", delete=False) as route:
     route.write("\n".join(rows) + "\n")
     route_name = route.name.lstrip("/")
 
-commands = game._FileCommands(route_name)
+commands = core._FileCommands(route_name)
 try:
     assert isinstance(commands.offsets, bytearray)
     assert len(commands.offsets) == len(rows) * 4
     assert commands[0] == ("PLAN", "2")
     package_index = 2
-    finish, parts, order = game._package(commands, package_index)
+    finish, parts, order = core._package(commands, package_index)
     assert commands[finish][0] == "ENDPKG"
     assert 1 <= len(parts) <= 2
     assert len(order) == len(parts)
@@ -54,6 +55,6 @@ Path("/" + route_name).unlink()
 source = (FW / "code.py").read_text(encoding="utf-8")
 assert 'commands = name if name == "game_steps.txt"' in source
 assert "plan_engine_game.run_game_file(commands, ctx)" in source
-assert "stage=file-index|commands=%d|offset-bytes=%d|free=%d" in (
+assert "file-index|commands=%d|offset-bytes=%d" in (
     FW / "plan_engine_game.py").read_text(encoding="utf-8")
 print("file-backed Game route + bounded RPKG reservoir sampling passed")

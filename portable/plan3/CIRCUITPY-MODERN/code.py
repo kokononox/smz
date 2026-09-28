@@ -108,7 +108,9 @@ runtime.parse_calibration_set = parse_calibration_set
 # Classroom Studio's complete hashed export hashes every payload except the
 # hash manifest itself. Extend the verifier inventory before loading the bundle.
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
-              "plan_engine_game.py", "plan_engine_human.py", "plan_engine_login.py",
+              "plan_engine_game.py", "plan_engine_game_core.py",
+              "plan_engine_game_runtime.py", "plan_engine_game_parallel.py",
+              "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
               "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
               "startup_steps.txt", "whisper_steps.txt", "splash_steps.txt",
@@ -450,14 +452,12 @@ _original_cal_tick = runtime.Combined.cal_tick
 _original_save_cal = runtime.Combined.save_cal
 _original_yellow_action = runtime.Combined.yellow_action
 
-_PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_human",
-                 "plan_engine_login", "plan_engine_parallel", "plan_engine_parse")
+_PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_game_core",
+                 "plan_engine_game_runtime", "plan_engine_game_parallel",
+                 "plan_engine_human", "plan_engine_login", "plan_engine_parallel",
+                 "plan_engine_parse")
 
 def _release_plan_heap(self, emit_cal=False):
-    # Complex routes lazily import the split plan engine. CircuitPython keeps
-    # those modules cached after Stop/PlanAbort. Return the deferred proxy to
-    # its cold state after every complex route so a second Start cannot retain
-    # the prior parsed Game tree and enter the next parse with ~1 KB free.
     proxy = runtime.plan_engine
     try:
         if hasattr(proxy, "module"):

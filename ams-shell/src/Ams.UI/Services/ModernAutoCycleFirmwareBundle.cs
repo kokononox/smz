@@ -23,7 +23,8 @@ public static class ModernAutoCycleFirmwareBundle
         "guard_calibration_protocol.py", "guard_transition.py",
         "live_light_guard.py", "login_or_dc_steps.txt", "pico-calibration.json",
         "plan.txt", "plan_engine.py", "plan_engine_exec.py", "plan_engine_game.py",
-        "plan_engine_human.py", "plan_engine_login.py", "plan_engine_parallel.py",
+        "plan_engine_game_core.py", "plan_engine_game_runtime.py",
+        "plan_engine_game_parallel.py", "plan_engine_human.py", "plan_engine_login.py", "plan_engine_parallel.py",
         "plan_engine_parse.py", "restart_cycle.py", "restart_windows.py",
         "restart_steps.txt", "startup_steps.txt", "calibration_nvm.py",
         "resumable_steps.txt", "settings.toml", "sound_step_calibration.py",
@@ -40,7 +41,7 @@ public static class ModernAutoCycleFirmwareBundle
         if (!File.Exists(sourceManifest))
             throw new IOException("Manifest Bundle مدرن پیدا نشد.");
         var manifestNames = ReadManifestNames(sourceManifest);
-        if (manifestNames.Length != 34)
+        if (manifestNames.Length != 37)
             throw new IOException("تعداد فایل‌های Manifest Bundle مدرن نامعتبر است.");
         foreach (var name in Files.Concat(manifestNames).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -127,7 +128,7 @@ public static class ModernAutoCycleFirmwareBundle
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .Select(line => line.Split(new[] { "  " }, StringSplitOptions.None))
             .ToArray();
-        if (entries.Length != 34 || entries.Any(parts => parts.Length != 2))
+        if (entries.Length != 37 || entries.Any(parts => parts.Length != 2))
             throw new IOException("Manifest خوانده‌شده از CIRCUITPY نامعتبر است.");
 
         foreach (var parts in entries)

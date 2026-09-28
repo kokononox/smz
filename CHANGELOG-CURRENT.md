@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 103:** Bundle 320 ثابت کرد خود Import یک‌تکهٔ موتور 23KB Game حافظه را از 60,144 به 444 بایت می‌رساند و پیش از `file-index` برای allocation=1784 شکست می‌خورد. موتور به Facade، Core، Runtime و Parallel با Import ترتیبی/تنبل و تله‌متری هر مرز تقسیم شد؛ بزرگ‌ترین ماژول اکنون زیر 10KB است.
 - **Candidate Build 102:** شکست Bundle 310 پیش از `file-index` به Import تو‌در‌توی Game→Login محدود شد. Runner موس دیگر هنگام Compile موتور Game وارد نمی‌شود؛ پس از تثبیت Engine و ایندکس Flash، فقط با اولین `RMOUSE` و بین دو GC بارگذاری می‌شود و تله‌متری مرحله‌ای Heap محل هر شکست احتمالی را مشخص می‌کند.
 - **Candidate Build 101:** Game بزرگ دیگر به لیست Tupleهای RAM تبدیل نمی‌شود؛ خطوط روی Flash می‌مانند و فقط Offset چهار‌بایتی نگه‌داری می‌شود. Random Packageهای بزرگ نیز با Reservoir Sampling فقط همان ۱–۲ گزینهٔ لازم را نگه می‌دارند و فهرست تمام ۱۶۵ آیتم را نمی‌سازند.
 - **Candidate Build 100:** Guard اکنون در طول Route نیز نور را با Debounce کامل پایش می‌کند؛ تغییر پایدار محیط Route قبلی را با آزادسازی Keyboard/Mouse قطع و Route وضعیت جدید را اجرا می‌کند. Route بزرگ Game نیز به‌صورت خط‌به‌خط از Flash خوانده می‌شود تا تخصیص پیوستهٔ 6400 بایتی حذف شود.
@@ -40,6 +41,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 103 | Bundle 320: Route read پاس؛ `before-engine-import=60144` سپس import یک‌تکه با free=444 شکست خورد | Facade 1KB + Core 6.7KB + Runtime 10KB + Parallel 6.8KB با Import ترتیبی | CI candidate؛ hardware retest pending |
 | 102 | Bundle 310: Preemption و خواندن فایل پاس؛ شکست پیش از `file-index` با allocation=1386 | حذف Import تو‌در‌توی Login و Lazy-load موس در اولین RMOUSE با تله‌متری Heap | CI candidate؛ Game hardware retest pending |
 | 101 | Bundle 308: Preemption تمام انتقال‌ها را پاس کرد؛ Game پس از Parse ۳۶۹ فرمان با Heap حدود 40KB شکست خورد | فرمان‌های فایل‌محور با Offset فشرده و Reservoir Sampling برای RPKG بزرگ | CI candidate؛ Game hardware retest pending |
 | 100 | Login پس از ورود به Dashboard ادامه می‌یافت؛ Game هنگام read با allocation=6400 شکست خورد | Stable-light route preemption + streaming Game route read | CI candidate؛ hardware transition retest pending |
@@ -87,6 +89,42 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 103 — تقسیم Compiler Peak موتور Game به Importهای ترتیبی
+
+**Previous build:** 102 / Classroom release 200
+**Status:** local candidate; Bundle 320 hardware retest required
+
+### Problem observed
+
+Bundle 320 اصلاح فایل‌محور را دوباره تأیید کرد: Heap در خواندن `game_steps.txt` فقط از 48,320 به 48,144 بایت افتاد. تله‌متری جدید محل شکست را قطعی کرد: درست پیش از Import موتور 60,144 بایت آزاد بود، اما Compile ماژول یک‌تکهٔ `plan_engine_game.py` حافظه را به 444 بایت رساند و تخصیص 1,784 بایتی شکست خورد. هیچ `file-index`، Random Package یا RMOUSE هنوز اجرا نشده بود.
+
+### Root cause
+
+Build 102 Import تو‌در‌توی Login را حذف کرد، اما خود فایل 23KB موتور Game همچنان باید در یک Compile واحد به bytecode و objectهای CircuitPython تبدیل می‌شد. Peak Compiler یک‌تکه، نه تعداد 165–176 پترن موس، علت این شکست بود.
+
+### Change
+
+- `plan_engine_game.py` به Facade حدود 1KB تبدیل شد و هیچ موتور فرعی را در سطح ماژول Import نمی‌کند.
+- `plan_engine_game_core.py` حدود 6.7KB است و File index، Range/Package و Lazy Mouse را نگه می‌دارد.
+- `plan_engine_game_runtime.py` حدود 10KB است و Interpreter اصلی را پس از آزادشدن Compiler Core بارگذاری می‌کند.
+- `plan_engine_game_parallel.py` حدود 6.8KB است و فقط هنگام اولین `PGROUP` وارد می‌شود.
+- بین تمام Importها GC کامل و Stageهای before/after/failure ثبت می‌شود.
+- cleanup کالیبراسیون و Route هر چهار ماژول Game را از cache آزاد می‌کند.
+- Manifest/Exporter/Read-back از 34 به 37 فایل ارتقا یافت.
+- Natural Mouse، ARM، SoundWatch، Splash/Whisper، Light Preemption، Cycle و پروژهٔ کاربر تغییر نکرده‌اند.
+
+### Validation
+
+- Import Facade هیچ Core/Runtime/Parallel/Login را زودهنگام بارگذاری نمی‌کند.
+- Core و Runtime ترتیبی بارگذاری می‌شوند؛ Login فقط در اولین RMOUSE و Parallel فقط در اولین PGROUP وارد می‌شود.
+- size gate ویندوز: Facade <3KB، Core <10KB، Runtime <12KB و Parallel <9KB.
+- Game فایل‌محور 165 آیتمی، LABEL/GOTO، Async Sound، Scoped Splash، Shared Listener و Parallel scheduler پاس شدند.
+- Boot verifier و Target read-back موجودی 37فایلی و تمام SHA256ها را می‌پذیرند.
+
+### Next test
+
+پس از `ROUTE/start game_steps.txt` باید به‌ترتیب `before-engine-import`، `after-engine-import`، `before-core-import`، `after-core-import`، `after-runtime-import` و `file-index` دیده شود. هنگام اولین گروه موازی نیز `before-parallel-import` و `after-parallel-import` و هنگام اولین حرکت `before-mouse-import` و `after-mouse-import` باید بدون MemoryError ثبت شوند.
 
 ## Build 102 — حذف Peak واردکردن تو‌در‌توی موتور Game
 
