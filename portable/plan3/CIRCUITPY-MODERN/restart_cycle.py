@@ -14,6 +14,9 @@ MAX_RESTARTS = 5
 AFTER_ROUTE = "restart_steps.txt"
 STARTUP_ROUTE = "startup_steps.txt"
 USB_STABLE_SECONDS = 2
+CDC_RESET_STABLE_SECONDS = 5
+CDC_RESET_FALLBACK_SECONDS = 120
+RESET_DONE = 0x5A
 
 
 def _runfor_from_root(root="/"):
@@ -58,6 +61,16 @@ class Marker:
         except Exception:
             return 0
 
+    def reset_done(self):
+        try:
+            return self.available() and self.nvm[self.base + 6] == RESET_DONE
+        except Exception:
+            return False
+
+    def mark_reset_done(self):
+        if self.available():
+            self.nvm[self.base + 6] = RESET_DONE
+
     def arm_next(self):
         if not self.available():
             return False
@@ -68,12 +81,14 @@ class Marker:
         self.nvm[self.base:self.base + 4] = MAGIC
         self.nvm[self.base + 4] = 0xA5
         self.nvm[self.base + 5] = count + 1
+        self.nvm[self.base + 6] = 0
         return self.armed()
 
     def clear_armed(self):
         if self.available():
             for index in range(5):
                 self.nvm[self.base + index] = 0
+            self.nvm[self.base + 6] = 0
 
     def reset(self):
         if self.available():
@@ -96,10 +111,20 @@ class Controller:
         self.deadline_expired = False
         self.boot_armed = self.marker.armed()
         self.pico_usb_down_seen = self.boot_armed
+        self.cdc_down_seen = False
+        self.cdc_up_since = None
+        self.cdc_reset_deadline = None
         if self.boot_armed:
-            self.phase = "wait-usb"
-            self.down_seen = True
-            self._emit("armed-at-boot", "count=%d" % self.marker.count())
+            if self.marker.reset_done():
+                self.phase = "wait-usb"
+                self.down_seen = True
+                self._emit("armed-after-pico-reset",
+                           "count=%d" % self.marker.count())
+                # Three short/high notes: Pico rebooted and recovered Marker.
+                self._signal(((1175, 100), (0, 60), (1175, 100),
+                              (0, 60), (1568, 220)))
+            else:
+                self._begin_cdc_reset_wait("boot-marker")
 
     @classmethod
     def from_root(cls, owner, nvm, root="/", **kwargs):
@@ -107,6 +132,45 @@ class Controller:
 
     def _emit(self, event, detail=""):
         self.owner.emit("EVT|CYCLE|" + event + (("|" + detail) if detail else ""))
+
+    def _signal(self, pattern):
+        try:
+            for frequency, duration in pattern:
+                if frequency:
+                    self.owner._cal_beep(frequency, duration)
+                else:
+                    time.sleep(duration / 1000)
+        except Exception:
+            # Audio feedback must never block the restart state machine.
+            pass
+
+    def _begin_cdc_reset_wait(self, source):
+        self.phase = "wait-host-cdc"
+        self.cdc_down_seen = False
+        self.cdc_up_since = None
+        self.cdc_reset_deadline = self.now() + CDC_RESET_FALLBACK_SECONDS
+        self._emit("cdc-wait", "source=%s|fallback=%d" %
+                   (source, CDC_RESET_FALLBACK_SECONDS))
+
+    def _reset_pico_for_host(self, source):
+        # CircuitPython/RP2040 can expose CIRCUITPY as write-protected when a
+        # powered board survives a host reboot. Reset only after the Windows
+        # CDC client has returned so boot.py reruns and USB mass storage is
+        # freshly enumerated. This NVM byte prevents a reset loop.
+        self.marker.mark_reset_done()
+        self._emit("pico-reset", "source=" + source)
+        # Two notes: Windows CDC returned and the one-shot Pico reset begins.
+        self._signal(((659, 160), (0, 80), (988, 260)))
+        try:
+            import microcontroller
+            microcontroller.reset()
+        except Exception as exc:
+            # Preserve cycle liveness if the reset API is unavailable.
+            self.phase = "wait-usb"
+            self.down_seen = True
+            self.up_since = None
+            self._emit("pico-reset-failed",
+                       "error=%s|fallback=wait-usb" % type(exc).__name__)
 
     def _begin_run(self, resumed=False):
         self.phase = "run"
@@ -212,9 +276,11 @@ class Controller:
             return
         self.owner.controls.running = False
         self.owner.controls.aborted = True
-        self.phase = "wait-usb"
-        self._emit("after-complete", "wait=usb-restart|down-seen=%d" %
+        self._begin_cdc_reset_wait("after-complete")
+        self._emit("after-complete", "wait=cdc-reconnect|down-seen=%d" %
                    (1 if self.down_seen else 0))
+        # One low note: host-return/remount watcher is armed.
+        self._signal(((330, 220),))
 
     def route_complete(self, name):
         if self.phase == "run" and name == "game_steps.txt":
@@ -245,10 +311,42 @@ class Controller:
         self.owner.guard.last_decision = None
         self.owner.debug_last_state = "__resume__"
         self.owner.debug_last_denied = None
+        # Rising confirmation: the real Startup route completed successfully.
+        self._signal(((880, 160), (0, 60), (1175, 220),
+                      (0, 60), (1568, 360)))
         self._emit("startup-complete", "next=login-or-dc|desktop=skip")
         self._begin_run(True)
 
     def tick(self):
+        if self.phase == "wait-host-cdc":
+            running = bool(self.owner.controls.running)
+            if running and not self.previous_running:
+                self.marker.reset()
+                self._emit("cancelled", "reason=manual-override")
+                self._begin_run(False)
+                self.previous_running = True
+                return
+            connected = False
+            try:
+                connected = bool(self.owner.usb.connected)
+            except Exception:
+                pass
+            if not connected:
+                self.cdc_down_seen = True
+                self.cdc_up_since = None
+            elif self.cdc_down_seen:
+                if self.cdc_up_since is None:
+                    self.cdc_up_since = self.now()
+                    self._emit("cdc", "state=UP|reset-in=%d" %
+                               CDC_RESET_STABLE_SECONDS)
+                elif self.now() - self.cdc_up_since >= CDC_RESET_STABLE_SECONDS:
+                    self._reset_pico_for_host("cdc-reconnected")
+            if (self.phase == "wait-host-cdc" and
+                    self.cdc_reset_deadline is not None and
+                    self.now() >= self.cdc_reset_deadline):
+                self._reset_pico_for_host("timeout-fallback")
+            self.previous_running = bool(self.owner.controls.running)
+            return
         if self.phase == "run":
             self._expire_deadline()
             if self.deadline_expired:
