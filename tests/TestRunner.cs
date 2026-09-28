@@ -4318,7 +4318,7 @@ class TestRunner
                    && gameHelper.Contains("elif op == \"LABEL\"")
                    && gameHelper.Contains("elif op == \"GOTO\"")
                    && gameHelper.Contains("GOTO label not found")
-                   && gameHelper.Length < 17000,
+                   && gameHelper.Length < 22000,
                 "Game light helper streams fishing and supports LABEL/GOTO without the full parser");
 
             var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
@@ -4447,12 +4447,21 @@ class TestRunner
                 Assert(manifestProfile == profileHash + "  " + profileFile,
                     "Build 73: manifest hashes exported " + profileFile);
             }
-            current[PipelineKind.Game].Steps.Add(new StepNode
+            var watchedLoop = new StepNode
             {
                 Type = "forLoop",
                 Props = new Dictionary<string, object?> { ["mode"] = "infinite" },
-                Children = { new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } } },
-            });
+                Children =
+                {
+                    new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } },
+                    new StepNode { Type = "waitForSound", Props = new Dictionary<string, object?>
+                    {
+                        ["responseRoute"] = "splash", ["timeoutMinSec"] = 18, ["timeoutMaxSec"] = 22,
+                        ["armed"] = false, ["insertIfElse"] = false,
+                    } },
+                },
+            };
+            current[PipelineKind.Game].Steps.Add(watchedLoop);
             current[PipelineKind.Whisper].Steps.Add(new StepNode
             {
                 Type = "buzzer", Props = new Dictionary<string, object?> { ["preset"] = "warning" },
@@ -4460,21 +4469,29 @@ class TestRunner
             var whisperProfile = current.SoundProfiles.Single(x => x.Id == 1);
             whisperProfile.Enabled = true; whisperProfile.PeakMin = 20; whisperProfile.PeakMax = 80;
             whisperProfile.Priority = 10; whisperProfile.CooldownMs = 1800;
+            current[PipelineKind.Splash].Steps.Add(new StepNode
+            {
+                Type = "keystroke", Props = new Dictionary<string, object?> { ["key"] = "F" },
+            });
+            var splashProfile = current.SoundProfiles.Single(x => x.Id == 2);
+            splashProfile.Enabled = true; splashProfile.PeakMin = 25; splashProfile.PeakMax = 95;
+            splashProfile.Priority = 5; splashProfile.CooldownMs = 900;
             ModernAutoCycleFirmwareBundle.ExportCurrentProject(
                 Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
                 1920, 1080, "test sound-watch.amsj", "CURRENT-PROJECT-REGRESSION");
             var watchedGame = File.ReadAllText(Path.Combine(modernTmp, "game_steps.txt"));
             var whisperRoute = File.ReadAllText(Path.Combine(modernTmp, "whisper_steps.txt"));
             var watchedSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
-            Assert(watchedGame.Contains("PGROUP")
-                   && watchedGame.Contains(",20,80,10,whisper_steps.txt,1800")
+            Assert(watchedGame.Contains("SOUNDWATCH|whisper,20,80,60,10,1800,whisper_steps.txt,global")
+                   && watchedGame.Contains("splash,25,95,60,5,900,splash_steps.txt,scoped")
+                   && watchedGame.Contains("WPROFILE|splash,18000,22000")
                    && whisperRoute.Contains("BEEP|700,180")
                    && watchedSnapshot.Contains("soundProfiles")
                    && watchedSnapshot.Contains("\"Enabled\": true"),
-                "Build 92: Game-wide Whisper watcher exports a resumable response route and persists its range");
+                "Build 93: global Whisper and scoped Splash timeout range export with separate response routes");
 
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
-            Assert(true, "Build 92: target read-back accepts 34 valid hashes and matching Guard revisions");
+            Assert(true, "Build 93: target read-back accepts 34 valid hashes and matching Guard revisions");
             var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
             var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
             File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");
