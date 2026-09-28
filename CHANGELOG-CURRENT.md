@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 106:** Bundle 350 کل مسیر Desktop→Login→Dashboard→Loading→Game، Split Type و ایندکس ۳۶۹ فرمان را پاس کرد. در نخستین `WPROFILE`، Poll همان SoundWatch هم داخل scoped waiter و هم از callback تعاونی `sleep_ms` انجام می‌شد و با وجود 43KB Heap آزاد، pystack را خالی می‌کرد. scoped waiter اکنون فقط نتیجه را می‌خواند و `sleep_ms` تنها مالک Poll callback است؛ ARM، Natural Mouse و Cadence تغییر نکرده‌اند.
 - **Candidate Build 105:** Bundle 340 ثابت کرد Mouse و Type جدید با حاشیهٔ مناسب Import می‌شوند، اما اولین Typo به‌دلیل جاافتادن ثابت `_QWERTY_ROWS` از فایل Split Type با `NameError` متوقف شد. جدول QWERTY و تست اجرای واقعی Neighbor به `plan_engine_login_type.py` اضافه شدند؛ الگوریتم Typo، Natural Mouse، ARM و Sound تغییر نکرده‌اند.
 - **Candidate Build 104:** Bundle 330 تمام Importهای تقسیم‌شده Game، ایندکس ۳۶۹ فرمان، Parallel و مرحلهٔ قلاب را پاس کرد؛ آخرین شکست در Import یک‌تکهٔ 12.8KB Login/Mouse با free=42,912 رخ داد. Login به Facade، Core، Mouse و Type زیر 5.6KB تقسیم شد و هر بخش ترتیبی/تنبل با تله‌متری مستقل بارگذاری می‌شود.
 - **Candidate Build 103:** Bundle 320 ثابت کرد خود Import یک‌تکهٔ موتور 23KB Game حافظه را از 60,144 به 444 بایت می‌رساند و پیش از `file-index` برای allocation=1784 شکست می‌خورد. موتور به Facade، Core، Runtime و Parallel با Import ترتیبی/تنبل و تله‌متری هر مرز تقسیم شد؛ بزرگ‌ترین ماژول اکنون زیر 10KB است.
@@ -43,6 +44,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 106 | Bundle 350: تمام انتقال‌ها، Login Type، Game index و Parallel import پاس؛ نخستین WPROFILE با `pystack exhausted` متوقف شد | حذف Poll تو‌در‌توی callback از scoped waiter؛ `sleep_ms` تنها مالک سرویس SoundWatch | Local candidate؛ ARM/Mouse unchanged |
 | 105 | Bundle 340: Mouse و Type import پاس؛ اولین Typo با `_QWERTY_ROWS` NameError متوقف شد | بازیابی جدول QWERTY در ماژول Split Type و تست Neighbor واقعی | Local candidate؛ Mouse/ARM unchanged |
 | 104 | Bundle 330: Game/Core/Runtime/File-index/Parallel پاس؛ اولین Mouse import با free=42912 و allocation=896 شکست خورد | تقسیم Login به Facade 2.3KB، Core 2.7KB، Mouse 4.6KB و Type 5.5KB | CI candidate؛ hardware retest pending |
 | 103 | Bundle 320: Route read پاس؛ `before-engine-import=60144` سپس import یک‌تکه با free=444 شکست خورد | Facade 1KB + Core 6.7KB + Runtime 10KB + Parallel 6.8KB با Import ترتیبی | CI candidate؛ hardware retest pending |
@@ -93,6 +95,47 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 106 — حذف بازگشت تو‌در‌توی SoundWatch از WPROFILE
+
+**Previous build:** 105 / Classroom release 204
+**Status:** local candidate; scoped Splash hardware retest required
+
+### Problem observed
+
+Bundle 350 مسیر کامل Desktop، Login/DC، Character Dashboard و Loading را بدون
+`MemoryError` طی کرد. Game نیز Core/Runtime/File-index و Parallel را با
+`GAME|after-parallel-import|free=43856` بارگذاری کرد، اما بلافاصله پس از
+`SOUNDWATCH|armed` با `RuntimeError('pystack exhausted')` متوقف شد.
+
+### Root cause
+
+در حالت scoped، `poll_profile_wait()` callback عمومی Game را مستقیماً اجرا
+می‌کرد؛ همان callback از `sleep_ms()` تعاونی نیز سرویس می‌شد. این مسیر درون
+`PGROUP → LOOP → RPKG → WPROFILE` فریم‌های Python را تو‌در‌تو می‌کرد. خطا از
+Python stack بود، نه Heap و نه Firmware Pro Micro.
+
+### Change
+
+- `poll_profile_wait()` فقط نتیجهٔ scoped را می‌خواند.
+- Poll کردن callback منحصراً در `sleep_ms()` باقی ماند تا در Deadlineهای
+  Scheduler به‌صورت تخت و تعاونی انجام شود.
+- تست قراردادی مانع بازگشت callback مستقیم به scoped waiter می‌شود.
+- Firmware ARM، مسیر Relative Mouse، DDA، Cadence و Humanization تغییر نکردند.
+
+### Validation
+
+- تست scoped Splash باید همچنان Whisper global، Splash response، Timeout و
+  Next-cast را پوشش دهد.
+- Manifest Runtime پس از تغییر بازسازی و کامل کنترل می‌شود.
+
+### Next test
+
+با Build 106 همان پروژه و Bundle را کامل بازسازی کنید. در Game باید پس از
+`SOUNDWATCH|armed` اجرای Parallel ادامه یابد و `pystack exhausted` رخ ندهد.
+یک Splash واقعی باید `splash_steps.txt` را اجرا کند؛ Timeout ۱۸–۲۲ ثانیه‌ای
+باید Cast جاری را تمام و Cast بعدی را آغاز کند. نرمی موس نیز باید بدون تغییر
+باقی بماند.
 
 ## Build 105 — بازیابی جدول QWERTY در Human Type Split
 

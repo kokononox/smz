@@ -537,9 +537,12 @@ class PlanContext:
         state = self._sound_watch
         if state is None or state.get("scope") != profile_id:
             return None
-        callback = self._sound_watch_callback
-        if callback is not None and not self._sound_watch_servicing:
-            callback()
+        # Do not service the global callback from inside the scoped waiter.
+        # The Game scheduler reaches sleep_ms() on every cooperative deadline,
+        # and sleep_ms() is the single owner of callback polling.  Calling the
+        # callback here as well nests Game -> WPROFILE -> callback -> Game while
+        # several RPKG/LOOP generators are already live.  CircuitPython's small
+        # pystack can exhaust even though the heap still has tens of KB free.
         return state.get("scope_result")
     def end_profile_wait(self):
         state = self._sound_watch
