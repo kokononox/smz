@@ -298,7 +298,10 @@ class Controls:
 class PlanContext:
     plan_api = 3; screen_w = 1920; screen_h = 1080; speed_min = 0; speed_max = 2000
     mouse_mode = "relative"
-    def __init__(self, runtime): self.r = runtime; self._parallel_sound = None
+    def __init__(self, runtime):
+        self.r = runtime; self._parallel_sound = None
+        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch_servicing = False
     def get_mouse_pos(self):
         value = getattr(self.r, "mouse_pos", None)
         if value is None or len(value) < 2:
@@ -308,7 +311,17 @@ class PlanContext:
         self.r.mouse_pos = (int(x), int(y))
     def now(self): return time.monotonic()
     def gate(self): return self.r.controls.gate()
-    def sleep_ms(self, ms): return self.r.controls.sleep(ms)
+    def sleep_ms(self, ms):
+        callback = self._sound_watch_callback
+        if callback is None or self._sound_watch_servicing:
+            return self.r.controls.sleep(ms)
+        end = time.monotonic() + max(0, ms) / 1000
+        while time.monotonic() < end:
+            remaining = int(max(1, (end - time.monotonic()) * 1000))
+            if not self.r.controls.sleep(min(10, remaining)):
+                return False
+            callback()
+        return True
     def log(self, text): print("plan:", text)
     def mmove(self, x, y): self.r.arm.move(x, y)
     def mmove_relative(self, dx, dy): self.r.arm.move_relative(dx, dy)
@@ -449,6 +462,110 @@ class PlanContext:
             self.r.arm.flush()
             self.r.arm.send("ASNDCANCEL", 2)
         self._parallel_sound = None
+    def _active_watch_profiles(self):
+        state = self._sound_watch
+        if state is None:
+            return []
+        scope = state.get("scope")
+        return [item for item in state["profiles"]
+                if item["mode"] == "global" or item["id"] == scope]
+    def _arm_sound_watch(self):
+        state = self._sound_watch
+        if (state is None or self._sound_watch_servicing
+                or self._parallel_sound is not None
+                or time.monotonic() < state["cooldown_until"]):
+            return
+        profiles = self._active_watch_profiles()
+        if not profiles:
+            return
+        threshold = min(item["peak_min"] for item in profiles)
+        minimum = min(item["minimum"] for item in profiles)
+        self.sound_start(threshold, minimum, 30000)
+        if self._parallel_sound != "async":
+            self.sound_cancel()
+            raise ValueError("SOUNDWATCH requires asynchronous ASND firmware")
+        self.r.emit("EVT|SOUNDWATCH|armed|profiles=%d|threshold=%d" %
+                    (len(profiles), threshold))
+    def install_sound_watch(self, profiles, callback):
+        self.close_sound_watch()
+        self._sound_watch = {"profiles": profiles, "scope": None,
+                             "scope_result": None, "cooldown_until": 0.0}
+        self._sound_watch_callback = callback
+        self._arm_sound_watch()
+    def poll_sound_watch(self):
+        state = self._sound_watch
+        if state is None or self._sound_watch_servicing:
+            return None
+        if time.monotonic() < state["cooldown_until"]:
+            return None
+        if self._parallel_sound is None:
+            self._arm_sound_watch()
+        if self._parallel_sound is None:
+            return None
+        result = self.sound_poll()
+        if result is None:
+            return None
+        if not result:
+            self._arm_sound_watch(); return None
+        peak = self.sound_peak()
+        if peak is None:
+            self.r.emit("EVT|SOUNDWATCH|ignored|reason=no-peak")
+            self._arm_sound_watch(); return None
+        from plan_engine_parse import select_sound_profile
+        winner = select_sound_profile(self._active_watch_profiles(), peak)
+        if winner is None:
+            self.r.emit("EVT|SOUNDWATCH|ignored|peak=%d" % peak)
+            self._arm_sound_watch(); return None
+        self.r.emit("EVT|SOUNDWATCH|detected|profile=%s|peak=%d|priority=%d" %
+                    (winner["id"], peak, winner["priority"]))
+        if winner["mode"] == "scoped":
+            state["scope_result"] = winner
+            return None
+        return winner
+    def begin_profile_wait(self, profile_id):
+        state = self._sound_watch
+        if state is None:
+            raise ValueError("WPROFILE requires SOUNDWATCH")
+        found = [item for item in state["profiles"]
+                 if item["id"] == profile_id and item["mode"] == "scoped"]
+        if not found:
+            raise ValueError("WPROFILE profile is not enabled")
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        state["scope"] = profile_id; state["scope_result"] = None
+        self._arm_sound_watch()
+    def poll_profile_wait(self, profile_id):
+        state = self._sound_watch
+        if state is None or state.get("scope") != profile_id:
+            return None
+        callback = self._sound_watch_callback
+        if callback is not None and not self._sound_watch_servicing:
+            callback()
+        return state.get("scope_result")
+    def end_profile_wait(self):
+        state = self._sound_watch
+        if state is None:
+            return
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        state["scope"] = None; state["scope_result"] = None
+        self._arm_sound_watch()
+    def suspend_sound_watch(self):
+        self._sound_watch_servicing = True
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+    def resume_sound_watch(self, cooldown):
+        state = self._sound_watch
+        if state is not None:
+            state["cooldown_until"] = time.monotonic() + max(0, cooldown) / 1000
+        self._sound_watch_servicing = False
+    def close_sound_watch(self):
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch_servicing = False
+    def close(self):
+        self.close_sound_watch()
     def sound_parallel_safe(self):
         return self.r.arm.async_sound is True
     def trg_sound(self, threshold, minimum, timeout, action, rmin, rmax, hmin, hmax):
