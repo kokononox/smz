@@ -669,6 +669,7 @@ _LIGHT_ROUTE_COMMANDS = {
     "PLAN", "SCREEN", "SPEED", "BEEP", "DELAY", "KEY", "KDOWN", "KUP", "RAW",
     "HANDPATH", "RMOUSE", "TYPE", "LABEL", "GOTO", "RPKG",
     "PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR", "WSND", "WSNDP",
+    "SOUNDWATCH", "WPROFILE",
     "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
@@ -701,7 +702,7 @@ def _light_route_lines(text):
     return commands if loop_depth == 0 else None
 
 def _run_light_route(ctx, commands):
-    if any(item[0] == "PGROUP" for item in commands):
+    if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
         import plan_engine_game
         plan_engine_game.run_game(commands, ctx)
@@ -885,13 +886,16 @@ def _diagnostic_route(self, decision):
             gc.collect()
             self.emit("EVT|DEBUG|ROUTE|stage=light-route|free=%d" % gc.mem_free())
             # Keep simple Pico-only routes off the large plan_engine import.
+            route_ctx = runtime.PlanContext(self)
             try:
-                _run_light_route(runtime.PlanContext(self), commands)
+                _run_light_route(route_ctx, commands)
             except RuntimeError as exc:
                 if str(exc) == "route aborted":
                     self.emit("EVT|DEBUG|ROUTE/aborted " + name)
                     return False
                 raise
+            finally:
+                route_ctx.close()
         else:
             self.emit("EVT|DEBUG|ROUTE|stage=before-plan-engine-import|free=%d" % gc.mem_free())
             try:
@@ -928,6 +932,7 @@ def _diagnostic_route(self, decision):
                 # it here so no traceback retains the full parsed Game tree.
                 aborted = True
             finally:
+                route_ctx.close()
                 del route_plan
                 del route_ctx
             if aborted:
