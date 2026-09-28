@@ -112,7 +112,7 @@ for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py"
               "plan_engine_exec.py", "plan_engine_parallel.py",
               "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
               "startup_steps.txt", "whisper_steps.txt", "splash_steps.txt",
-              "calibration_nvm.py", "calibration_fit.py"):
+              "calibration_nvm.py"):
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES

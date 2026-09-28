@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 99:** Package نور دوباره مرجع قابل‌کنترل شد: NVM فقط تا وقتی اعمال می‌شود که Revision پروفایل‌های Package تغییر نکرده باشد. Fit نیز از Import لحظهٔ Save خارج و در ماژول ازقبل‌بارگذاری‌شدهٔ NVM اجرا می‌شود تا توقف بی‌لاگ پس از نمونه‌گیری رخ ندهد.
 - **Candidate Build 98:** MemoryError بوت Bundle 303 رفع شد؛ منطق Adaptive Fit از Import اولیه خارج و فقط هنگام ذخیرهٔ کالیبراسیون Lazy-load می‌شود. اندازهٔ Runtime بوت به کمتر از Baseline Build 96 برگشت و رفتار Fit/NVM/Telemetry بدون تغییر حفظ شد.
 - **Candidate Build 97:** رد فوری هم‌پوشانی کالیبراسیون با Fit تطبیقی جایگزین شد؛ ابتدا دامنهٔ جدید و در صورت Center-inside دامنهٔ مجاور فقط از Tolerance عقب می‌روند، Centerها ثابت و ذخیرهٔ دوطرفه اتمیک است. حداقل Tolerance برابر ۰٫۵ و Gap برابر ۰٫۲۵ lux حفظ می‌شود.
 - **Candidate Build 96:** Start فیزیکی GP4 اکنون همیشه سنجش/Telemetry تازه ایجاد و منبع مؤثر کالیبراسیون NVM/File و بازهٔ Dashboard را گزارش می‌کند؛ حاشیهٔ Drift پس از نمونه‌گیری از ۰٫۵ به ۱٫۰ lux افزایش یافت و همچنان با پروفایل‌های مجاور Cap می‌شود.
@@ -36,6 +37,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 99 | Bundle 304 فایل 15.3±3 داشت ولی NVM قدیمی 14.2±1 اعمال شد؛ Save دوم پس از complete-stage متوقف ماند | Revision-authoritative Package و Fit ازقبل‌بارگذاری‌شده بدون Import لحظه‌ای | CI candidate؛ hardware retest pending |
 | 98 | Bundle 303 در Import با تخصیص 1244 بایت شکست خورد | انتقال Fit به ماژول Lazy؛ Boot runtime زیر 40KB و Manifest 35 فایلی | CI candidate؛ hardware boot pending |
 | 97 | تست کالیبراسیون هم‌پوشان لازم است | Fit یک‌طرفه/دوطرفهٔ اتمیک با Center ثابت، Min=0.5 و Gap=0.25 | CI candidate؛ Mouse/ARM unchanged |
 | 96 | تست Dashboard و تکرار Stop/Start لازم است | رفع suppression در unknown→unknown و افزایش کنترل‌شدهٔ حاشیه Drift کالیبراسیون | CI candidate؛ Mouse/ARM unchanged |
@@ -79,6 +81,46 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 99 — مرجع‌شدن Revision پروفایل Package و ذخیره بدون Import لحظه‌ای
+
+**Previous build:** 98 / Classroom release 196
+**Status:** local candidate; Dashboard detection and physical-save hardware retest required
+
+### Problem observed
+
+Bundle 304 و هر 35 Hash سالم بود و فایل‌ها Dashboard را `15.3 ± 3.0` داشتند، اما `CALSTATUS` نشان داد Guard هنوز NVM قدیمی `14.2 ± 1.0` را اعمال می‌کند. در نتیجه نور `16.7` ناشناخته ماند. در تلاش بعدی، نمونه‌گیری در `complete-stage` و `heap-ready` تمام شد اما هیچ `saved-stage` یا خطای ذخیره‌ای ثبت نشد و Heartbeat ادامه یافت.
+
+### Root cause
+
+- CAL2 عمداً Revision فایل را نادیده می‌گرفت؛ بنابراین تغییر پروفایل در Package هیچ‌وقت NVM قدیمی را کنار نمی‌زد.
+- Build 98 ماژول `calibration_fit.py` را هنگام Save روی Heap تکه‌تکه Import/Compile می‌کرد. MemoryError همان Import می‌توانست حتی ساخت Telemetry خطا را نیز ناکام کند، در حالی که Main Loop و Heartbeat زنده می‌ماندند.
+- Diagnostic برای `nearest` از فایل Bundle استفاده می‌کرد، ولی Guard از NVM استفاده می‌کرد؛ به همین دلیل `nearest=12.3..18.3` در کنار `CALSTATUS source=nvm range=13.2..15.2` دیده شد.
+
+### Change
+
+- NVM اکنون `base_revision` پروفایل نور را همراه Snapshot ذخیره می‌کند و فقط برای همان Revision بارگذاری می‌شود.
+- تغییر Center/Tolerance در Classroom یک Revision جدید می‌سازد؛ Package جدید خودکار مرجع می‌شود و NVM قدیمی اعمال نمی‌شود.
+- Export مجدد Routeها با پروفایل نور یکسان همان Revision را نگه می‌دارد و کالیبراسیون فیزیکی NVM حفظ می‌شود.
+- Snapshotهای قدیمی CAL1/CAL2 بدون Revision منطبق Stale هستند و یک‌بار به فایل Package برمی‌گردند.
+- «ذخیره پروفایل‌ها» هیچ فرمانی به برد و NVM ارسال نمی‌کند؛ فقط Package خروجی را تنظیم می‌کند.
+- Fit به `calibration_nvm.py` منتقل شد؛ این ماژول در Boot از قبل بارگذاری می‌شود و Save دیگر Import/Compile لحظه‌ای ندارد.
+- Manifest دوباره 34 فایلی است و فایل موقت Build 98 هنگام Export از درایوهای قدیمی پاک می‌شود.
+- ARM، Mouse، Sound و Routeهای کاربر تغییر نکرده‌اند.
+
+### Validation
+
+- 50 قرارداد رسمی Portable موفق شدند.
+- تست NVM تأیید می‌کند Revision برابر Snapshot را نگه می‌دارد و Revision جدید Package، NVM قدیمی را رد می‌کند.
+- تست‌های Fit عادی، Center-inside و centers-too-close بدون Import لحظه‌ای موفق شدند.
+- هر 34 Hash Manifest با بایت نهایی تطبیق دارد.
+
+### Next test
+
+1. با همان پروفایل Dashboard برابر `15.3 ± 3.0` Bundle را کامل بسازید؛ Export باید `34/34 hashes and Guard revisions OK` بدهد.
+2. پس از Soft Reboot، Start باید `CALSTATUS source=file` و Dashboard مؤثر نزدیک `12.3..18.3` را نشان دهد و Lux=16.7 را بشناسد.
+3. یک کالیبراسیون فیزیکی Dashboard انجام دهید؛ پس از `complete-stage` باید `CAL|FIT` در صورت نیاز، سپس `storage=nvm` و `saved-stage` دیده شود.
+4. یک Soft Reboot دیگر بدون تغییر پروفایل انجام دهید؛ این بار `CALSTATUS source=nvm` باید همان Snapshot تازه را بارگذاری کند.
 
 ## Build 98 — رفع MemoryError بوت پس از Adaptive Fit
 

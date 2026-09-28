@@ -33,6 +33,6 @@ assert "guard-calibration.json" in service and "guard-transition.json" in servic
 assert 'await _bridge.SendAsync("HALT|SILENT", 3)' in deploy
 assert "VerifyExportedTarget(targetRoot)" in deploy
 assert "attempt <= 5" in deploy
-assert "35/35 hashes and Guard revisions OK" in deploy
+assert "34/34 hashes and Guard revisions OK" in deploy
 
 print("USB FAT isolation, responsive buttons, and target read-back: 17 passed, 0 failed")

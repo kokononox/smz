@@ -4268,7 +4268,6 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "sound_step_calibration.py"))
-                   && File.Exists(Path.Combine(modernTmp, "calibration_fit.py"))
                    && File.Exists(Path.Combine(modernTmp, "restart_cycle.py"))
                    && File.Exists(Path.Combine(modernTmp, "restart_windows.py"))
                    && modernManifestEntries >= 32,
@@ -4349,18 +4348,19 @@ class TestRunner
                 Path.Combine(modernTmp, "guard_transition.py"));
             var repairedCalibration = File.ReadAllText(
                 Path.Combine(modernTmp, "guard_calibration_protocol.py"));
-            var repairedCalibrationFit = File.ReadAllText(
-                Path.Combine(modernTmp, "calibration_fit.py"));
+            var repairedCalibrationNvm = File.ReadAllText(
+                Path.Combine(modernTmp, "calibration_nvm.py"));
             Assert(repairedTransition.Contains("game-reentry-after-unknown")
                    && repairedTransition.Contains("\"execute\": False"),
                 "Game re-entry after an optical spike restores stage 5 without replaying the macro");
             Assert(repairedCalibration.Contains("def calibrated_profile(")
                    && repairedCalibration.Contains("0.95")
                    && repairedCalibration.Contains("max(center - low, high - center)")
-                   && repairedCalibrationFit.Contains("def prepare(")
-                   && repairedCalibrationFit.Contains("SAFETY_GAP = 0.25")
-                   && repairedCalibrationFit.Contains("MINIMUM = 0.5")
-                   && modernRuntime.Contains("__import__(\"calibration_fit\")")
+                   && repairedCalibrationNvm.Contains("def fit_profiles(")
+                   && repairedCalibrationNvm.Contains("FIT_GAP = 0.25")
+                   && repairedCalibrationNvm.Contains("FIT_MIN = 0.5")
+                   && modernRuntime.Contains("calibration_nvm.fit_profiles(")
+                   && !modernRuntime.Contains("__import__(\"calibration_fit\")")
                    && modernRuntime.Replace("\r", "").Length < 40000,
                 "light calibration covers asymmetric samples and adaptively fits adjacent profiles");
             var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));

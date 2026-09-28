@@ -9,7 +9,7 @@ FW = ROOT / "portable/plan3/CIRCUITPY-MODERN"
 sys.path.insert(0, str(FW))
 
 from guard_calibration_protocol import calibrated_profile, find_profile_overlap
-from calibration_fit import prepare as fit_calibration_profiles
+from calibration_nvm import fit_profiles as fit_calibration_profiles
 
 
 def load(name, path):

@@ -41,10 +41,14 @@ def load(nvm, base_revision):
         if _sum16(payload) != expected:
             return None
         data = json.loads(payload.decode("utf-8"))
-        # Physical calibration belongs to the board/profile IDs, not to one
-        # exported bundle revision. CAL1 included a base revision; accept and
-        # migrate it so a normal Classroom export never discards calibration.
         if not isinstance(data.get("profiles"), dict):
+            return None
+        # Route-only exports keep the same calibration revision and therefore
+        # preserve physical calibration. Editing Classroom light profiles makes
+        # a new revision authoritative and retires the old NVM override.
+        stored_revision = (data.get("base_revision") if magic == MAGIC
+                           else data.get("base"))
+        if stored_revision != base_revision:
             return None
         return data["profiles"]
     except Exception:
@@ -55,7 +59,7 @@ def save(nvm, base_revision, profiles):
     end = _limit(nvm)
     if end < BASE + HEADER:
         raise RuntimeError("calibration NVM unavailable")
-    payload = json.dumps({"schema": 1, "profiles": profiles}, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps({"schema": 2, "base_revision": base_revision, "profiles": profiles}, separators=(",", ":")).encode("utf-8")
     if BASE + HEADER + len(payload) > end:
         raise RuntimeError("calibration NVM full")
     clear(nvm)
@@ -68,6 +72,51 @@ def save(nvm, base_revision, profiles):
     nvm[BASE + HEADER:BASE + HEADER + len(payload)] = payload
     if load(nvm, base_revision) is None:
         raise RuntimeError("calibration NVM verification failed")
+
+
+FIT_GAP = 0.25
+FIT_MIN = 0.5
+FIT_IDS = ("desktop", "login-or-dc", "character-dashboard",
+           "entering-game-loading", "game", "targeted")
+
+def fit_profiles(src, pid, candidate):
+    """Fixed centres: shrink candidate first, then neighbour; return events."""
+    requested = float(candidate["tolerance"]); center = float(candidate["center"])
+    if pid not in FIT_IDS or requested < FIT_MIN:
+        event = "ERR|CAL|FIT|id=%s|with=%s|reason=candidate-minimum|gap=%.3f" % (pid, pid, FIT_GAP)
+        return None, (event,), pid
+    out = {}
+    for key, value in src.items():
+        if isinstance(value, dict):
+            out[key] = {"center": float(value["center"]),
+                        "tolerance": float(value["tolerance"]),
+                        "stable_ms": int(value.get("stable_ms", 750))}
+    out[pid] = {"center": center, "tolerance": requested,
+                "stable_ms": int(candidate.get("stable_ms", 750))}
+    changes = []
+    for other_id in FIT_IDS:
+        if other_id == pid or other_id not in out: continue
+        new = out[pid]; other = out[other_id]
+        excess = new["tolerance"] + other["tolerance"] - (abs(center - other["center"]) - FIT_GAP)
+        if excess <= 0.000001: continue
+        old_new = new["tolerance"]; take = min(excess, old_new - FIT_MIN)
+        if take > 0: new["tolerance"] -= take; excess -= take
+        old_other = other["tolerance"]; floor = min(old_other, FIT_MIN)
+        take = min(excess, old_other - floor)
+        if take > 0: other["tolerance"] -= take; excess -= take
+        if excess > 0.000001:
+            event = "ERR|CAL|FIT|id=%s|with=%s|reason=centers-too-close|gap=%.3f" % (pid, other_id, FIT_GAP)
+            return None, (event,), other_id
+        if old_new != new["tolerance"]: changes.append((pid, old_new, new["tolerance"], other_id))
+        if old_other != other["tolerance"]: changes.append((other_id, old_other, other["tolerance"], pid))
+    if not changes: return out, (), None
+    neighbour = next((x for x in changes if x[0] != pid), None)
+    applied = out[pid]["tolerance"]
+    if neighbour:
+        event = "EVT|CAL|FIT-PAIR|new=%s:%.3f->%.3f|adjusted=%s:%.3f->%.3f|gap=%.3f" % (pid, requested, applied, neighbour[0], neighbour[1], neighbour[2], FIT_GAP)
+    else:
+        event = "EVT|CAL|FIT|id=%s|requested=%.3f|applied=%.3f|limited-by=%s|gap=%.3f" % (pid, requested, applied, changes[0][3], FIT_GAP)
+    return out, (event,), None
 
 
 def apply(bundle, profiles):
