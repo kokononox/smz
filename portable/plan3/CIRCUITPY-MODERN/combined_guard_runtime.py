@@ -666,16 +666,10 @@ class Combined:
         lines = ["%s  %s" % (_file_sha256("/", name), name) for name in sorted(HASHED_BUNDLE_FILES)]
         return "\n".join(lines) + "\n"
     def _publish_calibration(self, revision, profile_id, profile):
-        gc.collect()
-        fitter = __import__("calibration_fit")
-        profiles, events, blocked = fitter.prepare(
+        profiles, events, blocked = calibration_nvm.fit_profiles(
             self.bundle.get("calibration", {}).get("profiles", {}),
             profile_id, profile)
-        for event in events:
-            self.emit(event)
-        del fitter, events
-        __import__("sys").modules.pop("calibration_fit", None)
-        gc.collect()
+        for event in events: self.emit(event)
         if profiles is None:
             raise CalibrationOverlapError(blocked, 0)
         try:
