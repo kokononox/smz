@@ -74,6 +74,14 @@
 **Status:** CI candidate; physical sound and mouse-smoothness test required
 **Commit:** `{{COMMIT_SHA}}`
 
+### Problem observed
+
+پروفایل‌های صدای ویسپر و چلپ فقط داخل شاخه‌های Wait For Sound قابل‌اجرا بودند؛ واکنش ویسپر می‌توانست شاخهٔ ماهیگیری را لغو کند و ادامهٔ دقیق Game حفظ نمی‌شد. تنظیم بازه و اقدام واکنش نیز در یک محل مخلوط بود.
+
+### Root cause
+
+Scheduler قبلی Detection را پایان یک Race می‌دانست و همهٔ Iteratorهای غیر‌برنده را حذف می‌کرد. قرارداد WSNDP نیز فقط Threshold داشت و مسیر واکنش، بازهٔ دوطرفه، Priority و Cooldown را حمل نمی‌کرد.
+
 ### Change
 
 - دو تب ثابت `Whisper` و `Splash` برای تعریف نوت، Buzzer و اقدام واکنش اضافه شد.
@@ -91,6 +99,11 @@
 - Buzzer ویسپر بین دو حرکت/کلید Game اجرا شد و پس از آن Iterator اصلی ادامه یافت.
 - تست‌های Shared Listener، Timeout، Mouse streaming، Sound calibration، USB FAT read-back و Restart cycle پاس شدند.
 - تست سخت‌افزاری نهایی صدا و بررسی چشمی نرمی موس هنوز لازم است.
+
+### Next test
+
+روی سخت‌افزار، هم‌زمانی حرکت طولانی و نرم موس با Peakهای واقعی Whisper/Splash تست شود؛ باید فقط تب با Priority درست اجرا شود، Buzzer خودتحریک ایجاد نکند و پس از Cooldown حرکت Game بدون پرش از همان نقطه ادامه یابد.
+
 - مجموعهٔ نهایی ۳۴ فایل Bundle و ۲۸ فایل تغییر‌یافته پس از انتشار با نسخهٔ تست‌شده تطبیق داده شد؛ سقف قرارداد Runner سبک Game نیز با اندازهٔ جدید ۱۵٫۸KB و تبدیل CRLF ویندوز همگام شد.
 
 ## Build 91 — Listener مشترک برای Parallel Sound
