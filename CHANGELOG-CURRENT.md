@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 98:** MemoryError بوت Bundle 303 رفع شد؛ منطق Adaptive Fit از Import اولیه خارج و فقط هنگام ذخیرهٔ کالیبراسیون Lazy-load می‌شود. اندازهٔ Runtime بوت به کمتر از Baseline Build 96 برگشت و رفتار Fit/NVM/Telemetry بدون تغییر حفظ شد.
 - **Candidate Build 97:** رد فوری هم‌پوشانی کالیبراسیون با Fit تطبیقی جایگزین شد؛ ابتدا دامنهٔ جدید و در صورت Center-inside دامنهٔ مجاور فقط از Tolerance عقب می‌روند، Centerها ثابت و ذخیرهٔ دوطرفه اتمیک است. حداقل Tolerance برابر ۰٫۵ و Gap برابر ۰٫۲۵ lux حفظ می‌شود.
 - **Candidate Build 96:** Start فیزیکی GP4 اکنون همیشه سنجش/Telemetry تازه ایجاد و منبع مؤثر کالیبراسیون NVM/File و بازهٔ Dashboard را گزارش می‌کند؛ حاشیهٔ Drift پس از نمونه‌گیری از ۰٫۵ به ۱٫۰ lux افزایش یافت و همچنان با پروفایل‌های مجاور Cap می‌شود.
 - **Candidate Build 95:** `Wait For Sound` عمومی از مسیر ساخت پروژهٔ جدید خارج شد. استپ اختصاصی `Splash Listener` فقط محل Scoped هر Cast را مشخص می‌کند و Timeout حداقل/حداکثر اکنون مستقیماً در کارت پروفایل Splash تنظیم می‌شود. فایل‌های قدیمی `responseRoute=splash` هنگام بازشدن خودکار Migration می‌شوند؛ قرارداد `WPROFILE` و Runtime/ARM/Mouse تغییر نکرده‌اند.
@@ -35,6 +36,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 98 | Bundle 303 در Import با تخصیص 1244 بایت شکست خورد | انتقال Fit به ماژول Lazy؛ Boot runtime زیر 40KB و Manifest 35 فایلی | CI candidate؛ hardware boot pending |
 | 97 | تست کالیبراسیون هم‌پوشان لازم است | Fit یک‌طرفه/دوطرفهٔ اتمیک با Center ثابت، Min=0.5 و Gap=0.25 | CI candidate؛ Mouse/ARM unchanged |
 | 96 | تست Dashboard و تکرار Stop/Start لازم است | رفع suppression در unknown→unknown و افزایش کنترل‌شدهٔ حاشیه Drift کالیبراسیون | CI candidate؛ Mouse/ARM unchanged |
 | 95 | تست Export و Migration پروژهٔ ماهیگیری لازم است | حذف Wait For Sound از منو، Splash Listener اختصاصی و انتقال Timeout به پروفایل Splash | Local candidate؛ Runtime/ARM/Mouse unchanged |
@@ -77,6 +79,42 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 98 — رفع MemoryError بوت پس از Adaptive Fit
+
+**Previous build:** 97 / Classroom release 195
+**Status:** local candidate; Bundle boot hardware retest required
+
+### Problem observed
+
+Bundle 303 در Soft Reboot پیش از ساخت Runtime و در خط `import combined_guard_runtime` با `MemoryError` هنگام تخصیص 1244 بایت متوقف شد.
+
+### Root cause
+
+Bundle و هر 34 Hash سالم بودند. Build 97 حدود 3.6KB به `guard_calibration_protocol.py` و حدود 2.2KB به `combined_guard_runtime.py` افزوده بود. CircuitPython مجبور بود منطق Fit را در Boot Parse/Import کند، هرچند Fit فقط هنگام ذخیرهٔ کالیبراسیون لازم است؛ اوج Heap تکه‌تکه از ظرفیت تخصیص پیوسته عبور کرد.
+
+### Change
+
+- Adaptive Fit به ماژول مستقل `calibration_fit.py` منتقل شد و فقط داخل `_publish_calibration` Lazy-load می‌شود.
+- ماژول Fit پیش از نوشتن NVM از `sys.modules` خارج و Garbage Collection اجرا می‌شود.
+- `combined_guard_runtime.py` از 41,449 به 39,241 بایت و `guard_calibration_protocol.py` از 8,853 به 4,933 بایت کاهش یافت؛ هر دو از اندازهٔ Boot نسخهٔ قبل از Build 97 کوچک‌ترند.
+- Center ثابت، حداقل Tolerance برابر 0.5، Gap برابر 0.25، Fit یک‌طرفه/دوطرفه، ذخیرهٔ اتمیک و Fail-Closed بدون تغییر حفظ شدند.
+- Manifest و Exporter به موجودی 35 فایلی ارتقا یافتند و Read-back روی CIRCUITPY اکنون `35/35 hashes and Guard revisions OK` را الزام می‌کند.
+- ARM، Mouse، Sound، Route و پروژهٔ کاربر تغییر نکرده‌اند.
+
+### Validation
+
+- 50 قرارداد رسمی Portable موفق شدند.
+- تست‌های Fit عادی، Center-inside و centers-too-close موفق شدند.
+- قرارداد Boot الزام می‌کند Runtime با نرمال‌سازی LF/CRLF کمتر از 40KB، Protocol کمتر از 5.5KB و Import Fit فقط Lazy باشد.
+- قرارداد Windows برای Checkoutهای CRLF اصلاح شد تا فقط بایت‌های معنایی Runtime را بسنجد، نه افزایش مصنوعی یک بایت در هر خط.
+- هر 35 Hash Manifest با بایت نهایی تطبیق دارد.
+
+### Next test
+
+1. Bundle را با Build جدید کامل بازسازی و روی CIRCUITPY جایگزین کنید؛ Soft Reboot باید بدون MemoryError وارد PONG شود.
+2. یک کالیبراسیون هم‌پوشان انجام دهید؛ `CAL|FIT` یا `CAL|FIT-PAIR` و سپس `saved-stage` باید ثبت شود.
+3. پیام Export باید `35/35 hashes and Guard revisions OK` باشد.
 
 ## Build 97 — Fit تطبیقی یک‌طرفه و دوطرفهٔ کالیبراسیون
 
