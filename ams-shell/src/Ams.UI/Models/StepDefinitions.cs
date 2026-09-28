@@ -308,6 +308,9 @@ public static class StepDefinitions
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
                 new("calibrationId", "Portable sound-step calibration ID", FieldKind.Combo, "1", new[] { "1", "2" }),
                 new("threshold", "Threshold (sensor units — use Calibrate, field default 90)", FieldKind.Int, "90"),
+                new("peakMin", "Peak range minimum (0 = calibrated threshold)", FieldKind.Int, "0"),
+                new("peakMax", "Peak range maximum", FieldKind.Int, "511"),
+                new("soundPriority", "Priority when ranges overlap", FieldKind.Int, "0"),
                 new("minDurationMs", "Min duration (ms) — splash is a 1.5–2.2s event, 60–100 is safe (§16.2)", FieldKind.Int, "60"),
                 new("timeoutMs", "Timeout (ms) — legacy system used 20000 (§17.2)", FieldKind.Int, "20000"),
                 new("onTimeout", "On timeout", FieldKind.Combo, "global", new[] { "global", "stopWithAlarm", "stopQuiet", "continue" }),
@@ -323,7 +326,7 @@ public static class StepDefinitions
                 ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · If Sound ≥{PropEx.GetInt(s.Props, "threshold", 90)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}"   // v0.9.31
                 : PropEx.GetBool(s.Props, "armed")
                     ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · trigger ≥{PropEx.GetInt(s.Props, "threshold", 90)} → {PropEx.GetString(s.Props, "act", "left")} click (armed)"
-                    : $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · wait ≥{PropEx.GetInt(s.Props, "threshold", 90)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
+                    : $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · P{PropEx.GetInt(s.Props, "soundPriority", 0)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
             Commands = s =>
             {
                 int thr = PropEx.GetInt(s.Props, "threshold", 90);
