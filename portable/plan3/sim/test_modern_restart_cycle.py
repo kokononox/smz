@@ -71,6 +71,15 @@ natural.route_complete("game_steps.txt")
 assert natural_owner.routes == ["restart_steps.txt"]
 assert natural.phase == "wait-usb"
 
+# On affected Windows hardware a warm restart keeps USB configured/UP for the
+# whole reboot, so there is no DOWN edge to observe. The armed marker must
+# still start the Startup route instead of deadlocking until a manual Start.
+natural.tick()
+assert any("source=marker-no-down" in event for event in natural_owner.events)
+clock.value += 2; natural.tick()
+assert natural_owner.routes == ["restart_steps.txt", "startup_steps.txt"]
+assert natural.phase == "run" and not natural.marker.armed()
+
 # USB may go DOWN and back UP while the After route is still finishing. That
 # evidence must survive route completion so Startup cannot remain stuck.
 marker.reset(); clock.value = 0
