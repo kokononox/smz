@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 102:** شکست Bundle 310 پیش از `file-index` به Import تو‌در‌توی Game→Login محدود شد. Runner موس دیگر هنگام Compile موتور Game وارد نمی‌شود؛ پس از تثبیت Engine و ایندکس Flash، فقط با اولین `RMOUSE` و بین دو GC بارگذاری می‌شود و تله‌متری مرحله‌ای Heap محل هر شکست احتمالی را مشخص می‌کند.
 - **Candidate Build 101:** Game بزرگ دیگر به لیست Tupleهای RAM تبدیل نمی‌شود؛ خطوط روی Flash می‌مانند و فقط Offset چهار‌بایتی نگه‌داری می‌شود. Random Packageهای بزرگ نیز با Reservoir Sampling فقط همان ۱–۲ گزینهٔ لازم را نگه می‌دارند و فهرست تمام ۱۶۵ آیتم را نمی‌سازند.
 - **Candidate Build 100:** Guard اکنون در طول Route نیز نور را با Debounce کامل پایش می‌کند؛ تغییر پایدار محیط Route قبلی را با آزادسازی Keyboard/Mouse قطع و Route وضعیت جدید را اجرا می‌کند. Route بزرگ Game نیز به‌صورت خط‌به‌خط از Flash خوانده می‌شود تا تخصیص پیوستهٔ 6400 بایتی حذف شود.
 - **Candidate Build 99:** Package نور دوباره مرجع قابل‌کنترل شد: NVM فقط تا وقتی اعمال می‌شود که Revision پروفایل‌های Package تغییر نکرده باشد. Fit نیز از Import لحظهٔ Save خارج و در ماژول ازقبل‌بارگذاری‌شدهٔ NVM اجرا می‌شود تا توقف بی‌لاگ پس از نمونه‌گیری رخ ندهد.
@@ -39,6 +40,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 102 | Bundle 310: Preemption و خواندن فایل پاس؛ شکست پیش از `file-index` با allocation=1386 | حذف Import تو‌در‌توی Login و Lazy-load موس در اولین RMOUSE با تله‌متری Heap | CI candidate؛ Game hardware retest pending |
 | 101 | Bundle 308: Preemption تمام انتقال‌ها را پاس کرد؛ Game پس از Parse ۳۶۹ فرمان با Heap حدود 40KB شکست خورد | فرمان‌های فایل‌محور با Offset فشرده و Reservoir Sampling برای RPKG بزرگ | CI candidate؛ Game hardware retest pending |
 | 100 | Login پس از ورود به Dashboard ادامه می‌یافت؛ Game هنگام read با allocation=6400 شکست خورد | Stable-light route preemption + streaming Game route read | CI candidate؛ hardware transition retest pending |
 | 99 | Bundle 304 فایل 15.3±3 داشت ولی NVM قدیمی 14.2±1 اعمال شد؛ Save دوم پس از complete-stage متوقف ماند | Revision-authoritative Package و Fit ازقبل‌بارگذاری‌شده بدون Import لحظه‌ای | CI candidate؛ hardware retest pending |
@@ -85,6 +87,39 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 102 — حذف Peak واردکردن تو‌در‌توی موتور Game
+
+**Previous build:** 101 / Classroom release 199
+**Status:** local candidate; Bundle 310 Game hardware retest required
+
+### Problem observed
+
+Bundle 310 هر سه Preemption نور Login→Dashboard، Dashboard→Loading و Loading→Game را پاس کرد. اصلاح فایل‌محور Build 101 نیز موفق بود: Heap بین `before-route-read` و `after-route-read` فقط از 55,888 به 55,712 بایت افتاد. بااین‌حال، پیش از ثبت `GAME|stage=file-index`، Import موتور با `MemoryError` برای تخصیص 1,386 بایت شکست خورد.
+
+### Root cause
+
+`plan_engine_game.py` در سطح ماژول بلافاصله `plan_engine_login.py` را Import می‌کرد. در نتیجه هنگام Compile/Import فایل 23KB موتور Game، موقت‌های Compiler هنوز زنده بودند که Import و Compile فایل 12KB حرکت موس شروع می‌شد. فشار اصلی دیگر پروژهٔ 369 فرمانی یا Random Package نبود؛ Peak واردکردن تو‌در‌تو و fragmentation Heap بود.
+
+### Change
+
+- Import سطح‌بالای `plan_engine_login` از موتور Game حذف شد.
+- State بازی بدون `PausePlanner` آغاز می‌شود و Helper موس فقط هنگام اولین `RMOUSE` بارگذاری می‌شود.
+- پیش و پس از Import موس GC کامل اجرا می‌شود؛ پس از بارگذاری، همان Helper و PausePlanner برای ادامهٔ Route استفاده می‌شوند.
+- در `code.py` تله‌متری `before-engine-import`، `after-engine-import` و `engine-import-memoryerror` اضافه شد.
+- در Runner تله‌متری `before-mouse-import`، `after-mouse-import` و `mouse-import-memoryerror` اضافه شد.
+- رفتار Natural Mouse، SoundWatch، Splash/Whisper، Preemption، چرخه و فایل پروژه تغییر نکرده است.
+
+### Validation
+
+- تست رگرسیون ثابت می‌کند Import موتور Game، `plan_engine_login` را وارد نمی‌کند و اولین درخواست موس آن را Lazy-load می‌کند.
+- تست فایل‌محور 165 آیتمی، Preemption و مسیرهای Sound/Parallel پاس شدند.
+- هر 53 قرارداد رسمی Portable با overlay دقیق CI موفق شدند.
+- اندازهٔ `plan_engine_game.py` با پایان‌خط ویندوز نیز زیر سقف 24KB باقی ماند.
+
+### Next test
+
+Bundle Build 102 را روی Pico بریزید و همان پروژهٔ ماهیگیری را اجرا کنید. ترتیب مورد انتظار پس از `ROUTE/start game_steps.txt` عبارت است از `before-engine-import`، `after-engine-import`، `file-index`، سپس هنگام نخستین حرکت `before-mouse-import` و `after-mouse-import`. پس از آن Route باید بدون `MemoryError` وارد حرکت/Delay پکیج شود.
 
 ## Build 101 — اجرای فایل‌محور Game و Random Package کم‌حافظه
 
