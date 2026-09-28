@@ -82,6 +82,30 @@ def _package(commands, index):
     return finish, parts, order
 
 
+def _watch_profiles(args):
+    profiles = []
+    for raw in args.split(";"):
+        values = raw.split(",")
+        if len(values) != 8:
+            raise ValueError("SOUNDWATCH needs 8 fields per profile")
+        profiles.append({"id": values[0], "peak_min": int(values[1]),
+            "peak_max": int(values[2]), "minimum": int(values[3]),
+            "priority": int(values[4]), "cooldown": int(values[5]),
+            "file": values[6], "mode": values[7]})
+    return profiles
+
+
+def _service_sound_watch(ctx, state):
+    winner = ctx.poll_sound_watch()
+    if winner is None:
+        return
+    ctx.suspend_sound_watch()
+    try:
+        _run_response(ctx, winner["file"], state)
+    finally:
+        ctx.resume_sound_watch(winner["cooldown"])
+
+
 def _mouse_events(args, ctx, state):
     for event in mouse.mouse_events(args, ctx, state["pauses"], state["pos"], state["speed"]):
         if event[0] == "wait": yield ("wait", event[1])
@@ -92,7 +116,7 @@ def _events(commands, start, end, ctx, state):
     i = start
     while i < end:
         op, args = commands[i]
-        if op in ("PLAN", "SCREEN", "SPEED", "PKGITEM", "PARITEM"):
+        if op in ("PLAN", "SCREEN", "SPEED", "PKGITEM", "PARITEM", "SOUNDWATCH"):
             pass
         elif op == "DELAY":
             lo, hi = _range(args); yield ("wait", random.randint(lo, hi))
@@ -119,6 +143,12 @@ def _events(commands, start, end, ctx, state):
             cooldown = int(values[9]) if len(values) == 10 else 0
             yield ("sound", threshold, minimum, int(values[4]), peak_min, peak_max,
                    priority, response, cooldown)
+        elif op == "WPROFILE":
+            values = args.replace(" ", "").split(",")
+            if len(values) != 3 or values[0] != "splash":
+                raise ValueError("WPROFILE needs splash,min,max")
+            lo, hi = int(values[1]), int(values[2])
+            yield ("profile", "splash", random.randint(min(lo, hi), max(lo, hi)))
         elif op == "RPKG":
             finish, parts, order = _package(commands, i)
             for selected in order:
@@ -175,7 +205,8 @@ def _parallel(commands, start, end, ctx, state):
     now = int(ctx.now() * 1000)
     tasks = [{"it": _events(commands, a, b, ctx, state), "due": now,
               "pending": None, "moving": False, "sound": False,
-              "sound_spec": None, "poll": now} for a, b in branches]
+              "sound_spec": None, "profile": None, "deadline": 0,
+              "poll": now} for a, b in branches]
     sound_owner = None; sound_config = None
     try:
         while tasks:
@@ -183,6 +214,26 @@ def _parallel(commands, start, end, ctx, state):
             now = int(ctx.now() * 1000); progressed = False
             for task in tuple(tasks):
                 if task not in tasks: continue
+                if task["profile"] is not None:
+                    winner = ctx.poll_profile_wait(task["profile"])
+                    if winner is not None:
+                        ctx.suspend_sound_watch()
+                        try:
+                            _run_response(ctx, winner["file"], state)
+                        finally:
+                            ctx.end_profile_wait()
+                            ctx.resume_sound_watch(winner["cooldown"])
+                        task["profile"] = None
+                        tasks[:] = [task]
+                        ctx.log("scoped splash heard -> response -> next cast")
+                        progressed = True; continue
+                    if now >= task["deadline"]:
+                        ctx.end_profile_wait(); task["profile"] = None
+                        tasks[:] = []
+                        ctx.log("scoped splash timeout -> next cast")
+                        progressed = True; continue
+                    task["poll"] = now + 10
+                    continue
                 if task["sound"]:
                     if task is not sound_owner or now < task["poll"]: continue
                     concurrent = getattr(ctx, "sound_parallel_safe", None)
@@ -238,6 +289,10 @@ def _parallel(commands, start, end, ctx, state):
                     task["moving"] = True; task["due"] = now + max(0, event[1]); task["pending"] = event
                 elif kind == "key":
                     task["moving"] = False; ctx.key_combo(event[1], event[2][0], event[2][1])
+                elif kind == "profile":
+                    task["moving"] = False; task["profile"] = event[1]
+                    task["deadline"] = now + event[2]; task["poll"] = now
+                    ctx.begin_profile_wait(event[1])
                 elif kind == "sound":
                     task["sound"] = True; task["sound_spec"] = tuple(event[1:])
                     waiters = [item for item in tasks if item["sound"]]
@@ -254,10 +309,13 @@ def _parallel(commands, start, end, ctx, state):
                 progressed = True
             if not tasks: break
             if progressed: continue
-            wake = min(task["poll"] if task["sound"] else task["due"] for task in tasks)
+            wake = min(task["poll"] if task["sound"] or task["profile"] is not None
+                       else task["due"] for task in tasks)
             if not ctx.sleep_ms(max(1, wake - int(ctx.now() * 1000))): _abort()
     finally:
         if sound_owner is not None: ctx.sound_cancel()
+        if any(task.get("profile") is not None for task in tasks):
+            ctx.end_profile_wait()
 
 
 def _run(commands, start, end, ctx, state, labels):
@@ -285,6 +343,26 @@ def _run(commands, start, end, ctx, state, labels):
             ctx.beep(values[0], values[1])
         elif op == "RMOUSE":
             mouse.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])
+        elif op == "SOUNDWATCH":
+            ctx.install_sound_watch(_watch_profiles(args),
+                lambda: _service_sound_watch(ctx, state))
+            ctx.log("soundwatch active")
+        elif op == "WPROFILE":
+            values = args.replace(" ", "").split(",")
+            lo, hi = int(values[1]), int(values[2])
+            deadline = ctx.now() + random.randint(min(lo, hi), max(lo, hi)) / 1000
+            ctx.begin_profile_wait(values[0])
+            try:
+                while ctx.now() < deadline:
+                    winner = ctx.poll_profile_wait(values[0])
+                    if winner is not None:
+                        ctx.suspend_sound_watch()
+                        try: _run_response(ctx, winner["file"], state)
+                        finally: ctx.resume_sound_watch(winner["cooldown"])
+                        break
+                    if not ctx.sleep_ms(10): _abort()
+            finally:
+                ctx.end_profile_wait()
         elif op in ("WSND", "WSNDP"):
             values = args.replace(" ", "").split(",")
             if op == "WSND":
