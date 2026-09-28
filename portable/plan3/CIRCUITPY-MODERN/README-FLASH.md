@@ -57,3 +57,5 @@ the exact exported `Wait For Sound` step.
 ## Game-wide sound reactions
 
 One physical ADC listener serves two distinct policies. `whisper_steps.txt` is a global Game interrupt and resumes the exact interrupted iterator. `splash_steps.txt` is armed only by `WPROFILE` during a fishing cast: each cast samples a fresh timeout from its configured range (default 18–22 seconds); detection runs the Splash response and timeout runs no response, then both paths advance to the next cast without resetting the enclosing 10-minute or 110–130-minute deadlines.
+
+Large Game routes stay on Flash. The runner keeps only four-byte line offsets in RAM and reservoir-samples the requested Random Package items, so a package with hundreds of movement/delay choices is not expanded into heap-resident command and range lists.

@@ -4308,7 +4308,8 @@ class TestRunner
             Assert(modernCode.Contains("EVT|GUARD|PREEMPT|from=%s|to=%s|lux=%.1f")
                    && modernCode.Contains("self.controls.aborted = True")
                    && modernCode.Contains("self.keyboard.release_all()")
-                   && modernCode.Contains("commands = _light_route_file(name)")
+                   && modernCode.Contains("commands = name if name == \"game_steps.txt\" else _light_route_file(name)")
+                   && modernCode.Contains("plan_engine_game.run_game_file(commands, ctx)")
                    && modernCode.Contains("return _light_route_rows(fh)"),
                 "Build 100: stable light changes safely preempt routes and large Game files stream from flash");
             var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
@@ -4326,8 +4327,11 @@ class TestRunner
                    && gameHelper.Contains("elif op == \"LABEL\"")
                    && gameHelper.Contains("elif op == \"GOTO\"")
                    && gameHelper.Contains("GOTO label not found")
-                   && gameHelper.Length < 22000,
-                "Game light helper streams fishing and supports LABEL/GOTO without the full parser");
+                   && gameHelper.Contains("class _FileCommands:")
+                   && gameHelper.Contains("def _pick_items(")
+                   && gameHelper.Contains("def run_game_file(")
+                   && gameHelper.Length < 24000,
+                "Build 101: Game stays file-backed and samples large packages without materializing every item");
 
             var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
             var repairedBridge = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));

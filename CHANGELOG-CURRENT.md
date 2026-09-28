@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 101:** Game بزرگ دیگر به لیست Tupleهای RAM تبدیل نمی‌شود؛ خطوط روی Flash می‌مانند و فقط Offset چهار‌بایتی نگه‌داری می‌شود. Random Packageهای بزرگ نیز با Reservoir Sampling فقط همان ۱–۲ گزینهٔ لازم را نگه می‌دارند و فهرست تمام ۱۶۵ آیتم را نمی‌سازند.
 - **Candidate Build 100:** Guard اکنون در طول Route نیز نور را با Debounce کامل پایش می‌کند؛ تغییر پایدار محیط Route قبلی را با آزادسازی Keyboard/Mouse قطع و Route وضعیت جدید را اجرا می‌کند. Route بزرگ Game نیز به‌صورت خط‌به‌خط از Flash خوانده می‌شود تا تخصیص پیوستهٔ 6400 بایتی حذف شود.
 - **Candidate Build 99:** Package نور دوباره مرجع قابل‌کنترل شد: NVM فقط تا وقتی اعمال می‌شود که Revision پروفایل‌های Package تغییر نکرده باشد. Fit نیز از Import لحظهٔ Save خارج و در ماژول ازقبل‌بارگذاری‌شدهٔ NVM اجرا می‌شود تا توقف بی‌لاگ پس از نمونه‌گیری رخ ندهد.
 - **Candidate Build 98:** MemoryError بوت Bundle 303 رفع شد؛ منطق Adaptive Fit از Import اولیه خارج و فقط هنگام ذخیرهٔ کالیبراسیون Lazy-load می‌شود. اندازهٔ Runtime بوت به کمتر از Baseline Build 96 برگشت و رفتار Fit/NVM/Telemetry بدون تغییر حفظ شد.
@@ -38,6 +39,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 101 | Bundle 308: Preemption تمام انتقال‌ها را پاس کرد؛ Game پس از Parse ۳۶۹ فرمان با Heap حدود 40KB شکست خورد | فرمان‌های فایل‌محور با Offset فشرده و Reservoir Sampling برای RPKG بزرگ | CI candidate؛ Game hardware retest pending |
 | 100 | Login پس از ورود به Dashboard ادامه می‌یافت؛ Game هنگام read با allocation=6400 شکست خورد | Stable-light route preemption + streaming Game route read | CI candidate؛ hardware transition retest pending |
 | 99 | Bundle 304 فایل 15.3±3 داشت ولی NVM قدیمی 14.2±1 اعمال شد؛ Save دوم پس از complete-stage متوقف ماند | Revision-authoritative Package و Fit ازقبل‌بارگذاری‌شده بدون Import لحظه‌ای | CI candidate؛ hardware retest pending |
 | 98 | Bundle 303 در Import با تخصیص 1244 بایت شکست خورد | انتقال Fit به ماژول Lazy؛ Boot runtime زیر 40KB و Manifest 35 فایلی | CI candidate؛ hardware boot pending |
@@ -83,6 +85,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 101 — اجرای فایل‌محور Game و Random Package کم‌حافظه
+
+**Previous build:** 100 / Classroom release 198
+**Status:** local candidate; Bundle 308 Game hardware retest required
+
+### Problem observed
+
+Bundle 308 اصلاح Preemption را سخت‌افزاری تأیید کرد: Login→Dashboard، Dashboard→Loading و Loading→Game همگی با `GUARD|PREEMPT` مسیر قبلی را متوقف و Route جدید را فوراً اجرا کردند. اما Game با وجود حذف `fh.read()` باز هم پس از `after-route-read` و `light-route` با `MemoryError` بدون متن شکست خورد. هنگام خواندن ۳۶۹ فرمان، Heap از 52,208 به 27,296 بایت افتاد و پس از GC فقط 41,600 بایت برای Import و Scheduler باقی ماند.
+
+### Root cause
+
+- Streaming Build 100 رشتهٔ 11.5KB را حذف کرد، ولی همچنان هر خط را به Tuple `(op,args)` در یک List تبدیل می‌کرد. ۳۶۹ فرمان Bundle 308 حدود 25KB Heap موقت/ماندگار مصرف کردند.
+- هنگام رسیدن به Random Package ماهیگیری، Scheduler برای ۱۶۵ آیتم هم فهرست همهٔ Rangeها و هم فهرست کامل ترتیب Shuffle را می‌ساخت، درحالی‌که قرارداد فقط ۱ تا ۲ آیتم می‌خواست.
+
+### Change
+
+- `game_steps.txt` مستقیماً به Runner فایل‌محور تحویل داده می‌شود و دیگر در `code.py` به List فرمان تبدیل نمی‌شود.
+- Runner در یک اسکن، فقط Offset چهار‌بایتی خطوط معتبر را داخل `bytearray` ثبت می‌کند؛ متن هر فرمان فقط هنگام دسترسی از Flash خوانده می‌شود.
+- رابط فایل‌محور همان عملیات `len`، Index و Iteration موردنیاز Engine را فراهم می‌کند، بنابراین LOOP، PGROUP، LABEL/GOTO و Sound semantics تغییر نکرده‌اند.
+- حالت `RPKG|pick` با Reservoir Sampling تنها تعداد درخواستی آیتم‌ها را نگه می‌دارد؛ انتخاب یکنواخت و ترتیب تصادفی حفظ می‌شود.
+- حالت‌های `all` و `seq` برای Packageهای کوچک موجود بدون تغییر باقی مانده‌اند.
+- فایل، Offsetها و Context در تمام مسیرهای Success، Abort و Exception بسته و آزاد می‌شوند.
+- Firmware ARM، Natural Mouse، Sound، Preemption نور و محتوای پروژه تغییر نکرده‌اند.
+
+### Validation
+
+- `game_steps.txt` واقعی Bundle 308 شامل ۳۶۹ فرمان با تنها ۱٬۴۷۶ بایت Offset ایندکس شد.
+- Package اول هشت‌تایی طبق حالت `all` حفظ شد و Package ماهیگیری ۱۶۵‌تایی فقط دو Range انتخاب‌شده ساخت.
+- تست کامل فایل‌محور با ۱۶۵ آیتم اجرا شد و هیچ List سراسری از فرمان‌ها یا آیتم‌های Package ساخته نشد.
+- تست‌های Preemption، Whisper/Splash، Shared Listener، HANDPATH و Parser پاس شدند.
+- هر ۵۲ قرارداد رسمی Portable موفق شدند.
+- اندازهٔ Runner سبک Game حدود 22.2KB است و سقف CI با CRLF ویندوز روی 24KB قفل شد.
+
+### Next test
+
+Bundle را با Build 101 بازسازی و Game را اجرا کنید. بعد از `ROUTE/start game_steps.txt` باید `after-route-read` افت بسیار کوچک‌تری نسبت به Bundle 308 نشان دهد، سپس `SOUNDWATCH|armed`، حرکت/Delay پکیج و `WPROFILE` بدون MemoryError اجرا شوند. انتقال پایدار Game→Targeted نیز باید همچنان `GUARD|PREEMPT` ثبت و Route بازی را ایمن متوقف کند.
 
 ## Build 100 — توقف ایمن Route با تغییر پایدار نور و خواندن Streaming بازی
 

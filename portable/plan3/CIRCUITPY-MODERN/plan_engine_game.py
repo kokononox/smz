@@ -8,6 +8,47 @@ class GameAbort(RuntimeError):
     pass
 
 
+class _FileCommands:
+    """Random-access command rows backed by Flash, not a heap-resident list."""
+    def __init__(self, name):
+        self.file = open("/" + name, "r")
+        self.offsets = bytearray()
+        while True:
+            offset = self.file.tell()
+            raw = self.file.readline()
+            if not raw:
+                break
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            for shift in (0, 8, 16, 24):
+                self.offsets.append((offset >> shift) & 255)
+
+    def __len__(self):
+        return len(self.offsets) // 4
+
+    def __getitem__(self, index):
+        size = len(self)
+        if index < 0:
+            index += size
+        if index < 0 or index >= size:
+            raise IndexError(index)
+        base = index * 4; data = self.offsets
+        offset = (data[base] | data[base + 1] << 8 |
+                  data[base + 2] << 16 | data[base + 3] << 24)
+        self.file.seek(offset)
+        parts = self.file.readline().strip().split("|", 1)
+        return parts[0].upper(), parts[1].strip() if len(parts) == 2 else ""
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self[index]
+
+    def close(self):
+        self.file.close()
+        self.offsets = None
+
+
 def _abort():
     raise GameAbort("route aborted")
 
@@ -60,6 +101,29 @@ def _items(commands, start, end, separator, nested_open, nested_close):
     return out
 
 
+def _pick_items(commands, start, end, separator, nested_open, nested_close, take):
+    """Reservoir-sample package ranges without allocating every item."""
+    chosen = []; item = start; depth = 0; seen = 0
+    for i in range(start, end + 1):
+        op = commands[i][0] if i < end else separator
+        if op == nested_open:
+            depth += 1
+        elif op == nested_close:
+            depth -= 1
+        elif op == separator and depth == 0:
+            seen += 1; candidate = (item, i); item = i + 1
+            if len(chosen) < take:
+                chosen.append(candidate)
+            else:
+                slot = random.randrange(seen)
+                if slot < take:
+                    chosen[slot] = candidate
+    for i in range(len(chosen) - 1, 0, -1):
+        slot = random.randrange(i + 1)
+        chosen[i], chosen[slot] = chosen[slot], chosen[i]
+    return chosen
+
+
 def _package(commands, index):
     args = commands[index][1].replace(",", " ").split()
     if len(args) != 3:
@@ -69,16 +133,20 @@ def _package(commands, index):
     elif mode in ("shuffleall", "all"): mode = "all"
     elif mode != "seq": raise ValueError("bad RPKG mode")
     finish = _end(commands, index, "RPKG", "ENDPKG")
+    if mode == "pick":
+        lo, hi = int(args[1]), int(args[2])
+        lo, hi = max(0, min(lo, hi)), max(lo, hi)
+        parts = _pick_items(commands, index + 1, finish, "PKGITEM",
+                            "RPKG", "ENDPKG", random.randint(lo, hi))
+        order = list(range(len(parts))); gc.collect()
+        return finish, parts, order
     parts = _items(commands, index + 1, finish, "PKGITEM", "RPKG", "ENDPKG")
     order = list(range(len(parts)))
     if mode != "seq":
         for k in range(len(order) - 1, 0, -1):
             j = random.randrange(k + 1)
             order[k], order[j] = order[j], order[k]
-        if mode == "pick":
-            lo, hi = int(args[1]), int(args[2])
-            lo, hi = max(0, min(lo, hi)), min(len(order), max(lo, hi))
-            order = order[:random.randint(lo, hi)]
+    gc.collect()
     return finish, parts, order
 
 
@@ -414,6 +482,7 @@ def run_game(commands, ctx):
             if not item[1] or item[1] in labels:
                 raise ValueError("LABEL needs a unique name")
             labels[item[1]] = label_index
+    gc.collect()
     state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
              "pauses": mouse.PausePlanner()}
     try: _run(commands, 0, len(commands), ctx, state, labels)
@@ -422,3 +491,17 @@ def run_game(commands, ctx):
         raise
     finally:
         state.clear(); gc.collect()
+
+
+def run_game_file(name, ctx):
+    commands = _FileCommands(name)
+    try:
+        gc.collect()
+        emit = getattr(getattr(ctx, "r", None), "emit", None)
+        if emit is not None:
+            emit("EVT|DEBUG|GAME|stage=file-index|commands=%d|offset-bytes=%d|free=%d" %
+                 (len(commands), len(commands.offsets),
+                  getattr(gc, "mem_free", lambda: -1)()))
+        run_game(commands, ctx)
+    finally:
+        commands.close()

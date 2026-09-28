@@ -746,6 +746,11 @@ def _light_route_file(name):
         return _light_route_rows(fh)
 
 def _run_light_route(ctx, commands):
+    if isinstance(commands, str):
+        gc.collect()
+        import plan_engine_game
+        plan_engine_game.run_game_file(commands, ctx)
+        return
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
         import plan_engine_game
@@ -917,7 +922,9 @@ def _diagnostic_route(self, decision):
     # emit their RMOUSE steps again.
     # Route-stage diagnostic only: do not change route semantics.
     self.emit("EVT|DEBUG|ROUTE|stage=before-route-read|free=%d" % gc.mem_free())
-    commands = _light_route_file(name)
+    # Game can contain hundreds of package items. Keep both source rows and
+    # command tuples on Flash; plan_engine_game indexes it with a bytearray.
+    commands = name if name == "game_steps.txt" else _light_route_file(name)
     text = None
     if commands is None:
         with open("/" + name, "r") as fh:
