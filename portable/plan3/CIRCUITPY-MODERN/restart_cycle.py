@@ -273,10 +273,19 @@ class Controller:
                     self._emit("usb", "state=" + state)
                 self.down_seen = True
                 self.up_since = None
-            elif state == "UP" and self.down_seen:
+            elif state == "UP" and (self.down_seen or self.marker.armed()):
+                # Some Windows/USB controllers keep VBUS and the Pico's
+                # configured state UP for the complete warm reboot. In that
+                # case neither supervisor nor the Pro Micro exposes a DOWN
+                # edge. A successfully completed After route plus its armed
+                # NVM marker is sufficient authority to resume: Startup begins
+                # with its own 30-60 s boot grace delay, so requiring a DOWN
+                # observation here only creates a permanent deadlock.
                 if self.up_since is None:
                     self.up_since = self.now()
-                    self._emit("usb", "state=UP|startup-in=%d" % USB_STABLE_SECONDS)
+                    source = "usb" if self.down_seen else "marker-no-down"
+                    self._emit("usb", "state=UP|startup-in=%d|source=%s" %
+                               (USB_STABLE_SECONDS, source))
                 elif self.now() - self.up_since >= USB_STABLE_SECONDS:
                     self._startup()
         self.previous_running = bool(self.owner.controls.running)
