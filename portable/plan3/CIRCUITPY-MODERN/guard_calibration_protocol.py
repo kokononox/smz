@@ -122,7 +122,11 @@ def calibrated_profile(values, profiles, profile_id, stable_ms=750):
     low = clean[int((count - 1) * 0.05)]
     high = clean[int((count - 1) * 0.95)]
     deviation = max(center - low, high - center)
-    tolerance = max(1.0, deviation + 0.5)
+    # Keep one lux of post-sample drift headroom. Hardware showed a Dashboard
+    # envelope ending at 15.8 lux later settling at 16.7; the old 0.5 margin
+    # missed that state by 0.4 lux even though adjacent profiles still left
+    # ample room. The neighbour cap below remains authoritative.
+    tolerance = max(1.0, deviation + 1.0)
     cap = None
     for other_id in PROFILE_IDS:
         if other_id == profile_id or other_id not in profiles:

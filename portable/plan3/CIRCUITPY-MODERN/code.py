@@ -281,6 +281,8 @@ def _memory_safe_init(self):
         self, getattr(_microcontroller, "nvm", None))
     _debug_event(self, "BOOT", "bundle=valid profiles=%d cal=%s" %
                  (len(runtime.PROFILES), self.calibration_source), persist=True)
+    self.emit("EVT|CALSTATUS|source=%s|count=%d" %
+              (self.calibration_source, len(runtime.PROFILES)))
     if self.calibration_source == "nvm":
         self.emit("EVT|CAL|storage=nvm|loaded=%d" %
                   runtime.CALIBRATION_NVM_PROFILE_COUNT)
@@ -629,6 +631,21 @@ def _audible_buttons(self):
             # Long GP4 press was consumed by the calibration branch above.
             if not stop_consumed and not self.blue.long:
                 self.guard.reset()
+                self.guard.last_decision = None
+                # A physical Start is a fresh observation boundary, exactly
+                # like GUARD|ON. Without this reset, unknown -> unknown was
+                # measured but suppressed until the Pico reconnected.
+                self.debug_last_state = "__start__"
+                self.debug_last_denied = None
+                profiles = self.bundle.get("calibration", {}).get("profiles", {})
+                dashboard = profiles.get("character-dashboard", {})
+                center = float(dashboard.get("center", 0))
+                tolerance = float(dashboard.get("tolerance", 0))
+                self.emit(
+                    "EVT|CALSTATUS|source=%s|id=character-dashboard|"
+                    "center=%.1f|tolerance=%.1f|range=%.1f,%.1f" %
+                    (getattr(self, "calibration_source", "file"),
+                     center, tolerance, center - tolerance, center + tolerance))
                 self.controls.start()
                 self.guard_start_tone()
                 _debug_event(self, "GP4", "short-start running=1", persist=True)
@@ -1103,6 +1120,9 @@ def _live_host_poll(self):
                 self.guard.last_decision = None
                 self.debug_last_state = "__start__"
                 self.debug_last_denied = None
+                self.emit("EVT|CALSTATUS|source=%s|count=%d" %
+                          (getattr(self, "calibration_source", "file"),
+                           len(self.bundle.get("calibration", {}).get("profiles", {}))))
                 _apply_pending_cursor(self, force=True)
                 self.controls.start()
                 self.guard_start_tone()
