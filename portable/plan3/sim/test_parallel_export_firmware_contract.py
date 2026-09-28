@@ -42,7 +42,7 @@ assert 'mode=async' in runtime
 assert "if(!g_secure){if(Serial)do_handshake(40)" not in arm28
 assert "if (Serial.available()) do_handshake(40);" in arm
 assert "if (Serial) do_handshake(40);" not in arm
-for token in ('def sound_start','def sound_poll','def sound_cancel','def sound_parallel_safe','async_sound','sound_result','ASND|','ASNDCANCEL','def type_char','SCAL|10'):
+for token in ('def sound_start','def sound_poll','def sound_peak','def sound_cancel','def sound_parallel_safe','async_sound','sound_result','ASND|','ASNDCANCEL','def type_char','SCAL|10'):
     assert token in runtime, token
 assert '"polls": 0' in runtime and 'state["polls"] >= 32' in runtime
 assert 'for field in reply.split("|")' not in runtime
@@ -66,6 +66,8 @@ assert 'relative_mouse_events' in parallel.read_text()
 assert 'segments = max(8, min(128' in human.read_text()
 assert 'plan-lite-relative' in facade.read_text()
 assert 'timeout - cancel group' in parallel.read_text()
+assert 'parallel wsnd profile threshold=' in parallel.read_text()
+assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
 code=(root/'portable/plan3/CIRCUITPY-MODERN/code.py').read_text()
 assert 'self.keyboard.release_all()' in code and 'GP3", "pause"' in code
