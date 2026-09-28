@@ -458,10 +458,6 @@ _PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_game_core"
                  "plan_engine_parse")
 
 def _release_plan_heap(self, emit_cal=False):
-    # Complex routes lazily import the split plan engine. CircuitPython keeps
-    # those modules cached after Stop/PlanAbort. Return the deferred proxy to
-    # its cold state after every complex route so a second Start cannot retain
-    # the prior parsed Game tree and enter the next parse with ~1 KB free.
     proxy = runtime.plan_engine
     try:
         if hasattr(proxy, "module"):
