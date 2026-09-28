@@ -4268,6 +4268,9 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_core.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_mouse.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_type.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "sound_step_calibration.py"))
@@ -4316,11 +4319,23 @@ class TestRunner
                    && modernCode.Contains("return _light_route_rows(fh)"),
                 "Build 100: stable light changes safely preempt routes and large Game files stream from flash");
             var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
+            var loginCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_core.py"));
+            var loginMouse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_mouse.py"));
+            var loginType = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_type.py"));
             Assert(!loginHelper.Contains("import plan_engine_parse")
                    && loginHelper.Contains("def run_rmouse(")
                    && loginHelper.Contains("def run_type(")
-                   && loginHelper.Length < 14000,
-                "Login/DC light helper preserves Natural Mouse and typing without importing the full parser");
+                   && loginHelper.Contains("before-mouse-runtime-import")
+                   && loginHelper.Length < 4000
+                   && loginCore.Contains("class PausePlanner:")
+                   && loginCore.Length < 5000
+                   && loginMouse.Contains("def _mouse_events(")
+                   && loginMouse.Contains("def run_rmouse(")
+                   && loginMouse.Length < 7000
+                   && loginType.Contains("def _typing_commands(")
+                   && loginType.Contains("def run_type(")
+                   && loginType.Length < 7000,
+                "Build 104: Login/DC loads Core, Natural Mouse and typing sequentially");
             var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
             var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
             var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
@@ -4540,7 +4555,7 @@ class TestRunner
                 "Build 95: legacy responseRoute=splash migrates to Splash Listener and profile timeout");
 
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
-            Assert(true, "Build 103: target read-back accepts 37 valid hashes and matching Guard revisions");
+            Assert(true, "Build 104: target read-back accepts 40 valid hashes and matching Guard revisions");
             var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
             var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
             File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");

@@ -6,7 +6,9 @@ ROOT = Path(__file__).resolve().parents[3]
 FW = ROOT / "portable/plan3/CIRCUITPY-MODERN"
 sys.path.insert(0, str(FW))
 modules = ("plan_engine_game", "plan_engine_game_core", "plan_engine_game_runtime",
-           "plan_engine_game_parallel", "plan_engine_login")
+           "plan_engine_game_parallel", "plan_engine_login",
+           "plan_engine_login_core", "plan_engine_login_mouse",
+           "plan_engine_login_type")
 for name in modules:
     sys.modules.pop(name, None)
 
@@ -33,7 +35,15 @@ assert "plan_engine_login" not in sys.modules
 state = {"speed": [0, 2000], "pos": [960, 540], "pauses": None}
 helper = core._mouse(ctx, state)
 assert helper is sys.modules["plan_engine_login"]
+assert "plan_engine_login_core" in sys.modules
+assert "plan_engine_login_mouse" not in sys.modules
+assert "plan_engine_login_type" not in sys.modules
 assert state["pauses"] is not None
+helper._mouse(ctx)
+assert "plan_engine_login_mouse" in sys.modules
+assert "plan_engine_login_type" not in sys.modules
+helper._typing(ctx)
+assert "plan_engine_login_type" in sys.modules
 
 code = (FW / "code.py").read_text(encoding="utf-8")
 for stage in ("before-engine-import", "engine-import-memoryerror", "after-engine-import"):
@@ -46,6 +56,10 @@ core_source = (FW / "plan_engine_game_core.py").read_text(encoding="utf-8")
 assert '__import__("plan_engine_login")' in core_source
 for stage in ("before-mouse-import", "after-mouse-import", "mouse-import-memoryerror"):
     assert stage in core_source
+login_source = (FW / "plan_engine_login.py").read_text(encoding="utf-8")
+for stage in ("before-core-import", "after-core-import", "before-mouse-runtime-import",
+              "after-mouse-runtime-import", "before-type-import", "after-type-import"):
+    assert stage in login_source
 runtime_source = (FW / "plan_engine_game_runtime.py").read_text(encoding="utf-8")
 for stage in ("before-parallel-import", "after-parallel-import", "parallel-import-memoryerror"):
     assert stage in runtime_source
@@ -58,4 +72,8 @@ assert windows_size("plan_engine_game.py") < 3000
 assert windows_size("plan_engine_game_core.py") < 10000
 assert windows_size("plan_engine_game_runtime.py") < 12000
 assert windows_size("plan_engine_game_parallel.py") < 9000
+assert windows_size("plan_engine_login.py") < 4000
+assert windows_size("plan_engine_login_core.py") < 5000
+assert windows_size("plan_engine_login_mouse.py") < 7000
+assert windows_size("plan_engine_login_type.py") < 7000
 print("Game facade loads core/runtime/mouse/parallel sequentially")

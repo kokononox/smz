@@ -186,7 +186,7 @@ def _mouse(ctx, state):
         gc.collect()
         _emit_heap(ctx, "after-mouse-import")
     if state["pauses"] is None:
-        state["pauses"] = _mouse_module.PausePlanner()
+        state["pauses"] = _mouse_module.PausePlanner(ctx)
     return _mouse_module
 
 

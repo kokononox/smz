@@ -14,6 +14,9 @@ game_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_core.py'
 game_runtime=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_runtime.py'
 game_parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_parallel.py'
 login=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login.py'
+login_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_core.py'
+login_mouse=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_mouse.py'
+login_type=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_type.py'
 facade=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine.py'
 bundle=(root/'ams-shell/src/Ams.UI/Services/ModernAutoCycleFirmwareBundle.cs').read_text()
 assert '"forLoop" or "randomPackage"' in exporter
@@ -60,11 +63,17 @@ assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in
 assert 'before-core-import' in game.read_text() and 'after-runtime-import' in game.read_text()
 assert 'class _FileCommands' in game_core.read_text() and 'def _pick_items' in game_core.read_text()
 assert 'sound_parallel_safe' in game_parallel.read_text()
-assert login.exists() and login.stat().st_size < 14000
+assert login.exists() and login.stat().st_size < 4000
+assert login_core.exists() and login_core.stat().st_size < 5000
+assert login_mouse.exists() and login_mouse.stat().st_size < 7000
+assert login_type.exists() and login_type.stat().st_size < 7000
+assert 'before-mouse-runtime-import' in login.read_text()
 assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_game.py',
     'plan_engine_game_core.py', 'plan_engine_game_runtime.py',
-    'plan_engine_game_parallel.py', 'plan_engine_login.py'))
-assert 'manifestNames.Length != 37' in bundle
+    'plan_engine_game_parallel.py', 'plan_engine_login.py',
+    'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
+    'plan_engine_login_type.py'))
+assert 'manifestNames.Length != 40' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
