@@ -96,6 +96,12 @@ Hash می‌کرد، اما موجودی Boot Runtime پیش از `load_guard_bu
 - تست رگرسیون جدید برابری دقیق موجودی ۳۴فایلی Manifest و Boot verifier را کنترل می‌کند.
 - Guard transition، فریمور Pro Micro، DDA/Cadence و Natural Mouse بدون تغییر مانده‌اند.
 
+### Validation
+
+- تمام ۴۷ تست Portable روی نسخهٔ دقیق Remote Branch پاس شدند.
+- Windows TestRunner، Portable contracts، ARM 2.8 compile، Plan2، Golden، Hashes و Sensitive Guard همگی سبز شدند.
+- `code.py` Remote با نسخهٔ محلی بایت‌به‌بایت برابر و SHA256 آن `e06891815631e9588f27b80a442a012f12d5c4221fb057557f373d9433f1b013` است.
+
 ### Next test
 
 خروجی پروژهٔ Build 94 باید بدون خطای Manifest Boot شود؛ سپس Game باید Whisper
