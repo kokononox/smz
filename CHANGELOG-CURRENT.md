@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 96:** Start فیزیکی GP4 اکنون همیشه سنجش/Telemetry تازه ایجاد و منبع مؤثر کالیبراسیون NVM/File و بازهٔ Dashboard را گزارش می‌کند؛ حاشیهٔ Drift پس از نمونه‌گیری از ۰٫۵ به ۱٫۰ lux افزایش یافت و همچنان با پروفایل‌های مجاور Cap می‌شود.
 - **Candidate Build 95:** `Wait For Sound` عمومی از مسیر ساخت پروژهٔ جدید خارج شد. استپ اختصاصی `Splash Listener` فقط محل Scoped هر Cast را مشخص می‌کند و Timeout حداقل/حداکثر اکنون مستقیماً در کارت پروفایل Splash تنظیم می‌شود. فایل‌های قدیمی `responseRoute=splash` هنگام بازشدن خودکار Migration می‌شوند؛ قرارداد `WPROFILE` و Runtime/ARM/Mouse تغییر نکرده‌اند.
 - **Candidate Build 94:** خطای Boot خروجی Build 93 رفع شد؛ `splash_steps.txt` و `whisper_steps.txt` اکنون پیش از اعتبارسنجی Manifest وارد موجودی Hash Runtime می‌شوند. Routeهای نوری Guard، فریمور Pro Micro و مسیر Natural Mouse هیچ تغییری نکرده‌اند.
 - **Candidate Build 93:** Whisper فقط در تمام مدت حضور در Game شنوندهٔ سراسری است و پس از واکنش همان Iterator را ادامه می‌دهد؛ Splash فقط هنگام `Wait For Sound` هر Cast با Timeout تصادفی پیش‌فرض ۱۸–۲۲ ثانیه مسلح می‌شود و چه با شنیدن صدا و چه با Timeout، Cast جاری را تمام می‌کند و به Cast بعدی می‌رود. Deadlineهای حلقهٔ ۱۰ دقیقه‌ای و چرخهٔ ۱۱۰–۱۳۰ دقیقه‌ای حفظ می‌شوند.
@@ -33,6 +34,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 96 | تست Dashboard و تکرار Stop/Start لازم است | رفع suppression در unknown→unknown و افزایش کنترل‌شدهٔ حاشیه Drift کالیبراسیون | CI candidate؛ Mouse/ARM unchanged |
 | 95 | تست Export و Migration پروژهٔ ماهیگیری لازم است | حذف Wait For Sound از منو، Splash Listener اختصاصی و انتقال Timeout به پروفایل Splash | Local candidate؛ Runtime/ARM/Mouse unchanged |
 | 94 | تست Boot و اجرای Game لازم است | پذیرش دو Route جدید Whisper/Splash در موجودی ۳۴فایلی Boot verifier | Local candidate؛ Mouse/ARM unchanged |
 | 93 | تست سخت‌افزاری صدا، Heap و نرمی موس لازم است | Whisper سراسری Game؛ Splash محدود به Cast با Timeout تصادفی ۱۸–۲۲ ثانیه و رفتن به Cast بعدی بدون ریست Deadlineها | CI candidate؛ Hardware pending |
@@ -73,6 +75,39 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 96 — سنجش تازه در Start فیزیکی و حاشیهٔ Drift کالیبراسیون
+
+**Previous build:** 95 / Classroom release 193
+**Status:** local candidate; Dashboard hardware retest required
+
+### Problem observed
+
+در Bundle 301 مقدار Dashboard برابر `13.3 ± 3.0` بود، اما نور زندهٔ `16.7` فقط ۰٫۴ lux بیرون بازه قرار گرفت و `unknown` شد. پس از Stop/Start فیزیکی نیز خط جدید State دیده نمی‌شد و فقط reconnect کابل آن را ظاهر می‌کرد.
+
+### Root cause
+
+حاشیهٔ پس از Envelope نمونه‌گیری فقط ۰٫۵ lux بود و Drift کوتاه پس از کالیبراسیون را کامل پوشش نمی‌داد. همچنین Start فیزیکی Guard را Reset می‌کرد، اما برخلاف `GUARD|ON`، مقادیر `debug_last_state` و `debug_last_denied` را Reset نمی‌کرد؛ بنابراین سنجش `unknown → unknown` انجام ولی در Telemetry حذف می‌شد.
+
+### Change
+
+- Start کوتاه GP4 علاوه بر Guard، `last_decision` و Debug State/Denied را نیز Reset می‌کند.
+- Boot و هر Start مقدار دقیق `EVT|CALSTATUS|source=nvm|file` را ثبت می‌کنند؛ Start فیزیکی Center/Tolerance/Range واقعی Dashboard را نیز همراه آن می‌فرستد.
+- حاشیهٔ Drift در فرمول کالیبراسیون از `deviation + 0.5` به `deviation + 1.0` افزایش یافت.
+- Cap نزدیک‌ترین پروفایل و کنترل Overlap بدون تغییر و همچنان Fail-Closed باقی مانده‌اند.
+- Runtime موس، ARM، Cadence، Sound و مسیرهای پروژه تغییر نکرده‌اند.
+
+### Validation
+
+- Regression واقعی `13.3/15.8 → live 16.7` اکنون Tolerance حداقل ۳٫۵ می‌سازد و بدون Overlap پذیرفته می‌شود.
+- تست اختصاصی Start فیزیکی Reset کامل Telemetry و گزارش منبع کالیبراسیون را قفل می‌کند.
+- Manifest Runtime پس از تغییر فایل‌های Hash‌شده بازسازی و کامل بررسی می‌شود.
+
+### Next test
+
+1. Stage Dashboard را یک‌بار در نور پایدار Save کنید؛ در Start بعدی باید `active-source=nvm` و بازهٔ مؤثر ثبت شود.
+2. در Dashboard، Stop و دوباره Start کنید؛ بدون قطع کابل باید فوراً `STATE/character-dashboard` یا `STATE/unknown lux=...` تازه دیده شود.
+3. اگر مقدار زنده داخل Range گزارش‌شده بود، Route Dashboard باید اجرا شود؛ اگر بیرون بود، همان مقدار برای تیون بعدی ارسال شود.
 
 ## Build 95 — بازنشستگی UI قدیمی Wait For Sound برای Splash
 

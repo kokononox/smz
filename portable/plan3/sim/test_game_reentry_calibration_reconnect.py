@@ -68,8 +68,8 @@ assert find_profile_overlap(profiles, "game", game) is None
 dashboard_samples = [13.3] * 18 + [15.8] * 2
 dashboard = calibrated_profile(dashboard_samples, profiles, "character-dashboard")
 assert dashboard["center"] == 13.3
-assert dashboard["tolerance"] >= 3.0
-assert dashboard["center"] + dashboard["tolerance"] >= 15.8
+assert dashboard["tolerance"] >= 3.5
+assert dashboard["center"] + dashboard["tolerance"] >= 16.7
 assert find_profile_overlap(profiles, "character-dashboard", dashboard) is None
 
 bridge = (ROOT / "ams-shell/bridge/bridge.py").read_text(encoding="utf-8")
