@@ -134,6 +134,10 @@ public static class ScriptGenerator
                 break;
             }
 
+            case "splashListener":
+                sb.AppendLine(pad + "# Splash Listener is portable-only; timeout comes from the Splash profile.");
+                break;
+
             case "openFile":
             {
                 var ofp = PropEx.GetString(n.Props, "path");

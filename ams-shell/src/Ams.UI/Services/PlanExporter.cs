@@ -255,6 +255,7 @@ public static class PlanExporter
                 case "keystroke":EmitKeystroke(n);return; case "keyDown":EmitKeyState(n,true);return; case "keyUp":EmitKeyState(n,false);return;
                 case "typeText":EmitTypeText(n);return; case "forLoop":EmitForLoop(n);return;
                 case "buzzer":EmitBuzzer(n);return;
+                case "splashListener":EmitSplashListener(n);return;
                 case "waitForSound":EmitWaitForSound(n);return; case "waitForLight":EmitWaitForLight(n);return;
                 case "label":EmitLabel(n);return; case "gotoLabel":EmitGoto(n);return; case "rawCommand":EmitRaw(n);return;
                 case "randomPackage":EmitRandomPackage(n);return; case "parallelGroup":EmitParallelGroup(n);return;
@@ -465,6 +466,8 @@ public static class PlanExporter
             if(priority is < -100 or > 100){Error(n,"sound priority must be between -100 and 100");return;}
             Emit(n,new[]{"WSNDP|"+id+","+SoundBinding(n,id,t,m)+","+t+","+m+","+to+","+peakMin+","+peakMax+","+priority},"WSNDP");
         }
+        private void EmitSplashListener(StepNode n)
+            => Emit(n,new[]{"WPROFILE|splash,18000,22000"},"WPROFILE");
         private (int lo,int hi,int stable,int timeout,int mode) LuxArgs(Dictionary<string,object?> p){int c=PropEx.GetInt(p,"luxCenter",1250),tol=Math.Max(1,PropEx.GetInt(p,"luxTolerance",50));return(Math.Max(0,c-tol),c+tol,Math.Max(0,(int)Math.Round(PropEx.GetDouble(p,"stableSec",2)*1000)),PropEx.GetInt(p,"timeoutMs",20000),PropEx.GetString(p,"sampleMode","hires")=="lowres"?1:0);}
         private void EmitLabel(StepNode n){var name=PropEx.GetString(n.Props,"label","label1").Trim();if(name.Length==0||name.Contains('=')||name.Contains('|')){Error(n,"bad label name '"+name+"'");return;}if(!_labels.Add(name)){Error(n,"duplicate label '"+name+"'");return;}Emit(n,new[]{"LABEL|"+name},"LABEL");}
         private void EmitGoto(StepNode n){var name=PropEx.GetString(n.Props,"label").Trim();if(name.Length==0){Error(n,"Go To Label with no label chosen");return;}Emit(n,new[]{"GOTO|"+name},"GOTO");}
@@ -473,8 +476,11 @@ public static class PlanExporter
         private static readonly HashSet<string> ParallelLeaf=new(){"randomMousePosition","mouseMove","mouseClick","mouseScroll","keystroke","keyDown","keyUp","typeText","delay","rawCommand","comment","buzzer"};
         private bool ParallelCompatible(StepNode n)
         {
-            if(n.Type=="waitForSound")
+            if(n.Type is "waitForSound" or "splashListener")
+            {
+                if (n.Type == "splashListener") return true;
                 return !PropEx.GetBool(n.Props,"armed")&&!PropEx.GetBool(n.Props,"insertIfElse");
+            }
             if(n.Type is "forLoop" or "randomPackage")
                 return n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).All(ParallelCompatible);
             return ParallelLeaf.Contains(n.Type);

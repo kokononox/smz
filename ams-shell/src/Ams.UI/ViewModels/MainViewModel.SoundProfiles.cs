@@ -66,6 +66,16 @@ public partial class MainViewModel
         get => SoundProfile(2).CooldownMs;
         set => UpdateSoundProfile(2, x => x.CooldownMs = Math.Clamp(value, 0, 60000), nameof(SplashCooldownMs));
     }
+    public int SplashTimeoutMinSec
+    {
+        get => SoundProfile(2).TimeoutMinSec;
+        set => UpdateSoundProfile(2, x => x.TimeoutMinSec = Math.Clamp(value, 1, 300), nameof(SplashTimeoutMinSec));
+    }
+    public int SplashTimeoutMaxSec
+    {
+        get => SoundProfile(2).TimeoutMaxSec;
+        set => UpdateSoundProfile(2, x => x.TimeoutMaxSec = Math.Clamp(value, 1, 300), nameof(SplashTimeoutMaxSec));
+    }
 
     public string SoundProfileSummary
     {
@@ -74,7 +84,9 @@ public partial class MainViewModel
             var enabled = _pipelineWorkspace.SoundProfiles.Where(x => x.Enabled).ToList();
             return enabled.Count == 0
                 ? "شنوندهٔ سراسری محیط بازی خاموش است."
-                : string.Join(" · ", enabled.Select(x => $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority}"));
+                : string.Join(" · ", enabled.Select(x => x.ResponseTab == PipelineKind.Splash
+                    ? $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority} / Timeout {x.TimeoutMinSec}–{x.TimeoutMaxSec}s"
+                    : $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority}"));
         }
     }
 
@@ -85,7 +97,8 @@ public partial class MainViewModel
             nameof(WhisperSoundEnabled), nameof(WhisperPeakMin), nameof(WhisperPeakMax),
             nameof(WhisperPriority), nameof(WhisperCooldownMs), nameof(SplashSoundEnabled),
             nameof(SplashPeakMin), nameof(SplashPeakMax), nameof(SplashPriority),
-            nameof(SplashCooldownMs), nameof(SoundProfileSummary),
+            nameof(SplashCooldownMs), nameof(SplashTimeoutMinSec),
+            nameof(SplashTimeoutMaxSec), nameof(SoundProfileSummary),
         }) OnPropertyChanged(name);
     }
 }

@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 95:** `Wait For Sound` عمومی از مسیر ساخت پروژهٔ جدید خارج شد. استپ اختصاصی `Splash Listener` فقط محل Scoped هر Cast را مشخص می‌کند و Timeout حداقل/حداکثر اکنون مستقیماً در کارت پروفایل Splash تنظیم می‌شود. فایل‌های قدیمی `responseRoute=splash` هنگام بازشدن خودکار Migration می‌شوند؛ قرارداد `WPROFILE` و Runtime/ARM/Mouse تغییر نکرده‌اند.
 - **Candidate Build 94:** خطای Boot خروجی Build 93 رفع شد؛ `splash_steps.txt` و `whisper_steps.txt` اکنون پیش از اعتبارسنجی Manifest وارد موجودی Hash Runtime می‌شوند. Routeهای نوری Guard، فریمور Pro Micro و مسیر Natural Mouse هیچ تغییری نکرده‌اند.
 - **Candidate Build 93:** Whisper فقط در تمام مدت حضور در Game شنوندهٔ سراسری است و پس از واکنش همان Iterator را ادامه می‌دهد؛ Splash فقط هنگام `Wait For Sound` هر Cast با Timeout تصادفی پیش‌فرض ۱۸–۲۲ ثانیه مسلح می‌شود و چه با شنیدن صدا و چه با Timeout، Cast جاری را تمام می‌کند و به Cast بعدی می‌رود. Deadlineهای حلقهٔ ۱۰ دقیقه‌ای و چرخهٔ ۱۱۰–۱۳۰ دقیقه‌ای حفظ می‌شوند.
 - **Candidate Build 92:** شنوندهٔ واحد صدا در تمام تب Game فعال می‌ماند؛ Peak را با بازه و Priority دسته‌بندی می‌کند، تب Whisper یا Splash را به‌صورت وقفه اجرا می‌کند و سپس همان Iterator محیط بازی را ادامه می‌دهد. تنظیم بازه‌ها و Cooldown کنار خروجی Pico قرار گرفت.
@@ -32,6 +33,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 95 | تست Export و Migration پروژهٔ ماهیگیری لازم است | حذف Wait For Sound از منو، Splash Listener اختصاصی و انتقال Timeout به پروفایل Splash | Local candidate؛ Runtime/ARM/Mouse unchanged |
 | 94 | تست Boot و اجرای Game لازم است | پذیرش دو Route جدید Whisper/Splash در موجودی ۳۴فایلی Boot verifier | Local candidate؛ Mouse/ARM unchanged |
 | 93 | تست سخت‌افزاری صدا، Heap و نرمی موس لازم است | Whisper سراسری Game؛ Splash محدود به Cast با Timeout تصادفی ۱۸–۲۲ ثانیه و رفتن به Cast بعدی بدون ریست Deadlineها | CI candidate؛ Hardware pending |
 | 92 | تست سخت‌افزاری صدا لازم است | شنوندهٔ سراسری Game، بازه/اولویت، تب‌های Whisper و Splash و بازگشت به همان نقطه | CI candidate؛ Sound pending |
@@ -71,6 +73,47 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 95 — بازنشستگی UI قدیمی Wait For Sound برای Splash
+
+**Previous build:** 94 / Classroom release 192
+**Status:** local candidate; Export and old-project migration test required
+
+### Problem observed
+
+معماری جدید Splash از پروفایل مستقل و Route واکنش اختصاصی استفاده می‌کرد، اما
+Timeout هر Cast هنوز داخل دیالوگ عمومی `Wait For Sound` پنهان بود. این رابط با
+مدل جدید تناقض داشت و کاربر به‌درستی انتظار داشت Wait For Sound منسوخ شده باشد.
+
+### Root cause
+
+برای حفظ قرارداد `WPROFILE`، پیاده‌سازی Build 93 همان نود قدیمی
+`waitForSound` را با `responseRoute=splash` دوباره استفاده کرده بود. Runtime
+جدید بود، اما مدل و ورودی رابط قدیمی باقی مانده بود.
+
+### Change
+
+- استپ جدید و صریح `Splash Listener (Scoped)` به منو، Rail و منوی راست‌کلیک اضافه شد.
+- `Wait For Sound` از تمام مسیرهای درج پروژهٔ جدید حذف و فقط به‌عنوان Legacy loader نگه‌داری شد.
+- Timeout حداقل/حداکثر هر Cast به کارت پروفایل Splash کنار خروجی Pico منتقل شد.
+- Exporter مقدارهای پروفایل را روی فرمان `WPROFILE|splash,min,max` اعمال می‌کند.
+- فایل‌های Format 1–4 که `waitForSound + responseRoute=splash` دارند، هنگام Load
+  به `splashListener` و پروفایل Timeout جدید Migration می‌شوند.
+- Listener خارج از تب Game و بازهٔ Timeout نامعتبر به‌صورت Fail-Closed رد می‌شوند.
+- Firmware Pro Micro، ARM، DDA/Cadence، Natural Mouse و Runtime Pico تغییر نکرده‌اند.
+
+### Validation
+
+- قرارداد منبع جدید، حذف Wait For Sound از سه مسیر درج UI، وجود Migration،
+  انتقال Timeout و Fail-Closed خارج Game را کنترل می‌کند.
+- Rail contract با مدل جدید همگام شد: `splashListener` باید قابل درج باشد و `waitForSound` فقط Legacy/load-only باقی می‌ماند.
+- مجموعهٔ کامل Portable و Windows TestRunner باید پیش از انتشار سبز شود.
+
+### Next test
+
+1. Build جدید را در پوشه‌ای تازه باز و پروژهٔ ماهیگیری قدیمی را Load کنید؛ `Wait For Sound + responseRoute=splash` باید خودکار به `Splash Listener` تبدیل شود.
+2. در کارت Splash بازهٔ Timeout را تغییر دهید و Export کنید؛ `game_steps.txt` باید همان بازه را در `WPROFILE|splash,min,max` داشته باشد.
+3. در Game، Detection باید Route تب Splash را اجرا و Timeout باید بدون F به Cast بعدی برود؛ نرمی موس و Whisper سراسری نباید تغییر کنند.
 
 ## Build 94 — رفع رد شدن Manifest در Boot
 

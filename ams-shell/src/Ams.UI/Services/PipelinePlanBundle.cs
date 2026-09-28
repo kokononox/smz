@@ -48,7 +48,12 @@ public static class PipelinePlanBundle
                     sourceName + "#" + tab.Kind, machine).Text;
             text = ExpandRecoveryCalls(text);
             if (tab.Kind == PipelineKind.Game)
+            {
+                text = ApplySplashProfileTimeout(text, workspace.SoundProfiles);
                 text = AddGameSoundWatch(text, workspace.SoundProfiles, workspace);
+            }
+            else if (text.Split('\n').Any(x => x.StartsWith("WPROFILE|splash,", StringComparison.Ordinal)))
+                throw new PlanExporter.PlanBlockedException(new[] { tab.Title + ": استپ Splash Listener فقط در تب Game مجاز است." });
             if (tab.Kind != PipelineKind.Desktop && ContainsCycleDirective(text))
                 throw new PlanExporter.PlanBlockedException(new[] { tab.FileName + ": directive چرخه فقط در plan.txt مجاز است." });
             payloads.Add((tab.FileName, new UTF8Encoding(false).GetBytes(text)));
@@ -134,6 +139,10 @@ public static class PipelinePlanBundle
             if (profile.Priority is < -100 or > 100) errors.Add(profile.Name + ": Priority باید بین -100 و 100 باشد.");
             if (profile.MinDurationMs is < 10 or > 5000) errors.Add(profile.Name + ": Min duration باید بین 10 و 5000 ms باشد.");
             if (profile.CooldownMs is < 0 or > 60000) errors.Add(profile.Name + ": Cooldown باید بین 0 و 60000 ms باشد.");
+            if (profile.ResponseTab == PipelineKind.Splash
+                && (profile.TimeoutMinSec < 1 || profile.TimeoutMaxSec > 300
+                    || profile.TimeoutMinSec > profile.TimeoutMaxSec))
+                errors.Add(profile.Name + ": Timeout هر پرتاب باید بازهٔ مرتب 1 تا 300 ثانیه باشد.");
             var responseTab = workspace[profile.ResponseTab];
             if (responseTab.Steps.Count == 0)
                 errors.Add(profile.Name + ": تب واکنش " + responseTab.Title + " خالی است.");
@@ -141,7 +150,7 @@ public static class PipelinePlanBundle
         }
         var hasScopedSplash = HasScopedSplash(workspace[PipelineKind.Game].Steps);
         if (hasScopedSplash && enabled.All(x => x.ResponseTab != PipelineKind.Splash))
-            errors.Add("Game: برای Wait For Sound با رفتار Splash scoped، پروفایل Splash را کنار خروجی Pico فعال کنید.");
+            errors.Add("Game: برای Splash Listener، پروفایل Splash را کنار خروجی Pico فعال کنید.");
         if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
         if (enabled.Count == 0) return text;
 
@@ -159,9 +168,22 @@ public static class PipelinePlanBundle
 
     private static bool HasScopedSplash(IEnumerable<StepNode> nodes)
         => nodes.Any(node => !node.IsDisabled
-            && ((node.Type == "waitForSound"
+            && (node.Type == "splashListener"
+                || (node.Type == "waitForSound"
                     && PropEx.GetString(node.Props, "responseRoute", "inline") == "splash")
                 || HasScopedSplash(node.Children)));
+
+    private static string ApplySplashProfileTimeout(string text, IEnumerable<SoundWatchProfile> profiles)
+    {
+        var splash = profiles.Single(x => x.ResponseTab == PipelineKind.Splash);
+        var replacement = "WPROFILE|splash," + (splash.TimeoutMinSec * 1000)
+            + "," + (splash.TimeoutMaxSec * 1000);
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+            if (lines[i].StartsWith("WPROFILE|splash,", StringComparison.Ordinal))
+                lines[i] = replacement;
+        return string.Join("\n", lines);
+    }
 
     private static void ValidateSoundResponse(IEnumerable<StepNode> nodes, string tab, List<string> errors)
     {

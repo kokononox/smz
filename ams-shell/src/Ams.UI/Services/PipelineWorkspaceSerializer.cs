@@ -40,7 +40,7 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4))
+        if (version is not (1 or 2 or 3 or 4 or 5))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
@@ -71,12 +71,53 @@ public static class PipelineWorkspaceSerializer
                 CopySoundProfile(source, target);
             }
         }
+        MigrateScopedSplash(workspace, version);
         // Build 100 predates the dedicated DC tab. Give it the safe ESC route on import.
         // An explicitly empty DC tab receives the same default so a blank tab never disables
         // popup dismissal by accident.
         if (!hasDc || workspace[PipelineKind.Dc].Steps.Count == 0)
             workspace.EnsureDcDefaults();
         return workspace;
+    }
+
+    /// <summary>
+    /// Build 95 retires the user-facing generic Wait For Sound step. Older projects used
+    /// responseRoute=splash as the per-cast marker; convert that exact safe shape to the
+    /// dedicated marker and move its timeout range into the Splash profile.
+    /// Other legacy Wait For Sound modes remain untouched and loadable.
+    /// </summary>
+    private static void MigrateScopedSplash(PipelineWorkspace workspace, int version)
+    {
+        var migrated = new List<(int Min, int Max)>();
+        foreach (var tab in workspace.Tabs)
+            Visit(tab.Steps);
+        if (version <= 4 && migrated.Count > 0)
+        {
+            var splash = workspace.SoundProfiles.Single(x => x.ResponseTab == PipelineKind.Splash);
+            splash.TimeoutMinSec = migrated[0].Min;
+            splash.TimeoutMaxSec = migrated[0].Max;
+        }
+
+        void Visit(IEnumerable<StepNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.Type == "waitForSound"
+                    && PropEx.GetString(node.Props, "responseRoute", "inline") == "splash"
+                    && !PropEx.GetBool(node.Props, "armed")
+                    && !PropEx.GetBool(node.Props, "insertIfElse")
+                    && node.Children.Count == 0)
+                {
+                    var min = Math.Clamp(PropEx.GetInt(node.Props, "timeoutMinSec", 18), 1, 300);
+                    var max = Math.Clamp(PropEx.GetInt(node.Props, "timeoutMaxSec", 22), 1, 300);
+                    if (min > max) (min, max) = (max, min);
+                    migrated.Add((min, max));
+                    node.Type = "splashListener";
+                    node.Props = new Dictionary<string, object?>();
+                }
+                Visit(node.Children);
+            }
+        }
     }
 
     private static PipelineKind? Map(string name)
@@ -123,6 +164,8 @@ public static class PipelineWorkspaceSerializer
         target.MinDurationMs = source.MinDurationMs;
         target.ListenWindowMs = source.ListenWindowMs;
         target.CooldownMs = source.CooldownMs;
+        target.TimeoutMinSec = source.TimeoutMinSec;
+        target.TimeoutMaxSec = source.TimeoutMaxSec;
         target.ResponseTab = source.ResponseTab;
     }
 }
