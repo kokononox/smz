@@ -59,7 +59,7 @@ internal static class PipelineTabsUiBootstrap
         WpfPanel.SetZIndex(statusPanel, 50);
         host.Children.Add(statusPanel);
 
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, FlowDirection = FlowDirection.LeftToRight };
+        var tabs = new WrapPanel { Orientation = Orientation.Horizontal, FlowDirection = FlowDirection.LeftToRight };
         var buttons = new List<Button>();
         Button? statusButton = null;
         foreach (var tab in vm.PipelineTabs)
