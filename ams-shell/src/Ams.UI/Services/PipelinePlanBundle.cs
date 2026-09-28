@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using Ams.UI.Models;
 
 namespace Ams.UI.Services;
@@ -46,6 +47,8 @@ public static class PipelinePlanBundle
                 : PlanExporter.CompileOnce(normalized, settings, screenW, screenH,
                     sourceName + "#" + tab.Kind, machine).Text;
             text = ExpandRecoveryCalls(text);
+            if (tab.Kind == PipelineKind.Game)
+                text = WrapGameSoundWatch(text, workspace.SoundProfiles, workspace);
             if (tab.Kind != PipelineKind.Desktop && ContainsCycleDirective(text))
                 throw new PlanExporter.PlanBlockedException(new[] { tab.FileName + ": directive چرخه فقط در plan.txt مجاز است." });
             payloads.Add((tab.FileName, new UTF8Encoding(false).GetBytes(text)));
@@ -80,6 +83,14 @@ public static class PipelinePlanBundle
     {
         var owners = new Dictionary<int, string>();
         var errors = new List<string>();
+        foreach (var profile in workspace.SoundProfiles.Where(x => x.Enabled))
+        {
+            var label = "Game sound profile / " + profile.Name;
+            if (profile.Id is not (1 or 2))
+                errors.Add(label + ": شناسهٔ کالیبراسیون صدا باید ۱ یا ۲ باشد.");
+            else if (!owners.TryAdd(profile.Id, label))
+                errors.Add(label + ": شناسهٔ کالیبراسیون صدای " + profile.Id + " تکراری است.");
+        }
         foreach (var tab in workspace.Tabs)
             Visit(tab.Steps, tab.Title, owners, errors);
         if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
@@ -106,6 +117,69 @@ public static class PipelinePlanBundle
                 }
                 Visit(node.Children, tab, owners, errors);
             }
+        }
+    }
+
+    private static string WrapGameSoundWatch(string text, IEnumerable<SoundWatchProfile> profiles,
+        PipelineWorkspace workspace)
+    {
+        var enabled = profiles.Where(x => x.Enabled).OrderBy(x => x.Id).ToList();
+        if (enabled.Count == 0) return text;
+        var body = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
+            .Where(line => line.Length > 0 && !line.StartsWith("PLAN|", StringComparison.Ordinal)).ToList();
+        if (body.Count == 0)
+            throw new PlanExporter.PlanBlockedException(new[]
+            {
+                "Game: برای فعال‌کردن شنوندهٔ سراسری صدا، تب Game نباید خالی باشد."
+            });
+
+        var errors = new List<string>();
+        foreach (var profile in enabled)
+        {
+            if (profile.Id is not (1 or 2)) errors.Add(profile.Name + ": Sound profile ID must be 1 or 2.");
+            if (profile.PeakMin < 0 || profile.PeakMax is < 1 or > 511 || profile.PeakMin > profile.PeakMax)
+                errors.Add(profile.Name + ": بازهٔ Peak باید 0 <= Min <= Max <= 511 باشد.");
+            if (profile.Priority is < -100 or > 100) errors.Add(profile.Name + ": Priority باید بین -100 و 100 باشد.");
+            if (profile.MinDurationMs is < 10 or > 5000) errors.Add(profile.Name + ": Min duration باید بین 10 و 5000 ms باشد.");
+            if (profile.ListenWindowMs is < 100 or > 60000) errors.Add(profile.Name + ": Listen window باید بین 100 و 60000 ms باشد.");
+            if (profile.CooldownMs is < 0 or > 60000) errors.Add(profile.Name + ": Cooldown باید بین 0 و 60000 ms باشد.");
+            var responseTab = workspace[profile.ResponseTab];
+            if (responseTab.Steps.Count == 0)
+                errors.Add(profile.Name + ": تب واکنش " + responseTab.Title + " خالی است.");
+            ValidateSoundResponse(responseTab.Steps, responseTab.Title, errors);
+        }
+        if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
+
+        var lines = new List<string> { "PLAN|2", "PGROUP" };
+        lines.AddRange(body);
+        foreach (var profile in enabled)
+        {
+            var response = workspace[profile.ResponseTab].FileName;
+            var seed = Encoding.UTF8.GetBytes(profile.Id + "|game-watch|" + profile.Name + "|30|" + profile.MinDurationMs);
+            var binding = Convert.ToHexString(SHA256.HashData(seed)).ToLowerInvariant()[..12];
+            lines.Add("PARITEM");
+            lines.Add("LOOP|0");
+            lines.Add("WSNDP|" + profile.Id + "," + binding + ",30," + profile.MinDurationMs + ","
+                + profile.ListenWindowMs + "," + profile.PeakMin + "," + profile.PeakMax + ","
+                + profile.Priority + "," + response + "," + profile.CooldownMs);
+            lines.Add("ENDLOOP");
+        }
+        lines.Add("ENDPAR");
+        return string.Join("\n", lines) + "\n";
+    }
+
+    private static void ValidateSoundResponse(IEnumerable<StepNode> nodes, string tab, List<string> errors)
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "delay", "keystroke", "keyDown", "keyUp", "mouseScroll", "rawCommand",
+            "buzzer", "comment", "forLoop", "randomPackage",
+        };
+        foreach (var node in nodes)
+        {
+            if (!node.IsDisabled && !allowed.Contains(node.Type) && !node.Type.StartsWith("__", StringComparison.Ordinal))
+                errors.Add(tab + ": استپ «" + node.Type + "» هنوز برای واکنش کم‌حافظهٔ صدا پشتیبانی نمی‌شود.");
+            ValidateSoundResponse(node.Children, tab, errors);
         }
     }
 
