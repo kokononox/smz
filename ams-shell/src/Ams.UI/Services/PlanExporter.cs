@@ -449,6 +449,13 @@ public static class PlanExporter
         private void EmitWaitForSound(StepNode n)
         {
             var p=n.Props;int t=PropEx.GetInt(p,"threshold",90),m=PropEx.GetInt(p,"minDurationMs",60),to=PropEx.GetInt(p,"timeoutMs",20000);
+            if(PropEx.GetString(p,"responseRoute","inline")=="splash")
+            {
+                int lo=PropEx.GetInt(p,"timeoutMinSec",18),hi=PropEx.GetInt(p,"timeoutMaxSec",22);
+                if(lo>hi)(lo,hi)=(hi,lo);
+                if(lo<1||hi>300){Error(n,"Splash timeout range must be between 1 and 300 seconds");return;}
+                Emit(n,new[]{"WPROFILE|splash,"+(lo*1000)+","+(hi*1000)},"WPROFILE");return;
+            }
             if(PropEx.GetBool(p,"armed")){int act=PropEx.GetString(p,"act","left")switch{"right"=>2,"middle"=>3,_=>1};var(r0,r1)=Pair(PropEx.GetInt(p,"reactMin",80),PropEx.GetInt(p,"reactMax",180));var(h0,h1)=Pair(PropEx.GetInt(p,"holdMin",30),PropEx.GetInt(p,"holdMax",90));Emit(n,new[]{"TRGSND|"+t+","+m+","+to+","+act+","+r0+","+r1+","+h0+","+h1},"TRGSND");return;}
             int id=PropEx.GetInt(p,"calibrationId",1);
             if(id is not (1 or 2)){Error(n,"sound calibration ID must be 1 or 2");return;}
@@ -774,7 +781,7 @@ public static class PlanExporter
         var stack = new List<(string Kind, bool ElseSeen, int Line)>();
         var labels = new HashSet<string>(StringComparer.Ordinal);
         var gotos = new List<string>();
-        var known = new HashSet<string>{"PLAN","SCREEN","SPEED","DELAY","LOOP","LOOPTIME","ENDLOOP","RMOUSE","MOVETO","CLICK","TYPE","WLIGHT","WSND","WSNDP","TRGSND","IFSND","IFLUX","ELSE","ENDIF","KEY","KDOWN","KUP","WHEEL","LABEL","GOTO","RAW","HANDPATH","RPKG","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR","INCLUDE","BEEP"};
+        var known = new HashSet<string>{"PLAN","SCREEN","SPEED","DELAY","LOOP","LOOPTIME","ENDLOOP","RMOUSE","MOVETO","CLICK","TYPE","WLIGHT","WSND","WSNDP","WPROFILE","TRGSND","IFSND","IFLUX","ELSE","ENDIF","KEY","KDOWN","KUP","WHEEL","LABEL","GOTO","RAW","HANDPATH","RPKG","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR","INCLUDE","BEEP"};
         bool first = true;
         string previousOp = "";
         var lines = text.Split('\n');
@@ -848,6 +855,13 @@ public static class PlanExporter
                         || values[8].Any(ch => ch < 32 || ch > 126 || "/\\:|%".Contains(ch))
                         || !IsInt(values[9]))))
                     Bad("bad WSNDP profile contract");
+            }
+            if (op == "WPROFILE")
+            {
+                if (fields.Length != 2) Bad("WPROFILE needs one comma payload");
+                var values = fields[1].Split(',');
+                if (values.Length != 3 || values[0] != "splash" || !IsInt(values[1]) || !IsInt(values[2]))
+                    Bad("bad WPROFILE contract");
             }
             if (op == "INCLUDE" && (!HasKv(fields, "file", out var file) || file.Length == 0 ||
                 file.Any(ch => ch < 32 || ch > 126 || "/\\:|%".Contains(ch)))) Bad("unsafe INCLUDE filename");
