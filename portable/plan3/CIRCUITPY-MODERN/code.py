@@ -740,15 +740,22 @@ def _light_route_lines(text):
 
 
 def _light_route_file(name):
-    # Stream lines: Game routes exceed 11 KB and fragmented RP2040 heaps cannot
-    # guarantee one contiguous source-string allocation.
     with open("/" + name, "r") as fh:
         return _light_route_rows(fh)
 
+def _game_heap(ctx, stage):
+    ctx.r.emit("EVT|DEBUG|GAME|stage=%s|free=%d" % (stage, gc.mem_free()))
+
+
 def _run_light_route(ctx, commands):
     if isinstance(commands, str):
-        gc.collect()
-        import plan_engine_game
+        gc.collect(); _game_heap(ctx, "before-engine-import"); gc.collect()
+        try:
+            import plan_engine_game
+        except MemoryError:
+            _game_heap(ctx, "engine-import-memoryerror")
+            raise
+        gc.collect(); _game_heap(ctx, "after-engine-import")
         plan_engine_game.run_game_file(commands, ctx)
         return
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):

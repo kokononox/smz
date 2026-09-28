@@ -1,7 +1,8 @@
 """Low-memory Game/fishing runner; no full parser or executor imports."""
 import gc
 import random
-import plan_engine_login as mouse
+
+_mouse_module = None
 
 
 class GameAbort(RuntimeError):
@@ -174,8 +175,37 @@ def _service_sound_watch(ctx, state):
         ctx.resume_sound_watch(winner["cooldown"])
 
 
+def _emit_heap(ctx, stage):
+    emit = getattr(getattr(ctx, "r", None), "emit", None)
+    if emit is not None:
+        emit("EVT|DEBUG|GAME|stage=%s|free=%d" %
+             (stage, getattr(gc, "mem_free", lambda: -1)()))
+
+
+def _mouse(ctx, state):
+    # Importing login while this module itself is still compiling creates the
+    # highest heap peak on RP2040. Wait until the first actual RMOUSE command,
+    # after the Game module and file index are both stable and collectible.
+    global _mouse_module
+    if _mouse_module is None:
+        gc.collect()
+        _emit_heap(ctx, "before-mouse-import")
+        gc.collect()
+        try:
+            _mouse_module = __import__("plan_engine_login")
+        except MemoryError:
+            _emit_heap(ctx, "mouse-import-memoryerror")
+            raise
+        gc.collect()
+        _emit_heap(ctx, "after-mouse-import")
+    if state["pauses"] is None:
+        state["pauses"] = _mouse_module.PausePlanner()
+    return _mouse_module
+
+
 def _mouse_events(args, ctx, state):
-    for event in mouse.mouse_events(args, ctx, state["pauses"], state["pos"], state["speed"]):
+    helper = _mouse(ctx, state)
+    for event in helper.mouse_events(args, ctx, state["pauses"], state["pos"], state["speed"]):
         if event[0] == "wait": yield ("wait", event[1])
         else: yield ("move", event[1], event[2], event[3])
 
@@ -410,7 +440,8 @@ def _run(commands, start, end, ctx, state, labels):
             if len(values) != 2: raise ValueError("BEEP needs frequency,duration")
             ctx.beep(values[0], values[1])
         elif op == "RMOUSE":
-            mouse.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])
+            helper = _mouse(ctx, state)
+            helper.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])
         elif op == "SOUNDWATCH":
             ctx.install_sound_watch(_watch_profiles(args),
                 lambda: _service_sound_watch(ctx, state))
@@ -484,7 +515,7 @@ def run_game(commands, ctx):
             labels[item[1]] = label_index
     gc.collect()
     state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
-             "pauses": mouse.PausePlanner()}
+             "pauses": None}
     try: _run(commands, 0, len(commands), ctx, state, labels)
     except RuntimeError as exc:
         if str(exc) == "route aborted": _abort()
