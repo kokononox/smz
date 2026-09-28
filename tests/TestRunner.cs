@@ -4305,6 +4305,12 @@ class TestRunner
                    && modernCode.Contains("elif command == \"RAW\":")
                    && modernCode.Contains("ctx.mmove_relative(int(fields[0]), int(fields[1]))"),
                 "looped hand-sampled RAW/MMOVE routes stay on the low-memory light-route executor");
+            Assert(modernCode.Contains("EVT|GUARD|PREEMPT|from=%s|to=%s|lux=%.1f")
+                   && modernCode.Contains("self.controls.aborted = True")
+                   && modernCode.Contains("self.keyboard.release_all()")
+                   && modernCode.Contains("commands = _light_route_file(name)")
+                   && modernCode.Contains("return _light_route_rows(fh)"),
+                "Build 100: stable light changes safely preempt routes and large Game files stream from flash");
             var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
             Assert(!loginHelper.Contains("import plan_engine_parse")
                    && loginHelper.Contains("def run_rmouse(")

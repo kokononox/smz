@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 100:** Guard اکنون در طول Route نیز نور را با Debounce کامل پایش می‌کند؛ تغییر پایدار محیط Route قبلی را با آزادسازی Keyboard/Mouse قطع و Route وضعیت جدید را اجرا می‌کند. Route بزرگ Game نیز به‌صورت خط‌به‌خط از Flash خوانده می‌شود تا تخصیص پیوستهٔ 6400 بایتی حذف شود.
 - **Candidate Build 99:** Package نور دوباره مرجع قابل‌کنترل شد: NVM فقط تا وقتی اعمال می‌شود که Revision پروفایل‌های Package تغییر نکرده باشد. Fit نیز از Import لحظهٔ Save خارج و در ماژول ازقبل‌بارگذاری‌شدهٔ NVM اجرا می‌شود تا توقف بی‌لاگ پس از نمونه‌گیری رخ ندهد.
 - **Candidate Build 98:** MemoryError بوت Bundle 303 رفع شد؛ منطق Adaptive Fit از Import اولیه خارج و فقط هنگام ذخیرهٔ کالیبراسیون Lazy-load می‌شود. اندازهٔ Runtime بوت به کمتر از Baseline Build 96 برگشت و رفتار Fit/NVM/Telemetry بدون تغییر حفظ شد.
 - **Candidate Build 97:** رد فوری هم‌پوشانی کالیبراسیون با Fit تطبیقی جایگزین شد؛ ابتدا دامنهٔ جدید و در صورت Center-inside دامنهٔ مجاور فقط از Tolerance عقب می‌روند، Centerها ثابت و ذخیرهٔ دوطرفه اتمیک است. حداقل Tolerance برابر ۰٫۵ و Gap برابر ۰٫۲۵ lux حفظ می‌شود.
@@ -37,6 +38,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 100 | Login پس از ورود به Dashboard ادامه می‌یافت؛ Game هنگام read با allocation=6400 شکست خورد | Stable-light route preemption + streaming Game route read | CI candidate؛ hardware transition retest pending |
 | 99 | Bundle 304 فایل 15.3±3 داشت ولی NVM قدیمی 14.2±1 اعمال شد؛ Save دوم پس از complete-stage متوقف ماند | Revision-authoritative Package و Fit ازقبل‌بارگذاری‌شده بدون Import لحظه‌ای | CI candidate؛ hardware retest pending |
 | 98 | Bundle 303 در Import با تخصیص 1244 بایت شکست خورد | انتقال Fit به ماژول Lazy؛ Boot runtime زیر 40KB و Manifest 35 فایلی | CI candidate؛ hardware boot pending |
 | 97 | تست کالیبراسیون هم‌پوشان لازم است | Fit یک‌طرفه/دوطرفهٔ اتمیک با Center ثابت، Min=0.5 و Gap=0.25 | CI candidate؛ Mouse/ARM unchanged |
@@ -81,6 +83,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 100 — توقف ایمن Route با تغییر پایدار نور و خواندن Streaming بازی
+
+**Previous build:** 99 / Classroom release 197
+**Status:** local candidate; Login→Dashboard and Game hardware retest required
+
+### Problem observed
+
+لاگ Bundle 306 تأیید کرد اصلاح Revision موفق است: `CALSTATUS source=file` مقدار Dashboard برابر `15.3 ± 3.0` را گزارش کرد و Lux=16.7 Route داشبورد را اجرا کرد. اما Route طولانی Login تا فشار دستی GP4 ادامه یافت، چون Guard هنگام اجرای همگام Route دیگر نور را نمونه‌گیری نمی‌کرد. سپس Game پیش از `after-route-read` با `MemoryError` تخصیص 6400 بایت شکست خورد.
+
+### Root cause
+
+- Main Loop فقط بین Routeها `guard.update` را اجرا می‌کرد. Tick تعاونی داخل Delay/TYPE/Mouse فقط دکمه‌ها و Deadline چرخه را بررسی می‌کرد.
+- `game_steps.txt` حدود 11.5KB بود و با `fh.read()` باید به یک رشتهٔ پیوسته تبدیل می‌شد؛ Heap با وجود 49KB آزاد، بلوک پیوستهٔ 6400 بایتی نداشت.
+
+### Change
+
+- Tick تعاونی Route هر 100ms سنسور نور را نمونه‌گیری و همان Debounce/Transition رسمی Guard را اجرا می‌کند.
+- فقط پس از پایدارشدن وضعیت جدید، رویداد `EVT|GUARD|PREEMPT|from=...|to=...|lux=...` ثبت می‌شود. Spike یا Unknown کوتاه Route را قطع نمی‌کند.
+- Preemption فقط Route جاری را Abort می‌کند و Run اصلی فعال می‌ماند؛ تصمیم ذخیره‌شدهٔ Guard در دور بعد Route محیط جدید را اجرا می‌کند.
+- پیش از خروج، تمام Keyboard keyها آزاد و فرمان Abort به ARM ارسال می‌شود. Pause و Stop دستی همچنان اولویت دارند و Stop هرگز خودکار دوباره فعال نمی‌شود.
+- Routeهای Light/Game خط‌به‌خط از Flash Parse می‌شوند؛ فقط Route واقعاً ناسازگار به Parser کامل و `fh.read()` fallback می‌کند.
+- Parser مشترک نگه داشته شد تا `code.py` در Checkout ویندوز نیز زیر سقف 55KB باقی بماند.
+- ARM Firmware، Natural Mouse، Sound و محتوای Routeهای کاربر تغییر نکرده‌اند.
+
+### Validation
+
+- شبیه‌سازی Login→Dashboard ثابت کرد قبل از 300ms Route ادامه دارد و پس از پایداری، Run روشن می‌ماند ولی Route Abort، Keyboard آزاد، ARM متوقف و تصمیم Dashboard آماده می‌شود.
+- Route مصنوعی بیش از 360 فرمان بدون رشتهٔ بزرگ به‌صورت Streaming Parse شد.
+- 51 قرارداد رسمی Portable موفق شدند و هر 34 Hash Manifest معتبر است.
+- Windows contract وجود Preemption، آزادسازی منابع و Streaming read را قفل می‌کند.
+
+### Next test
+
+1. Login Route را شروع کنید و وارد Dashboard شوید؛ باید حداکثر حدود 0.8–1.0 ثانیه بعد `GUARD|PREEMPT|from=login-or-dc|to=character-dashboard` و `ROUTE/aborted login_or_dc_steps.txt` دیده شود.
+2. بلافاصله باید `ROUTE/start character_dashboard_steps.txt` ثبت شود و هیچ Step دیگری از Login اجرا نشود.
+3. مسیر Loading→Game را ادامه دهید؛ `after-route-read` و `light-route` باید ثبت شوند و MemoryError تخصیص 6400 بایت نباید تکرار شود.
+4. Pause، Resume و GP4 Stop را جداگانه بررسی کنید؛ Stop نباید Route بعدی را خودکار فعال کند.
 
 ## Build 99 — مرجع‌شدن Revision پروفایل Package و ذخیره بدون Import لحظه‌ای
 

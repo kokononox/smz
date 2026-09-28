@@ -248,6 +248,8 @@ def _memory_safe_init(self):
     # Route waits must continue polling GP3/GP4; otherwise Pause/Resume only
     # works between steps and feels unresponsive during long delays or TYPE.
     self.controls.tick = self.controls_tick
+    self.route_active_profile = None
+    self.route_light_last = 0
     self.mouse_pos = None
     self.sensor = runtime.BH1750()
     self.routes = {}
@@ -658,11 +660,32 @@ def _audible_buttons(self):
 
 
 def _cycle_controls_tick(self):
-    # Long route delays must still observe both physical Stop/Pause and the
-    # RUNFOR deadline. Expiry aborts the active route; the outer loop then
-    # performs the restart sequence on a clean stack.
+    # Route waits cooperatively poll controls, the cycle deadline, and Guard.
+    # A newly stable optical state aborts the old route without stopping the
+    # overall run; the outer loop consumes Guard.last_decision next.
     self.buttons()
     self.cycle.route_tick()
+    profile = getattr(self, "route_active_profile", None)
+    now = runtime.time.monotonic()
+    if (not profile or self.controls.aborted or
+            now - getattr(self, "route_light_last", 0) < .10):
+        return
+    self.route_light_last = now
+    lux = self.sensor.lux()
+    self.guard.update(lux, int(now * 1000))
+    decision = self.guard.last_decision
+    stable = getattr(getattr(self.guard, "transition", None), "last_stable", None)
+    if decision is None or stable is None or stable == profile:
+        return
+    _debug_event(self, "STATE", "preempt from=%s to=%s lux=%.1f" %
+                 (profile, stable, lux), persist=True)
+    self.emit("EVT|GUARD|PREEMPT|from=%s|to=%s|lux=%.1f" %
+              (profile, stable, lux))
+    self.controls.aborted = True
+    try: self.keyboard.release_all()
+    except Exception: pass
+    try: self.arm.abort()
+    except Exception: pass
 
 
 def _plan_context(self):
@@ -691,33 +714,36 @@ _LIGHT_ROUTE_COMMANDS = {
     "LOOP", "LOOPTIME", "ENDLOOP",
 }
 
-def _light_route_lines(text):
-    commands = []
-    loop_depth = 0
-    for raw in text.splitlines():
+def _light_route_rows(rows):
+    commands = []; loop_depth = 0
+    for raw in rows:
         line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("|", 1)
-        command = parts[0].upper()
+        if not line or line.startswith("#"): continue
+        parts = line.split("|", 1); command = parts[0].upper()
         args = parts[1].strip() if len(parts) == 2 else ""
-        if command not in _LIGHT_ROUTE_COMMANDS:
-            return None
+        if command not in _LIGHT_ROUTE_COMMANDS: return None
         if command in ("LOOP", "LOOPTIME"):
-            if not args:
-                return None
+            if not args: return None
             loop_depth += 1
         elif command == "ENDLOOP":
-            if args or loop_depth <= 0:
-                return None
+            if args or loop_depth <= 0: return None
             loop_depth -= 1
         elif command in ("PKGITEM", "ENDPKG", "PGROUP", "PARITEM", "ENDPAR"):
-            if args:
-                return None
-        elif len(parts) != 2:
-            return None
+            if args: return None
+        elif len(parts) != 2: return None
         commands.append((command, args))
     return commands if loop_depth == 0 else None
+
+
+def _light_route_lines(text):
+    return _light_route_rows(text.splitlines())
+
+
+def _light_route_file(name):
+    # Stream lines: Game routes exceed 11 KB and fragmented RP2040 heaps cannot
+    # guarantee one contiguous source-string allocation.
+    with open("/" + name, "r") as fh:
+        return _light_route_rows(fh)
 
 def _run_light_route(ctx, commands):
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
@@ -891,16 +917,16 @@ def _diagnostic_route(self, decision):
     # emit their RMOUSE steps again.
     # Route-stage diagnostic only: do not change route semantics.
     self.emit("EVT|DEBUG|ROUTE|stage=before-route-read|free=%d" % gc.mem_free())
-    with open("/" + name, "r") as fh:
-        text = fh.read()
+    commands = _light_route_file(name)
+    text = None
+    if commands is None:
+        with open("/" + name, "r") as fh:
+            text = fh.read()
     self.emit("EVT|DEBUG|ROUTE|stage=after-route-read|free=%d" % gc.mem_free())
-    commands = _light_route_lines(text)
+    self.route_active_profile = decision.get("profile")
+    self.route_light_last = 0
     try:
         if commands is not None:
-            # The Login helper is intentionally independent from the full
-            # parser. Reclaim the source route before its lazy import so the
-            # fragmented RP2040 heap never needs the old 29 KB parser module.
-            del text
             gc.collect()
             self.emit("EVT|DEBUG|ROUTE|stage=light-route|free=%d" % gc.mem_free())
             # Keep simple Pico-only routes off the large plan_engine import.
@@ -958,6 +984,7 @@ def _diagnostic_route(self, decision):
         self.arm.flush()
         return True
     finally:
+        self.route_active_profile = None
         # Cleanup must be idempotent and must not manufacture a click. Arm
         # releases only buttons explicitly tracked as held by MDOWN.
         try:
@@ -996,6 +1023,10 @@ def _audible_loop(self):
                 # the route so the same Desktop macro is not replayed every poll.
                 self.guard.last_decision = None
                 if decision is not None:
+                    # A Guard preemption aborts only the previous route. Manual
+                    # Stop sets running=False and must never be revived here.
+                    if self.controls.running:
+                        self.controls.aborted = False
                     if decision.get("execute"):
                         route_name = decision.get("route")
                         _debug_event(self, "ROUTE", "start %s lux=%.1f" % (route_name, lux), persist=True)
