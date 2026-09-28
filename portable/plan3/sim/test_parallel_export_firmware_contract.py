@@ -49,7 +49,7 @@ assert 'for field in reply.split("|")' not in runtime
 assert parallel.exists() and parallel.stat().st_size > 8000
 assert executor.stat().st_size < 20000, executor.stat().st_size
 assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
-assert game.exists() and game.stat().st_size < 17000
+assert game.exists() and game.stat().st_size < 22000
 assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in game.read_text()
 assert 'sound_parallel_safe' in game.read_text()
 assert login.exists() and login.stat().st_size < 14000
@@ -67,6 +67,8 @@ assert 'segments = max(8, min(128' in human.read_text()
 assert 'plan-lite-relative' in facade.read_text()
 assert 'timeout - cancel group' in parallel.read_text()
 assert 'parallel wsnd profile range=' in parallel.read_text()
+assert 'SOUNDWATCH' in (root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parse.py').read_text()
+assert 'WPROFILE' in game.read_text() and 'scoped splash timeout -> next cast' in game.read_text()
 assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
 code=(root/'portable/plan3/CIRCUITPY-MODERN/code.py').read_text()
