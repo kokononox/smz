@@ -748,7 +748,19 @@ def _light_route_file(name):
 def _run_light_route(ctx, commands):
     if isinstance(commands, str):
         gc.collect()
-        import plan_engine_game
+        emit = getattr(getattr(ctx, "r", None), "emit", None)
+        if emit is not None:
+            emit("EVT|DEBUG|GAME|stage=before-engine-import|free=%d" % gc.mem_free())
+        gc.collect()
+        try:
+            import plan_engine_game
+        except MemoryError:
+            if emit is not None:
+                emit("EVT|DEBUG|GAME|stage=engine-import-memoryerror|free=%d" % gc.mem_free())
+            raise
+        gc.collect()
+        if emit is not None:
+            emit("EVT|DEBUG|GAME|stage=after-engine-import|free=%d" % gc.mem_free())
         plan_engine_game.run_game_file(commands, ctx)
         return
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
