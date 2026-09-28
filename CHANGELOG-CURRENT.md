@@ -81,7 +81,7 @@
 ## Build 97 — Fit تطبیقی یک‌طرفه و دوطرفهٔ کالیبراسیون
 
 **Previous build:** 96 / Classroom release 194
-**Status:** local candidate; overlapping calibration hardware retest required
+**Status:** CI candidate; overlapping calibration hardware retest required
 
 ### Problem observed
 
@@ -108,6 +108,7 @@ Publish فقط یک Guard دودویی داشت: Candidate بدون تغییر �
 - سناریوی Center-inside، Candidate و همسایه را با Min/Gap ثابت Fit می‌کند.
 - سناریوی Centerهای بسیار نزدیک بدون نوشتن NVM رد می‌شود.
 - قرارداد ترتیب Fit پیش از `calibration_nvm.save` و Telemetry یک‌طرفه/دوطرفه تست می‌شود.
+- قرارداد Windows TestRunner از Cap قدیمی داخل `calibrated_profile` به Fit تطبیقی مرحلهٔ Publish به‌روزرسانی شد؛ Min/Gap و وجود Helper جدید را قفل می‌کند.
 
 ### Next test
 

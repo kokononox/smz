@@ -4354,8 +4354,10 @@ class TestRunner
             Assert(repairedCalibration.Contains("def calibrated_profile(")
                    && repairedCalibration.Contains("0.95")
                    && repairedCalibration.Contains("max(center - low, high - center)")
-                   && repairedCalibration.Contains("tolerance = min(tolerance, cap)"),
-                "light calibration covers asymmetric samples and caps tolerance at adjacent profiles");
+                   && repairedCalibration.Contains("def fit_calibration_profiles(")
+                   && repairedCalibration.Contains("CAL_FIT_SAFETY_GAP_LUX = 0.25")
+                   && repairedCalibration.Contains("CAL_FIT_MIN_TOLERANCE_LUX = 0.5"),
+                "light calibration covers asymmetric samples and adaptively fits adjacent profiles");
             var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
                    && repairedVm.Contains("private void OnBridgeStateChanged")
