@@ -453,7 +453,10 @@ public static class PlanExporter
             int id=PropEx.GetInt(p,"calibrationId",1);
             if(id is not (1 or 2)){Error(n,"sound calibration ID must be 1 or 2");return;}
             if(!_soundCalibrationIds.Add(id)){Error(n,"sound calibration ID "+id+" is already assigned to another enabled Wait For Sound step");return;}
-            Emit(n,new[]{"WSNDP|"+id+","+SoundBinding(n,id,t,m)+","+t+","+m+","+to},"WSNDP");
+            int peakMin=PropEx.GetInt(p,"peakMin",0),peakMax=PropEx.GetInt(p,"peakMax",511),priority=PropEx.GetInt(p,"soundPriority",0);
+            if(peakMin<0||peakMax<1||peakMax>511||peakMin>peakMax){Error(n,"sound Peak range must satisfy 0 <= Min <= Max <= 511");return;}
+            if(priority is < -100 or > 100){Error(n,"sound priority must be between -100 and 100");return;}
+            Emit(n,new[]{"WSNDP|"+id+","+SoundBinding(n,id,t,m)+","+t+","+m+","+to+","+peakMin+","+peakMax+","+priority},"WSNDP");
         }
         private (int lo,int hi,int stable,int timeout,int mode) LuxArgs(Dictionary<string,object?> p){int c=PropEx.GetInt(p,"luxCenter",1250),tol=Math.Max(1,PropEx.GetInt(p,"luxTolerance",50));return(Math.Max(0,c-tol),c+tol,Math.Max(0,(int)Math.Round(PropEx.GetDouble(p,"stableSec",2)*1000)),PropEx.GetInt(p,"timeoutMs",20000),PropEx.GetString(p,"sampleMode","hires")=="lowres"?1:0);}
         private void EmitLabel(StepNode n){var name=PropEx.GetString(n.Props,"label","label1").Trim();if(name.Length==0||name.Contains('=')||name.Contains('|')){Error(n,"bad label name '"+name+"'");return;}if(!_labels.Add(name)){Error(n,"duplicate label '"+name+"'");return;}Emit(n,new[]{"LABEL|"+name},"LABEL");}
@@ -838,9 +841,12 @@ public static class PlanExporter
             {
                 if (fields.Length != 2) Bad("WSNDP needs one comma payload");
                 var values = fields[1].Split(',');
-                if (values.Length != 5 || values[0] is not ("1" or "2")
+                if (values.Length is not (5 or 8 or 10) || values[0] is not ("1" or "2")
                     || values[1].Length != 12 || values[1].Any(ch => !Uri.IsHexDigit(ch))
-                    || !IsInt(values[2]) || !IsInt(values[3]) || !IsInt(values[4]))
+                    || !values.Skip(2).Take(values.Length == 5 ? 3 : 6).All(IsInt)
+                    || (values.Length == 10 && (values[8].Length == 0
+                        || values[8].Any(ch => ch < 32 || ch > 126 || "/\\:|%".Contains(ch))
+                        || !IsInt(values[9]))))
                     Bad("bad WSNDP profile contract");
             }
             if (op == "INCLUDE" && (!HasKv(fields, "file", out var file) || file.Length == 0 ||
