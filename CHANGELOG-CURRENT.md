@@ -106,7 +106,8 @@ Bundle و هر 34 Hash سالم بودند. Build 97 حدود 3.6KB به `guard_
 
 - 50 قرارداد رسمی Portable موفق شدند.
 - تست‌های Fit عادی، Center-inside و centers-too-close موفق شدند.
-- قرارداد Boot الزام می‌کند Runtime کمتر از 40KB، Protocol کمتر از 5.5KB و Import Fit فقط Lazy باشد.
+- قرارداد Boot الزام می‌کند Runtime با نرمال‌سازی LF/CRLF کمتر از 40KB، Protocol کمتر از 5.5KB و Import Fit فقط Lazy باشد.
+- قرارداد Windows برای Checkoutهای CRLF اصلاح شد تا فقط بایت‌های معنایی Runtime را بسنجد، نه افزایش مصنوعی یک بایت در هر خط.
 - هر 35 Hash Manifest با بایت نهایی تطبیق دارد.
 
 ### Next test

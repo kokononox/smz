@@ -4361,7 +4361,7 @@ class TestRunner
                    && repairedCalibrationFit.Contains("SAFETY_GAP = 0.25")
                    && repairedCalibrationFit.Contains("MINIMUM = 0.5")
                    && modernRuntime.Contains("__import__(\"calibration_fit\")")
-                   && modernRuntime.Length < 40000,
+                   && modernRuntime.Replace("\r", "").Length < 40000,
                 "light calibration covers asymmetric samples and adaptively fits adjacent profiles");
             var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
