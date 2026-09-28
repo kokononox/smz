@@ -14,7 +14,7 @@ _ROUTES = (
     "/character_dashboard_steps.txt", "/entering_game_loading_steps.txt",
     "/game_steps.txt", "/restart_steps.txt", "/targeted_steps.txt",
     "/resumable_steps.txt", "/launch_recovery.txt", "/main_recovery.txt",
-    "/dc_steps.txt",
+    "/dc_steps.txt", "/whisper_steps.txt", "/splash_steps.txt",
 )
 _FORMAT = 1
 _SILENCE_SECONDS = 3.0
@@ -156,7 +156,7 @@ def _parse_route_line(line):
     if not line.startswith("WSNDP|"):
         return None
     values = line[6:].split(",")
-    if len(values) != 5:
+    if len(values) not in (5, 8, 10):
         return None
     try:
         profile_id = int(values[0])
