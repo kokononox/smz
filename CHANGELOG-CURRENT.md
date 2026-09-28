@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 107:** Build 106 Poll تو‌در‌توی SoundWatch را حذف کرد و Listener از مرحلهٔ Arm عبور کرد، اما Bundle 355 هنگام اولین RMOUSE در ساختار `PGROUP→LOOP→RPKG` و پس از Lazy import کامل موس با `pystack exhausted` متوقف شد. Generator بازگشتی Containerهای Game با Stack تکرارشوندهٔ صریح جایگزین شد؛ تولید/ارسال موس، ARM و Cadence بدون تغییرند.
 - **Candidate Build 106:** Bundle 350 کل مسیر Desktop→Login→Dashboard→Loading→Game، Split Type و ایندکس ۳۶۹ فرمان را پاس کرد. در نخستین `WPROFILE`، Poll همان SoundWatch هم داخل scoped waiter و هم از callback تعاونی `sleep_ms` انجام می‌شد و با وجود 43KB Heap آزاد، pystack را خالی می‌کرد. scoped waiter اکنون فقط نتیجه را می‌خواند و `sleep_ms` تنها مالک Poll callback است؛ ARM، Natural Mouse و Cadence تغییر نکرده‌اند.
 - **Candidate Build 105:** Bundle 340 ثابت کرد Mouse و Type جدید با حاشیهٔ مناسب Import می‌شوند، اما اولین Typo به‌دلیل جاافتادن ثابت `_QWERTY_ROWS` از فایل Split Type با `NameError` متوقف شد. جدول QWERTY و تست اجرای واقعی Neighbor به `plan_engine_login_type.py` اضافه شدند؛ الگوریتم Typo، Natural Mouse، ARM و Sound تغییر نکرده‌اند.
 - **Candidate Build 104:** Bundle 330 تمام Importهای تقسیم‌شده Game، ایندکس ۳۶۹ فرمان، Parallel و مرحلهٔ قلاب را پاس کرد؛ آخرین شکست در Import یک‌تکهٔ 12.8KB Login/Mouse با free=42,912 رخ داد. Login به Facade، Core، Mouse و Type زیر 5.6KB تقسیم شد و هر بخش ترتیبی/تنبل با تله‌متری مستقل بارگذاری می‌شود.
@@ -44,6 +45,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 107 | Bundle 355: SoundWatch arm و همهٔ Lazy importها پاس؛ اولین RMOUSE داخل LOOP/RPKG با `pystack exhausted` متوقف شد | تبدیل Generator بازگشتی Containerهای Game به Stack Iterative | Local candidate؛ ARM/Mouse path unchanged |
 | 106 | Bundle 350: تمام انتقال‌ها، Login Type، Game index و Parallel import پاس؛ نخستین WPROFILE با `pystack exhausted` متوقف شد | حذف Poll تو‌در‌توی callback از scoped waiter؛ `sleep_ms` تنها مالک سرویس SoundWatch | Local candidate؛ ARM/Mouse unchanged |
 | 105 | Bundle 340: Mouse و Type import پاس؛ اولین Typo با `_QWERTY_ROWS` NameError متوقف شد | بازیابی جدول QWERTY در ماژول Split Type و تست Neighbor واقعی | Local candidate؛ Mouse/ARM unchanged |
 | 104 | Bundle 330: Game/Core/Runtime/File-index/Parallel پاس؛ اولین Mouse import با free=42912 و allocation=896 شکست خورد | تقسیم Login به Facade 2.3KB، Core 2.7KB، Mouse 4.6KB و Type 5.5KB | CI candidate؛ hardware retest pending |
@@ -95,6 +97,51 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 107 — Stack تکرارشوندهٔ Containerهای Game
+
+**Previous build:** 106 / Classroom release 205
+**Status:** local candidate; first fishing RMOUSE hardware retest required
+
+### Problem observed
+
+Bundle 355 ثابت کرد Build 106 از `SOUNDWATCH|armed` عبور می‌کند. سپس
+`plan_engine_login`, Core و Mouse Runtime نیز با موفقیت و با حدود 36KB Heap
+آزاد بارگذاری شدند، اما هنگام تولید اولین RMOUSE داخل شاخهٔ ماهیگیری با
+`RuntimeError('pystack exhausted')` متوقف شد.
+
+### Root cause
+
+مفسر رویدادهای Parallel برای هر `LOOP` و `RPKG` یک Generator `_events`
+جدید را به‌صورت بازگشتی ایجاد می‌کرد. مسیر واقعی
+`PGROUP → LOOP → RPKG → RMOUSE → mouse_events` چند Generator فعال را پیش از
+ورود Planner موس روی pystack محدود CircuitPython نگه می‌داشت. Heap و Importها
+سالم بودند.
+
+### Change
+
+- پیمایش `LOOP/LOOPTIME/RPKG` در `_events` با Frameهای کوچک روی یک Stack صریح
+  انجام می‌شود و دیگر `_events` خودش را فراخوانی نمی‌کند.
+- ترتیب Random Package، تعداد Loop، Deadline حلقهٔ زمانی و Streaming رویدادها
+  حفظ شده‌اند.
+- Planner موس، Relative HID، Firmware ARM، DDA، Cadence و Humanization تغییر
+  نکرده‌اند.
+- تست جدید دو دور `LOOP` و Package ترتیبی شامل RMOUSE را اجرا و نبود فراخوانی
+  بازگشتی `_events` را قفل می‌کند.
+
+### Validation
+
+- تست فایل‌محور Game، Reservoir Sampling و ترتیب رویدادهای Nested Container
+  باید پاس شوند.
+- مجموعهٔ کامل Portable و Manifest مدرن پس از تغییر کنترل می‌شوند.
+
+### Next test
+
+با Build 107 Bundle را کامل بازسازی و همان پروژه را اجرا کنید. بعد از
+`after-mouse-runtime-import` باید اولین RMOUSE اجرا شود و
+`pystack exhausted` رخ ندهد. سپس Timeout هجده تا بیست‌ودو ثانیه‌ای Splash،
+صدای واقعی Splash و ادامهٔ Cast بعدی بررسی شوند. نرمی موس باید بدون تغییر
+باقی بماند.
 
 ## Build 106 — حذف بازگشت تو‌در‌توی SoundWatch از WPROFILE
 

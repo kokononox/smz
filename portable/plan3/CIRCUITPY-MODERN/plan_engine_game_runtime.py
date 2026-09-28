@@ -16,7 +16,28 @@ def _service_sound_watch(ctx, state):
 
 def _events(commands, start, end, ctx, state):
     i = start
-    while i < end:
+    # Explicit container frames keep CircuitPython's bounded pystack flat.
+    # P = package: [P,parent_end,after,parts,order,next]
+    # L = loop:    [L,parent_end,after,body_start,body_end,left,deadline]
+    frames = []
+    while True:
+        if i >= end:
+            resumed = False
+            while frames:
+                frame = frames[-1]
+                if frame[0] == "P" and frame[5] < len(frame[4]):
+                    selected = frame[4][frame[5]]; frame[5] += 1
+                    i, end = frame[3][selected]; resumed = True; break
+                if frame[0] == "L":
+                    again = (ctx.now() < frame[6]) if frame[6] is not None else (
+                        frame[5] is None or frame[5] > 1)
+                    if again:
+                        if frame[5] is not None: frame[5] -= 1
+                        i, end = frame[3], frame[4]; resumed = True; break
+                frames.pop(); i, end = frame[2], frame[1]
+                if i < end: resumed = True; break
+            if not resumed: return
+            continue
         op, args = commands[i]
         if op in ("PLAN", "SCREEN", "SPEED", "PKGITEM", "PARITEM", "SOUNDWATCH"):
             pass
@@ -53,23 +74,23 @@ def _events(commands, start, end, ctx, state):
             yield ("profile", "splash", random.randint(min(lo, hi), max(lo, hi)))
         elif op == "RPKG":
             finish, parts, order = _core._package(commands, i)
-            for selected in order:
-                a, b = parts[selected]
-                for event in _events(commands, a, b, ctx, state): yield event
+            if order:
+                selected = order[0]
+                frames.append(["P", end, finish + 1, parts, order, 1])
+                i, end = parts[selected]
+                continue
             i = finish
         elif op in ("LOOP", "LOOPTIME"):
             finish = _core._end(commands, i, op, "ENDLOOP")
             if op == "LOOP":
                 count = int(args)
-                remaining = None if count == 0 else count
-                while remaining is None or remaining > 0:
-                    for event in _events(commands, i + 1, finish, ctx, state): yield event
-                    if remaining is not None: remaining -= 1
+                left = None if count == 0 else count
+                deadline = None
             else:
-                deadline = ctx.now() + float(args)
-                while ctx.now() < deadline:
-                    for event in _events(commands, i + 1, finish, ctx, state): yield event
-            i = finish
+                left = None; deadline = ctx.now() + float(args)
+            frames.append(["L", end, finish + 1, i + 1, finish, left, deadline])
+            i, end = i + 1, finish
+            continue
         else:
             raise ValueError("unsupported Game event " + op)
         i += 1
