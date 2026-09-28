@@ -4447,8 +4447,34 @@ class TestRunner
                 Assert(manifestProfile == profileHash + "  " + profileFile,
                     "Build 73: manifest hashes exported " + profileFile);
             }
+            current[PipelineKind.Game].Steps.Add(new StepNode
+            {
+                Type = "forLoop",
+                Props = new Dictionary<string, object?> { ["mode"] = "infinite" },
+                Children = { new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } } },
+            });
+            current[PipelineKind.Whisper].Steps.Add(new StepNode
+            {
+                Type = "buzzer", Props = new Dictionary<string, object?> { ["preset"] = "warning" },
+            });
+            var whisperProfile = current.SoundProfiles.Single(x => x.Id == 1);
+            whisperProfile.Enabled = true; whisperProfile.PeakMin = 20; whisperProfile.PeakMax = 80;
+            whisperProfile.Priority = 10; whisperProfile.CooldownMs = 1800;
+            ModernAutoCycleFirmwareBundle.ExportCurrentProject(
+                Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
+                1920, 1080, "test sound-watch.amsj", "CURRENT-PROJECT-REGRESSION");
+            var watchedGame = File.ReadAllText(Path.Combine(modernTmp, "game_steps.txt"));
+            var whisperRoute = File.ReadAllText(Path.Combine(modernTmp, "whisper_steps.txt"));
+            var watchedSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
+            Assert(watchedGame.Contains("PGROUP")
+                   && watchedGame.Contains(",20,80,10,whisper_steps.txt,1800")
+                   && whisperRoute.Contains("BEEP|700,180")
+                   && watchedSnapshot.Contains("soundProfiles")
+                   && watchedSnapshot.Contains("\"Enabled\": true"),
+                "Build 92: Game-wide Whisper watcher exports a resumable response route and persists its range");
+
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
-            Assert(true, "Build 84: target read-back accepts 32 valid hashes and matching Guard revisions");
+            Assert(true, "Build 92: target read-back accepts 34 valid hashes and matching Guard revisions");
             var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
             var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
             File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");
