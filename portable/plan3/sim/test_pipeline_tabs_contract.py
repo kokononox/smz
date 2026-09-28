@@ -20,8 +20,9 @@ assert "SelectedNodes = new()" in viewmodel and "_undo.Clear()" in viewmodel and
 assert "optional GP6 buzzer/error signalling is tracked as a hardware follow-up" in spec
 assert 'PipelineKind.Whisper' in model and 'whisper_steps.txt' in model
 assert 'PipelineKind.Splash' in model and 'splash_steps.txt' in model
-assert 'FormatVersion = 4' in model and 'soundProfiles' in serializer
+assert 'FormatVersion = 5' in model and 'soundProfiles' in serializer
 assert 'AddGameSoundWatch' in bundle and 'SOUNDWATCH|' in bundle and 'HasScopedSplash' in bundle
-for token in ('WhisperPeakMin', 'WhisperPriority', 'SplashPeakMax', 'SoundProfileSummary'):
+for token in ('WhisperPeakMin', 'WhisperPriority', 'SplashPeakMax',
+              'SplashTimeoutMinSec', 'SplashTimeoutMaxSec', 'SoundProfileSummary'):
     assert token in dashboard, token
 print("pipeline tabs + global Whisper/scoped Splash contract: 28 passed, 0 failed")

@@ -152,7 +152,7 @@
                 <MenuItem Header="Run in Parallel (grou_p) — children start together; next step waits for the longest" Command="{Binding AddStepCommand}" CommandParameter="parallelGroup" />
                 <Separator />
                 <MenuItem Header="_Find Image On Screen" Command="{Binding AddStepCommand}" CommandParameter="findImage" />
-                <MenuItem Header="_Wait For Sound" Command="{Binding AddStepCommand}" CommandParameter="waitForSound" />
+                <MenuItem Header="_Splash Listener (Scoped)" Command="{Binding AddStepCommand}" CommandParameter="splashListener" />
                 <MenuItem Header="Wait For _Light (BH1750)" Command="{Binding AddStepCommand}" CommandParameter="waitForLight" />
                 <MenuItem Header="⛔ Raise Error / Stop Macro" Command="{Binding AddStepCommand}" CommandParameter="raiseError" />
                 <Separator />
@@ -242,8 +242,8 @@
                                 <TextBlock Text="Image" FontSize="8" HorizontalAlignment="Center" Foreground="#FFFFFF" Margin="0,1,0,0" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource RailButton}" Command="{Binding AddStepCommand}" CommandParameter="waitForSound"
-                                ToolTip="انتظار صدا — سنسور روی A0 (دکمه‌ی کالیبره در داخل)">
+                        <Button Style="{StaticResource RailButton}" Command="{Binding AddStepCommand}" CommandParameter="splashListener"
+                                ToolTip="شنوندهٔ چلپ Scoped — Timeout از پروفایل Splash کنار خروجی Pico">
                             <StackPanel>
                                 <TextBlock Text="🔊" FontSize="15" FontFamily="Segoe UI Emoji" HorizontalAlignment="Center" Foreground="{StaticResource WarnBrush}" />
                                 <TextBlock Text="Sound" FontSize="8" HorizontalAlignment="Center" Foreground="#FFFFFF" Margin="0,1,0,0" />
@@ -426,7 +426,7 @@
                             <Separator />
                             <MenuItem Header="Find Image On Screen" CommandParameter="findImage"
                                       Command="{Binding PlacementTarget.DataContext.AddStepCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                            <MenuItem Header="Wait For Sound" CommandParameter="waitForSound"
+                            <MenuItem Header="Splash Listener (Scoped)" CommandParameter="splashListener"
                                       Command="{Binding PlacementTarget.DataContext.AddStepCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                             <MenuItem Header="Wait For Light (BH1750)" CommandParameter="waitForLight"
                                       Command="{Binding PlacementTarget.DataContext.AddStepCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />

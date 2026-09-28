@@ -42,6 +42,12 @@ public sealed class SoundWatchProfile
     public int MinDurationMs { get; set; } = 60;
     public int ListenWindowMs { get; set; } = 1000;
     public int CooldownMs { get; set; } = 1500;
+    /// <summary>
+    /// Per-cast timeout range for the scoped Splash listener. These values belong to
+    /// the Splash profile, not to the retired generic Wait For Sound editor.
+    /// </summary>
+    public int TimeoutMinSec { get; set; } = 18;
+    public int TimeoutMaxSec { get; set; } = 22;
     public PipelineKind ResponseTab { get; set; }
 }
 
@@ -67,7 +73,7 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 4;
+    public const int FormatVersion = 5;
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },

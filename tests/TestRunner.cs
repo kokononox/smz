@@ -30,7 +30,9 @@ class TestRunner
         Assert(errorDef.Label == "Raise Error / Stop Macro" && errorDef.Fields.Any(f => f.Key == "message"),
             "raiseError definition exists with a message field");
         Assert(StepDefinitions.Get("waitForSound").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("global")),
-            "waitForSound exposes a per-step timeout policy");
+            "legacy waitForSound remains loadable with its per-step timeout policy");
+        Assert(StepDefinitions.Get("splashListener").Fields.Count == 0,
+            "Build 95: Splash Listener is a zero-configuration scoped marker");
         Assert(StepDefinitions.Get("waitForLight").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("stopWithAlarm")),
             "waitForLight exposes a per-step timeout policy");
 
@@ -4454,11 +4456,7 @@ class TestRunner
                 Children =
                 {
                     new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } },
-                    new StepNode { Type = "waitForSound", Props = new Dictionary<string, object?>
-                    {
-                        ["responseRoute"] = "splash", ["timeoutMinSec"] = 18, ["timeoutMaxSec"] = 22,
-                        ["armed"] = false, ["insertIfElse"] = false,
-                    } },
+                    new StepNode { Type = "splashListener" },
                 },
             };
             current[PipelineKind.Game].Steps.Add(watchedLoop);
@@ -4476,6 +4474,7 @@ class TestRunner
             var splashProfile = current.SoundProfiles.Single(x => x.Id == 2);
             splashProfile.Enabled = true; splashProfile.PeakMin = 25; splashProfile.PeakMax = 95;
             splashProfile.Priority = 5; splashProfile.CooldownMs = 900;
+            splashProfile.TimeoutMinSec = 19; splashProfile.TimeoutMaxSec = 24;
             ModernAutoCycleFirmwareBundle.ExportCurrentProject(
                 Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
                 1920, 1080, "test sound-watch.amsj", "CURRENT-PROJECT-REGRESSION");
@@ -4484,11 +4483,34 @@ class TestRunner
             var watchedSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
             Assert(watchedGame.Contains("SOUNDWATCH|whisper,20,80,60,10,1800,whisper_steps.txt,global")
                    && watchedGame.Contains("splash,25,95,60,5,900,splash_steps.txt,scoped")
-                   && watchedGame.Contains("WPROFILE|splash,18000,22000")
+                   && watchedGame.Contains("WPROFILE|splash,19000,24000")
                    && whisperRoute.Contains("BEEP|700,180")
                    && watchedSnapshot.Contains("soundProfiles")
                    && watchedSnapshot.Contains("\"Enabled\": true"),
-                "Build 93: global Whisper and scoped Splash timeout range export with separate response routes");
+                "Build 95: global Whisper and dedicated Splash Listener use profile-owned timeout range");
+
+            var legacyWorkspace = new PipelineWorkspace();
+            foreach (var tab in legacyWorkspace.Tabs) tab.Steps.Clear();
+            legacyWorkspace[PipelineKind.Game].Steps.Add(new StepNode
+            {
+                Type = "waitForSound",
+                Props = new Dictionary<string, object?>
+                {
+                    ["responseRoute"] = "splash", ["timeoutMinSec"] = 17,
+                    ["timeoutMaxSec"] = 23, ["armed"] = false, ["insertIfElse"] = false,
+                },
+            });
+            var legacyWorkspaceJson = PipelineWorkspaceSerializer.Serialize(legacyWorkspace)
+                .Replace("\"pipelineVersion\": 5", "\"pipelineVersion\": 4")
+                .Replace("\"TimeoutMinSec\": 18,", "")
+                .Replace("\"TimeoutMaxSec\": 22,", "");
+            var migratedWorkspace = PipelineWorkspaceSerializer.Deserialize(legacyWorkspaceJson);
+            var migratedSplash = migratedWorkspace.SoundProfiles.Single(x => x.Id == 2);
+            Assert(migratedWorkspace[PipelineKind.Game].Steps
+                       .Any(x => x.Type == "splashListener")
+                   && migratedSplash.TimeoutMinSec == 17
+                   && migratedSplash.TimeoutMaxSec == 23,
+                "Build 95: legacy responseRoute=splash migrates to Splash Listener and profile timeout");
 
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
             Assert(true, "Build 93: target read-back accepts 34 valid hashes and matching Guard revisions");

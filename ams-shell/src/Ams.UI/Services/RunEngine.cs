@@ -288,6 +288,10 @@ public sealed class RunEngine
                     break;
                 }
 
+                case "splashListener":
+                    _log("Splash Listener is executed only by the portable Pico runtime; use Export to Pico.");
+                    break;
+
                 case "openFile":
                 {
                     var p = PropEx.GetString(s.Props, "path");

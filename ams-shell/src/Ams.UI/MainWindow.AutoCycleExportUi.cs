@@ -52,7 +52,7 @@ internal static class AutoCycleExportUiBootstrap
         panel.Children.Add(AutoCycleUiKit.Title("پروفایل‌های صدای Game"));
         panel.Children.Add(AutoCycleUiKit.Helper(
             "Whisper در تمام Game سراسری است و بعد از واکنش همان نقطه را ادامه می‌دهد. " +
-            "Splash فقط داخل Wait For Sound با رفتار Splash scoped فعال می‌شود؛ با تشخیص یا پایان Timeout بازه‌ای، پرتاب بعدی شروع می‌شود."));
+            "Splash فقط در محل استپ Splash Listener فعال می‌شود؛ با تشخیص یا پایان Timeout بازه‌ای، پرتاب بعدی شروع می‌شود."));
 
         var profiles = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -62,7 +62,8 @@ internal static class AutoCycleExportUiBootstrap
             nameof(MainViewModel.WhisperPriority), nameof(MainViewModel.WhisperCooldownMs));
         var splash = ProfileCard("چلپ آب — فقط Scoped", nameof(MainViewModel.SplashSoundEnabled),
             nameof(MainViewModel.SplashPeakMin), nameof(MainViewModel.SplashPeakMax),
-            nameof(MainViewModel.SplashPriority), nameof(MainViewModel.SplashCooldownMs));
+            nameof(MainViewModel.SplashPriority), nameof(MainViewModel.SplashCooldownMs),
+            nameof(MainViewModel.SplashTimeoutMinSec), nameof(MainViewModel.SplashTimeoutMaxSec));
         Grid.SetColumn(whisper, 0); Grid.SetColumn(splash, 1);
         profiles.Children.Add(whisper); profiles.Children.Add(splash);
         panel.Children.Add(profiles);
@@ -74,7 +75,7 @@ internal static class AutoCycleExportUiBootstrap
     }
 
     private static Border ProfileCard(string title, string enabled, string min, string max,
-        string priority, string cooldown)
+        string priority, string cooldown, string? timeoutMin = null, string? timeoutMax = null)
     {
         var body = new StackPanel { Margin = new Thickness(9) };
         var toggle = new CheckBox
@@ -92,6 +93,15 @@ internal static class AutoCycleExportUiBootstrap
         AddNumber(fields, 2, "Priority", priority);
         AddNumber(fields, 3, "Cooldown ms", cooldown);
         body.Children.Add(fields);
+        if (timeoutMin is not null && timeoutMax is not null)
+        {
+            var timeoutFields = new Grid { Margin = new Thickness(0, 7, 0, 0) };
+            timeoutFields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            timeoutFields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            AddNumber(timeoutFields, 0, "Timeout حداقل هر پرتاب (ثانیه)", timeoutMin);
+            AddNumber(timeoutFields, 1, "Timeout حداکثر هر پرتاب (ثانیه)", timeoutMax);
+            body.Children.Add(timeoutFields);
+        }
         return new Border
         {
             Child = body, Background = AutoCycleUiKit.Raised, BorderBrush = AutoCycleUiKit.BorderBrush,

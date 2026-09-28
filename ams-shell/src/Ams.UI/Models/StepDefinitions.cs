@@ -300,9 +300,18 @@ public static class StepDefinitions
                 : $"Random Package · all {s.Children.Count} step(s), shuffled",
             // container — the runner shuffles/picks children per pass (v0.7.8)
         },
+        ["splashListener"] = new StepDefinition
+        {
+            Label = "Splash Listener (Scoped)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0,
+            Fields = Array.Empty<FieldDef>(),
+            Summarize = _ => "Splash Listener · Timeout از پروفایل Splash · تشخیص/Timeout → پرتاب بعدی",
+            // Portable-only marker. PipelinePlanBundle supplies the profile timeout values.
+            Commands = _ => new[] { "WPROFILE|splash,18000,22000" },
+        },
         ["waitForSound"] = new StepDefinition
         {
-            Label = "Wait For Sound", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,   // v0.9.34 — the If-structure needs the accordion/scope visuals (findImage parity)
+            // Legacy compatibility only. New projects insert splashListener instead.
+            Label = "Wait For Sound (Legacy)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,   // v0.9.34 — the If-structure needs the accordion/scope visuals (findImage parity)
             Fields = new FieldDef[]
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
