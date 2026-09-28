@@ -49,10 +49,10 @@ internal static class AutoCycleExportUiBootstrap
             Tag = "AutoCycle.SoundProfiles", FlowDirection = FlowDirection.RightToLeft,
             Margin = new Thickness(0, 8, 0, 8),
         };
-        panel.Children.Add(AutoCycleUiKit.Title("شنوندهٔ سراسری صدا در محیط بازی"));
+        panel.Children.Add(AutoCycleUiKit.Title("پروفایل‌های صدای Game"));
         panel.Children.Add(AutoCycleUiKit.Helper(
-            "بازه و اولویت تشخیص اینجا تنظیم می‌شود؛ اقدام‌ها را در تب‌های Whisper و Splash بساز. " +
-            "پس از پایان تب واکنش، اجرای Game از همان نقطه ادامه پیدا می‌کند. مقدار Min=0 یعنی استفاده از آستانهٔ کالیبره‌شده."));
+            "Whisper در تمام Game سراسری است و بعد از واکنش همان نقطه را ادامه می‌دهد. " +
+            "Splash فقط داخل Wait For Sound با رفتار Splash scoped فعال می‌شود؛ با تشخیص یا پایان Timeout بازه‌ای، پرتاب بعدی شروع می‌شود."));
 
         var profiles = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -60,7 +60,7 @@ internal static class AutoCycleExportUiBootstrap
         var whisper = ProfileCard("ویسپر", nameof(MainViewModel.WhisperSoundEnabled),
             nameof(MainViewModel.WhisperPeakMin), nameof(MainViewModel.WhisperPeakMax),
             nameof(MainViewModel.WhisperPriority), nameof(MainViewModel.WhisperCooldownMs));
-        var splash = ProfileCard("چلپ آب", nameof(MainViewModel.SplashSoundEnabled),
+        var splash = ProfileCard("چلپ آب — فقط Scoped", nameof(MainViewModel.SplashSoundEnabled),
             nameof(MainViewModel.SplashPeakMin), nameof(MainViewModel.SplashPeakMax),
             nameof(MainViewModel.SplashPriority), nameof(MainViewModel.SplashCooldownMs));
         Grid.SetColumn(whisper, 0); Grid.SetColumn(splash, 1);
