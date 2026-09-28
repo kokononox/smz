@@ -38,11 +38,16 @@ def original_next(self):
     self.emit("ERR|CAL|UNSAVED|stage=%d" % (self.stage + 1))
 
 
+def debug_event(owner, kind, detail="", persist=False):
+    owner.debug.append((kind, detail, persist))
+
+
 ns = {
     "runtime": runtime,
     "_original_next_cal": original_next,
     "_original_save_cal": original_save,
     "_original_yellow_action": original_yellow,
+    "_debug_event": debug_event,
 }
 exec(compile(ast.Module(body=selected, type_ignores=[]), str(CODE), "exec"), ns)
 
@@ -59,6 +64,7 @@ class Fake:
         self.calibrating = True
         self.controls = types.SimpleNamespace(paused=False, running=False)
         self.events = []
+        self.debug = []
         self.error_tones = 0
         self.record_tones = 0
 
@@ -80,6 +86,9 @@ ns["_audible_save_cal"](fake)
 assert fake.error_tones == 1
 assert fake.last_cal_error.startswith("OVERLAP:")
 assert fake.saved is False
+assert fake.debug == [
+    ("CAL", "save-failed stage=5 id=game error=OVERLAP:character-dashboard:0.417", True)
+]
 
 ns["_audible_next_cal"](fake)
 assert fake.stage == 4
@@ -96,4 +105,4 @@ assert fake.events[-1] == (
     "EVT|CAL|mode=started|stage=5|id=game|seconds=5|saved=0|retry=1"
 )
 
-print("calibration overlap retry: 11 passed, 0 failed")
+print("calibration overlap retry: 12 passed, 0 failed")
