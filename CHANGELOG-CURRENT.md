@@ -4,7 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
-- **Candidate Build 88:** روی سخت‌افزاری که Warm Restart اتصال USB را تمام مدت `UP` نگه می‌دارد، Marker معتبر NVM اکنون جایگزین امنِ لبهٔ گمشدهٔ `DOWN` است؛ Startup دیگر منتظر رخدادی که سیستم‌عامل گزارش نمی‌کند نمی‌ماند.
+- **Hardware-passed Build 88:** بستهٔ تشخیصی A پس از Warm Restart بدون Start دستی زنده ماند و Startup را اجرا کرد. همین مسیر Marker + USB fusion اکنون مسیر استاندارد خروجی Classroom است.
 - **Candidate Build 87:** USB DOWN/UP که حین انتهای Route After رخ می‌دهد دیگر پاک نمی‌شود؛ Startup پس از بازگشت Windows ادامه می‌یابد. صدای Save کالیبراسیون نیز به یک الگوی سه‌نتی واضح‌تر ارتقا یافت و نتیجهٔ Save در NVM Debug ثبت می‌شود.
 - **Candidate Build 86:** صدای خطای کالیبراسیون برای Sample ناپایدار و فشار زرد هنگام Busy اضافه شد؛ بازهٔ کامل چرخه با پیش‌فرض ۱۱۰–۱۳۰ دقیقه به UI و Runtime برگشت؛ فایل شش‌پروفایلی به‌روز با Dashboard برابر `13.3 ± 3.0 lux` همیشه داخل بستهٔ Classroom قرار می‌گیرد.
 - **Candidate Build 85:** کالیبراسیون فیزیکی نور دیگر به Revision خروجی وابسته نیست؛ Snapshot قدیمی CAL1 بازیابی/مهاجرت می‌شود و منبع مؤثر با `CALSTATUS source=nvm` قابل مشاهده است.
@@ -26,7 +26,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
-| 88 | Build 128: کالیبراسیون پاس؛ Startup پس از Restart همچنان زنده نماند | Resume با Marker معتبر حتی وقتی Windows هیچ USB DOWN گزارش نمی‌کند | CI candidate |
+| 88 | بستهٔ A پاس: Restart، Resume خودکار و اجرای Startup بدون Start دستی | Resume با Marker معتبر حتی وقتی Windows هیچ USB DOWN گزارش نمی‌کند | Hardware pass |
 | 87 | Build 124: Restart انجام شد ولی Startup خودکار اجرا نشد؛ Tone ذخیره شنیده نشد | حفظ USB transition حین After و تقویت/ثبت Tone ذخیره | CI candidate |
 | 86 | تست سخت‌افزاری لازم است | بازخورد صوتی Fail کالیبراسیون، بازهٔ ۱۱۰–۱۳۰ دقیقه و پروفایل نور همراه بسته | CI candidate |
 | 85 | تست سخت‌افزاری لازم است | ماندگاری کالیبراسیون فیزیکی بین Exportها و Telemetry منبع NVM | CI candidate |
@@ -63,7 +63,7 @@
 ## Build 88 — حذف وابستگی Resume به USB DOWN
 
 **Previous build:** 87 / Classroom release 128
-**Status:** CI candidate; restart-resume hardware retest required
+**Status:** Hardware passed with diagnostic package A; promoted to standard export
 **Commit:** `{{COMMIT_SHA}}`
 
 ### Problem observed
@@ -88,13 +88,11 @@
 - Regression جدید سناریوی «After کامل، Marker مسلح، USB همیشه UP» را اجرا می‌کند و تأیید می‌کند Startup بدون Start دستی اجرا و Marker پاک می‌شود.
 - سناریوی DOWN/UP حین After، Boot با Marker، Deadline، پایان طبیعی Game و Desktop skip همچنان پاس می‌شوند.
 - Bundle 225 ارسالی مستقل بررسی شد: ۳۲/۳۲ Hash صحیح و محتوای Runtime با Build 87 یکسان بود.
+- تست سخت‌افزاری بستهٔ A پاس شد: چرخه پس از Restart بدون فشار مجدد Start زنده ماند. نسخه‌های تشخیصی B و C لازم نشدند.
 
-### Next test
+### Standard export
 
-1. بازه را موقتاً روی ۳ تا ۶ دقیقه نگه دارید و یک‌بار Start کنید.
-2. بعد از Restart دیگر Start را فشار ندهید.
-3. پس از بالا آمدن Windows تا پایان Delay داخلی ۳۰–۶۰ ثانیه صبر کنید.
-4. انتظار می‌رود `CYCLE|usb|state=UP|startup-in=2|source=marker-no-down`، سپس `startup-start` و `startup-complete|next=login-or-dc|desktop=skip` ثبت شود.
+خروجی عادی **Current project Pico export** از این Build به بعد همان منطق پذیرفته‌شدهٔ بستهٔ A را در `restart_cycle.py` و `SHA256SUMS.txt` قرار می‌دهد. فایل‌های تشخیصی، حرکت موس ۲۰ثانیه‌ای و Tone آزمایشی وارد خروجی استاندارد نشده‌اند؛ Route واقعی Startup پروژه بدون تغییر صادر می‌شود.
 
 ## Build 87 — حفظ USB Transition و تأیید واضح Save
 
