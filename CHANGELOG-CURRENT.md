@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 87:** USB DOWN/UP که حین انتهای Route After رخ می‌دهد دیگر پاک نمی‌شود؛ Startup پس از بازگشت Windows ادامه می‌یابد. صدای Save کالیبراسیون نیز به یک الگوی سه‌نتی واضح‌تر ارتقا یافت و نتیجهٔ Save در NVM Debug ثبت می‌شود.
 - **Candidate Build 86:** صدای خطای کالیبراسیون برای Sample ناپایدار و فشار زرد هنگام Busy اضافه شد؛ بازهٔ کامل چرخه با پیش‌فرض ۱۱۰–۱۳۰ دقیقه به UI و Runtime برگشت؛ فایل شش‌پروفایلی به‌روز با Dashboard برابر `13.3 ± 3.0 lux` همیشه داخل بستهٔ Classroom قرار می‌گیرد.
 - **Candidate Build 85:** کالیبراسیون فیزیکی نور دیگر به Revision خروجی وابسته نیست؛ Snapshot قدیمی CAL1 بازیابی/مهاجرت می‌شود و منبع مؤثر با `CALSTATUS source=nvm` قابل مشاهده است.
 - **Candidate Build 84:** چرخهٔ زمان‌محور قدیمی حذف شد؛ پایان Game فوراً After را اجرا می‌کند، Marker پس از Restart تب Startup را یک‌بار اجرا می‌کند، Desktop رد می‌شود و مسیر از Login/DC ادامه می‌یابد. CIRCUITPY نیز دوباره در اختیار Windows است و کالیبراسیون فیزیکی در NVM کنترل‌شده ذخیره می‌شود.
@@ -24,6 +25,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 87 | Build 124: Restart انجام شد ولی Startup خودکار اجرا نشد؛ Tone ذخیره شنیده نشد | حفظ USB transition حین After و تقویت/ثبت Tone ذخیره | CI candidate |
 | 86 | تست سخت‌افزاری لازم است | بازخورد صوتی Fail کالیبراسیون، بازهٔ ۱۱۰–۱۳۰ دقیقه و پروفایل نور همراه بسته | CI candidate |
 | 85 | تست سخت‌افزاری لازم است | ماندگاری کالیبراسیون فیزیکی بین Exportها و Telemetry منبع NVM | CI candidate |
 | 84 | تست سخت‌افزاری لازم است | After/Startup مستقل، حذف تایمرهای قدیمی، Desktop skip و NVM calibration | CI candidate |
@@ -55,6 +57,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 87 — حفظ USB Transition و تأیید واضح Save
+
+**Previous build:** 86 / Classroom release 124
+**Status:** CI candidate; restart-resume and physical calibration retest required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در تست Build 124، Windows Restart شد اما پس از بازگشت، Route `startup_steps.txt` خودکار اجرا نشد و چرخه فقط با فشار دستی Start دوباره فعال شد. در کالیبراسیون Dashboard نیز پس از فشار زرد، صدای ذخیره به‌اندازهٔ کافی قابل‌تشخیص نبود.
+
+### Root cause
+
+USB می‌توانست در همان چند ثانیهٔ پایانی Route After از DOWN به UP برگردد. `route_tick()` در فاز After این تغییر را ثبت نمی‌کرد و `_perform_after()` نیز هنگام ورود به `wait-usb` متغیرهای `down_seen/up_since` را پاک می‌کرد؛ بنابراین Controller منتظر DOWN دیگری می‌ماند که دیگر رخ نمی‌داد. علاوه‌براین وضعیت `HOSTUSB|DOWN` در Pro Micro می‌توانست پس از بازگشت Windows stale بماند و سیگنال UP خود Pico را بپوشاند. Tone موفق قبلی فقط دو نت کوتاه ۲۷۰ms بود.
+
+### Change
+
+- USB DOWN/UP در طول Delayهای Route After اکنون Poll و ثبت می‌شود.
+- Evidence ثبت‌شده هنگام ورود به `wait-usb` حفظ می‌شود و در `after-complete` مقدار `down-seen` گزارش می‌شود.
+- اگر Pro Micro روی DOWN قدیمی بماند، USB خود Pico پس از مشاهدهٔ DOWN واقعی یا Boot با Marker معتبر می‌تواند State را به UP ارتقا دهد.
+- الگوی Save موفق به سه نت صعودی و واضح‌تر با مجموع حدود ۸۰۰ms تغییر کرد.
+- `CAL|save-ok` و `CAL|save-failed` همراه Stage، Profile ID و منبع NVM در Debug پایدار ثبت می‌شوند.
+- فشار کوتاه زرد نیز `calibration-start ... wait=5s` را ثبت می‌کند تا مشخص باشد Sample واقعاً آغاز شده است.
+
+### Validation
+
+- تست Regression سناریوی `DOWN → UP` حین After و اجرای Startup پس از دو ثانیه پاس شد.
+- تست Boot با Marker، Deadline، پایان طبیعی Game و Desktop skip حفظ شد.
+- Bundle 220 ارسالی ۳۲/۳۲ Hash صحیح و Dashboard برابر `13.3 ± 3.0 lux` داشت.
+- `boot.py` عمداً `readonly=True` نگه داشته شد: این تنظیم CircuitPython را Read-only و مالکیت نوشتن FAT را به Windows می‌دهد؛ برگرداندن آن Host را Read-only می‌کند.
+
+### Next test
+
+1. بازه را ۳ تا ۶ دقیقه نگه دارید و چرخه را Start کنید.
+2. پس از After باید `CYCLE|usb|state=DOWN|during=after` یا DOWN معمولی، سپس `state=UP` و `startup-in=2` دیده شود.
+3. پس از بازگشت Windows، بدون فشار Start باید Route Startup اجرا و بعد `startup-complete|next=login-or-dc|desktop=skip` ثبت شود.
+4. در Calibration Stage 3 زرد را کوتاه بزنید و پنج ثانیه صبر کنید؛ Success باید سه نت صعودی واضح بدهد. سپس آبی کوتاه باید Stage بعد و آبی بلند باید خروج را اعلام کند.
 
 ## Build 86 — بازخورد کالیبراسیون، Deadline چرخه و پروفایل همراه
 
