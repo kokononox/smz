@@ -158,9 +158,10 @@ def run_parallel(prm, ctx, pos, pauses, inc):
     now = int(ctx.now() * 1000)
     tasks = [{"it": _parallel_events(prog, ctx, pos, pauses, inc),
               "due": now, "pending": None, "moving": False,
-              "sound": False, "poll": now}
+              "sound": False, "sound_spec": None, "poll": now}
              for prog in prm["progs"]]
     sound_owner = None
+    sound_config = None
     start_sound = getattr(ctx, "sound_start", None)
     poll_sound = getattr(ctx, "sound_poll", None)
     cancel_sound = getattr(ctx, "sound_cancel", None)
@@ -174,6 +175,11 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                 if task not in tasks:
                     continue
                 if task["sound"]:
+                    # Multiple logical listeners share one physical ADC. Only
+                    # the owner polls it; sibling listeners remain registered
+                    # for peak-based classification.
+                    if task is not sound_owner:
+                        continue
                     if now < task["poll"]:
                         continue
                     # SCAL is a synchronous ARM transaction and its UART
@@ -188,13 +194,34 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                     task["poll"] = now + 10
                     if result is None:
                         continue
-                    task["sound"] = False
+                    waiters = [item for item in tasks if item["sound"]]
+                    for item in waiters:
+                        item["sound"] = False
                     sound_owner = None
+                    sound_config = None
                     if result:
-                        # A sound wait inside PGROUP is a race gate: once the
-                        # splash is heard, stop sibling mouse/loop/package
-                        # branches and let this branch perform its reaction.
-                        tasks[:] = [task]
+                        # One ARM listener runs at the lowest threshold. The
+                        # reported peak selects the highest matching logical
+                        # profile, so low/high calibrated waits can race on the
+                        # same physical sensor without opening two ADC jobs.
+                        peak_reader = getattr(ctx, "sound_peak", None)
+                        peak = peak_reader() if peak_reader is not None else None
+                        if len(waiters) > 1 and peak is None:
+                            raise ValueError(
+                                "parallel sound profiles require peak telemetry")
+                        eligible = waiters if peak is None else [
+                            item for item in waiters
+                            if peak >= item["sound_spec"][0]]
+                        if not eligible:
+                            tasks[:] = []
+                        else:
+                            winner = eligible[0]
+                            for item in eligible[1:]:
+                                if item["sound_spec"][0] > winner["sound_spec"][0]:
+                                    winner = item
+                            tasks[:] = [winner]
+                            ctx.log("parallel wsnd profile threshold=%d peak=%s" %
+                                    (winner["sound_spec"][0], str(peak)))
                     else:
                         # A timed-out fishing race must also stop its infinite
                         # mouse sibling. End PGROUP without executing the
@@ -242,9 +269,13 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                 elif kind == "combo":
                     ctx.kcombo(event[1])
                 elif kind == "sound":
-                    if sound_owner is not None:
-                        raise ValueError("only one WSND listener may be active in a Parallel Group")
+                    task["sound"] = True
+                    task["sound_spec"] = (event[1], event[2], event[3])
+                    waiters = [item for item in tasks if item["sound"]]
                     if start_sound is None or poll_sound is None:
+                        if len(waiters) > 1:
+                            raise ValueError(
+                                "parallel sound profiles require async ARM sound")
                         result = ctx.wait_sound(event[1], event[2], event[3])
                         if result:
                             tasks[:] = [task]
@@ -254,10 +285,19 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                             "heard - cancel siblings" if result
                             else "timeout - cancel group"))
                     else:
-                        start_sound(event[1], event[2], event[3])
-                        task["sound"] = True
-                        task["poll"] = now
-                        sound_owner = task
+                        threshold = min(item["sound_spec"][0] for item in waiters)
+                        minimum = min(item["sound_spec"][1] for item in waiters)
+                        timeout = min(item["sound_spec"][2] for item in waiters)
+                        config = (threshold, minimum, timeout)
+                        if sound_owner is not None and config != sound_config:
+                            cancel_sound()
+                            sound_owner = None
+                        if sound_owner is None:
+                            start_sound(threshold, minimum, timeout)
+                            sound_owner = waiters[0]
+                            sound_config = config
+                        for item in waiters:
+                            item["poll"] = now
                 else:
                     from plan_engine_exec import run_plan
                     run_plan([(event[1], event[2])], ctx, _pos=pos,
