@@ -2316,7 +2316,7 @@ class TestRunner
             "v0.9.41: no reboot scheduling is left in the run loop");
 
         // 11-14) the vertical rail mirrors the Insert tab, grouped into per-section submenus
-        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "waitForSound", "waitForLight", "openFile", "buzzer", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
+        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "splashListener", "waitForLight", "openFile", "buzzer", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
         int v41rs = v41xaml.IndexOf("<!-- Icon rail", StringComparison.Ordinal);
         int v41rj = v41xaml.IndexOf("<!-- Steps column", StringComparison.Ordinal);
         Assert(v41rs > 0 && v41rj > v41rs,

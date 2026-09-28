@@ -106,7 +106,14 @@ Timeout هر Cast هنوز داخل دیالوگ عمومی `Wait For Sound` پ�
 
 - قرارداد منبع جدید، حذف Wait For Sound از سه مسیر درج UI، وجود Migration،
   انتقال Timeout و Fail-Closed خارج Game را کنترل می‌کند.
+- Rail contract با مدل جدید همگام شد: `splashListener` باید قابل درج باشد و `waitForSound` فقط Legacy/load-only باقی می‌ماند.
 - مجموعهٔ کامل Portable و Windows TestRunner باید پیش از انتشار سبز شود.
+
+### Next test
+
+1. Build جدید را در پوشه‌ای تازه باز و پروژهٔ ماهیگیری قدیمی را Load کنید؛ `Wait For Sound + responseRoute=splash` باید خودکار به `Splash Listener` تبدیل شود.
+2. در کارت Splash بازهٔ Timeout را تغییر دهید و Export کنید؛ `game_steps.txt` باید همان بازه را در `WPROFILE|splash,min,max` داشته باشد.
+3. در Game، Detection باید Route تب Splash را اجرا و Timeout باید بدون F به Cast بعدی برود؛ نرمی موس و Whisper سراسری نباید تغییر کنند.
 
 ## Build 94 — رفع رد شدن Manifest در Boot
 
