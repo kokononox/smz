@@ -143,11 +143,15 @@ def _parallel_events(ops, ctx, pos, pauses, inc):
             for event in _parallel_mouse_events(prm, ctx, pauses, pos, target):
                 yield event
         elif op == "WSND":
-            yield ("sound", prm["a"][0], prm["a"][1], prm["a"][2])
+            yield ("sound", prm["a"][0], prm["a"][1], prm["a"][2],
+                   prm["a"][0], 65535, 0, "", 0)
         elif op == "WSNDP":
             threshold, minimum = ctx.sound_profile(
                 prm["profile_id"], prm["binding"], prm["threshold"], prm["minimum"])
-            yield ("sound", threshold, minimum, prm["timeout"])
+            peak_min = threshold if prm.get("peak_min", threshold) == 0 else prm.get("peak_min", threshold)
+            yield ("sound", threshold, minimum, prm["timeout"], peak_min,
+                   prm.get("peak_max", 65535), prm.get("priority", 0),
+                   prm.get("response", ""), prm.get("cooldown", 0))
         else:
             yield ("op", op, prm)
         i += 1
@@ -199,34 +203,42 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                         item["sound"] = False
                     sound_owner = None
                     sound_config = None
+                    persistent = any(item["sound_spec"][6] for item in waiters)
+                    winner = None
                     if result:
-                        # One ARM listener runs at the lowest threshold. The
-                        # reported peak selects the highest matching logical
-                        # profile, so low/high calibrated waits can race on the
-                        # same physical sensor without opening two ADC jobs.
                         peak_reader = getattr(ctx, "sound_peak", None)
                         peak = peak_reader() if peak_reader is not None else None
                         if len(waiters) > 1 and peak is None:
-                            raise ValueError(
-                                "parallel sound profiles require peak telemetry")
+                            raise ValueError("parallel sound profiles require peak telemetry")
                         eligible = waiters if peak is None else [
                             item for item in waiters
-                            if peak >= item["sound_spec"][0]]
-                        if not eligible:
-                            tasks[:] = []
-                        else:
+                            if item["sound_spec"][3] <= peak <= item["sound_spec"][4]]
+                        if eligible:
                             winner = eligible[0]
                             for item in eligible[1:]:
-                                if item["sound_spec"][0] > winner["sound_spec"][0]:
+                                candidate = item["sound_spec"]
+                                selected = winner["sound_spec"]
+                                if candidate[5] > selected[5] or (
+                                        candidate[5] == selected[5] and candidate[0] > selected[0]):
                                     winner = item
-                            tasks[:] = [winner]
-                            ctx.log("parallel wsnd profile threshold=%d peak=%s" %
-                                    (winner["sound_spec"][0], str(peak)))
+                            ctx.log("parallel wsnd profile range=%d..%d priority=%d peak=%s" %
+                                    (winner["sound_spec"][3], winner["sound_spec"][4],
+                                     winner["sound_spec"][5], str(peak)))
+                    if persistent:
+                        # Game-wide watchers are interrupts, not race winners. Pause all
+                        # cooperative tasks, execute the selected response, then resume the
+                        # exact iterators that were active before the sound.
+                        if winner is not None and winner["sound_spec"][6]:
+                            from plan_engine_exec import run_plan
+                            run_plan([("INCLUDE", {"file": winner["sound_spec"][6]})], ctx,
+                                     _pos=pos, _pauses=pauses, _inc=inc)
+                        resumed = int(ctx.now() * 1000)
+                        cooldown = winner["sound_spec"][7] if winner is not None else 0
+                        for item in waiters:
+                            item["due"] = max(item["due"], resumed + cooldown)
+                    elif result and winner is not None:
+                        tasks[:] = [winner]
                     else:
-                        # A timed-out fishing race must also stop its infinite
-                        # mouse sibling. End PGROUP without executing the
-                        # reaction that follows WSND; the outer loop can cast
-                        # again instead of remaining trapped in mouse motion.
                         tasks[:] = []
                     ctx.log("parallel wsnd " + (
                         "heard - cancel siblings" if result
@@ -270,7 +282,7 @@ def run_parallel(prm, ctx, pos, pauses, inc):
                     ctx.kcombo(event[1])
                 elif kind == "sound":
                     task["sound"] = True
-                    task["sound_spec"] = (event[1], event[2], event[3])
+                    task["sound_spec"] = tuple(event[1:])
                     waiters = [item for item in tasks if item["sound"]]
                     if start_sound is None or poll_sound is None:
                         if len(waiters) > 1:
