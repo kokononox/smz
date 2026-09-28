@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 93:** Whisper فقط در تمام مدت حضور در Game شنوندهٔ سراسری است و پس از واکنش همان Iterator را ادامه می‌دهد؛ Splash فقط هنگام `Wait For Sound` هر Cast با Timeout تصادفی پیش‌فرض ۱۸–۲۲ ثانیه مسلح می‌شود و چه با شنیدن صدا و چه با Timeout، Cast جاری را تمام می‌کند و به Cast بعدی می‌رود. Deadlineهای حلقهٔ ۱۰ دقیقه‌ای و چرخهٔ ۱۱۰–۱۳۰ دقیقه‌ای حفظ می‌شوند.
 - **Candidate Build 92:** شنوندهٔ واحد صدا در تمام تب Game فعال می‌ماند؛ Peak را با بازه و Priority دسته‌بندی می‌کند، تب Whisper یا Splash را به‌صورت وقفه اجرا می‌کند و سپس همان Iterator محیط بازی را ادامه می‌دهد. تنظیم بازه‌ها و Cooldown کنار خروجی Pico قرار گرفت.
 - **Candidate Build 91:** دو Wait For Sound هم‌زمان دیگر Listener دوم روی ARM باز نمی‌کنند. Scheduler یک Listener فیزیکی با پایین‌ترین Threshold می‌سازد و با Peak گزارش‌شده، بالاترین پروفایل منطبق را برای اجرای Buzzer انتخاب می‌کند.
 - **Candidate Build 90:** پروژهٔ `s1.amsj` دیگر به‌خاطر دو Buzzer داخل شاخه‌های موازی Wait For Sound مسدود نمی‌شود؛ Buzzer اکنون به `BEEP/DELAY` قابل‌اجرای Pico تبدیل می‌شود و متن خطاهای واقعی نیز مستقیماً در پنجرهٔ Export نمایش داده می‌شود.
@@ -30,6 +31,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 93 | تست سخت‌افزاری صدا، Heap و نرمی موس لازم است | Whisper سراسری Game؛ Splash محدود به Cast با Timeout تصادفی ۱۸–۲۲ ثانیه و رفتن به Cast بعدی بدون ریست Deadlineها | CI candidate؛ Hardware pending |
 | 92 | تست سخت‌افزاری صدا لازم است | شنوندهٔ سراسری Game، بازه/اولویت، تب‌های Whisper و Splash و بازگشت به همان نقطه | CI candidate؛ Sound pending |
 | 91 | Build 143: Runtime با `only one WSND listener is allowed` متوقف شد | Listener مشترک ADC و انتخاب پروفایل با Peak | CI candidate؛ Sound pending |
 | 90 | `s1.amsj`: Export با ۲ خطا Block شد | پشتیبانی Buzzer داخل ForLoop شاخه‌های Parallel و نمایش جزئیات خطا | CI candidate؛ Sound pending |
@@ -67,6 +69,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 93 — Whisper سراسری و Splash محدود به هر Cast
+
+**Previous build:** 92 / Classroom release 177
+**Status:** CI candidate; physical sound, heap and mouse-smoothness test required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+در Build 92 هر دو پروفایل Whisper و Splash به‌صورت وقفهٔ سراسری Game مدل شده بودند. این رفتار برای Whisper درست است، اما Splash باید فقط از داخل مرحلهٔ انتظار صدای همان Cast فعال باشد؛ همچنین Timeout معمول ماهیگیری باید حدود ۲۰ ثانیه بماند تا اگر صدایی نیامد، برنامه دوباره قلاب بیندازد.
+
+### Root cause
+
+قرارداد سراسری قبلی محل و عمر Listener منطقی Splash را از ساختار Cast جدا کرده بود. بنابراین Splash می‌توانست بیرون از Wait For Sound فعال شود و مسیر Detection/Timeout معنای «پایان Cast جاری و رفتن به Cast بعدی» را به‌صورت مستقل حمل نمی‌کرد.
+
+### Change
+
+- Whisper با حالت `global` فقط در طول اجرای روت Game فعال است؛ روت‌های Targeted، Restart، خروج اضطراری و سایر موقعیت‌ها شنونده ندارند.
+- Splash با حالت `scoped` فقط هنگام رسیدن Cast به Wait For Sound مسلح می‌شود.
+- Wait For Sound گزینهٔ واکنش `inline` یا `splash` و بازهٔ Timeout تصادفی مستقل دارد؛ پیش‌فرض Splash برابر ۱۸ تا ۲۲ ثانیه است.
+- در Detection، تب Splash اجرا می‌شود و سپس Cast جاری پایان می‌یابد؛ در Timeout تب Splash اجرا نمی‌شود و Cast جاری باز هم پایان می‌یابد. هر دو مسیر به Cast بعدی می‌روند.
+- یک Listener فیزیکی ADC هر دو سیاست را سرویس می‌دهد. هنگام Wait For Sound، Peak بین Whisper سراسری و Splash موقت با Range/Priority دسته‌بندی می‌شود.
+- وقفهٔ Whisper دقیقاً همان Iterator را ادامه می‌دهد؛ Splash یا Timeout فقط شاخه‌های موازی Cast جاری را لغو می‌کند.
+- زمان‌بندی حلقهٔ بیرونی و AutoCycle مبتنی بر ساعت دیواری باقی می‌ماند؛ واکنش، Cooldown و Timeout هیچ Deadline ده‌دقیقه‌ای یا ۱۱۰–۱۳۰ دقیقه‌ای را از نو شروع نمی‌کنند.
+- هنگام خروج از Game، Listener صدا صریحاً بسته می‌شود تا هیچ واکنشی در وضعیت‌های دیگر باقی نماند.
+
+### Validation
+
+- شبیه‌ساز اختصاصی تأیید کرد Whisper حین Wait For Sound اجرا می‌شود و پس از آن انتظار Splash همان Cast ادامه می‌یابد.
+- Detection پروفایل Splash، روت Splash شامل کلید F را اجرا و سپس به فرمان Cast بعدی می‌رود.
+- Timeout تصادفی بدون اجرای F، Cast جاری را خاتمه و فرمان Cast بعدی را اجرا می‌کند.
+- قرارداد Export شامل `SOUNDWATCH` با Whisper سراسری، Splash محدود و `WPROFILE|splash,18000,22000` است.
+- تست‌های Parser، Shared Listener، Parallel runtime، USB FAT و Calibration heap در شبیه‌سازی پاس شدند.
+- اندازهٔ Runner سبک Game به حدود ۱۹٫۳KB رسیده است؛ تست واقعی Heap، صدا و نرمی موس هنوز لازم است.
+
+### Next test
+
+روی سخت‌افزار، داخل Game یک Cast واقعی اجرا شود: Whisper باید در هر نقطه فقط تب Whisper را اجرا و همان حرکت را ادامه دهد؛ Splash باید فقط در بازهٔ Wait For Sound باعث F و Cast بعدی شود؛ نبود صدا باید پس از یک مقدار تصادفی ۱۸–۲۲ ثانیه بدون F به Cast بعدی برود. هم‌زمان باید Heap telemetry، نرمی موس و حفظ Deadlineهای ۱۰ دقیقه و ۱۱۰–۱۳۰ دقیقه بررسی شوند.
 
 ## Build 92 — وقفهٔ صوتی سراسری و قابل‌بازگشت در Game
 
