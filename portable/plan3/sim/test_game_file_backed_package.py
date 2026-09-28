@@ -10,6 +10,7 @@ sys.path.insert(0, str(FW))
 
 import plan_engine_game as game
 import plan_engine_game_core as core
+import plan_engine_game_runtime as runtime
 
 rows = ["PLAN|2", "SCREEN|1920,1080", "RPKG|pick,1,2"]
 for index in range(165):
@@ -52,9 +53,32 @@ class Context:
 game.run_game_file(route_name, Context())
 Path("/" + route_name).unlink()
 
+# PGROUP branches must flatten nested LOOP/RPKG containers without recursively
+# nesting _events generators around the lazy mouse generator.  That call shape
+# exhausted CircuitPython's pystack on the first fishing RMOUSE while heap was
+# still healthy.
+runtime._core = core
+original_mouse_events = core._mouse_events
+def fake_mouse_events(_args, _ctx, _state):
+    yield ("move", 7, 3, -2)
+core._mouse_events = fake_mouse_events
+nested = [
+    ("LOOP", "2"), ("RPKG", "seq,1,2"), ("RMOUSE", "test"),
+    ("PKGITEM", ""), ("DELAY", "5,5"), ("ENDPKG", ""), ("ENDLOOP", "")]
+state = {"speed": [0, 2000], "pos": [960, 540], "pauses": None}
+events = list(runtime._events(nested, 0, len(nested), Context(), state))
+core._mouse_events = original_mouse_events
+assert events == [
+    ("move", 7, 3, -2), ("wait", 5),
+    ("move", 7, 3, -2), ("wait", 5)], events
+event_source = (FW / "plan_engine_game_runtime.py").read_text(encoding="utf-8")
+event_body = event_source.split("def _events(", 1)[1].split(
+    "\n\ndef _response_commands", 1)[0]
+assert "_events(commands," not in event_body, event_body
+
 source = (FW / "code.py").read_text(encoding="utf-8")
 assert 'commands = name if name == "game_steps.txt"' in source
 assert "plan_engine_game.run_game_file(commands, ctx)" in source
 assert "file-index|commands=%d|offset-bytes=%d" in (
     FW / "plan_engine_game.py").read_text(encoding="utf-8")
-print("file-backed Game route + bounded RPKG reservoir sampling passed")
+print("file-backed Game route + bounded RPKG + iterative container stack passed")
