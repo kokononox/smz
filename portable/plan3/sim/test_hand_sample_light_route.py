@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The 10-second hand path must not import/parse the large PLAN engine on RP2040."""
 import ast
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +15,7 @@ for node in tree.body:
     ):
         selected.append(node)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
-        "_light_route_lines", "_run_light_route"
+        "_light_route_rows", "_light_route_lines", "_light_route_file", "_run_light_route"
     }:
         selected.append(node)
 
@@ -61,6 +62,17 @@ ENDLOOP
 """
 commands = namespace["_light_route_lines"](route)
 assert commands is not None, "HANDPATH LOOPTIME path fell back to the full plan engine"
+# A large Game-like route must be parsed line-by-line so RP2040 never needs
+# one contiguous source-string allocation.
+with tempfile.NamedTemporaryFile("w", delete=False) as large:
+    large.write("PLAN|2\nSCREEN|1920,1080\nLOOPTIME|600\n")
+    large.writelines("DELAY|88,188\n" for _ in range(360))
+    large.write("ENDLOOP\n")
+    large_name = large.name.lstrip("/")
+large_commands = namespace["_light_route_file"](large_name)
+Path("/" + large_name).unlink()
+assert large_commands is not None and len(large_commands) > 360
+assert large_commands[-1][0] == "ENDLOOP"
 assert [command for command, _ in commands].count("HANDPATH") == 1
 ctx = Ctx()
 namespace["_run_light_route"](ctx, commands)
