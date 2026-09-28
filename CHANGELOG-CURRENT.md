@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 90:** پروژهٔ `s1.amsj` دیگر به‌خاطر دو Buzzer داخل شاخه‌های موازی Wait For Sound مسدود نمی‌شود؛ Buzzer اکنون به `BEEP/DELAY` قابل‌اجرای Pico تبدیل می‌شود و متن خطاهای واقعی نیز مستقیماً در پنجرهٔ Export نمایش داده می‌شود.
 - **Hardware-passed Build 89:** بستهٔ E اتصال مجدد CDC ویندوز را تشخیص داد، Pico را یک‌بار Reset کرد، `CIRCUITPY` دوباره قابل‌نوشتن شد و Startup/Mouse ادامه یافت. نوت‌های مرحله‌ای پذیرفته‌شده نیز به Runtime استاندارد منتقل شدند. کالیبراسیون صدا هنوز تست سخت‌افزاری نشده است.
 - **Hardware-passed Build 88:** بستهٔ تشخیصی A پس از Warm Restart بدون Start دستی زنده ماند و Startup را اجرا کرد. همین مسیر Marker + USB fusion اکنون مسیر استاندارد خروجی Classroom است.
 - **Candidate Build 87:** USB DOWN/UP که حین انتهای Route After رخ می‌دهد دیگر پاک نمی‌شود؛ Startup پس از بازگشت Windows ادامه می‌یابد. صدای Save کالیبراسیون نیز به یک الگوی سه‌نتی واضح‌تر ارتقا یافت و نتیجهٔ Save در NVM Debug ثبت می‌شود.
@@ -27,6 +28,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 90 | `s1.amsj`: Export با ۲ خطا Block شد | پشتیبانی Buzzer داخل ForLoop شاخه‌های Parallel و نمایش جزئیات خطا | CI candidate؛ Sound pending |
 | 89 | بستهٔ E پاس: Startup، Mouse، نوت‌ها و نوشتن/حذف TEST.txt؛ Sound calibration تست نشده | Reset یک‌بارهٔ Pico پس از CDC reconnect برای Remount قابل‌نوشتن | Hardware pass؛ Sound pending |
 | 88 | بستهٔ A پاس: Restart، Resume خودکار و اجرای Startup بدون Start دستی | Resume با Marker معتبر حتی وقتی Windows هیچ USB DOWN گزارش نمی‌کند | Hardware pass |
 | 87 | Build 124: Restart انجام شد ولی Startup خودکار اجرا نشد؛ Tone ذخیره شنیده نشد | حفظ USB transition حین After و تقویت/ثبت Tone ذخیره | CI candidate |
@@ -61,6 +63,39 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 90 — Buzzer داخل Parallel Sound
+
+**Previous build:** 89 / Classroom release 139
+**Status:** CI candidate; s1 export and physical sound calibration retest required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Problem observed
+
+خروجی استاندارد پروژهٔ `s1.amsj` با پیام `plan export blocked: 2 problem(s)` متوقف شد. پروژه شامل دو شاخهٔ ForLoop در Parallel Group بود؛ هر شاخه یک Wait For Sound ساده و یک Buzzer داشت.
+
+### Root cause
+
+Scheduler پیکو از `BEEP` در Parallel پشتیبانی می‌کرد، اما `PlanExporter` نوع `buzzer` را نه در فهرست Cooperative leafها پذیرفته بود و نه به فرمان‌های `BEEP/DELAY` تبدیل می‌کرد. بنابراین هر یک از دو شاخه یک خطای سازگاری ایجاد می‌کرد. پنجرهٔ Current project export نیز فقط تعداد خطاها را نشان می‌داد و جزئیات را در Log پنهان می‌کرد.
+
+### Change
+
+- `buzzer` به مجموعهٔ Stepهای مجاز داخل Parallel Group اضافه شد.
+- Preset یا Pattern سفارشی Buzzer با همان Validation موجود به `BEEP|frequency,duration` تبدیل می‌شود.
+- Pause میان نت‌ها به `DELAY|min,max` قابل‌اجرای Plan تبدیل می‌شود.
+- تست دقیق ساختار پروژهٔ s1 دو شاخهٔ `ForLoop → Wait For Sound → Buzzer` را پوشش می‌دهد.
+- پنجرهٔ Current project Pico export تا شش خطای واقعی را مستقیماً نمایش می‌دهد.
+
+### Validation
+
+- قرارداد Python برای سازگاری Parallel/Buzzer پاس شد.
+- Runtime موازی `BEEP` را از مسیر عمومی Executor اجرا می‌کند و Wait For Sound ساده همچنان Cooperative است.
+- دو ID کالیبراسیون ۱ و ۲ در پروژه یکتا و معتبرند؛ خطا از Calibration ID نبود.
+- کالیبراسیون صدای فیزیکی همچنان تست نشده و Hardware pass آن ادعا نمی‌شود.
+
+### Next test
+
+پروژهٔ `s1.amsj` را در Build جدید باز و Current project Pico export کنید. پس از خروجی موفق، Sound Calibration برای IDهای ۱ و ۲ را انجام دهید و اجرای هم‌زمان دو شاخه، Tone هشدار/موفقیت و Timeout را روی سخت‌افزار بررسی کنید.
 
 ## Build 89 — Remount قابل‌نوشتن پس از Restart
 
