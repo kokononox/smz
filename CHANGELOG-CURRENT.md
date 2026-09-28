@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 94:** خطای Boot خروجی Build 93 رفع شد؛ `splash_steps.txt` و `whisper_steps.txt` اکنون پیش از اعتبارسنجی Manifest وارد موجودی Hash Runtime می‌شوند. Routeهای نوری Guard، فریمور Pro Micro و مسیر Natural Mouse هیچ تغییری نکرده‌اند.
 - **Candidate Build 93:** Whisper فقط در تمام مدت حضور در Game شنوندهٔ سراسری است و پس از واکنش همان Iterator را ادامه می‌دهد؛ Splash فقط هنگام `Wait For Sound` هر Cast با Timeout تصادفی پیش‌فرض ۱۸–۲۲ ثانیه مسلح می‌شود و چه با شنیدن صدا و چه با Timeout، Cast جاری را تمام می‌کند و به Cast بعدی می‌رود. Deadlineهای حلقهٔ ۱۰ دقیقه‌ای و چرخهٔ ۱۱۰–۱۳۰ دقیقه‌ای حفظ می‌شوند.
 - **Candidate Build 92:** شنوندهٔ واحد صدا در تمام تب Game فعال می‌ماند؛ Peak را با بازه و Priority دسته‌بندی می‌کند، تب Whisper یا Splash را به‌صورت وقفه اجرا می‌کند و سپس همان Iterator محیط بازی را ادامه می‌دهد. تنظیم بازه‌ها و Cooldown کنار خروجی Pico قرار گرفت.
 - **Candidate Build 91:** دو Wait For Sound هم‌زمان دیگر Listener دوم روی ARM باز نمی‌کنند. Scheduler یک Listener فیزیکی با پایین‌ترین Threshold می‌سازد و با Peak گزارش‌شده، بالاترین پروفایل منطبق را برای اجرای Buzzer انتخاب می‌کند.
@@ -31,6 +32,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 94 | تست Boot و اجرای Game لازم است | پذیرش دو Route جدید Whisper/Splash در موجودی ۳۴فایلی Boot verifier | Local candidate؛ Mouse/ARM unchanged |
 | 93 | تست سخت‌افزاری صدا، Heap و نرمی موس لازم است | Whisper سراسری Game؛ Splash محدود به Cast با Timeout تصادفی ۱۸–۲۲ ثانیه و رفتن به Cast بعدی بدون ریست Deadlineها | CI candidate؛ Hardware pending |
 | 92 | تست سخت‌افزاری صدا لازم است | شنوندهٔ سراسری Game، بازه/اولویت، تب‌های Whisper و Splash و بازگشت به همان نقطه | CI candidate؛ Sound pending |
 | 91 | Build 143: Runtime با `only one WSND listener is allowed` متوقف شد | Listener مشترک ADC و انتخاب پروفایل با Peak | CI candidate؛ Sound pending |
@@ -69,6 +71,35 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 94 — رفع رد شدن Manifest در Boot
+
+**Previous build:** 93 / Classroom release 190
+**Status:** local candidate; Boot and Game hardware test required
+
+### Problem observed
+
+Bundle 300 با وجود ۳۴ Hash صحیح، هنگام Boot با
+`GuardBundleError: unexpected or duplicate SHA256SUMS file: splash_steps.txt`
+متوقف شد.
+
+### Root cause
+
+Exporter دو Route جدید `splash_steps.txt` و `whisper_steps.txt` را درست تولید و
+Hash می‌کرد، اما موجودی Boot Runtime پیش از `load_guard_bundle("/")` هنوز این
+دو فایل را نمی‌شناخت. این دو فایل Route نوری Guard نیستند و نباید به
+`guard-transition.json` افزوده شوند.
+
+### Change
+
+- هر دو Route واکنش صوتی پیش از بارگذاری Bundle به موجودی Hash Runtime افزوده شدند.
+- تست رگرسیون جدید برابری دقیق موجودی ۳۴فایلی Manifest و Boot verifier را کنترل می‌کند.
+- Guard transition، فریمور Pro Micro، DDA/Cadence و Natural Mouse بدون تغییر مانده‌اند.
+
+### Next test
+
+خروجی پروژهٔ Build 94 باید بدون خطای Manifest Boot شود؛ سپس Game باید Whisper
+سراسری و Splash محدود به Cast را اجرا کند.
 
 ## Build 93 — Whisper سراسری و Splash محدود به هر Cast
 
