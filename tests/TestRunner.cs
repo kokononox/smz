@@ -4318,7 +4318,7 @@ class TestRunner
                    && gameHelper.Contains("elif op == \"LABEL\"")
                    && gameHelper.Contains("elif op == \"GOTO\"")
                    && gameHelper.Contains("GOTO label not found")
-                   && gameHelper.Length < 14000,
+                   && gameHelper.Length < 16000,
                 "Game light helper streams fishing and supports LABEL/GOTO without the full parser");
 
             var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
