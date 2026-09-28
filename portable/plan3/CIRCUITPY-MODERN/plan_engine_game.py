@@ -34,8 +34,29 @@ def run_game(commands, ctx):
     return runtime.run_game(commands, ctx, core)
 
 
+def _file_needs_parallel(name):
+    with open("/" + name, "r") as route:
+        for raw in route:
+            line = raw.strip()
+            if line and not line.startswith("#") and line.split("|", 1)[0].upper() == "PGROUP":
+                return True
+    return False
+
+
 def run_game_file(name, ctx):
+    needs_parallel = _file_needs_parallel(name)
+    gc.collect()
     core, runtime = _load(ctx)
+    if needs_parallel:
+        # Compile the scheduler while the heap is still fresh. Waiting until
+        # PGROUP leaves enough total bytes but may fragment the largest block.
+        gc.collect(); _heap(ctx, "before-parallel-preload"); gc.collect()
+        try:
+            __import__("plan_engine_game_parallel")
+        except MemoryError:
+            _heap(ctx, "parallel-preload-memoryerror")
+            raise
+        gc.collect(); _heap(ctx, "after-parallel-preload")
     commands = core._FileCommands(name)
     try:
         gc.collect()
