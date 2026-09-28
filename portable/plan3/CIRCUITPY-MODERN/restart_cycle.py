@@ -94,7 +94,9 @@ class Controller:
         self.previous_running = False
         self.deadline = None
         self.deadline_expired = False
-        if self.marker.armed():
+        self.boot_armed = self.marker.armed()
+        self.pico_usb_down_seen = self.boot_armed
+        if self.boot_armed:
             self.phase = "wait-usb"
             self.down_seen = True
             self._emit("armed-at-boot", "count=%d" % self.marker.count())
@@ -136,16 +138,43 @@ class Controller:
         return True
 
     def route_tick(self):
+        if self.phase == "after":
+            # Windows may complete its USB DOWN/UP transition while the After
+            # route is still inside its final delays. Capture that evidence
+            # here; clearing it at route completion left wait-usb stuck forever.
+            state = self._host_state()
+            if state in ("DOWN", "SUSPEND"):
+                if not self.down_seen:
+                    self._emit("usb", "state=" + state + "|during=after")
+                self.down_seen = True
+                self.up_since = None
+            elif state == "UP" and self.down_seen and self.up_since is None:
+                self.up_since = self.now()
+                self._emit("usb", "state=UP|during=after")
+            return
         self._expire_deadline()
 
     def _host_state(self):
-        if getattr(self.owner.arm, "host_usb_seen", False):
-            return getattr(self.owner.arm, "host_usb_state", None)
+        arm_state = (getattr(self.owner.arm, "host_usb_state", None)
+                     if getattr(self.owner.arm, "host_usb_seen", False) else None)
+        pico_state = None
         try:
             import supervisor
-            return "UP" if supervisor.runtime.usb_connected else "DOWN"
+            pico_state = "UP" if supervisor.runtime.usb_connected else "DOWN"
+            if pico_state == "DOWN":
+                self.pico_usb_down_seen = True
         except Exception:
-            return None
+            pass
+        if arm_state == "UP":
+            return "UP"
+        if arm_state in ("DOWN", "SUSPEND"):
+            # A Pro Micro DOWN can remain stale after Windows returns. The Pico
+            # USB signal may promote it to UP only after this process observed
+            # a real Pico DOWN (or booted with an armed restart marker).
+            if pico_state == "UP" and self.pico_usb_down_seen:
+                return "UP"
+            return arm_state
+        return pico_state
 
     def _run_system_route(self, name):
         return self.owner.route({
@@ -164,6 +193,8 @@ class Controller:
             self.owner.controls.running = False
             return
         self.phase = "after"
+        self.down_seen = False
+        self.up_since = None
         self._emit("after-start", "route=%s|count=%d" %
                    (AFTER_ROUTE, self.marker.count()))
         self.owner.controls.start()
@@ -180,10 +211,9 @@ class Controller:
             return
         self.owner.controls.running = False
         self.owner.controls.aborted = True
-        self.down_seen = False
-        self.up_since = None
         self.phase = "wait-usb"
-        self._emit("after-complete", "wait=usb-restart")
+        self._emit("after-complete", "wait=usb-restart|down-seen=%d" %
+                   (1 if self.down_seen else 0))
 
     def route_complete(self, name):
         if self.phase == "run" and name == "game_steps.txt":
