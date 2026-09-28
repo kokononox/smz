@@ -75,8 +75,7 @@ class Keyboard:
 
 import plan_engine
 from guard_calibration_protocol import (
-    build_calibration_get, parse_calibration_set, find_profile_overlap,
-    calibrated_profile, fit_calibration_profiles,
+    build_calibration_get, parse_calibration_set, calibrated_profile,
 )
 from live_light_guard import (
     HASHED_BUNDLE_FILES,
@@ -667,40 +666,18 @@ class Combined:
         lines = ["%s  %s" % (_file_sha256("/", name), name) for name in sorted(HASHED_BUNDLE_FILES)]
         return "\n".join(lines) + "\n"
     def _publish_calibration(self, revision, profile_id, profile):
-        existing_profiles = self.bundle.get("calibration", {}).get("profiles", {})
-        profiles, fit = fit_calibration_profiles(
-            existing_profiles, profile_id, profile)
+        gc.collect()
+        fitter = __import__("calibration_fit")
+        profiles, events, blocked = fitter.prepare(
+            self.bundle.get("calibration", {}).get("profiles", {}),
+            profile_id, profile)
+        for event in events:
+            self.emit(event)
+        del fitter, events
+        __import__("sys").modules.pop("calibration_fit", None)
+        gc.collect()
         if profiles is None:
-            self.emit(
-                "ERR|CAL|FIT|id=%s|with=%s|reason=%s|gap=%.3f" %
-                (profile_id, fit["with"], fit["reason"], fit["gap"]))
-            overlap = find_profile_overlap(
-                existing_profiles, profile_id, profile)
-            raise CalibrationOverlapError(
-                fit["with"], overlap["width"] if overlap is not None else 0)
-        fitted_neighbours = dict(profiles)
-        fitted_neighbours.pop(profile_id, None)
-        overlap = find_profile_overlap(
-            fitted_neighbours, profile_id, profiles[profile_id])
-        if overlap is not None:
-            raise CalibrationOverlapError(overlap["with"], overlap["width"])
-        if fit is not None:
-            adjusted = None
-            for change in fit["changes"]:
-                if change["id"] != profile_id:
-                    adjusted = change
-                    self.emit(
-                        "EVT|CAL|FIT-PAIR|new=%s:%.3f->%.3f|adjusted=%s:%.3f->%.3f|gap=%.3f" %
-                        (profile_id, fit["requested"], fit["applied"], change["id"],
-                         change["old"], change["new"], fit["gap"]))
-            if adjusted is None:
-                limiter = (fit["changes"][0]["with"]
-                           if fit["changes"] else "unknown")
-                self.emit(
-                    "EVT|CAL|FIT|id=%s|requested=%.3f|applied=%.3f|"
-                    "limited-by=%s|gap=%.3f" %
-                    (profile_id, fit["requested"], fit["applied"],
-                     limiter, fit["gap"]))
+            raise CalibrationOverlapError(blocked, 0)
         try:
             calibration_nvm.save(microcontroller.nvm, CALIBRATION_BASE_REVISION, profiles)
             calibration_nvm.apply(self.bundle, profiles)

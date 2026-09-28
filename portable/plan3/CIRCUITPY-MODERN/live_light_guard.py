@@ -42,6 +42,7 @@ REQUIRED_BUNDLE_FILES = (
     "live_light_guard.py",
     "guard_transition.py",
     "guard_calibration_protocol.py",
+    "calibration_fit.py",
     "error_policy.py",
     "combined_guard_runtime.py",
     "SHA256SUMS.txt",

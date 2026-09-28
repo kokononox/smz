@@ -69,7 +69,7 @@ public partial class MainViewModel
                 {
                     ModernAutoCycleFirmwareBundle.VerifyExportedTarget(targetRoot);
                     verifyError = null;
-                    Log("pico current-project verification: 34/34 hashes and Guard revisions OK");
+                    Log("pico current-project verification: 35/35 hashes and Guard revisions OK");
                     break;
                 }
                 catch (Exception ex)

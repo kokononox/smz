@@ -1,22 +1,23 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-runtime = (ROOT / "portable/plan3/CIRCUITPY-MODERN"
-           / "combined_guard_runtime.py").read_text(encoding="utf-8")
-protocol = (ROOT / "portable/plan3/CIRCUITPY-MODERN"
-            / "guard_calibration_protocol.py").read_text(encoding="utf-8")
+fw = ROOT / "portable/plan3/CIRCUITPY-MODERN"
+runtime = (fw / "combined_guard_runtime.py").read_text(encoding="utf-8")
+protocol = (fw / "guard_calibration_protocol.py").read_text(encoding="utf-8")
+fitter = (fw / "calibration_fit.py").read_text(encoding="utf-8")
+code = (fw / "code.py").read_text(encoding="utf-8")
 
-assert "def fit_calibration_profiles(" in protocol
-assert "CAL_FIT_SAFETY_GAP_LUX = 0.25" in protocol
-assert "CAL_FIT_MIN_TOLERANCE_LUX = 0.5" in protocol
-assert "Centres never move." in protocol
-assert "fit_calibration_profiles," in runtime
-assert "profiles, fit = fit_calibration_profiles(" in runtime
-assert "EVT|CAL|FIT|id=%s|requested=%.3f|applied=%.3f|" in runtime
-assert "EVT|CAL|FIT-PAIR|new=%s:%.3f->%.3f|" in runtime
-assert "adjusted=%s:%.3f->%.3f|gap=%.3f" in runtime
-assert "ERR|CAL|FIT|id=%s|with=%s|reason=%s|gap=%.3f" in runtime
-assert runtime.index("fit_calibration_profiles(") < runtime.index(
+assert "def fit_calibration_profiles(" not in protocol
+assert "def prepare(" in fitter
+assert "SAFETY_GAP = 0.25" in fitter
+assert "MINIMUM = 0.5" in fitter
+assert "Centres remain fixed." in fitter
+assert 'fitter = __import__("calibration_fit")' in runtime
+assert '__import__("sys").modules.pop("calibration_fit", None)' in runtime
+assert '"calibration_fit.py"' in code
+assert runtime.index('__import__("calibration_fit")') < runtime.index(
     "calibration_nvm.save(", runtime.index("def _publish_calibration"))
+assert len(runtime.encode()) < 40000
+assert len(protocol.encode()) < 5500
 
-print("adaptive one/two-sided calibration fit contract passed")
+print("lazy adaptive calibration fit and boot-memory contract passed")
