@@ -77,6 +77,7 @@
 ### Change
 
 - تکمیل موفق Route After و Marker مسلح NVM اکنون مجوز معتبر Resume است، حتی اگر USB هیچ DOWN گزارش نکند.
+- اگر Pro Micro روی `DOWN` قدیمی مانده باشد، Marker مسلح همراه `Pico UP` آن State منقضی را کنار می‌زند.
 - در حالت USB پایدار `UP`، Controller دو ثانیه پایداری را کنترل می‌کند و سپس Route Startup را آغاز می‌کند.
 - Route Startup همچنان Delay داخلی ۳۰–۶۰ ثانیه دارد؛ بنابراین آغاز Controller به معنی ارسال فوری Win+1 هنگام خاموش‌شدن Windows نیست.
 - Telemetry این مسیر را با `source=marker-no-down` از مسیر دارای لبهٔ واقعی USB متمایز می‌کند.
