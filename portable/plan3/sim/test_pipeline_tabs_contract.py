@@ -21,7 +21,7 @@ assert "optional GP6 buzzer/error signalling is tracked as a hardware follow-up"
 assert 'PipelineKind.Whisper' in model and 'whisper_steps.txt' in model
 assert 'PipelineKind.Splash' in model and 'splash_steps.txt' in model
 assert 'FormatVersion = 4' in model and 'soundProfiles' in serializer
-assert 'WrapGameSoundWatch' in bundle and 'CooldownMs' in bundle
+assert 'AddGameSoundWatch' in bundle and 'SOUNDWATCH|' in bundle and 'HasScopedSplash' in bundle
 for token in ('WhisperPeakMin', 'WhisperPriority', 'SplashPeakMax', 'SoundProfileSummary'):
     assert token in dashboard, token
-print("pipeline tabs + game-wide sound profiles contract: 26 passed, 0 failed")
+print("pipeline tabs + global Whisper/scoped Splash contract: 28 passed, 0 failed")
