@@ -452,18 +452,28 @@ def parse_plan(text):
                 raise ValueError("line %d: STATELOOP fallback must be STOP or FIRST" % line_no)
         elif op == "WSNDP":
             pa = fields[1].split(",") if len(fields) > 1 else []
-            if len(pa) != 5:
-                raise ValueError("line %d: WSNDP needs id,binding,threshold,min,timeout" % line_no)
+            if len(pa) not in (5, 8, 10):
+                raise ValueError("line %d: WSNDP needs 5, 8, or 10 fields" % line_no)
             try:
                 profile_id = int(pa[0])
                 threshold, minimum, timeout = int(pa[2]), int(pa[3]), int(pa[4])
+                peak_min = int(pa[5]) if len(pa) >= 8 else threshold
+                peak_max = int(pa[6]) if len(pa) >= 8 else 65535
+                priority = int(pa[7]) if len(pa) >= 8 else 0
+                cooldown = int(pa[9]) if len(pa) == 10 else 0
             except Exception:
                 raise ValueError("line %d: bad WSNDP numbers" % line_no)
             binding = pa[1].strip()
-            if profile_id not in (1, 2) or not binding or len(binding) > 32:
+            response = pa[8].strip() if len(pa) == 10 else ""
+            if (profile_id not in (1, 2) or not binding or len(binding) > 32
+                    or peak_min < 0 or peak_max < max(1, peak_min)
+                    or priority < -100 or priority > 100 or cooldown < 0
+                    or (response and (not response.endswith(".txt") or "/" in response or "\\" in response))):
                 raise ValueError("line %d: bad WSNDP profile" % line_no)
             prm.update({"profile_id": profile_id, "binding": binding,
-                        "threshold": threshold, "minimum": minimum, "timeout": timeout})
+                        "threshold": threshold, "minimum": minimum, "timeout": timeout,
+                        "peak_min": peak_min, "peak_max": peak_max, "priority": priority,
+                        "response": response, "cooldown": cooldown})
         elif op in ("WSND", "TRGSND", "IFSND", "IFLUX"):
             pa = fields[1].split(",") if len(fields) > 1 else []
             need = {"WSND": 3, "IFSND": 3, "IFLUX": 5, "TRGSND": 8}[op]
