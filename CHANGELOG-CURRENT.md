@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 92:** شنوندهٔ واحد صدا در تمام تب Game فعال می‌ماند؛ Peak را با بازه و Priority دسته‌بندی می‌کند، تب Whisper یا Splash را به‌صورت وقفه اجرا می‌کند و سپس همان Iterator محیط بازی را ادامه می‌دهد. تنظیم بازه‌ها و Cooldown کنار خروجی Pico قرار گرفت.
 - **Candidate Build 91:** دو Wait For Sound هم‌زمان دیگر Listener دوم روی ARM باز نمی‌کنند. Scheduler یک Listener فیزیکی با پایین‌ترین Threshold می‌سازد و با Peak گزارش‌شده، بالاترین پروفایل منطبق را برای اجرای Buzzer انتخاب می‌کند.
 - **Candidate Build 90:** پروژهٔ `s1.amsj` دیگر به‌خاطر دو Buzzer داخل شاخه‌های موازی Wait For Sound مسدود نمی‌شود؛ Buzzer اکنون به `BEEP/DELAY` قابل‌اجرای Pico تبدیل می‌شود و متن خطاهای واقعی نیز مستقیماً در پنجرهٔ Export نمایش داده می‌شود.
 - **Hardware-passed Build 89:** بستهٔ E اتصال مجدد CDC ویندوز را تشخیص داد، Pico را یک‌بار Reset کرد، `CIRCUITPY` دوباره قابل‌نوشتن شد و Startup/Mouse ادامه یافت. نوت‌های مرحله‌ای پذیرفته‌شده نیز به Runtime استاندارد منتقل شدند. کالیبراسیون صدا هنوز تست سخت‌افزاری نشده است.
@@ -29,6 +30,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 92 | تست سخت‌افزاری صدا لازم است | شنوندهٔ سراسری Game، بازه/اولویت، تب‌های Whisper و Splash و بازگشت به همان نقطه | CI candidate؛ Sound pending |
 | 91 | Build 143: Runtime با `only one WSND listener is allowed` متوقف شد | Listener مشترک ADC و انتخاب پروفایل با Peak | CI candidate؛ Sound pending |
 | 90 | `s1.amsj`: Export با ۲ خطا Block شد | پشتیبانی Buzzer داخل ForLoop شاخه‌های Parallel و نمایش جزئیات خطا | CI candidate؛ Sound pending |
 | 89 | بستهٔ E پاس: Startup، Mouse، نوت‌ها و نوشتن/حذف TEST.txt؛ Sound calibration تست نشده | Reset یک‌بارهٔ Pico پس از CDC reconnect برای Remount قابل‌نوشتن | Hardware pass؛ Sound pending |
@@ -65,6 +67,30 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 92 — وقفهٔ صوتی سراسری و قابل‌بازگشت در Game
+
+**Previous build:** 91 / Classroom release 147
+**Status:** CI candidate; physical sound and mouse-smoothness test required
+**Commit:** `{{COMMIT_SHA}}`
+
+### Change
+
+- دو تب ثابت `Whisper` و `Splash` برای تعریف نوت، Buzzer و اقدام واکنش اضافه شد.
+- کارت «شنوندهٔ سراسری صدا در محیط بازی» کنار دکمهٔ ساخت و کپی Pico قرار گرفت و برای هر پروفایل Peak Min/Max، Priority و Cooldown مستقل دارد.
+- خروجی Game به‌طور خودکار با یک Parallel listener کم‌حافظه بسته‌بندی می‌شود؛ فقط یک ADC Listener فیزیکی برای هر دو پروفایل باز می‌ماند.
+- در هم‌پوشانی بازه‌ها Priority بزرگ‌تر برنده است؛ در تساوی، Threshold بالاتر انتخاب می‌شود.
+- واکنش صوتی یک Interrupt است: Scheduler همهٔ Iteratorها را در جای خود نگه می‌دارد، روت واکنش را اجرا می‌کند، در Cooldown شنود را خاموش نگه می‌دارد و سپس Game را از همان نقطه ادامه می‌دهد.
+- Buzzer پاسخ نمی‌تواند خودش را دوباره Trigger کند، چون Listener پیش از اجرای روت بسته و پس از پایان Cooldown دوباره فعال می‌شود.
+- قرارداد پروژه به نسخهٔ ۴ و Manifest مدرن به ۳۴ فایل ارتقا یافت؛ دو روت واکنش نیز Hash و Read-back می‌شوند.
+- WSNDP پنج‌فیلدی قدیمی همچنان سازگار است؛ قراردادهای ۸‌فیلدی بازه و ۱۰‌فیلدی روت واکنش نیز پذیرفته می‌شوند.
+
+### Validation
+
+- شبیه‌سازی Peak=75 در بازهٔ هم‌پوشان، Whisper با Priority=10 را به‌جای Splash با Priority=5 انتخاب کرد.
+- Buzzer ویسپر بین دو حرکت/کلید Game اجرا شد و پس از آن Iterator اصلی ادامه یافت.
+- تست‌های Shared Listener، Timeout، Mouse streaming، Sound calibration، USB FAT read-back و Restart cycle پاس شدند.
+- تست سخت‌افزاری نهایی صدا و بررسی چشمی نرمی موس هنوز لازم است.
 
 ## Build 91 — Listener مشترک برای Parallel Sound
 
