@@ -8,7 +8,8 @@ from pathlib import Path
 import random, sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+MODERN = ROOT / "CIRCUITPY-MODERN"
+sys.path.insert(0, str(MODERN))
 import plan_engine_game_core as core
 import plan_engine_game_runtime as runtime
 
