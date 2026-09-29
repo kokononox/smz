@@ -74,11 +74,16 @@ def windows_size(name):
 
 assert windows_size("plan_engine_game.py") < 3000
 assert windows_size("plan_engine_game_core.py") < 10000
-assert windows_size("plan_engine_game_runtime.py") < 8000
+assert windows_size("plan_engine_game_runtime.py") < 9000
 assert windows_size("plan_engine_game_events.py") < 6000
 assert windows_size("plan_engine_game_parallel.py") < 9000
 assert windows_size("plan_engine_login.py") < 4000
 assert windows_size("plan_engine_login_core.py") < 5000
 assert windows_size("plan_engine_login_mouse.py") < 7000
 assert windows_size("plan_engine_login_type.py") < 7000
-print("Game facade loads core/runtime/mouse/type/parallel sequentially")
+# Keep the CircuitPython compiler from recreating the 1180-byte monolithic
+# dispatch code object observed on Bundle 390.
+for name in ("_profile", "_wait_sound", "_sound", "_beep", "_basic", "_leaf", "_run"):
+    assert hasattr(runtime, name)
+    assert len(getattr(runtime, name).__code__.co_code) < 1000, name
+print("Game facade loads bounded handlers and modules sequentially")

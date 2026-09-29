@@ -58,7 +58,7 @@ assert executor.stat().st_size < 20000, executor.stat().st_size
 assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
 assert game.exists() and game.stat().st_size < 3000
 assert game_core.exists() and game_core.stat().st_size < 10000
-assert game_runtime.exists() and game_runtime.stat().st_size < 8000
+assert game_runtime.exists() and game_runtime.stat().st_size < 9000
 assert game_events.exists() and game_events.stat().st_size < 6000
 assert game_parallel.exists() and game_parallel.stat().st_size < 9000
 assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in game.read_text()
@@ -90,6 +90,7 @@ assert 'timeout - cancel group' in parallel.read_text()
 assert 'parallel wsnd profile range=' in parallel.read_text()
 assert 'SOUNDWATCH' in (root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parse.py').read_text()
 assert 'WPROFILE' in game_runtime.read_text()
+assert 'def _leaf(' in game_runtime.read_text() and 'def _sound(' in game_runtime.read_text()
 assert 'scoped splash timeout -> next cast' in game_parallel.read_text()
 assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime

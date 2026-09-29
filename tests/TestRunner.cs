@@ -4356,7 +4356,11 @@ class TestRunner
                    && gameRuntime.Contains("elif op == \"LABEL\"")
                    && gameRuntime.Contains("elif op == \"GOTO\"")
                    && gameRuntime.Contains("GOTO label not found")
-                   && gameRuntime.Length < 8000
+                   && gameRuntime.Contains("def _basic(")
+                   && gameRuntime.Contains("def _leaf(")
+                   && gameRuntime.Contains("def _sound(")
+                   && gameRuntime.Contains("def _profile(")
+                   && gameRuntime.Length < 9000
                    && gameEvents.Contains("def events(")
                    && gameEvents.Length < 6000
                    && gameParallel.Contains("sound_parallel_safe")

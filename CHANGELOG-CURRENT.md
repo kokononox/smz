@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 112:** Bundle 390 هر دو ماژول Parallel/Event و Core را پاس کرد، اما Runtime کوچک‌شده همچنان دقیقاً allocation=1180 می‌خواست؛ بنابراین Peak مربوط به Code Object تابع بزرگ `_run` بود، نه اندازهٔ فایل. Dispatch اکنون به سه تابع bounded `_sound`، `_leaf` و `_run` تقسیم شده و هر Code Object زیر سقف تست‌شده است.
 - **Candidate Build 111:** Bundle 388 ترتیب Reserve → Parallel → Core را پاس کرد، اما Compile ماژول 10.9KB Runtime با allocation=1180 شکست خورد. Generator تکرارشوندهٔ Event به ماژول مستقل زیر 5KB منتقل و هر دو واحد Parallel پیش از Core/Runtime Preload می‌شوند؛ Runtime اصلی اکنون زیر 8KB است.
 - **Candidate Build 110:** Bundle 381 رزرو Index را پاس کرد، اما چون Core و Runtime پیش از Parallel بارگذاری شدند، Compile Scheduler با free=46,768 و allocation=1388 شکست خورد. ترتیب Peak اکنون Reserve → Parallel preload → Core → Runtime است؛ هیچ منطق Scheduler، Sound، Mouse یا ARM تغییر نکرده است.
 - **Candidate Build 109:** Build 108 Parallel را با موفقیت روی Heap تازه Preload کرد، اما Bundle 380 بلافاصله بعد از آن هنگام ساخت Offset index برای ۳۶۹ فرمان با allocation برابر 1336 بایت شکست خورد. Index فشرده اکنون پیش از هر Import موتور Game روی Heap تازه رزرو و سپس بدون Scan/Allocation مجدد به FileCommands منتقل می‌شود؛ Parallel، Sound و Mouse تغییر نکرده‌اند.
@@ -49,6 +50,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 112 | Bundle 390: Parallel، Events و Core پاس؛ Runtime همچنان allocation=1180 | تقسیم تابع monolithic `_run` به Sound/Leaf/Container handlerهای bounded | Local candidate؛ behavior unchanged |
 | 111 | Bundle 388: Index، Parallel و Core پاس؛ Runtime یک‌تکه با allocation=1180 شکست خورد | Split معماری Event generator و Runtime به دو واحد bounded و Preload زودهنگام Event | Local candidate؛ behavior unchanged |
 | 110 | Bundle 381: Index رزرو شد؛ Parallel پس از Core/Runtime با allocation=1388 شکست خورد | جابه‌جایی Preload Scheduler به بلافاصله پس از Reserve و پیش از Core/Runtime | Local candidate؛ behavior unchanged |
 | 109 | Bundle 380: Parallel preload پاس؛ ساخت Index پس از Compile با allocation=1336 شکست خورد | رزرو Offset bytearray پیش از Importهای Game و تحویل بدون Allocation مجدد | Local candidate؛ runtime behavior unchanged |
@@ -105,6 +107,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 112 — تقسیم Code Object تابع Dispatch Game
+
+**Previous build:** 111 / Classroom release 210
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 390 و هر ۴۱ Hash آن سالم بودند. Parallel، Event module و Core همگی
+Compile شدند، اما Runtime با وجود کاهش فایل به حدود 7.3KB دوباره دقیقاً در
+`allocating 1180 bytes` شکست خورد.
+
+### Root cause
+
+ثابت‌ماندن اندازهٔ allocation پس از Split فایل نشان داد بلوک 1,180 بایتی
+مربوط به Code Object تابع monolithic `_run` است. این تابع Leafها، Sound و
+Containerها را در یک Dispatch بزرگ کامپایل می‌کرد.
+
+### Change
+
+- منطق Sound به `_sound` منتقل شد.
+- فرمان‌های Leaf شامل Keyboard، Delay، RMOUSE و BEEP در `_leaf` قرار گرفتند.
+- `_run` فقط کنترل Containerهای RPKG/LOOP/PGROUP و LABEL/GOTO را نگه می‌دارد.
+- هر سه Code Object با تست اندازهٔ مستقل زیر سقف bounded قفل شده‌اند.
+- ترتیب اجرا، Random Package، Deadline، SoundWatch، Splash، Natural Mouse،
+  ARM، DDA و Cadence تغییر نکرده‌اند.
+
+### Validation
+
+- تست مستقیم اندازهٔ Bytecode برای `_sound`، `_leaf` و `_run` اضافه شد.
+- ۴۱ فایل Manifest و Split معماری Build 111 بدون تغییر حفظ شدند.
+
+### Next test
+
+پس از `after-core-import` باید `after-runtime-import` و سپس `file-index` ثبت
+شوند. بعد Prelude و اولین RMOUSE باید اجرا شوند؛ سپس Splash واقعی و Timeout
+Cast بررسی شوند.
 
 ## Build 111 — Split معماری Game Runtime و Event generator
 
