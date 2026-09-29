@@ -44,7 +44,7 @@ jobs:
           # Extract blobs directly from HEAD. This bypasses checkout EOL filters
           # entirely, so the byte-exact manifest is deterministic on Windows.
           Remove-Item -Recurse -Force portable/plan3/CIRCUITPY
-          git archive --format=tar --output=golden-100-source.tar HEAD portable/plan3/CIRCUITPY
+          git -c core.autocrlf=false archive --format=tar --output=golden-100-source.tar HEAD portable/plan3/CIRCUITPY
           tar -xf golden-100-source.tar
           Remove-Item golden-100-source.tar
       - uses: actions/setup-python@v5
