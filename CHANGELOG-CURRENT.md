@@ -2,6 +2,38 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 120 R18 — تخت‌کردن مسیر Mouse پس از Catch و Type Text پاسخ صدا
+
+**Previous build:** 119 R17 / Classroom release 223
+**Status:** hardware hotfix candidate; Catch confirmed; CI and hardware retest required
+
+### Problem observed
+
+سخت‌افزار واقعی سرانجام Splash را دو بار تشخیص داد، پاسخ F را اجرا کرد و Cast بعدی را با Resume ادامه داد. در Cast سوم و هنگام رسیدن به اولین RMOUSE، پس از Import موفق Login Core/Mouse، Runtime با `RuntimeError('pystack exhausted')` متوقف شد. Export نیز وجود `typeText` در پاسخ Whisper را رد می‌کرد.
+
+### Root cause
+
+مسیر حرکت داخل Parallel هنوز دو Generator صرفاً انتقالی داشت: Game Core روی Generator فاساد Login حلقه می‌زد و فاساد Login نیز روی Generator واقعی Mouse حلقه می‌زد. این Frameهای اضافی فقط هنگام نخستین حرکت پس از چند Catch/Resume به سقف pystack می‌رسیدند؛ فشردن GP3 علت خطا نبود. از طرف دیگر TYPE هم در Validator پاسخ صدا و هم در Runner فایل پاسخ مجاز نشده بود.
+
+### Change
+
+- دو Generator واسط حذف شدند؛ Game Scheduler اکنون Generator واقعی Natural Mouse را مستقیم مصرف می‌کند.
+- رفتار حرکت، Cadence، مختصات نسبی و Pause/Resume تغییر نکرده است.
+- `typeText` برای پاسخ Whisper و Catch مجاز و دستور `TYPE` در Runner فایل‌محور پاسخ صدا فعال شد.
+- Shard تایپ موجود برای Human cadence و Typo استفاده می‌شود و تایپ US-ASCII شامل حروف بزرگ و علائمی مانند `:)` را مستقیماً با HID صحیح اجرا می‌کند.
+- فایل پروژهٔ کاربر با متن `hi :)` به‌عنوان Regression واقعی پوشش داده شد.
+
+### Validation
+
+- لاگ سخت‌افزار R17 دو چرخهٔ کامل `detected → response-done → next-cast` را بدون MemoryError تأیید کرد.
+- تست جدید، کدهای HID واقعی `hi :)` و نبود هر دو Generator واسط Mouse را اجرا/کنترل می‌کند.
+- ۴۶ قرارداد فعال محلی سبز هستند؛ ده تست قدیمی وابسته به Overlay فقط در CI رسمی اجرا می‌شوند.
+- Shard Actions زیر ۴KB و Type زیر ۷KB باقی مانده‌اند؛ Hashهای Bundle بازسازی شدند.
+
+### Next test
+
+در سخت‌افزار، حداقل سه Catch متوالی اجرا کنید تا اولین RMOUSE پس از Resume بدون pystack انجام شود. سپس هنگام حرکت GP3 را برای Pause/Resume بزنید و یک Whisper واقعی بفرستید؛ پاسخ باید `hi :)` را تایپ و سپس همان Cursor و Deadline بازی را ادامه دهد.
+
 ## Build 119 R17 — بازگشت کنترل‌شدهٔ Catch Wait و شروع مجدد تمیز
 
 **Previous build:** 118 R15 / Classroom release 221

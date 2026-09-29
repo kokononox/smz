@@ -195,6 +195,7 @@ def _mouse(ctx, state):
 
 def _mouse_events(args, ctx, state):
     helper = _mouse(ctx, state)
-    for event in helper.mouse_events(args, ctx, state["pauses"], state["pos"], state["speed"]):
-        if event[0] == "wait": yield ("wait", event[1])
-        else: yield ("move", event[1], event[2], event[3])
+    # Return the leaf generator directly. Two nested generator adapters here
+    # exhausted CircuitPython's pystack when the first RMOUSE followed several
+    # Catch/Resume passes inside a PGROUP.
+    return helper.mouse_events(args, ctx, state["pauses"], state["pos"], state["speed"])

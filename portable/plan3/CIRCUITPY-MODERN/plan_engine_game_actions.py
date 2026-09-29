@@ -72,6 +72,10 @@ def _beep(args, ctx):
         raise ValueError("BEEP needs frequency,duration")
     ctx.beep(values[0], values[1])
 
+def _type(args, ctx):
+    import plan_engine_login as helper
+    helper.run_type(args, ctx)
+
 
 def _basic(op, args, ctx, state):
     if op == "PLAN":
@@ -100,6 +104,8 @@ def _basic(op, args, ctx, state):
         ctx.raw(args)
     elif op == "BEEP":
         _beep(args, ctx)
+    elif op == "TYPE":
+        _type(args, ctx)
     else:
         return False
     return True

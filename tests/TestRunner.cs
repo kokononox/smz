@@ -4563,6 +4563,14 @@ class TestRunner
             {
                 Type = "buzzer", Props = new Dictionary<string, object?> { ["preset"] = "warning" },
             });
+            current[PipelineKind.Whisper].Steps.Add(new StepNode
+            {
+                Type = "typeText",
+                Props = new Dictionary<string, object?>
+                {
+                    ["text"] = "whisper ok", ["hmin"] = 90, ["hmax"] = 180,
+                },
+            });
             var whisperProfile = current.SoundProfiles.Single(x => x.Id == 1);
             whisperProfile.Enabled = true; whisperProfile.PeakMin = 20; whisperProfile.PeakMax = 80;
             whisperProfile.Priority = 10; whisperProfile.CooldownMs = 1800;
@@ -4578,6 +4586,7 @@ class TestRunner
                    && watchedGame.Contains("splash,25,95,60,5,900,splash_steps.txt,scoped")
                    && watchedGame.Contains("WPROFILE|splash,19000,24000")
                    && whisperRoute.Contains("BEEP|700,180")
+                   && whisperRoute.Contains("TYPE|text=whisper ok|h=90,180")
                    && File.ReadAllText(Path.Combine(modernTmp, "splash_steps.txt")).Contains("KEY|combo=70")
                    && watchedSnapshot.Contains("soundProfiles")
                    && watchedSnapshot.Contains("\"Type\": \"waitForSound\"")

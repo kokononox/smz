@@ -13,7 +13,7 @@ def _response_commands(ctx, name):
         raise ValueError("unsafe sound response route")
     commands = []
     allowed = ("PLAN", "SCREEN", "SPEED", "DELAY", "KEY", "KDOWN", "KUP",
-               "WHEEL", "RAW", "RMOUSE", "RPKG", "PKGITEM", "ENDPKG",
+               "WHEEL", "RAW", "RMOUSE", "TYPE", "RPKG", "PKGITEM", "ENDPKG",
                "LOOP", "LOOPTIME", "ENDLOOP", "BEEP", "LABEL", "GOTO")
     for raw in ctx.read_plan_file(name).splitlines():
         line = raw.strip()
@@ -39,7 +39,7 @@ def run(ctx, name, state, execute):
             commands = _response_commands(ctx, name)
         labels = {}
         allowed = ("PLAN", "SCREEN", "SPEED", "DELAY", "KEY", "KDOWN", "KUP",
-                   "WHEEL", "RAW", "RMOUSE", "RPKG", "PKGITEM", "ENDPKG",
+                   "WHEEL", "RAW", "RMOUSE", "TYPE", "RPKG", "PKGITEM", "ENDPKG",
                    "LOOP", "LOOPTIME", "ENDLOOP", "BEEP", "LABEL", "GOTO")
         for index, item in enumerate(commands):
             if item[0] not in allowed:

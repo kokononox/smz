@@ -99,9 +99,10 @@ def mouse_events(args, ctx, pauses, pos, route_speed):
     tx = sx + (xmag if random.randint(0, 1) else -xmag)
     ty = sy + (ymag if random.randint(0, 1) else -ymag)
     pos[0], pos[1] = sx, sy
-    for event in _mouse_events(pos, tx, ty, cfg, pauses):
-        yield event
-    del cfg, prm
+    # Do not wrap the movement generator. Game's cooperative scheduler already
+    # owns the outer generator; another forwarding frame can exhaust the Pico
+    # pystack after Catch/Resume.
+    return _mouse_events(pos, tx, ty, cfg, pauses)
 
 
 def run_rmouse(args, ctx, pauses, pos, route_speed):

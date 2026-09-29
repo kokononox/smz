@@ -109,6 +109,28 @@ def _typing_commands(text, prm):
         if li < len(lines) - 1: commands.append(("combo", 13))
     return commands
 
+def _send_text(ctx, minimum, maximum, text):
+    plain = "-=[]\\;'`,./"; shifted = "_+{}|:\"~<>?"
+    codes = (45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56)
+    keyboard = ctx.r.keyboard
+    for ch in text:
+        if not ctx.gate(): raise RuntimeError("route aborted")
+        shift = False
+        if "a" <= ch <= "z": code = 4 + ord(ch) - 97
+        elif "A" <= ch <= "Z": code = 4 + ord(ch) - 65; shift = True
+        elif "1" <= ch <= "9": code = 30 + ord(ch) - 49
+        elif ch == "0": code = 39
+        elif ch == " ": code = 44
+        elif ch in "\r\n": code = 40
+        elif ch in plain: code = codes[plain.index(ch)]
+        elif ch in "!@#$%^&*()": code = 30 + "!@#$%^&*()".index(ch); shift = True
+        elif ch in shifted: code = codes[shifted.index(ch)]; shift = True
+        else: raise ValueError("TYPE supports US-ASCII text")
+        if shift: keyboard.press(225)
+        keyboard.press(code); keyboard.release(code)
+        if shift: keyboard.release(225)
+        if not ctx.sleep_ms(max(minimum, maximum)): raise RuntimeError("route aborted")
+
 
 def run_type(args, ctx):
     raw = _core._fields(args)
@@ -124,7 +146,7 @@ def run_type(args, ctx):
     commands = _typing_commands(_core.pct_dec(raw["text"]), prm)
     del raw, prm
     for command in commands:
-        if command[0] == "text": ctx.ktext(command[1], command[2], command[3])
+        if command[0] == "text": _send_text(ctx, command[1], command[2], command[3])
         elif command[0] == "delay":
             if not ctx.sleep_ms(command[1]): raise RuntimeError("route aborted")
         else: ctx.key_combo([command[1]], 0, 0)

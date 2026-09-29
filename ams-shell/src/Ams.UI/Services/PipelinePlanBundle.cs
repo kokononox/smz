@@ -216,7 +216,7 @@ public static class PipelinePlanBundle
     {
         var allowed = new HashSet<string>(StringComparer.Ordinal)
         {
-            "delay", "keystroke", "keyDown", "keyUp", "mouseScroll", "rawCommand",
+            "delay", "keystroke", "typeText", "keyDown", "keyUp", "mouseScroll", "rawCommand",
             "buzzer", "comment", "forLoop", "randomPackage",
         };
         foreach (var node in nodes)
