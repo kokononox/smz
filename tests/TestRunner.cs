@@ -4366,7 +4366,13 @@ class TestRunner
                    && gameResponse.Length < 4000
                    && gameRuntime.Length < 9000
                    && gameEvents.Contains("def events(")
-                   && gameEvents.Length < 6000
+                   && gameEvents.Contains("class Cursor:")
+                   && gameEvents.Length < 9000
+                   && !gameRuntime.Substring(
+                       gameRuntime.IndexOf("def _run(", StringComparison.Ordinal),
+                       gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal)
+                           - gameRuntime.IndexOf("def _run(", StringComparison.Ordinal))
+                       .Contains("_run(commands,")
                    && gameParallel.Contains("sound_parallel_safe")
                    && gameParallel.Length < 9000,
                 "Build 103: Game compiler peaks are split across sequential bounded modules");
