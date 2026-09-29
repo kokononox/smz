@@ -200,13 +200,19 @@ static void service_vm(uint32_t now) {
 void tud_umount_cb(void) { release_all_actors(now_ms()); }
 void tud_suspend_cb(bool remote_wakeup_en) { (void)remote_wakeup_en; release_all_actors(now_ms()); }
 int main(void) {
-    board_init(); tusb_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms());
+    board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
-    if (!abvm_init(&vm, program, program_size)) { while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); } }
-    bool guard_available = guard_runtime_init(&vm);
+    bool program_verified = abvm_init(&vm, program, program_size);
+    bool guard_available = program_verified && guard_runtime_init(&vm);
+    /* Do not expose a half-ready USB device while a large patched ABP image is
+     * being hashed and structurally verified. Attach only after boot work. */
+    tusb_init();
     while (!tud_mounted()) { tud_task(); sleep_ms(1); }
+    if (!program_verified) {
+        while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
+    }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
     printf("READY|keys=GP3-pause,GP4-guard-start-stop|arm=UART0-GP16-GP17-57600|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); sleep_ms(1); }

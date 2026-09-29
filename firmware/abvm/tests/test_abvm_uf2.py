@@ -9,7 +9,7 @@ def make_uf2(program:bytes,capacity:int=1024,base:int=0x10020000)->bytes:
     return b"".join(blocks)
 class AbvmUf2Tests(unittest.TestCase):
     def test_slot_c_source_has_fixed_layout(self):
-        source=render(b"ABP1test",1024); self.assertIn('section(".abvm_slot")',source); self.assertIn("ABVM_FLASH_SLOT_CAPACITY 1024u",source); self.assertIn("offsetof(AbvmFlashSlot, program) == 64u",source)
+        source=render(b"ABP1test",1024); self.assertIn('section(".abvm_slot")',source); self.assertIn("ABVM_FLASH_SLOT_CAPACITY 1024u",source); self.assertIn("offsetof(AbvmFlashSlot, program) == 64u",source); self.assertIn("const volatile uint32_t *program_size",source); self.assertIn("__attribute__((noinline))",source); self.assertNotIn("return abvm_flash_slot.program_size",source)
     def test_inject_replaces_program_and_preserves_shape(self):
         template=make_uf2(b"ABP1old"); program=b"ABP1"+bytes(range(200)); output,info=inject(template,program); self.assertEqual(len(output),len(template)); self.assertEqual(info["capacity"],1024); self.assertEqual(info["program_size"],len(program)); self.assertEqual(info["program_sha256"],hashlib.sha256(program).hexdigest()); blocks=parse(output); address,_,size=locate_slot(blocks); memory={block.address+i:value for block in blocks for i,value in enumerate(block.payload)}; self.assertEqual(bytes(memory[address+SLOT_HEADER_SIZE+i] for i in range(size)),program)
     def test_rejects_program_over_capacity(self):

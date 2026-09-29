@@ -33,7 +33,13 @@ const AbvmFlashSlot abvm_flash_slot = {{
     }},
 }};
 const uint8_t *abvm_program_data(void) {{ return abvm_flash_slot.program; }}
-size_t abvm_program_size(void) {{ return abvm_flash_slot.program_size; }}
+/* The UF2 exporter patches program_size after link. Force a real XIP-flash
+ * read so the compiler cannot fold the template program's original size. */
+__attribute__((noinline))
+size_t abvm_program_size(void) {{
+    const volatile uint32_t *program_size = &abvm_flash_slot.program_size;
+    return (size_t)*program_size;
+}}
 '''
 
 def main()->int:
