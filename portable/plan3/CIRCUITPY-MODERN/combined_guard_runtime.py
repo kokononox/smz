@@ -514,28 +514,9 @@ class PlanContext:
         self._sound_watch_pending = True
         return None
     def take_sound_watch(self):
-        if self._sound_watch_pending is None:
-            return None
+        pending = self._sound_watch_pending
         self._sound_watch_pending = None
-        state = self._sound_watch
-        if state is None:
-            return None
-        peak = self.sound_peak()
-        if peak is None:
-            self.r.emit("EVT|SOUNDWATCH|ignored|reason=no-peak")
-            self._arm_sound_watch(); return None
-        from plan_engine_parse import select_sound_profile
-        profiles = state["armed"]
-        winner = select_sound_profile(profiles if profiles is not None else (), peak)
-        if winner is None:
-            self.r.emit("EVT|SOUNDWATCH|ignored|peak=%d" % peak)
-            self._arm_sound_watch(); return None
-        self.r.emit("EVT|SOUNDWATCH|detected|profile=%s|peak=%d|priority=%d" %
-                    (winner["id"], peak, winner["priority"]))
-        if winner["mode"] == "scoped":
-            state["scope_result"] = winner
-            return None
-        return winner
+        return pending
     def begin_profile_wait(self, profile_id):
         state = self._sound_watch
         if state is None:

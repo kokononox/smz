@@ -122,12 +122,16 @@ assert 'service_pending_response' not in parallel_text
 context_text=(root/'CIRCUITPY-MODERN'/'combined_guard_runtime.py').read_text(encoding='utf-8')
 assert '_sound_watch_callback' not in context_text
 assert 'self._sound_watch_pending = True' in context_text
-assert 'profiles = state["armed"]' in context_text
 assert 'def take_sound_watch(self):' in context_text
 poll_body=context_text.split('def poll_sound_watch(self):',1)[1].split(
     'def take_sound_watch(self):',1)[0]
 take_body=context_text.split('def take_sound_watch(self):',1)[1].split(
     'def begin_profile_wait(self, profile_id):',1)[0]
 assert 'select_sound_profile' not in poll_body and 'sound_peak()' not in poll_body
-assert 'select_sound_profile' in take_body and 'sound_peak()' in take_body
-print('SoundWatch: deep sleep records one edge; profile resolution runs after unwind')
+assert 'select_sound_profile' not in take_body and 'sound_peak()' not in take_body
+resolve_body=runtime_text.split('def _resolve_sound_watch(ctx):',1)[1].split(
+    'def _service_pending_response(ctx, state):',1)[0]
+assert 'select_sound_profile' in resolve_body and 'sound_peak()' in resolve_body
+assert 'profiles = state["armed"]' in resolve_body
+assert '_resolve_sound_watch(ctx)' in runtime_text
+print('SoundWatch: boot/runtime records one edge; deferred Game resolves after unwind')

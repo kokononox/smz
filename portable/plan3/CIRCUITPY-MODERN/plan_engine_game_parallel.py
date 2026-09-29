@@ -1,7 +1,7 @@
 """Cooperative Game parallel scheduler, imported only at the first PGROUP."""
 
 def run(commands, start, end, ctx, state, core, events, response_runner,
-        execute):
+        execute, resolve_sound_watch):
     branches = core._items(commands, start, end, "PARITEM", "PGROUP", "ENDPAR")
     now = int(ctx.now() * 1000)
     tasks = [{"it": events(commands, a, b, ctx, state), "due": now,
@@ -12,7 +12,7 @@ def run(commands, start, end, ctx, state, core, events, response_runner,
     try:
         while tasks:
             if not ctx.gate(): core._abort()
-            winner = ctx.take_sound_watch() if state["watch"] else None
+            winner = resolve_sound_watch(ctx) if state["watch"] else None
             if winner is not None:
                 core._emit_heap(ctx, "before-response-callback")
                 ctx.suspend_sound_watch()
