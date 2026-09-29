@@ -2,6 +2,16 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 118 R12 — ادامهٔ همان Cursor پس از Splash
+
+- پاسخ Scoped Splash پس از Unwind امن Scheduler اجرا می‌شود و سپس همان Cursor صریح، Frameهای Loop و Deadline اصلی `LOOPTIME` روی فایل Flash بازشده Resume می‌شوند.
+- پایان Catch دیگر `game_steps.txt` را از ابتدا اجرا نمی‌کند؛ Buffها تکرار و تایمر ده‌دقیقه‌ای Reset نمی‌شوند.
+- نتیجهٔ خام ASND پیش از `ASNDCANCEL` ثبت می‌شود تا Splash هنگام خروج از `PGROUP` از دست نرود.
+- شبیه‌ساز ماهیگیری خودکار Cast با 7، حرکت موازی Mouse، Pause/Resume، Splash هشت‌ثانیه‌ای، اجرای F و Cast بعدی را کنترل می‌کند.
+- فایل واقعی ۳۶۹ فرمانی Bundle 440 در شبیه‌ساز ۶ Cast و ۵ Catch را با یک Deadline ثابت اجرا کرد.
+- Resume session بین Runtime و Events تقسیم شده است تا Runtime حتی با CRLF ویندوز زیر سقف Compiler حافظهٔ Pico باقی بماند.
+- تمام Gateها سبزند: Portable contracts، Windows TestRunner، ARM 2.8، Plan2 و Security.
+
 ## وضعیت فعلی در یک نگاه
 
 - **Candidate Build 118 — Architectural:** Patchهای Stack متوقف شدند. اجرای ترتیبی Game اکنون یک VM تکرارشونده با `Cursor` و Stack صریح برای `LOOP/LOOPTIME/RPKG` است؛ هیچ فراخوانی بازگشتی `_run` باقی نمانده است. SoundWatch بدون Callback با Poll مستقیم Context کار می‌کند و Response پس از بازگشت Scheduler روی Stack تخت اجرا می‌شود.
