@@ -4268,6 +4268,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_response.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_sound.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login_core.py"))
@@ -4348,6 +4349,7 @@ class TestRunner
             var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
             var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
+            var gameSound = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_sound.py"));
             var gameRunStart = gameRuntime.IndexOf("def _run(", StringComparison.Ordinal);
             var gameRunBody = gameRuntime.IndexOf('\n', gameRunStart) + 1;
             var gameRunEnd = gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal);
@@ -4368,9 +4370,16 @@ class TestRunner
                    && gameRuntime.Contains("def _leaf(")
                    && gameRuntime.Contains("def _sound(")
                    && gameRuntime.Contains("def _profile(")
+                   && gameRuntime.Contains("return _sound_module().resolve_sound_watch(ctx)")
+                   && !gameRuntime.Contains("from plan_engine_parse import select_sound_profile")
+                   && gameHelper.Contains("(\"plan_engine_game_sound\", \"sound\")")
+                   && gameSound.Contains("def resolve_sound_watch(")
+                   && gameSound.Contains("def service_sound_exit(")
+                   && !gameSound.Contains("plan_engine_parse")
+                   && gameSound.Length < 5000
                    && gameResponse.Contains("_core._FileCommands(name)")
                    && gameResponse.Length < 4000
-                   && gameRuntime.Length < 9000
+                   && gameRuntime.Length < 7000
                    && gameEvents.Contains("def events(")
                    && gameEvents.Contains("class Cursor:")
                    && gameEvents.Length < 9000

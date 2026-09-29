@@ -15,6 +15,7 @@ game_runtime=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_runtime.py'
 game_events=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_events.py'
 game_response=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_response.py'
 game_parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_parallel.py'
+game_sound=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_sound.py'
 login=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login.py'
 login_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_core.py'
 login_mouse=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_mouse.py'
@@ -74,10 +75,11 @@ assert login_type.exists() and login_type.stat().st_size < 7000
 assert 'before-mouse-runtime-import' in login.read_text()
 assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_game.py',
     'plan_engine_game_core.py', 'plan_engine_game_runtime.py',
-    'plan_engine_game_events.py', 'plan_engine_game_response.py', 'plan_engine_game_parallel.py', 'plan_engine_login.py',
+    'plan_engine_game_events.py', 'plan_engine_game_response.py',
+    'plan_engine_game_parallel.py', 'plan_engine_game_sound.py', 'plan_engine_login.py',
     'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
     'plan_engine_login_type.py'))
-assert 'manifestNames.Length != 42' in bundle
+assert 'manifestNames.Length != 43' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
@@ -98,9 +100,10 @@ assert '_run(commands,' not in game_runtime.read_text().split(
     'def _run(',1)[1].split('def run_game(',1)[0]
 assert '_core._FileCommands(name)' in game_response.read_text()
 assert 'before-response-bind' in game_runtime.read_text()
-assert 'before-response-callback' in game_runtime.read_text()
+assert 'before-response-callback' in game_sound.read_text()
 assert '_queue_sound_watch' not in game_runtime.read_text()
-assert 'ctx.take_sound_watch()' in game_runtime.read_text()
+assert 'ctx.take_sound_watch()' in game_sound.read_text()
+assert 'plan_engine_parse' not in game_sound.read_text()
 assert 'response_runner(ctx, winner["file"], state, execute)' in game_parallel.read_text()
 assert 'service_pending_response' not in game_parallel.read_text()
 assert '_sound_watch_callback' not in runtime

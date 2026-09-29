@@ -4,6 +4,7 @@ import random
 
 _core = None
 _response_run = None
+_sound_support = None
 
 def _event_module():
     import plan_engine_game_events as module
@@ -31,73 +32,25 @@ def _run_response(ctx, name, state):
     return _response_run(ctx, name, state, _run)
 
 
+def _sound_module():
+    global _sound_support
+    if _sound_support is None:
+        import plan_engine_game_sound as module
+        module.bind(_core)
+        _sound_support = module
+    return _sound_support
+
+
 def _resolve_sound_watch(ctx):
-    ctx.poll_sound_watch()
-    pending = ctx.take_sound_watch()
-    if not pending:
-        return None
-    if isinstance(pending, dict):
-        return pending
-    state = ctx._sound_watch
-    if state is None:
-        return None
-    peak = ctx.sound_peak()
-    if peak is None:
-        ctx.r.emit("EVT|SOUNDWATCH|ignored|reason=no-peak")
-        ctx._arm_sound_watch(); return None
-    from plan_engine_parse import select_sound_profile
-    profiles = state["armed"]
-    winner = select_sound_profile(profiles if profiles is not None else (), peak)
-    if winner is None:
-        ctx.r.emit("EVT|SOUNDWATCH|ignored|peak=%d" % peak)
-        ctx._arm_sound_watch(); return None
-    ctx.r.emit("EVT|SOUNDWATCH|detected|profile=%s|peak=%d|priority=%d" %
-               (winner["id"], peak, winner["priority"]))
-    if winner["mode"] == "scoped":
-        state["scope_result"] = winner
-        return None
-    return winner
+    return _sound_module().resolve_sound_watch(ctx)
 
 
 def _service_pending_response(ctx, state):
-    if not state["watch"]:
-        return False
-    winner = _resolve_sound_watch(ctx)
-    if winner is None:
-        return False
-    state["_response"] = None
-    _core._emit_heap(ctx, "before-response-callback")
-    ctx.suspend_sound_watch()
-    try:
-        _run_response(ctx, winner["file"], state)
-    finally:
-        ctx.resume_sound_watch(winner["cooldown"])
-    _core._emit_heap(ctx, "after-response-callback")
-    return True
+    return _sound_module().service_pending_response(ctx, state, _run_response)
 
 
 def service_sound_exit(ctx, signal):
-    ctx._sound_watch = signal
-    winner = _resolve_sound_watch(ctx)
-    if winner is None:
-        winner = signal.get("scope_result")
-    state = signal.get("game_state")
-    if winner is not None and state is not None:
-        ctx.r.arm.send("ASNDCANCEL", 2)
-        ctx.r.arm.sound_result = None
-        ctx.r.arm.sound_detail = None
-        _core._emit_heap(ctx, "before-response-callback")
-        ctx.suspend_sound_watch()
-        try:
-            _run_response(ctx, winner["file"], state)
-        finally:
-            ctx.resume_sound_watch(winner["cooldown"])
-        _core._emit_heap(ctx, "after-response-callback")
-    ctx.close_sound_watch()
-    if state is not None:
-        state.clear()
-    gc.collect()
-    return winner is not None
+    return _sound_module().service_sound_exit(ctx, signal, _run_response)
 
 
 def _parallel(commands, start, end, ctx, state):

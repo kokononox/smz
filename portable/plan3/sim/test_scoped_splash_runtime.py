@@ -120,11 +120,15 @@ assert ('key',(70,)) in flash.ev and closed==[True],flash.ev
 print('scoped Splash: hardware response remains file-backed')
 
 runtime_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_runtime.py').read_text(encoding='utf-8')
+sound_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_sound.py').read_text(encoding='utf-8')
 assert '_queue_sound_watch' not in runtime_text
 assert 'ctx.install_sound_watch(_core._watch_profiles(args))' in runtime_text
-assert 'ctx.take_sound_watch()' in runtime_text
-assert 'before-response-bind' in runtime_text and 'before-response-callback' in runtime_text
+assert 'before-response-bind' in runtime_text
+assert 'before-response-callback' in sound_text
 assert '_response_run(ctx, name, state, _run)' in runtime_text
+assert 'plan_engine_parse' not in runtime_text
+assert 'return _sound_module().resolve_sound_watch(ctx)' in runtime_text
+assert 'return _sound_module().service_sound_exit(ctx, signal, _run_response)' in runtime_text
 parallel_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_parallel.py').read_text(encoding='utf-8')
 assert 'response_runner(ctx, winner["file"], state, execute)' in parallel_text
 assert 'service_pending_response' not in parallel_text
@@ -146,19 +150,20 @@ assert 'self.poll_sound_watch()' not in sleep_body
 assert 'self.r.arm.sound_result is not None' in sleep_body
 assert 'select_sound_profile' not in poll_body and 'sound_peak()' not in poll_body
 assert 'select_sound_profile' not in take_body and 'sound_peak()' not in take_body
-resolve_body=runtime_text.split('def _resolve_sound_watch(ctx):',1)[1].split(
-    'def _service_pending_response(ctx, state):',1)[0]
-assert 'select_sound_profile' in resolve_body and 'sound_peak()' in resolve_body
-assert 'profiles = state["armed"]' in resolve_body
+resolve_body=sound_text.split('def resolve_sound_watch(ctx):',1)[1].split(
+    'def service_pending_response(ctx, state, run_response):',1)[0]
+assert '_select_profile' in resolve_body and 'sound_peak()' in resolve_body
+assert 'profiles = watch["armed"]' in resolve_body
 assert resolve_body.index('ctx.poll_sound_watch()') < resolve_body.index(
     'ctx.take_sound_watch()')
 assert '_resolve_sound_watch(ctx)' in runtime_text
 assert 'def service_sound_exit(ctx, signal):' in runtime_text
-service_body=runtime_text.split('def service_sound_exit(ctx, signal):',1)[1].split(
-    'def _parallel(',1)[0]
+service_body=sound_text.split('def service_sound_exit(ctx, signal, run_response):',1)[1]
 assert 'ctx.r.arm.send("ASNDCANCEL", 2)' in service_body
+assert 'plan_engine_parse' not in sound_text
 facade_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game.py').read_text(encoding='utf-8')
 assert 'def service_sound_exit(ctx, signal):' in facade_text
+assert '("plan_engine_game_sound", "sound")' in facade_text
 code_text=(root/'CIRCUITPY-MODERN'/'code.py').read_text(encoding='utf-8')
 assert 'plan_engine_game.service_sound_exit(ctx, signal)' in code_text
 route_loop=code_text.split('route_ctx = runtime.PlanContext(self)',1)[1].split(
