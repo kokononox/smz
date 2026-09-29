@@ -4,12 +4,35 @@
 
 ## Build 118 R13 — حفظ Scoped Winner تا Resume
 
-- لاگ واقعی Bundle 670 ثابت کرد ASND گاهی فقط هنگام `pump()` داخل `resolve_sound_watch()` دریافت می‌شود؛ در این حالت Scoped Winner داخل Scheduler اجرا و Route زودتر Complete می‌شد.
-- Scoped Winner اکنون پیش از `finally/end_profile_wait` در Signal خروجی حفظ و Response فقط پس از Unwind کامل اجرا می‌شود.
-- تمام مسیرهای خروج SoundWatch اکنون Cursor، Labelها و Game state را به Signal متصل می‌کنند؛ بنابراین ورود بعدی دیگر با `KeyError('_game_cursor')` متوقف نمی‌شود.
-- شبیه‌ساز داخلی به مدل واقعی ARM ارتقا یافت: صدا هنگام Sleep مستقیماً تزریق نمی‌شود و فقط با `arm.pump()` قابل دریافت است.
-- Route واقعی ۳۶۹ فرمانی با مدل Pump در ۶ Cast و ۵ Catch، یک Deadline ثابت و بدون Restart Game پاس شد.
-- بسته‌بندی Release پس از سبزشدن PR #75 دوباره Trigger شد؛ Firmware بدون تغییر است.
+**Previous build:** 118 R12 / Classroom release 216
+**Status:** hardware hotfix candidate; CI green; hardware retest required
+
+### Problem observed
+
+Bundle 670 صدای واقعی را با `peak=102` تشخیص داد و Response فایل‌محور تا `after-response-index|commands=5` پیش رفت، اما Route بلافاصله Complete شد و ورود بعدی Game با `KeyError('_game_cursor')` متوقف گردید.
+
+### Root cause
+
+روی سخت‌افزار، ASND ممکن است فقط هنگام `arm.pump()` داخل `resolve_sound_watch()` دریافت شود. در این مسیر Fast path نتیجهٔ خام را نمی‌دید، Scoped Winner داخل Scheduler مصرف می‌شد و `finally/end_profile_wait` آن را پیش از Resume پاک می‌کرد. Signal بعدی نیز بدون Cursor به Facade می‌رسید.
+
+### Change
+
+- Scoped Winner پیش از پاک‌سازی Profile در Signal خروجی ذخیره می‌شود.
+- Response فقط پس از Unwind کامل Scheduler اجرا می‌گردد.
+- تمام خروجی‌های SoundWatch، Cursor، Labelها و Game state را حمل می‌کنند.
+- شبیه‌ساز داخلی صدا را فقط از مسیر واقعی `arm.pump()` دریافت می‌کند، نه با تزریق مستقیم هنگام Sleep.
+- Package بزرگ و Route فایل‌محور بدون تغییر حفظ شده‌اند.
+
+### Validation
+
+- همهٔ Gateهای PR #75 سبز هستند: Portable، Windows TestRunner، ARM 2.8، Plan2 و Security.
+- شبیه‌ساز فشرده: ۳ Cast، ۲ Catch و یک Deadline ثابت.
+- Route واقعی ۳۶۹ فرمانی Bundle 670 با مدل Pump: ۶ Cast، ۵ Catch و Deadline ثابت `617.074s`.
+- هیچ `MemoryError`، Restart Game یا `KeyError('_game_cursor')` رخ نداد.
+
+### Next test
+
+در سخت‌افزار واقعی باید پس از `SOUNDWATCH|detected`، تله‌متری Response و اجرای F ثبت شود؛ سپس بدون `ROUTE/complete` زودهنگام، Cast بعدی با همان Deadline و بدون تکرار Buffها ادامه یابد.
 
 ## Build 118 R12 — ادامهٔ همان Cursor پس از Splash
 
