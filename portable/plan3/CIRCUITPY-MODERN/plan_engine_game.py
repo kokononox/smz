@@ -62,7 +62,8 @@ def _run_game_file(name, ctx, resume):
         for module, stage in (("plan_engine_game_sound", "sound"),
                               ("plan_engine_game_parallel", "parallel"),
                               ("plan_engine_game_events", "events"),
-                              ("plan_engine_game_response", "response")):
+                              ("plan_engine_game_response", "response"),
+                              ("plan_engine_game_actions", "actions")):
             gc.collect(); _heap(ctx, "before-" + stage + "-preload"); gc.collect()
             try:
                 __import__(module)

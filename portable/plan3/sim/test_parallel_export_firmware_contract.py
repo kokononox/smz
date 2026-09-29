@@ -12,6 +12,7 @@ human=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_human.py'
 game=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game.py'
 game_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_core.py'
 game_runtime=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_runtime.py'
+game_actions=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_actions.py'
 game_events=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_events.py'
 game_response=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_response.py'
 game_parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_parallel.py'
@@ -61,6 +62,7 @@ assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
 assert game.exists() and game.stat().st_size < 3500
 assert game_core.exists() and game_core.stat().st_size < 10000
 assert game_runtime.exists() and game_runtime.stat().st_size < 9000
+assert game_actions.exists() and game_actions.stat().st_size < 5000
 assert game_events.exists() and game_events.stat().st_size < 9000
 assert game_response.exists() and game_response.stat().st_size < 4000
 assert game_parallel.exists() and game_parallel.stat().st_size < 9000
@@ -75,11 +77,12 @@ assert login_type.exists() and login_type.stat().st_size < 7000
 assert 'before-mouse-runtime-import' in login.read_text()
 assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_game.py',
     'plan_engine_game_core.py', 'plan_engine_game_runtime.py',
+    'plan_engine_game_actions.py',
     'plan_engine_game_events.py', 'plan_engine_game_response.py',
     'plan_engine_game_parallel.py', 'plan_engine_game_sound.py', 'plan_engine_login.py',
     'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
     'plan_engine_login_type.py'))
-assert 'manifestNames.Length != 43' in bundle
+assert 'manifestNames.Length != 44' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
@@ -93,8 +96,8 @@ assert 'plan-lite-relative' in facade.read_text()
 assert 'timeout - cancel group' in parallel.read_text()
 assert 'parallel wsnd profile range=' in parallel.read_text()
 assert 'SOUNDWATCH' in (root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parse.py').read_text()
-assert 'WPROFILE' in game_runtime.read_text()
-assert 'def _leaf(' in game_runtime.read_text() and 'def _sound(' in game_runtime.read_text()
+assert 'WPROFILE' in game_actions.read_text()
+assert 'def leaf(' in game_actions.read_text() and 'def _sound(' in game_actions.read_text()
 assert 'class Cursor:' in game_events.read_text()
 assert '_run(commands,' not in game_runtime.read_text().split(
     'def _run(',1)[1].split('def run_game(',1)[0]

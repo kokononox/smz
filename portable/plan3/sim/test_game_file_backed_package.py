@@ -77,7 +77,7 @@ assert any("after-parallel-preload" in value for value in telemetry), telemetry
 stages = [value.split("stage=", 1)[1].split("|free=", 1)[0]
           for value in telemetry if "stage=" in value]
 # Bundle 381 reserved the index successfully but failed compiling Parallel after
-# Core/Runtime.  Lock the peak-safe order: reserve -> Parallel -> Core -> Runtime.
+# Core/Runtime. Lock the bounded-shard order and keep the large Runtime last.
 assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
        stages.index("before-parallel-preload") < \
        stages.index("after-parallel-preload") < \
@@ -85,6 +85,8 @@ assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
        stages.index("after-events-preload") < \
        stages.index("before-response-preload") < \
        stages.index("after-response-preload") < \
+       stages.index("before-actions-preload") < \
+       stages.index("after-actions-preload") < \
        stages.index("before-core-import") < \
        stages.index("after-runtime-import"), stages
 

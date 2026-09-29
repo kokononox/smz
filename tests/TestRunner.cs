@@ -4265,6 +4265,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_actions.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_response.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
@@ -4348,6 +4349,7 @@ class TestRunner
             var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
             var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
             var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
+            var gameActions = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_actions.py"));
             var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
             var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
@@ -4368,10 +4370,11 @@ class TestRunner
                    && gameRuntime.Contains("elif op == \"LABEL\"")
                    && gameRuntime.Contains("elif op == \"GOTO\"")
                    && gameRuntime.Contains("GOTO label not found")
-                   && gameRuntime.Contains("def _basic(")
-                   && gameRuntime.Contains("def _leaf(")
-                   && gameRuntime.Contains("def _sound(")
-                   && gameRuntime.Contains("def _profile(")
+                   && gameActions.Contains("def _basic(")
+                   && gameActions.Contains("def leaf(")
+                   && gameActions.Contains("def _sound(")
+                   && gameActions.Contains("def _profile(")
+                   && gameActions.Length < 5000
                    && gameRuntime.Contains("return _sound_module().resolve_sound_watch(ctx)")
                    && !gameRuntime.Contains("from plan_engine_parse import select_sound_profile")
                    && gameHelper.Contains("(\"plan_engine_game_sound\", \"sound\")")
