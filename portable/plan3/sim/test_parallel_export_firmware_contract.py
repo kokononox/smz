@@ -83,7 +83,7 @@ assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_g
     'plan_engine_game_parallel.py', 'plan_engine_game_sound.py', 'plan_engine_login.py',
     'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
     'plan_engine_login_type.py'))
-assert 'manifestNames.Length != 45' in bundle
+assert 'manifestNames.Length != 46' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token

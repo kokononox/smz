@@ -43,34 +43,25 @@ class Tone:
     def deinit(self):
         self.closed = True
 
-cue_ns = {
-    "runtime": types.SimpleNamespace(
-        time=clock, board=types.SimpleNamespace(GP6=6),
-        pwmio=types.SimpleNamespace(PWMOut=Tone)),
-    "_GUARD_START_PATTERN": ((100, 20),),
-    "_GUARD_STOP_PATTERN": ((200, 20),),
-    "_GUARD_PAUSE_PATTERN": ((300, 20), (0, 10), (300, 20)),
-    "_GUARD_RESUME_PATTERN": ((400, 20),),
-}
-cue_nodes = []
-tree = ast.parse(open(code_path, encoding="utf-8").read())
-for wanted in ("_queue_guard_cue", "_guard_cue_tick"):
-    cue_nodes.append(next(node for node in tree.body
-                          if isinstance(node, ast.FunctionDef)
-                          and node.name == wanted))
-exec(compile(ast.Module(body=cue_nodes, type_ignores=[]), code_path, "exec"), cue_ns)
+real_time = sys.modules.get("time")
+sys.modules["board"] = types.SimpleNamespace(GP6=6)
+sys.modules["pwmio"] = types.SimpleNamespace(PWMOut=Tone)
+sys.modules["time"] = clock
+import guard_button_cues as cue
+if real_time is not None:
+    sys.modules["time"] = real_time
 board = types.SimpleNamespace(
     guard_cue_name=None, guard_cue_index=0, guard_cue_next=0,
     guard_cue_tone=None, emit=lambda value: None)
-cue_ns["_queue_guard_cue"](board, "pause")
-cue_ns["_guard_cue_tick"](board)
-assert tones[-1].frequency == 300 and not tones[-1].closed
-clock.value += .020
-cue_ns["_guard_cue_tick"](board)
+cue.queue(board, "pause")
+cue.tick(board)
+assert tones[-1].frequency == 523 and not tones[-1].closed
+clock.value += .180
+cue.tick(board)
 assert tones[-1].closed and board.guard_cue_tone is None
-clock.value += .010
-cue_ns["_guard_cue_tick"](board)
-assert tones[-1].frequency == 300 and not tones[-1].closed
+clock.value += .100
+cue.tick(board)
+assert tones[-1].frequency == 523 and not tones[-1].closed
 
 import plan_engine_game_actions as actions
 

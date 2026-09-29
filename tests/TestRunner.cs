@@ -4262,6 +4262,7 @@ class TestRunner
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
             Assert(modernWritten.Count >= 36
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
+                   && File.Exists(Path.Combine(modernTmp, "guard_button_cues.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_inventory.py"))
@@ -4287,7 +4288,10 @@ class TestRunner
             // handoff. Keep a bounded deferred entrypoint while explicitly pinning the
             // unwind-before-response contract instead of the old pre-R5 byte count.
             var modernEntry = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
-            Assert(modernEntry.Length < 57000
+            // Build 120 moves physical-button cue sequencing to a lazy shard.
+            // The LF firmware entrypoint remains smaller than hardware-passed
+            // Build 119; allow Windows CRLF expansion without weakening that cap.
+            Assert(modernEntry.Length < 58000
                    && modernEntry.Contains("DeferredPlanEngine")
                    && modernEntry.Contains("signal = plan_engine_game.run_game_file(commands, ctx)")
                    && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)")

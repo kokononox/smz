@@ -45,4 +45,4 @@ assert manifest_inventory == runtime_inventory, (
 )
 assert {"whisper_steps.txt", "splash_steps.txt"} <= runtime_inventory
 
-print("Modern boot manifest inventory: 45/45 accepted, including Game Type preload")
+print("Modern boot manifest inventory: 46/46 accepted, including stack-safe cues")
