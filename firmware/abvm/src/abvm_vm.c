@@ -716,6 +716,12 @@ int abvm_complete_action(AbvmVm *vm, uint8_t lane, uint32_t now) {
     return 1;
 }
 
+int abvm_constant(const AbvmVm *vm, uint16_t constant_id, uint8_t kind,
+                  const uint8_t **payload, uint32_t *size) {
+    if (!vm || !payload || !size) return 0;
+    return constant_at(vm, constant_id, kind, payload, size);
+}
+
 int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now) {
     if (!vm) return 0;
     for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {

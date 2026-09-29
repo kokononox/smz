@@ -6,6 +6,7 @@
 
 #define REPORT_ID_KEYBOARD 0u
 #define MAX_KEYS 6u
+#define TYPE_HOLD_MS 8u
 
 typedef enum ActorPhase {
     ACTOR_IDLE = 0,
@@ -13,6 +14,11 @@ typedef enum ActorPhase {
     ACTOR_WAIT_HOLD,
     ACTOR_SEND_RESTORE,
     ACTOR_SEND_PERSISTENT,
+    ACTOR_TYPE_PREPARE,
+    ACTOR_TYPE_SEND_PRESS,
+    ACTOR_TYPE_WAIT_HOLD,
+    ACTOR_TYPE_SEND_RELEASE,
+    ACTOR_TYPE_WAIT_GAP,
 } ActorPhase;
 
 typedef struct KeyboardActor {
@@ -26,12 +32,40 @@ typedef struct KeyboardActor {
     bool release_pending;
     bool completion_pending;
     uint8_t completion_lane;
+
+    const uint8_t *text_cursor;
+    const uint8_t *text_end;
+    uint8_t type_pending[3];
+    uint8_t type_pending_count;
+    uint8_t type_pending_index;
+    uint8_t type_actual;
+    uint32_t rng;
+    uint32_t hmin, hmax, wmin, wmax, pmin, pmax;
+    uint32_t think_min, think_max, typo_min, typo_max;
+    uint16_t word_chance, think_chance;
+    uint32_t eligible_since_typo, typo_due;
 } KeyboardActor;
 
 static KeyboardActor actor;
 
 static bool deadline_reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
+}
+
+static uint32_t random_next(void) {
+    uint32_t x = actor.rng ? actor.rng : 0x9e3779b9u;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    actor.rng = x;
+    return x;
+}
+
+static uint32_t random_range(uint32_t lo, uint32_t hi) {
+    if (hi <= lo) return lo;
+    return lo + random_next() % (hi - lo + 1u);
+}
+
+static bool chance(uint16_t percent) {
+    return percent >= 100u || (percent && random_next() % 100u < percent);
 }
 
 static bool add_key(uint8_t keys[MAX_KEYS], uint8_t key) {
@@ -79,6 +113,53 @@ static bool vk_to_hid(uint8_t vk, uint8_t *modifier, uint8_t *keycode) {
     }
 }
 
+static bool ascii_to_hid(uint8_t value, uint8_t *modifier, uint8_t *keycode) {
+    *modifier = 0; *keycode = 0;
+    if (value >= 'a' && value <= 'z') { *keycode = (uint8_t)(HID_KEY_A + value - 'a'); return true; }
+    if (value >= 'A' && value <= 'Z') { *modifier = KEYBOARD_MODIFIER_LEFTSHIFT; *keycode = (uint8_t)(HID_KEY_A + value - 'A'); return true; }
+    if (value >= '1' && value <= '9') { *keycode = (uint8_t)(HID_KEY_1 + value - '1'); return true; }
+    if (value == '0') { *keycode = HID_KEY_0; return true; }
+    switch (value) {
+        case ' ': *keycode=HID_KEY_SPACE; return true;
+        case '\b': *keycode=HID_KEY_BACKSPACE; return true;
+        case '\n': case '\r': *keycode=HID_KEY_ENTER; return true;
+        case '\t': *keycode=HID_KEY_TAB; return true;
+        case '-': *keycode=HID_KEY_MINUS; return true;
+        case '_': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_MINUS; return true;
+        case '=': *keycode=HID_KEY_EQUAL; return true;
+        case '+': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_EQUAL; return true;
+        case '[': *keycode=HID_KEY_BRACKET_LEFT; return true;
+        case '{': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_BRACKET_LEFT; return true;
+        case ']': *keycode=HID_KEY_BRACKET_RIGHT; return true;
+        case '}': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_BRACKET_RIGHT; return true;
+        case '\\': *keycode=HID_KEY_BACKSLASH; return true;
+        case '|': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_BACKSLASH; return true;
+        case ';': *keycode=HID_KEY_SEMICOLON; return true;
+        case ':': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_SEMICOLON; return true;
+        case '\'': *keycode=HID_KEY_APOSTROPHE; return true;
+        case '"': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_APOSTROPHE; return true;
+        case '`': *keycode=HID_KEY_GRAVE; return true;
+        case '~': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_GRAVE; return true;
+        case ',': *keycode=HID_KEY_COMMA; return true;
+        case '<': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_COMMA; return true;
+        case '.': *keycode=HID_KEY_PERIOD; return true;
+        case '>': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_PERIOD; return true;
+        case '/': *keycode=HID_KEY_SLASH; return true;
+        case '?': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_SLASH; return true;
+        case '!': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_1; return true;
+        case '@': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_2; return true;
+        case '#': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_3; return true;
+        case '$': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_4; return true;
+        case '%': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_5; return true;
+        case '^': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_6; return true;
+        case '&': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_7; return true;
+        case '*': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_8; return true;
+        case '(': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_9; return true;
+        case ')': *modifier=KEYBOARD_MODIFIER_LEFTSHIFT; *keycode=HID_KEY_0; return true;
+        default: return false;
+    }
+}
+
 static bool send_report(uint8_t modifiers, const uint8_t keys[MAX_KEYS]) {
     if (!tud_mounted() || !tud_hid_ready()) return false;
     return tud_hid_keyboard_report(REPORT_ID_KEYBOARD, modifiers, keys);
@@ -98,96 +179,173 @@ static bool apply_vk(uint8_t vk, bool down) {
     return true;
 }
 
-void hid_keyboard_init(void) {
-    memset(&actor, 0, sizeof(actor));
+static const uint8_t *json_field(const uint8_t *data, uint32_t size, const char *key) {
+    size_t key_size = strlen(key);
+    for (uint32_t i = 0; i + key_size + 3u < size; ++i) {
+        if (data[i] != '"' || memcmp(data + i + 1u, key, key_size) ||
+            data[i + key_size + 1u] != '"' || data[i + key_size + 2u] != ':') continue;
+        return data + i + key_size + 3u;
+    }
+    return NULL;
 }
 
-HidKeyboardSubmit hid_keyboard_submit(const AbvmEvent *event, uint32_t now) {
+static uint32_t json_u32(const uint8_t *data, uint32_t size, const char *key, uint32_t fallback) {
+    const uint8_t *p = json_field(data, size, key), *end = data + size;
+    if (!p || p >= end || *p < '0' || *p > '9') return fallback;
+    uint32_t value = 0;
+    while (p < end && *p >= '0' && *p <= '9') {
+        uint32_t digit = (uint32_t)(*p++ - '0');
+        if (value > (UINT32_MAX - digit) / 10u) return fallback;
+        value = value * 10u + digit;
+    }
+    return value;
+}
+
+static bool json_true(const uint8_t *data, uint32_t size, const char *key) {
+    const uint8_t *p = json_field(data, size, key);
+    return p && (size_t)(data + size - p) >= 4u && !memcmp(p, "true", 4u);
+}
+
+static bool json_string_equals(const uint8_t *data, uint32_t size, const char *key, const char *value) {
+    const uint8_t *p = json_field(data, size, key);
+    size_t length = strlen(value);
+    return p && (size_t)(data + size - p) >= length + 2u && *p == '"' &&
+           !memcmp(p + 1u, value, length) && p[length + 1u] == '"';
+}
+
+static int hex_digit(uint8_t value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static bool next_json_char(const uint8_t **cursor, const uint8_t *end, uint8_t *out) {
+    if (*cursor >= end) return false;
+    uint8_t value = *(*cursor)++;
+    if (value == '\\') {
+        if (*cursor >= end) return false;
+        value = *(*cursor)++;
+        switch (value) {
+            case '"': case '\\': case '/': *out=value; return true;
+            case 'b': *out='\b'; return true;
+            case 'f': *out='\f'; return true;
+            case 'n': *out='\n'; return true;
+            case 'r': *out='\r'; return true;
+            case 't': *out='\t'; return true;
+            case 'u': {
+                if ((size_t)(end - *cursor) < 4u) return false;
+                int code = 0;
+                for (uint8_t i=0;i<4u;++i) { int digit=hex_digit(*(*cursor)++); if (digit<0) return false; code=(code<<4)|digit; }
+                if (code <= 0 || code > 0x7f) return false;
+                *out=(uint8_t)code; return true;
+            }
+            default: return false;
+        }
+    }
+    if (value < 0x20u || value > 0x7eu || value == '"') return false;
+    *out=value; return true;
+}
+
+static bool type_configure(const AbvmVm *vm, uint16_t constant_id, uint32_t now) {
+    const uint8_t *data, *text, *end;
+    uint32_t size;
+    if (!abvm_constant(vm, constant_id, ABVM_CONST_TYPE, &data, &size) ||
+        json_true(data,size,"secret") || json_string_equals(data,size,"mode","clipboard")) return false;
+    text = json_field(data,size,"text"); end = data + size;
+    if (!text || text >= end || *text++ != '"') return false;
+    const uint8_t *close=text; bool escaped=false;
+    while (close<end) { uint8_t v=*close; if (!escaped && v=='"') break; escaped=!escaped && v=='\\'; if (v!='\\') escaped=false; ++close; }
+    if (close>=end) return false;
+    const uint8_t *check=text; uint8_t value;
+    while (check<close) if (!next_json_char(&check,close,&value) || !ascii_to_hid(value,&actor.report_modifiers,&actor.report_keys[0])) return false;
+    actor.text_cursor=text; actor.text_end=close; actor.hmin=json_u32(data,size,"hmin",80u); actor.hmax=json_u32(data,size,"hmax",220u);
+    actor.wmin=json_u32(data,size,"wmin",0u); actor.wmax=json_u32(data,size,"wmax",0u); actor.word_chance=(uint16_t)json_u32(data,size,"wordPauseChance",60u);
+    actor.pmin=json_u32(data,size,"pmin",0u); actor.pmax=json_u32(data,size,"pmax",0u); actor.think_chance=(uint16_t)json_u32(data,size,"thinkChance",0u);
+    actor.think_min=json_u32(data,size,"thinkMin",800u); actor.think_max=json_u32(data,size,"thinkMax",2200u);
+    actor.typo_min=json_u32(data,size,"typoEveryMin",0u); actor.typo_max=json_u32(data,size,"typoEveryMax",0u);
+    if (actor.hmax<actor.hmin) { uint32_t t=actor.hmin; actor.hmin=actor.hmax; actor.hmax=t; }
+    if (actor.wmax<actor.wmin) { uint32_t t=actor.wmin; actor.wmin=actor.wmax; actor.wmax=t; }
+    if (actor.pmax<actor.pmin) { uint32_t t=actor.pmin; actor.pmin=actor.pmax; actor.pmax=t; }
+    if (actor.think_max<actor.think_min) { uint32_t t=actor.think_min; actor.think_min=actor.think_max; actor.think_max=t; }
+    if (actor.typo_max<actor.typo_min) { uint32_t t=actor.typo_min; actor.typo_min=actor.typo_max; actor.typo_max=t; }
+    if (actor.word_chance > 100u) actor.word_chance = 100u;
+    if (actor.think_chance > 100u) actor.think_chance = 100u;
+    actor.rng=now ^ ((uint32_t)constant_id<<16) ^ 0xa5c31f27u; actor.eligible_since_typo=0; actor.typo_due=actor.typo_max ? random_range(actor.typo_min ? actor.typo_min : 1u,actor.typo_max) : 0u;
+    actor.type_pending_count=actor.type_pending_index=0; return true;
+}
+
+static bool prepare_type_key(void) {
+    if (actor.type_pending_index >= actor.type_pending_count) {
+        if (actor.text_cursor >= actor.text_end) return false;
+        uint8_t actual;
+        if (!next_json_char(&actor.text_cursor,actor.text_end,&actual)) return false;
+        actor.type_actual=actual; actor.type_pending_index=0; actor.type_pending_count=1; actor.type_pending[0]=actual;
+        bool eligible=(actual>='a'&&actual<='z')||(actual>='A'&&actual<='Z')||(actual>='0'&&actual<='9');
+        if (eligible && actor.typo_due && ++actor.eligible_since_typo>=actor.typo_due) {
+            actor.type_pending[0]=(actual=='x'||actual=='X')?'z':'x'; actor.type_pending[1]='\b'; actor.type_pending[2]=actual; actor.type_pending_count=3;
+            actor.eligible_since_typo=0; actor.typo_due=random_range(actor.typo_min?actor.typo_min:1u,actor.typo_max);
+        }
+    }
+    uint8_t value=actor.type_pending[actor.type_pending_index++], modifier, key;
+    if (!ascii_to_hid(value,&modifier,&key)) return false;
+    actor.report_modifiers=(uint8_t)(actor.persistent_modifiers|modifier); memcpy(actor.report_keys,actor.persistent_keys,sizeof(actor.report_keys));
+    return add_key(actor.report_keys,key);
+}
+
+static uint32_t type_gap(void) {
+    uint32_t gap=random_range(actor.hmin,actor.hmax); uint8_t value=actor.type_actual;
+    if (actor.type_pending_index < actor.type_pending_count) return gap;
+    if (value==' ' && actor.wmax && chance(actor.word_chance)) gap += random_range(actor.wmin,actor.wmax);
+    if ((value=='.'||value==','||value=='!'||value=='?'||value==';'||value==':') && actor.pmax) gap += random_range(actor.pmin,actor.pmax);
+    if (value==' ' && actor.think_max && chance(actor.think_chance)) gap += random_range(actor.think_min,actor.think_max);
+    return gap;
+}
+
+void hid_keyboard_init(void) { memset(&actor,0,sizeof(actor)); }
+
+HidKeyboardSubmit hid_keyboard_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now) {
     if (actor.phase != ACTOR_IDLE) return HID_KEYBOARD_BUSY;
-    if (event->opcode != ABVM_OP_KEY && event->opcode != ABVM_OP_KDOWN &&
-        event->opcode != ABVM_OP_KUP)
-        return HID_KEYBOARD_UNSUPPORTED;
-
-    actor.lane = event->lane;
+    if (event->opcode == ABVM_OP_TYPE) {
+        actor.lane=event->lane;
+        if (!type_configure(vm,event->operand_a,now)) return HID_KEYBOARD_INVALID;
+        actor.phase=ACTOR_TYPE_PREPARE; return HID_KEYBOARD_ACCEPTED;
+    }
+    if (event->opcode != ABVM_OP_KEY && event->opcode != ABVM_OP_KDOWN && event->opcode != ABVM_OP_KUP) return HID_KEYBOARD_UNSUPPORTED;
+    actor.lane=event->lane;
     if (event->opcode == ABVM_OP_KDOWN || event->opcode == ABVM_OP_KUP) {
-        if (!apply_vk((uint8_t)event->operand_a,
-                      event->opcode == ABVM_OP_KDOWN))
-            return HID_KEYBOARD_INVALID;
-        actor.phase = ACTOR_SEND_PERSISTENT;
-        return HID_KEYBOARD_ACCEPTED;
+        if (!apply_vk((uint8_t)event->operand_a,event->opcode==ABVM_OP_KDOWN)) return HID_KEYBOARD_INVALID;
+        actor.phase=ACTOR_SEND_PERSISTENT; return HID_KEYBOARD_ACCEPTED;
     }
-
-    actor.report_modifiers = actor.persistent_modifiers;
-    memcpy(actor.report_keys, actor.persistent_keys, sizeof(actor.report_keys));
-    uint32_t packed = event->operand_b;
-    unsigned width = 0;
-    while (width < 4u && ((packed >> (width * 8u)) & 0xffu)) ++width;
-    if (!width) return HID_KEYBOARD_INVALID;
-    for (unsigned i = 0; i < width; ++i) {
-        uint8_t modifier, key;
-        uint8_t vk = (uint8_t)(packed >> (i * 8u));
-        if (!vk_to_hid(vk, &modifier, &key)) return HID_KEYBOARD_INVALID;
-        actor.report_modifiers |= modifier;
-        if (!add_key(actor.report_keys, key)) return HID_KEYBOARD_INVALID;
-    }
-    uint32_t lo = event->operand_c;
-    uint32_t hi = event->operand_d < lo ? lo : event->operand_d;
-    actor.due = now + lo + (hi - lo) / 2u;
-    actor.phase = ACTOR_SEND_PRESS;
-    return HID_KEYBOARD_ACCEPTED;
+    actor.report_modifiers=actor.persistent_modifiers; memcpy(actor.report_keys,actor.persistent_keys,sizeof(actor.report_keys));
+    uint32_t packed=event->operand_b; unsigned width=0; while (width<4u&&((packed>>(width*8u))&0xffu)) ++width; if (!width) return HID_KEYBOARD_INVALID;
+    for (unsigned i=0;i<width;++i) { uint8_t modifier,key,vk=(uint8_t)(packed>>(i*8u)); if (!vk_to_hid(vk,&modifier,&key)) return HID_KEYBOARD_INVALID; actor.report_modifiers|=modifier; if (!add_key(actor.report_keys,key)) return HID_KEYBOARD_INVALID; }
+    uint32_t lo=event->operand_c,hi=event->operand_d<lo?lo:event->operand_d; actor.due=now+lo+(hi-lo)/2u; actor.phase=ACTOR_SEND_PRESS; return HID_KEYBOARD_ACCEPTED;
 }
 
 bool hid_keyboard_service(uint32_t now, uint8_t *completed_lane) {
-    if (actor.release_pending) {
-        uint8_t empty[MAX_KEYS] = {0};
-        if (send_report(0, empty)) actor.release_pending = false;
-    }
-    if (!actor.release_pending && actor.completion_pending) {
-        *completed_lane = actor.completion_lane;
-        actor.completion_pending = false;
-        return true;
-    }
+    if (actor.release_pending) { uint8_t empty[MAX_KEYS]={0}; if (send_report(0,empty)) actor.release_pending=false; }
+    if (!actor.release_pending&&actor.completion_pending) { *completed_lane=actor.completion_lane; actor.completion_pending=false; return true; }
     switch (actor.phase) {
-        case ACTOR_SEND_PRESS:
-            if (send_report(actor.report_modifiers, actor.report_keys))
-                actor.phase = ACTOR_WAIT_HOLD;
-            break;
-        case ACTOR_WAIT_HOLD:
-            if (deadline_reached(now, actor.due)) actor.phase = ACTOR_SEND_RESTORE;
-            break;
-        case ACTOR_SEND_RESTORE:
-            if (send_report(actor.persistent_modifiers, actor.persistent_keys)) {
-                *completed_lane = actor.lane;
-                actor.phase = ACTOR_IDLE;
-                return true;
-            }
-            break;
-        case ACTOR_SEND_PERSISTENT:
-            if (send_report(actor.persistent_modifiers, actor.persistent_keys)) {
-                *completed_lane = actor.lane;
-                actor.phase = ACTOR_IDLE;
-                return true;
-            }
-            break;
-        default:
-            break;
+        case ACTOR_SEND_PRESS: if (send_report(actor.report_modifiers,actor.report_keys)) actor.phase=ACTOR_WAIT_HOLD; break;
+        case ACTOR_WAIT_HOLD: if (deadline_reached(now,actor.due)) actor.phase=ACTOR_SEND_RESTORE; break;
+        case ACTOR_SEND_RESTORE: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; } break;
+        case ACTOR_SEND_PERSISTENT: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; } break;
+        case ACTOR_TYPE_PREPARE:
+            if (!prepare_type_key()) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; }
+            actor.phase=ACTOR_TYPE_SEND_PRESS; break;
+        case ACTOR_TYPE_SEND_PRESS: if (send_report(actor.report_modifiers,actor.report_keys)) { actor.due=now+TYPE_HOLD_MS; actor.phase=ACTOR_TYPE_WAIT_HOLD; } break;
+        case ACTOR_TYPE_WAIT_HOLD: if (deadline_reached(now,actor.due)) actor.phase=ACTOR_TYPE_SEND_RELEASE; break;
+        case ACTOR_TYPE_SEND_RELEASE: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { actor.due=now+type_gap(); actor.phase=ACTOR_TYPE_WAIT_GAP; } break;
+        case ACTOR_TYPE_WAIT_GAP: if (deadline_reached(now,actor.due)) actor.phase=ACTOR_TYPE_PREPARE; break;
+        default: break;
     }
     return false;
 }
 
 void hid_keyboard_release_all(void) {
-    if (actor.phase != ACTOR_IDLE) {
-        actor.completion_pending = true;
-        actor.completion_lane = actor.lane;
-    }
-    memset(actor.persistent_keys, 0, sizeof(actor.persistent_keys));
-    memset(actor.report_keys, 0, sizeof(actor.report_keys));
-    actor.persistent_modifiers = 0;
-    actor.report_modifiers = 0;
-    actor.phase = ACTOR_IDLE;
-    actor.release_pending = true;
+    if (actor.phase!=ACTOR_IDLE) { actor.completion_pending=true; actor.completion_lane=actor.lane; }
+    memset(actor.persistent_keys,0,sizeof(actor.persistent_keys)); memset(actor.report_keys,0,sizeof(actor.report_keys)); actor.persistent_modifiers=0; actor.report_modifiers=0; actor.phase=ACTOR_IDLE; actor.release_pending=true;
 }
 
-bool hid_keyboard_busy(void) {
-    return actor.phase != ACTOR_IDLE;
-}
+bool hid_keyboard_busy(void) { return actor.phase!=ACTOR_IDLE; }

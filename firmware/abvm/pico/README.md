@@ -19,9 +19,9 @@ The patcher validates UF2 framing, requires exactly one compatible slot, checks 
 
 ## Safety boundary
 
-The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. Type remains a safe stub.
+The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. `TYPE` is a real allocation-free, nonblocking TinyUSB actor: it preserves held modifiers, supports printable US-ASCII plus Enter/Tab, applies per-key, word, punctuation and thinking delays, and performs bounded typo/backspace correction. Clipboard, secret, malformed JSON, and non-ASCII payloads fail closed instead of being silently typed.
 
-Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp, bounded relative mouse, nonblocking ARM UART, HALT on every release boundary, GP3 Pause/Resume, GP4 Start/Stop, Game/Whisper routing, and fail-closed boot/transport behavior.
+Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART, HALT on every release boundary, GP3 Pause/Resume, GP4 Start/Stop, Game/Whisper routing, and fail-closed boot/transport behavior.
 
 ## Build one identity
 

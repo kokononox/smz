@@ -136,6 +136,8 @@ void abvm_stop(AbvmVm *vm, uint32_t now);
 AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now);
 int abvm_complete_action(AbvmVm *vm, uint8_t lane, uint32_t now);
 int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now);
+int abvm_constant(const AbvmVm *vm, uint16_t constant_id, uint8_t kind,
+                  const uint8_t **payload, uint32_t *size);
 const char *abvm_status_name(uint8_t status);
 
 #ifdef __cplusplus

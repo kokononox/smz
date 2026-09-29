@@ -74,6 +74,11 @@ jobs:
             python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj /tmp/abvm-native-smoke.abp --routes Game Whisper
             cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_vm_smoke.c -o /tmp/abvm-native-smoke
             /tmp/abvm-native-smoke /tmp/abvm-native-smoke.abp
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/tests/pico_stub -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/hid_keyboard.c \
+              firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
+            /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
