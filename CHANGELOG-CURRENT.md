@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 117:** Bundle 440 تمام Importها و Bind را پاس کرد، اما پس از peak=95 باز هم پیش از callback telemetry شکست خورد. حتی Queue function پایتونی در Stack عمیق `sleep_ms` یک Frame اضافی بود. Callback/Closure به‌طور کامل حذف شد: `PlanContext.sleep_ms` مستقیماً SoundWatch را Poll می‌کند، Winner را در Slot داخلی نگه می‌دارد و Scheduler پس از Unwind آن را با `take_sound_watch()` تحویل می‌گیرد.
 - **Candidate Build 116:** Bundle 420 همهٔ Preload/Importها و Bind زودهنگام Response را پاس کرد، اما پس از peak=105 هنوز پیش از `before-response-callback` شکست خورد. علت باقی‌مانده دو فراخوانی اضافی روی pystack محدود بود: `suspend_sound_watch()` هنوز داخل callback اجرا می‌شد و Scheduler برای سرویس Winner وارد Wrapper دیگری می‌شد. Callback اکنون فقط Winner را در Slot ازقبل‌موجود می‌گذارد؛ Scheduler پاسخ را Inline و مستقیماً با Runner ازپیش Bindشده اجرا می‌کند.
 - **Candidate Build 115:** Bundle 410 تمام Importها، Index ۳۶۹فرمانی، Parallel، نخستین RMOUSE و تشخیص واقعی Sound با peak=178 را پاس کرد، اما Response هنوز مستقیماً از callback تو‌در‌توی `sleep_ms` اجرا می‌شد و پیش از `before-response-file` با `MemoryError('')` شکست خورد. Callback اکنون فقط Winner را Queue می‌کند؛ ماژول Response پیش از اجرای Route یک‌بار Bind/Cache می‌شود و Runner پس از بازگشت callback در Scheduler اجرا می‌گردد. Telemetry مرزی Bind/Callback اضافه شده و Mouse/ARM/Cadence تغییر نکرده‌اند.
 - **Candidate Build 114:** افزودن Flash-backed Response در Build 113 ناخواسته Runtime را دوباره به 8.6KB رساند و Compiler peak جدید allocation=1336 پیش از اجرا ایجاد کرد. Response اکنون در `plan_engine_game_response.py` مستقل زیر 4KB قرار دارد و همراه Parallel/Events پیش از Core/Runtime Preload می‌شود؛ Runtime اصلی دوباره کوچک و bounded است.
@@ -54,6 +55,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 117 | Bundle 440: Bind پاس؛ peak=95 سپس شکست پیش از callback telemetry | حذف کامل callback/closure؛ Poll مستقیم Context و تحویل با `take_sound_watch()` | Local candidate؛ hardware retest pending |
 | 116 | Bundle 420: Response bind پاس؛ peak=105 سپس شکست پیش از callback telemetry | Queue کاملاً بدون فراخوانی + اجرای Inline Runner مستقیم در Scheduler | Local candidate؛ hardware retest pending |
 | 115 | Bundle 410: همهٔ Importها/RMOUSE/Sound detect پاس؛ MemoryError پیش از ورود به Response | Queue-only callback + Response runner ازپیش Bind/Cache و اجرای پس از unwind | Local candidate؛ hardware retest pending |
 | 114 | Bundle 401: Runtime پس از افزودن Response با allocation=1336 شکست خورد | انتقال کامل Response به ماژول مستقل preloaded؛ موجودی ۴۲فایلی | Local candidate؛ response behavior unchanged |
@@ -115,6 +117,47 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 117 — حذف کامل Callback پایتونی SoundWatch
+
+**Previous build:** 116 / Classroom release 215
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 440 و هر ۴۲ Hash آن سالم بودند. تمام Importها، Index، Parallel، Mouse و
+Bind زودهنگام Response پاس شدند. SoundWatch صدای واقعی را با `peak=95` تشخیص
+داد، اما همچنان پیش از `before-response-callback` با `MemoryError('')` متوقف شد.
+
+### Root cause
+
+Build 116 عملیات داخل Callback را به یک Assignment کاهش داد، اما خود فراخوانی
+Closure پایتونی از `PlanContext.sleep_ms()` هنوز یک Frame اضافی روی pystack
+فعال `LOOP/RPKG/PGROUP` می‌ساخت. شکست پیش از Telemetry ثابت کرد Response،
+File parser و Scheduler inline هنوز وارد اجرا نشده‌اند.
+
+### Change
+
+- Callback و Closure پایتونی SoundWatch به‌طور کامل حذف شدند.
+- `PlanContext.sleep_ms()` مستقیماً `poll_sound_watch()` را فراخوانی می‌کند.
+- Winner داخل Slot داخلی `_sound_watch_pending` نگه‌داری می‌شود.
+- Scheduler پس از بازگشت Sleep با `take_sound_watch()` Winner را تحویل می‌گیرد.
+- هنگام Pending شدن Winner، Sleep زودتر برمی‌گردد تا Response بدون تأخیر سرویس شود.
+- File-backed Response، Scoped Splash، Cooldown و Whisper continuation حفظ شده‌اند.
+- Mouse، ARM، DDA، Cadence، Guard و Exporter تغییر نکرده‌اند.
+
+### Validation
+
+- Bundle 440: ۴۲ از ۴۲ Hash معتبر.
+- قرارداد Runtime نبود کامل `_sound_watch_callback` و `_queue_sound_watch` را قفل می‌کند.
+- تست SoundWatch تضمین می‌کند Response داخل polling Sleep اجرا نمی‌شود.
+- همهٔ قراردادهای Portable، Hash، Compile و Security باید پیش از Merge پاس شوند.
+
+### Next test
+
+پس از تشخیص صدا باید برای نخستین بار `before-response-callback` دیده شود و سپس
+`before-response-file`، `after-response-index`، اجرای F و
+`after-response-callback` ثبت شوند. MemoryError نباید تکرار شود.
 
 ## Build 116 — Callback کاملاً بدون فراخوانی و Runner مستقیم
 

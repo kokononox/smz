@@ -96,9 +96,12 @@ assert 'def _leaf(' in game_runtime.read_text() and 'def _sound(' in game_runtim
 assert '_core._FileCommands(name)' in game_response.read_text()
 assert 'before-response-bind' in game_runtime.read_text()
 assert 'before-response-callback' in game_runtime.read_text()
-assert 'state["_response"] = winner' in game_runtime.read_text()
+assert '_queue_sound_watch' not in game_runtime.read_text()
+assert 'ctx.take_sound_watch()' in game_runtime.read_text()
 assert 'response_runner(ctx, winner["file"], state, execute)' in game_parallel.read_text()
 assert 'service_pending_response' not in game_parallel.read_text()
+assert '_sound_watch_callback' not in runtime
+assert 'def take_sound_watch(self):' in runtime
 assert 'scoped splash timeout -> next cast' in game_parallel.read_text()
 assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime
