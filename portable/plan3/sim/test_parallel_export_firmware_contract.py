@@ -94,6 +94,10 @@ assert 'SOUNDWATCH' in (root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_parse.
 assert 'WPROFILE' in game_runtime.read_text()
 assert 'def _leaf(' in game_runtime.read_text() and 'def _sound(' in game_runtime.read_text()
 assert '_core._FileCommands(name)' in game_response.read_text()
+assert 'before-response-bind' in game_runtime.read_text()
+assert 'before-response-callback' in game_runtime.read_text()
+assert 'state["_response"] = winner' in game_runtime.read_text()
+assert 'service_pending_response(ctx, state)' in game_parallel.read_text()
 assert 'scoped splash timeout -> next cast' in game_parallel.read_text()
 assert 'only one WSND listener may be active' not in parallel.read_text()
 assert 'self.r.arm.flush()' in runtime and 'SCAL rejected: ERR|BUSY' in runtime

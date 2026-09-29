@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 115:** Bundle 410 تمام Importها، Index ۳۶۹فرمانی، Parallel، نخستین RMOUSE و تشخیص واقعی Sound با peak=178 را پاس کرد، اما Response هنوز مستقیماً از callback تو‌در‌توی `sleep_ms` اجرا می‌شد و پیش از `before-response-file` با `MemoryError('')` شکست خورد. Callback اکنون فقط Winner را Queue می‌کند؛ ماژول Response پیش از اجرای Route یک‌بار Bind/Cache می‌شود و Runner پس از بازگشت callback در Scheduler اجرا می‌گردد. Telemetry مرزی Bind/Callback اضافه شده و Mouse/ARM/Cadence تغییر نکرده‌اند.
 - **Candidate Build 114:** افزودن Flash-backed Response در Build 113 ناخواسته Runtime را دوباره به 8.6KB رساند و Compiler peak جدید allocation=1336 پیش از اجرا ایجاد کرد. Response اکنون در `plan_engine_game_response.py` مستقل زیر 4KB قرار دارد و همراه Parallel/Events پیش از Core/Runtime Preload می‌شود؛ Runtime اصلی دوباره کوچک و bounded است.
 - **Candidate Build 113:** Build 112 تمام Importها، Index، Parallel و اولین RMOUSE را پاس کرد؛ SoundWatch نیز Splash واقعی را با peak=101 تشخیص داد. شکست فقط هنگام Response بود، چون `_response_commands` فایل Splash را کامل به متن و لیست Tuple در RAM تبدیل می‌کرد. Response اکنون با `_FileCommands` مستقیماً از Flash اجرا و پس از پایان بسته می‌شود.
 - **Candidate Build 112:** Bundle 390 هر دو ماژول Parallel/Event و Core را پاس کرد، اما Runtime کوچک‌شده همچنان دقیقاً allocation=1180 می‌خواست؛ بنابراین Peak مربوط به Code Object تابع بزرگ `_run` بود، نه اندازهٔ فایل. Dispatch اکنون به سه تابع bounded `_sound`، `_leaf` و `_run` تقسیم شده و هر Code Object زیر سقف تست‌شده است.
@@ -52,6 +53,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 115 | Bundle 410: همهٔ Importها/RMOUSE/Sound detect پاس؛ MemoryError پیش از ورود به Response | Queue-only callback + Response runner ازپیش Bind/Cache و اجرای پس از unwind | Local candidate؛ hardware retest pending |
 | 114 | Bundle 401: Runtime پس از افزودن Response با allocation=1336 شکست خورد | انتقال کامل Response به ماژول مستقل preloaded؛ موجودی ۴۲فایلی | Local candidate؛ response behavior unchanged |
 | 113 | Build 112: Engine/Index/RMOUSE/Sound detect پاس؛ MemoryError پس از peak=101 | اجرای Flash-backed فایل Splash/Whisper بدون read()/splitlines()/tuple list | Local candidate؛ response behavior unchanged |
 | 112 | Bundle 390: Parallel، Events و Core پاس؛ Runtime همچنان allocation=1180 | تقسیم تابع monolithic `_run` به Sound/Leaf/Container handlerهای bounded | Local candidate؛ behavior unchanged |
