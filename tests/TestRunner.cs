@@ -4265,6 +4265,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
@@ -4340,6 +4341,7 @@ class TestRunner
             var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
             var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
             var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
+            var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
             Assert(!gameHelper.Contains("import plan_engine_parse")
                    && !gameHelper.Contains("import plan_engine_exec")
@@ -4354,7 +4356,9 @@ class TestRunner
                    && gameRuntime.Contains("elif op == \"LABEL\"")
                    && gameRuntime.Contains("elif op == \"GOTO\"")
                    && gameRuntime.Contains("GOTO label not found")
-                   && gameRuntime.Length < 12000
+                   && gameRuntime.Length < 8000
+                   && gameEvents.Contains("def events(")
+                   && gameEvents.Length < 6000
                    && gameParallel.Contains("sound_parallel_safe")
                    && gameParallel.Length < 9000,
                 "Build 103: Game compiler peaks are split across sequential bounded modules");

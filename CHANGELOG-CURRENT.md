@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 111:** Bundle 388 ترتیب Reserve → Parallel → Core را پاس کرد، اما Compile ماژول 10.9KB Runtime با allocation=1180 شکست خورد. Generator تکرارشوندهٔ Event به ماژول مستقل زیر 5KB منتقل و هر دو واحد Parallel پیش از Core/Runtime Preload می‌شوند؛ Runtime اصلی اکنون زیر 8KB است.
 - **Candidate Build 110:** Bundle 381 رزرو Index را پاس کرد، اما چون Core و Runtime پیش از Parallel بارگذاری شدند، Compile Scheduler با free=46,768 و allocation=1388 شکست خورد. ترتیب Peak اکنون Reserve → Parallel preload → Core → Runtime است؛ هیچ منطق Scheduler، Sound، Mouse یا ARM تغییر نکرده است.
 - **Candidate Build 109:** Build 108 Parallel را با موفقیت روی Heap تازه Preload کرد، اما Bundle 380 بلافاصله بعد از آن هنگام ساخت Offset index برای ۳۶۹ فرمان با allocation برابر 1336 بایت شکست خورد. Index فشرده اکنون پیش از هر Import موتور Game روی Heap تازه رزرو و سپس بدون Scan/Allocation مجدد به FileCommands منتقل می‌شود؛ Parallel، Sound و Mouse تغییر نکرده‌اند.
 - **Candidate Build 108:** Build 107 خطای pystack را حذف کرد، اما Bundle 371 پس از ۲۱ ثانیه Prelude و با وجود 45KB Heap آزاد، هنگام Compile دیرهنگام ماژول Parallel به‌دلیل Fragmentation نتوانست بلوک پیوستهٔ 1388 بایتی بگیرد. Route فایل‌محور پیش از Load اسکن می‌شود و در صورت داشتن PGROUP، همان Scheduler موجود بلافاصله پس از Game Runtime و روی Heap تازه Preload می‌شود؛ منطق Parallel، Sound، Mouse و ARM تغییر نکرده‌اند.
@@ -48,6 +49,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 111 | Bundle 388: Index، Parallel و Core پاس؛ Runtime یک‌تکه با allocation=1180 شکست خورد | Split معماری Event generator و Runtime به دو واحد bounded و Preload زودهنگام Event | Local candidate؛ behavior unchanged |
 | 110 | Bundle 381: Index رزرو شد؛ Parallel پس از Core/Runtime با allocation=1388 شکست خورد | جابه‌جایی Preload Scheduler به بلافاصله پس از Reserve و پیش از Core/Runtime | Local candidate؛ behavior unchanged |
 | 109 | Bundle 380: Parallel preload پاس؛ ساخت Index پس از Compile با allocation=1336 شکست خورد | رزرو Offset bytearray پیش از Importهای Game و تحویل بدون Allocation مجدد | Local candidate؛ runtime behavior unchanged |
 | 108 | Bundle 371: انتقال‌ها و file-index پاس؛ Compile دیرهنگام Parallel با free=45952 و allocation=1388 شکست خورد | Preload مشروط Scheduler پیش از File index و Prelude روی Heap تازه | Local candidate؛ scheduler/mouse/ARM unchanged |
@@ -103,6 +105,47 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 111 — Split معماری Game Runtime و Event generator
+
+**Previous build:** 110 / Classroom release 209
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 388 و هر ۴۰ Hash آن سالم بودند. Index رزرو شد، Parallel با موفقیت
+Preload شد و Core نیز کامل Import شد. سپس ماژول یک‌تکهٔ Runtime با اندازهٔ
+Windows حدود 11.1KB و `free=48992` در تخصیص پیوستهٔ 1,180 بایت شکست خورد.
+
+### Root cause
+
+جابه‌جایی‌های Buildهای 109 و 110 هر دو تخصیص هدف را رفع کردند، اما مجموع کد
+Generator تکرارشوندهٔ Event و Executor اصلی هنوز در یک واحد Compiler قرار داشت.
+این آخرین Compiler peak بزرگ Game بود و دیگر با تغییر ترتیب پایدار نمی‌شد.
+
+### Change
+
+- Generator تکرارشوندهٔ LOOP/LOOPTIME/RPKG/RMOUSE به
+  `plan_engine_game_events.py` مستقل منتقل شد.
+- Event module و Parallel scheduler پیش از Core/Runtime و هرکدام میان دو GC
+  Preload می‌شوند.
+- Runtime اصلی زیر 8KB و Event module زیر 6KB قفل شده‌اند.
+- Generator همچنان Iterative است؛ ترتیب Package، Deadline، Sound، Mouse و
+  پاسخ Splash بدون تغییر مانده‌اند.
+- موجودی Classroom، Manifest، Boot verifier و Heap cleanup با فایل ۴۱ام
+  همگام شدند.
+
+### Validation
+
+- قرارداد اندازهٔ Windows برای هر دو واحد جدید اعمال می‌شود.
+- تست فایل‌محور ترتیب Reserve → Parallel → Events → Core → Runtime را قفل می‌کند.
+- تست Nested LOOP/RPKG/RMOUSE همچنان نبود recursion را کنترل می‌کند.
+
+### Next test
+
+در Game باید `after-parallel-preload`، سپس `before/after-events-preload`،
+`before/after-core-import`، `after-runtime-import` و `file-index` ثبت شوند.
+پس از آن Prelude، اولین RMOUSE، Splash واقعی و Timeout Cast بررسی شوند.
 
 ## Build 110 — Preload Scheduler پیش از Core/Runtime
 

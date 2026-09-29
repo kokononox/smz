@@ -81,6 +81,8 @@ stages = [value.split("stage=", 1)[1].split("|free=", 1)[0]
 assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
        stages.index("before-parallel-preload") < \
        stages.index("after-parallel-preload") < \
+       stages.index("before-events-preload") < \
+       stages.index("after-events-preload") < \
        stages.index("before-core-import") < \
        stages.index("after-runtime-import"), stages
 
@@ -116,10 +118,9 @@ core._mouse_events = original_mouse_events
 assert events == [
     ("move", 7, 3, -2), ("wait", 5),
     ("move", 7, 3, -2), ("wait", 5)], events
-event_source = (FW / "plan_engine_game_runtime.py").read_text(encoding="utf-8")
-event_body = event_source.split("def _events(", 1)[1].split(
-    "\n\ndef _response_commands", 1)[0]
-assert "_events(commands," not in event_body, event_body
+event_source = (FW / "plan_engine_game_events.py").read_text(encoding="utf-8")
+event_body = event_source.split("def events(", 1)[1]
+assert "events(commands," not in event_body, event_body
 
 source = (FW / "code.py").read_text(encoding="utf-8")
 assert 'commands = name if name == "game_steps.txt"' in source

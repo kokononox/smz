@@ -61,16 +61,16 @@ def run_game_file(name, ctx):
     gc.collect(); _heap(ctx, "after-file-index-reserve|commands=%d|offset-bytes=%d" %
                        (len(offsets) // 4, len(offsets)))
     if needs_parallel:
-        # Compile the scheduler before Core/Runtime.  Bundle 381 proved that
-        # retaining the reserved index is safe, but importing Core/Runtime
-        # first fragments the last 1388-byte compiler block.
-        gc.collect(); _heap(ctx, "before-parallel-preload"); gc.collect()
-        try:
-            __import__("plan_engine_game_parallel")
-        except MemoryError:
-            _heap(ctx, "parallel-preload-memoryerror")
-            raise
-        gc.collect(); _heap(ctx, "after-parallel-preload")
+        # Compile bounded Parallel units before Core/Runtime fragmentation.
+        for module, stage in (("plan_engine_game_parallel", "parallel"),
+                              ("plan_engine_game_events", "events")):
+            gc.collect(); _heap(ctx, "before-" + stage + "-preload"); gc.collect()
+            try:
+                __import__(module)
+            except MemoryError:
+                _heap(ctx, stage + "-preload-memoryerror")
+                raise
+            gc.collect(); _heap(ctx, "after-" + stage + "-preload")
     core, runtime = _load(ctx)
     commands = core._FileCommands(name, offsets)
     try:
