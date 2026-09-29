@@ -41,8 +41,12 @@ jobs:
       - name: Preserve Golden 100 bytes on Windows checkout
         shell: pwsh
         run: |
-          git config --global core.autocrlf false
-          git -c core.autocrlf=false checkout-index --force --all
+          # Extract blobs directly from HEAD. This bypasses checkout EOL filters
+          # entirely, so the byte-exact manifest is deterministic on Windows.
+          Remove-Item -Recurse -Force portable/plan3/CIRCUITPY
+          git archive --format=tar --output=golden-100-source.tar HEAD portable/plan3/CIRCUITPY
+          tar -xf golden-100-source.tar
+          Remove-Item golden-100-source.tar
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
