@@ -50,6 +50,18 @@ class NativePico1AdapterTests(unittest.TestCase):
             self.assertEqual(manifest["program_sha256"], hashlib.sha256(program.read_bytes()).hexdigest())
             self.assertIn("drive_mode", manifest["not_applicable_to_native_backend"])
 
+    def test_experimental_batch_has_thirty_unique_identities(self):
+        batch = Path(__file__).resolve().parents[1] / "pico" / "batch30.json"
+        data = json.loads(batch.read_text())
+        configs = [{**data["defaults"], **profile} for profile in data["profiles"]]
+        self.assertEqual(len(configs), 30)
+        fields = ("target_board", "usb_manufacturer", "usb_product", "usb_vid",
+                  "usb_pid", "serial_prefix", "drive_label")
+        for key in fields:
+            self.assertEqual(len({cfg[key] for cfg in configs}), 30, key)
+        for cfg in configs:
+            render_header(cfg)
+
     def test_rejects_noncanonical_unvalidated_vid(self):
         with self.assertRaisesRegex(ValueError, "canonical pico1 hex"):
             render_header({**CONFIG, "usb_vid": "0x3169aa"})

@@ -14,6 +14,19 @@ not applied: this native UF2 has no FAT or USB mass-storage interface. CMake
 fetches the exact commit recorded in `PICO1_REVISION`; an already-pinned local
 checkout may instead be supplied with `-DPICO1_ROOT=/path/to/pico1`.
 
+USB identity is configuration-driven; the native runtime has no compiled-in
+VID/PID allowlist. The committed experimental batch contains 30 independently
+validated identities imported from `pico1-firmware-batch30-verified.zip`.
+Build all variants with:
+
+```bash
+firmware/abvm/pico/build_batch.sh /tmp/program.abp \
+  firmware/abvm/pico/batch30.json /tmp/abvm-batch30
+```
+
+Each output directory contains its personalized UF2, canonical configuration,
+pico1 manifest, native ABVM manifest, and SHA-256 list.
+
 ## Safety boundary
 
 This image exposes TinyUSB CDC plus a real HID keyboard actor. Key/KDown/KUp
@@ -31,7 +44,7 @@ Implemented on board:
   interrupt/resume;
 - fail-closed boot when the embedded image is corrupt.
 
-## Build
+## Build one identity
 
 ```bash
 python tools/abvm.py compile autocycle.amsj /tmp/program.abp \
@@ -41,7 +54,7 @@ export PICO_SDK_PATH=/path/to/pico-sdk
 cmake -S firmware/abvm/pico -B /tmp/abvm-pico \
   -DPICO_BOARD=pico \
   -DABVM_PROGRAM=/tmp/program.abp \
-  -DABVM_FIRMWARE_CONFIG="$PWD/firmware/abvm/pico/pico1.json"
+  -DABVM_FIRMWARE_CONFIG=/absolute/path/to/pico1-config.json
 cmake --build /tmp/abvm-pico --parallel
 ```
 
