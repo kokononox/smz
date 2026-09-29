@@ -127,11 +127,17 @@ poll_body=context_text.split('def poll_sound_watch(self):',1)[1].split(
     'def take_sound_watch(self):',1)[0]
 take_body=context_text.split('def take_sound_watch(self):',1)[1].split(
     'def begin_profile_wait(self, profile_id):',1)[0]
+sleep_body=context_text.split('def sleep_ms(self, ms):',1)[1].split(
+    'def log(self, text):',1)[0]
+assert 'self.poll_sound_watch()' not in sleep_body
+assert 'self.r.arm.sound_result is not None' in sleep_body
 assert 'select_sound_profile' not in poll_body and 'sound_peak()' not in poll_body
 assert 'select_sound_profile' not in take_body and 'sound_peak()' not in take_body
 resolve_body=runtime_text.split('def _resolve_sound_watch(ctx):',1)[1].split(
     'def _service_pending_response(ctx, state):',1)[0]
 assert 'select_sound_profile' in resolve_body and 'sound_peak()' in resolve_body
 assert 'profiles = state["armed"]' in resolve_body
+assert resolve_body.index('ctx.poll_sound_watch()') < resolve_body.index(
+    'ctx.take_sound_watch()')
 assert '_resolve_sound_watch(ctx)' in runtime_text
-print('SoundWatch: boot/runtime records one edge; deferred Game resolves after unwind')
+print('SoundWatch: sleep only observes raw UART state; Game polls after unwind')

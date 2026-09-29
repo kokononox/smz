@@ -32,6 +32,7 @@ def _run_response(ctx, name, state):
 
 
 def _resolve_sound_watch(ctx):
+    ctx.poll_sound_watch()
     pending = ctx.take_sound_watch()
     if not pending:
         return None

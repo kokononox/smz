@@ -318,8 +318,7 @@ class PlanContext:
             remaining = int(max(1, (end - time.monotonic()) * 1000))
             if not self.r.controls.sleep(min(10, remaining)):
                 return False
-            self.poll_sound_watch()
-            if self._sound_watch_pending is not None:
+            if self.r.arm.sound_result is not None:
                 break
         return True
     def log(self, text): print("plan:", text)
