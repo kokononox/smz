@@ -47,16 +47,11 @@ set(GENERATED_PROGRAM "${CMAKE_CURRENT_BINARY_DIR}/abvm_program_image.c")
 set(PICO1_OUT "${CMAKE_CURRENT_BINARY_DIR}/pico1")
 set(GENERATED_PICO1_HEADER "${PICO1_OUT}/abvm_pico1_config.h")
 set(GENERATED_PICO1_MANIFEST "${PICO1_OUT}/abvm-firmware-manifest.json")
-add_custom_command(OUTPUT "${GENERATED_PROGRAM}"
-    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_slot.py" "${ABVM_PROGRAM}" "${GENERATED_PROGRAM}"
-    DEPENDS "${ABVM_PROGRAM}" "${REPO_ROOT}/tools/abvm_slot.py" VERBATIM)
-add_custom_command(OUTPUT "${GENERATED_PICO1_HEADER}" "${GENERATED_PICO1_MANIFEST}" "${PICO1_OUT}/build-config.json" "${PICO1_OUT}/build-manifest.json"
-    COMMAND "${Python3_EXECUTABLE}" "${PICO1_ROOT}/generator/generate.py" --config "${ABVM_FIRMWARE_CONFIG}" --out "${PICO1_OUT}"
-    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_pico1.py" --validated-config "${PICO1_OUT}/build-config.json" --pico1-manifest "${PICO1_OUT}/build-manifest.json" --program "${ABVM_PROGRAM}" --revision-file "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" --out "${PICO1_OUT}"
-    DEPENDS "${ABVM_FIRMWARE_CONFIG}" "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" "${PICO1_ROOT}/generator/generate.py" "${REPO_ROOT}/tools/abvm_pico1.py" "${ABVM_PROGRAM}" VERBATIM)
+add_custom_command(OUTPUT "${GENERATED_PROGRAM}" COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_slot.py" "${ABVM_PROGRAM}" "${GENERATED_PROGRAM}" DEPENDS "${ABVM_PROGRAM}" "${REPO_ROOT}/tools/abvm_slot.py" VERBATIM)
+add_custom_command(OUTPUT "${GENERATED_PICO1_HEADER}" "${GENERATED_PICO1_MANIFEST}" "${PICO1_OUT}/build-config.json" "${PICO1_OUT}/build-manifest.json" COMMAND "${Python3_EXECUTABLE}" "${PICO1_ROOT}/generator/generate.py" --config "${ABVM_FIRMWARE_CONFIG}" --out "${PICO1_OUT}" COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_pico1.py" --validated-config "${PICO1_OUT}/build-config.json" --pico1-manifest "${PICO1_OUT}/build-manifest.json" --program "${ABVM_PROGRAM}" --revision-file "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" --out "${PICO1_OUT}" DEPENDS "${ABVM_FIRMWARE_CONFIG}" "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" "${PICO1_ROOT}/generator/generate.py" "${REPO_ROOT}/tools/abvm_pico1.py" "${ABVM_PROGRAM}" VERBATIM)
 add_executable(ams_abvm_pico main.c hid_keyboard.c arm_uart_mouse.c usb_descriptors.c "${ABVM_ROOT}/src/abvm_vm.c" "${GENERATED_PROGRAM}" "${GENERATED_PICO1_HEADER}")
 target_include_directories(ams_abvm_pico PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${ABVM_ROOT}/include" "${PICO1_OUT}")
-target_compile_options(ams_abvm_pico PRIVATE -Wall -Wextra -Werror)
+target_compile_options(ams_abvm_pico PRIVATE -Wall -Wextra -Werror -Wno-misleading-indentation)
 target_compile_definitions(ams_abvm_pico PRIVATE CFG_TUSB_OS=OPT_OS_PICO)
 target_link_libraries(ams_abvm_pico pico_stdlib pico_unique_id hardware_uart tinyusb_device tinyusb_board)
 pico_enable_stdio_usb(ams_abvm_pico 0)
