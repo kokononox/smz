@@ -1,3 +1,11 @@
+## ABVM phase 0 — host compiler and ABP1 contract
+
+- Added the first PC-side AMSJ compiler for a binary `ABP1` application image.
+- Added fixed-width opcodes for Game/Whisper, loops, Random Package, a two-lane sound-controlled Race, scoped Watch, relative mouse, keyboard, and humanized Type Text.
+- Added a fail-closed verifier for CRC, section/range integrity, frame depth, lane count, nested Watch, and capability declarations.
+- Added a deterministic host reference VM before any Pico firmware is changed.
+- Production Classroom export and the current Pico runtime remain unchanged.
+
 # Classroom Studio — Current Hardware Changelog
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.

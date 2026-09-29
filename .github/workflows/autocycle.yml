@@ -9,6 +9,7 @@ on:
       - 'firmware/arm28/**'
       - 'firmware/autocycle-hostusb-v5/**'
       - 'portable/plan3/**'
+      - 'tools/abvm.py'
       - 'tests/LightTelemetryTests/**'
       - '.github/workflows/autocycle.yml'
 
@@ -66,7 +67,7 @@ jobs:
             python -m py_compile portable/plan3/CIRCUITPY/*.py
             python -m py_compile portable/plan3/CIRCUITPY-MODERN/*.py
             python -m py_compile portable/plan3/CIRCUITPY-SPLIT/*.py
-            python -m py_compile portable/plan3/tools/*.py portable/plan3/sim/*.py
+            python -m py_compile portable/plan3/tools/*.py portable/plan3/sim/*.py tools/abvm.py
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
