@@ -1,58 +1,29 @@
-"""Game scheduler/interpreter; core is injected after sequential imports."""
-import gc
-import random
-
-_core = None
-_response_run = None
-
-def _queue_sound_watch(ctx, state):
-    if state["_response"] is not None:
-        return
-    winner = ctx.poll_sound_watch()
-    if winner is None:
-        return
-    state["_response"] = winner
-
+import gc,random
+_core=None; _response_run=None; _sound_support=None
 def _event_module():
     import plan_engine_game_events as module
-    module.bind(_core)
-    return module
-
-
-def _events(commands, start, end, ctx, state):
-    return _event_module().events(commands, start, end, ctx, state)
-
+    module.bind(_core); return module
+def _events(commands, start, end, ctx, state): return _event_module().events(commands, start, end, ctx, state)
 def _prepare_response(ctx):
     global _response_run
-    if _response_run is not None:
-        return
+    if _response_run is not None: return
     _core._emit_heap(ctx, "before-response-bind")
     import plan_engine_game_response as module
     module.bind(_core)
     _response_run = module.run
     _core._emit_heap(ctx, "after-response-bind")
-
-
 def _run_response(ctx, name, state):
-    if _response_run is None:
-        _prepare_response(ctx)
+    if _response_run is None: _prepare_response(ctx)
     return _response_run(ctx, name, state, _run)
-
-
-def _service_pending_response(ctx, state):
-    winner = state.get("_response")
-    if winner is None:
-        return False
-    state["_response"] = None
-    _core._emit_heap(ctx, "before-response-callback")
-    ctx.suspend_sound_watch()
-    try:
-        _run_response(ctx, winner["file"], state)
-    finally:
-        ctx.resume_sound_watch(winner["cooldown"])
-    _core._emit_heap(ctx, "after-response-callback")
-    return True
-
+def _sound_module():
+    global _sound_support
+    if _sound_support is None:
+        import plan_engine_game_sound as module
+        module.bind(_core); _sound_support = module
+    return _sound_support
+def _resolve_sound_watch(ctx): return _sound_module().resolve_sound_watch(ctx)
+def _service_pending_response(ctx, state): return _sound_module().service_pending_response(ctx, state, _run_response)
+def service_sound_exit(ctx, signal): return _sound_module().service_sound_exit(ctx, signal, _run_response)
 def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "before-parallel-import"); gc.collect()
     try:
@@ -62,9 +33,7 @@ def _parallel(commands, start, end, ctx, state):
         raise
     gc.collect(); _core._emit_heap(ctx, "after-parallel-import")
     return parallel.run(commands, start, end, ctx, state, _core,
-                        _events, _response_run, _run)
-
-
+                        _events, _response_run, _run, _resolve_sound_watch)
 def _profile(args, ctx, state):
     values = args.replace(" ", "").split(",")
     lo, hi = int(values[1]), int(values[2])
@@ -79,10 +48,9 @@ def _profile(args, ctx, state):
                 finally: ctx.resume_sound_watch(winner["cooldown"])
                 break
             if not ctx.sleep_ms(10): _core._abort()
+            _service_pending_response(ctx, state)
     finally:
         ctx.end_profile_wait()
-
-
 def _wait_sound(op, args, ctx):
     values = args.replace(" ", "").split(",")
     if op == "WSND":
@@ -97,25 +65,20 @@ def _wait_sound(op, args, ctx):
     if heard is None: _core._abort()
     ctx.log(("wsndp" if op == "WSNDP" else "wsnd") +
             (" heard" if heard else " timeout - continue"))
-
-
 def _sound(op, args, ctx, state):
     if op == "SOUNDWATCH":
-        ctx.install_sound_watch(_core._watch_profiles(args),
-            lambda: _queue_sound_watch(ctx, state))
+        ctx.install_sound_watch(_core._watch_profiles(args))
+        ctx._sound_watch["game_state"] = state
+        state["watch"] = True
         ctx.log("soundwatch active")
     elif op == "WPROFILE":
         _profile(args, ctx, state)
     else:
         _wait_sound(op, args, ctx)
-
-
 def _beep(args, ctx):
     values = [int(v) for v in args.replace(",", " ").split()]
     if len(values) != 2: raise ValueError("BEEP needs frequency,duration")
     ctx.beep(values[0], values[1])
-
-
 def _basic(op, args, ctx, state):
     if op == "PLAN": pass
     elif op == "SCREEN":
@@ -136,8 +99,6 @@ def _basic(op, args, ctx, state):
     else:
         return False
     return True
-
-
 def _leaf(op, args, ctx, state):
     if _basic(op, args, ctx, state):
         return True
@@ -149,60 +110,45 @@ def _leaf(op, args, ctx, state):
         _sound(op, args, ctx, state)
         return True
     return False
-
-def _run(commands, start, end, ctx, state, labels):
-    i = start
-    while i < end:
-        op, args = commands[i]
+def _run(commands, start, end, ctx, state, labels, cursor=None):
+    if cursor is None:
+        cursor = _event_module().Cursor(commands, start, end, ctx)
+    while True:
+        item = cursor.next()
+        if item is None: return
+        op, args = item[0], item[1]
         if _leaf(op, args, ctx, state):
             pass
-        elif op == "RPKG":
-            finish, parts, order = _core._package(commands, i)
-            for selected in order:
-                _run(commands, parts[selected][0], parts[selected][1], ctx, state, labels)
-            i = finish
-        elif op in ("LOOP", "LOOPTIME"):
-            finish = _core._end(commands, i, op, "ENDLOOP")
-            if op == "LOOP":
-                remaining = int(args)
-                while remaining == 0 or remaining > 0:
-                    _run(commands, i + 1, finish, ctx, state, labels)
-                    if remaining > 0: remaining -= 1
-            else:
-                deadline = ctx.now() + float(args)
-                while ctx.now() < deadline:
-                    _run(commands, i + 1, finish, ctx, state, labels)
-            i = finish
         elif op == "PGROUP":
-            finish = _core._end(commands, i, "PGROUP", "ENDPAR")
-            _parallel(commands, i + 1, finish, ctx, state); i = finish
+            signal = _parallel(commands, item[2], item[3], ctx, state)
+            if signal is not None:
+                signal["_game_cursor"] = cursor
+                signal["_game_labels"] = labels
+                return signal
         elif op == "LABEL":
             pass
         elif op == "GOTO":
             target = labels.get(args)
             if target is None: raise ValueError("GOTO label not found")
-            i = target; continue
+            cursor.jump(target)
         else:
             raise ValueError("unsupported Game command " + op)
+        if state["watch"] and ctx.r.arm.sound_result is True:
+            return ctx._sound_watch
         _service_pending_response(ctx, state)
-        i += 1
-
-def run_game(commands, ctx, core):
+def run_game(commands, ctx, core, resume=None):
     global _core
     _core = core
     _prepare_response(ctx)
-    labels = {}
-    for label_index, item in enumerate(commands):
-        if item[0] == "LABEL":
-            if not item[1] or item[1] in labels:
-                raise ValueError("LABEL needs a unique name")
-            labels[item[1]] = label_index
+    labels, cursor, state = _event_module().session(commands, ctx, resume)
     gc.collect()
-    state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
-             "pauses": None, "_response": None}
-    try: _run(commands, 0, len(commands), ctx, state, labels)
+    result = None
+    try:
+        result = _run(commands, 0, len(commands), ctx, state, labels, cursor)
+        return result
     except RuntimeError as exc:
         if str(exc) == "route aborted": _core._abort()
         raise
     finally:
-        state.clear(); gc.collect()
+        if result is None:
+            state.clear(); gc.collect()

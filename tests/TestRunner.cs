@@ -4268,6 +4268,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_response.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_sound.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login_core.py"))
@@ -4280,11 +4281,15 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "restart_windows.py"))
                    && modernManifestEntries >= 32,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
-            // Windows checkout expands LF to CRLF and the packaging workflow applies the
-            // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
-            // pinning the old pre-overlay byte count.
-            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 55000
-                   && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("DeferredPlanEngine"),
+            // Windows checkout expands LF to CRLF and R5 adds the shallow sound-response
+            // handoff. Keep a bounded deferred entrypoint while explicitly pinning the
+            // unwind-before-response contract instead of the old pre-R5 byte count.
+            var modernEntry = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(modernEntry.Length < 57000
+                   && modernEntry.Contains("DeferredPlanEngine")
+                   && modernEntry.Contains("signal = plan_engine_game.run_game_file(commands, ctx)")
+                   && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)")
+                   && modernEntry.Contains("ERR|CAL|TICK|stage=%d|detail=%s:%s"),
                 "modern AutoCycle export uses the small deferred-loading entrypoint");
             var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
             var modernExec = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_exec.py"));
@@ -4298,7 +4303,8 @@ class TestRunner
             Assert(modernRuntime.Contains("line.startswith(\"EVT|ASND|DETECTED\")")
                    && modernRuntime.Contains("line.startswith(\"EVT|ASND|TIMEOUT\")")
                    && modernRuntime.Contains("EVT|SOUND|listen|source=async")
-                   && modernRuntime.Contains("mode=async"),
+                   && modernRuntime.Contains("mode=async")
+                   && modernRuntime.Contains("self.sample_next = now + .1"),
                 "Build 81: packaged Classroom runtime preserves the ARM 2.8.2-S4 async sound contract");
             var modernCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
             Assert(modernCode.Contains("_LIGHT_ROUTE_COMMANDS")
@@ -4345,6 +4351,10 @@ class TestRunner
             var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
             var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
+            var gameSound = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_sound.py"));
+            var gameRunStart = gameRuntime.IndexOf("def _run(", StringComparison.Ordinal);
+            var gameRunBody = gameRuntime.IndexOf('\n', gameRunStart) + 1;
+            var gameRunEnd = gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal);
             Assert(!gameHelper.Contains("import plan_engine_parse")
                    && !gameHelper.Contains("import plan_engine_exec")
                    && gameHelper.Contains("def run_game(")
@@ -4362,11 +4372,22 @@ class TestRunner
                    && gameRuntime.Contains("def _leaf(")
                    && gameRuntime.Contains("def _sound(")
                    && gameRuntime.Contains("def _profile(")
+                   && gameRuntime.Contains("return _sound_module().resolve_sound_watch(ctx)")
+                   && !gameRuntime.Contains("from plan_engine_parse import select_sound_profile")
+                   && gameHelper.Contains("(\"plan_engine_game_sound\", \"sound\")")
+                   && gameSound.Contains("def resolve_sound_watch(")
+                   && gameSound.Contains("def service_sound_exit(")
+                   && !gameSound.Contains("plan_engine_parse")
+                   && gameSound.Length < 5000
                    && gameResponse.Contains("_core._FileCommands(name)")
                    && gameResponse.Length < 4000
-                   && gameRuntime.Length < 9000
+                   && gameRuntime.Length < 7000
                    && gameEvents.Contains("def events(")
-                   && gameEvents.Length < 6000
+                   && gameEvents.Contains("class Cursor:")
+                   && gameEvents.Length < 9000
+                   && gameRunStart >= 0 && gameRunBody > gameRunStart && gameRunEnd > gameRunBody
+                   && !gameRuntime.Substring(gameRunBody, gameRunEnd - gameRunBody)
+                       .Contains("_run(commands,")
                    && gameParallel.Contains("sound_parallel_safe")
                    && gameParallel.Length < 9000,
                 "Build 103: Game compiler peaks are split across sequential bounded modules");

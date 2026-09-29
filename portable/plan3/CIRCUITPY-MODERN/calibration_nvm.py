@@ -21,8 +21,8 @@ def _limit(nvm):
 def clear(nvm):
     end = _limit(nvm)
     if end >= BASE + HEADER:
-        for index in range(BASE, end):
-            nvm[index] = 0
+        # Flash-backed NVM must be cleared in one transaction, not per byte.
+        nvm[BASE:end] = b"\x00" * (end - BASE)
 
 
 def load(nvm, base_revision):
@@ -62,14 +62,14 @@ def save(nvm, base_revision, profiles):
     payload = json.dumps({"schema": 2, "base_revision": base_revision, "profiles": profiles}, separators=(",", ":")).encode("utf-8")
     if BASE + HEADER + len(payload) > end:
         raise RuntimeError("calibration NVM full")
-    clear(nvm)
     checksum = _sum16(payload)
+    size = len(payload)
+    body = bytes((size & 0xFF, (size >> 8) & 0xFF,
+                  checksum & 0xFF, (checksum >> 8) & 0xFF)) + payload
+    # Invalidate, write body, then publish MAGIC: three flash transactions.
+    nvm[BASE:BASE + 4] = b"\x00\x00\x00\x00"
+    nvm[BASE + 4:BASE + 4 + len(body)] = body
     nvm[BASE:BASE + 4] = MAGIC
-    nvm[BASE + 4] = len(payload) & 0xFF
-    nvm[BASE + 5] = (len(payload) >> 8) & 0xFF
-    nvm[BASE + 6] = checksum & 0xFF
-    nvm[BASE + 7] = (checksum >> 8) & 0xFF
-    nvm[BASE + HEADER:BASE + HEADER + len(payload)] = payload
     if load(nvm, base_revision) is None:
         raise RuntimeError("calibration NVM verification failed")
 

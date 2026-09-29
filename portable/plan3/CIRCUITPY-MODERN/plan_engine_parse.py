@@ -44,13 +44,14 @@ class PlanAbort(Exception):
 
 
 def select_sound_profile(profiles, peak):
-    eligible = [item for item in profiles
-                if item["peak_min"] <= peak <= item["peak_max"]]
-    if not eligible:
-        return None
-    winner = eligible[0]
-    for item in eligible[1:]:
-        if (item["priority"] > winner["priority"]
+    # Keep the hot SoundWatch path allocation-free.  A list comprehension
+    # creates both a temporary list and another Python frame on CircuitPython;
+    # that is unsafe immediately after ASND completes inside a scheduler sleep.
+    winner = None
+    for item in profiles:
+        if not (item["peak_min"] <= peak <= item["peak_max"]):
+            continue
+        if (winner is None or item["priority"] > winner["priority"]
                 or (item["priority"] == winner["priority"]
                     and item["peak_min"] > winner["peak_min"])):
             winner = item

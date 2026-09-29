@@ -109,6 +109,7 @@ for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py"
               "plan_engine_game.py", "plan_engine_game_core.py",
               "plan_engine_game_runtime.py", "plan_engine_game_events.py",
               "plan_engine_game_response.py", "plan_engine_game_parallel.py",
+              "plan_engine_game_sound.py",
               "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
               "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
@@ -454,6 +455,7 @@ _original_yellow_action = runtime.Combined.yellow_action
 _PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_game_core",
                  "plan_engine_game_runtime", "plan_engine_game_events",
                  "plan_engine_game_response", "plan_engine_game_parallel",
+                 "plan_engine_game_sound",
                  "plan_engine_human", "plan_engine_login", "plan_engine_login_core",
                  "plan_engine_login_mouse", "plan_engine_login_type",
                  "plan_engine_parallel", "plan_engine_parse")
@@ -517,7 +519,22 @@ def _audible_next_cal(self):
 
 def _audible_cal_tick(self):
     was_sampling = self.result == "sampling"
-    _original_cal_tick(self)
+    try:
+        _original_cal_tick(self)
+    except Exception as exc:
+        # Calibration must never terminate the firmware loop silently. Clear
+        # the bounded sample buffer first so even MemoryError reporting has
+        # contiguous headroom.
+        self.samples = []
+        self.result = None
+        gc.collect()
+        self.emit("ERR|CAL|TICK|stage=%d|detail=%s:%s" %
+            (self.stage + 1, type(exc).__name__, str(exc)[:48]))
+        self.cal_save_error_tone()
+        _debug_event(self, "CAL", "tick-failed stage=%d id=%s error=%s" %
+            (self.stage + 1, runtime.PROFILES[self.stage],
+             type(exc).__name__), persist=True)
+        return
     if was_sampling and isinstance(self.result, dict):
         self.samples = []
         _prepare_calibration_heap(self)
@@ -572,6 +589,7 @@ def _repeatable_yellow_action(self):
         if (self.last_cal_error or "").startswith("OVERLAP:"):
             self.samples = []
             self.sample_started = runtime.time.monotonic()
+            self.sample_next = self.sample_started
             self.result = "sampling"
             self.last_cal_error = None
             self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d|retry=1" %
@@ -583,6 +601,7 @@ def _repeatable_yellow_action(self):
     retry = 1 if self.saved and isinstance(self.result, dict) else 0
     self.samples = []
     self.sample_started = runtime.time.monotonic()
+    self.sample_next = self.sample_started
     self.result = "sampling"
     self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d|retry=%d" %
         (self.stage + 1, runtime.PROFILES[self.stage], len(self.saved_ids), retry))
@@ -757,8 +776,18 @@ def _run_light_route(ctx, commands):
             _game_heap(ctx, "engine-import-memoryerror")
             raise
         gc.collect(); _game_heap(ctx, "after-engine-import")
-        plan_engine_game.run_game_file(commands, ctx)
-        return
+        resume = None
+        while True:
+            if resume is None:
+                signal = plan_engine_game.run_game_file(commands, ctx)
+            else:
+                signal = plan_engine_game.resume_game_file(commands, ctx, resume)
+            if signal is None:
+                return None
+            if not plan_engine_game.service_sound_exit(ctx, signal):
+                return None
+            ctx.r.emit("EVT|SOUNDWATCH|next-cast|mode=resume")
+            resume = signal
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
         import plan_engine_game
@@ -947,7 +976,14 @@ def _diagnostic_route(self, decision):
             # Keep simple Pico-only routes off the large plan_engine import.
             route_ctx = runtime.PlanContext(self)
             try:
-                _run_light_route(route_ctx, commands)
+                while True:
+                    signal = _run_light_route(route_ctx, commands)
+                    if signal is None:
+                        break
+                    route_ctx.close()
+                    del route_ctx
+                    gc.collect()
+                    route_ctx = runtime.PlanContext(self)
             except RuntimeError as exc:
                 if str(exc) == "route aborted":
                     self.emit("EVT|DEBUG|ROUTE/aborted " + name)

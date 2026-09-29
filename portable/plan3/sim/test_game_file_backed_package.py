@@ -124,6 +124,15 @@ event_source = (FW / "plan_engine_game_events.py").read_text(encoding="utf-8")
 event_body = event_source.split("def events(", 1)[1]
 assert "events(commands," not in event_body, event_body
 
+# The sequential Game interpreter uses the same explicit container-stack
+# architecture. A pending SoundWatch response therefore never inherits Python
+# recursion from LOOPTIME/RPKG before entering PGROUP.
+assert "class Cursor:" in event_source
+runtime_source = (FW / "plan_engine_game_runtime.py").read_text(encoding="utf-8")
+run_body = runtime_source.split("def _run(", 1)[1].split("def run_game(", 1)[0]
+assert "_run(commands," not in run_body, run_body
+assert "Cursor(commands, start, end, ctx)" in run_body, run_body
+
 source = (FW / "code.py").read_text(encoding="utf-8")
 assert 'commands = name if name == "game_steps.txt"' in source
 assert "plan_engine_game.run_game_file(commands, ctx)" in source

@@ -299,7 +299,7 @@ class PlanContext:
     mouse_mode = "relative"
     def __init__(self, runtime):
         self.r = runtime; self._parallel_sound = None
-        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch = None; self._sound_watch_pending = None
         self._sound_watch_servicing = False
     def get_mouse_pos(self):
         value = getattr(self.r, "mouse_pos", None)
@@ -311,15 +311,15 @@ class PlanContext:
     def now(self): return time.monotonic()
     def gate(self): return self.r.controls.gate()
     def sleep_ms(self, ms):
-        callback = self._sound_watch_callback
-        if callback is None or self._sound_watch_servicing:
+        if self._sound_watch is None or self._sound_watch_servicing:
             return self.r.controls.sleep(ms)
         end = time.monotonic() + max(0, ms) / 1000
         while time.monotonic() < end:
             remaining = int(max(1, (end - time.monotonic()) * 1000))
             if not self.r.controls.sleep(min(10, remaining)):
                 return False
-            callback()
+            if self.r.arm.sound_result is not None:
+                break
         return True
     def log(self, text): print("plan:", text)
     def mmove(self, x, y): self.r.arm.move(x, y)
@@ -476,7 +476,9 @@ class PlanContext:
             return
         profiles = self._active_watch_profiles()
         if not profiles:
+            state["armed"] = None
             return
+        state["armed"] = profiles
         threshold = min(item["peak_min"] for item in profiles)
         minimum = min(item["minimum"] for item in profiles)
         self.sound_start(threshold, minimum, 30000)
@@ -485,15 +487,17 @@ class PlanContext:
             raise ValueError("SOUNDWATCH requires asynchronous ASND firmware")
         self.r.emit("EVT|SOUNDWATCH|armed|profiles=%d|threshold=%d" %
                     (len(profiles), threshold))
-    def install_sound_watch(self, profiles, callback):
+    def install_sound_watch(self, profiles):
         self.close_sound_watch()
         self._sound_watch = {"profiles": profiles, "scope": None,
-                             "scope_result": None, "cooldown_until": 0.0}
-        self._sound_watch_callback = callback
+                             "scope_result": None, "cooldown_until": 0.0,
+                             "armed": None}
+        self._sound_watch_pending = None
         self._arm_sound_watch()
     def poll_sound_watch(self):
         state = self._sound_watch
-        if state is None or self._sound_watch_servicing:
+        if (state is None or self._sound_watch_servicing
+                or self._sound_watch_pending is not None):
             return None
         if time.monotonic() < state["cooldown_until"]:
             return None
@@ -506,21 +510,12 @@ class PlanContext:
             return None
         if not result:
             self._arm_sound_watch(); return None
-        peak = self.sound_peak()
-        if peak is None:
-            self.r.emit("EVT|SOUNDWATCH|ignored|reason=no-peak")
-            self._arm_sound_watch(); return None
-        from plan_engine_parse import select_sound_profile
-        winner = select_sound_profile(self._active_watch_profiles(), peak)
-        if winner is None:
-            self.r.emit("EVT|SOUNDWATCH|ignored|peak=%d" % peak)
-            self._arm_sound_watch(); return None
-        self.r.emit("EVT|SOUNDWATCH|detected|profile=%s|peak=%d|priority=%d" %
-                    (winner["id"], peak, winner["priority"]))
-        if winner["mode"] == "scoped":
-            state["scope_result"] = winner
-            return None
-        return winner
+        self._sound_watch_pending = True
+        return None
+    def take_sound_watch(self):
+        pending = self._sound_watch_pending
+        self._sound_watch_pending = None
+        return pending
     def begin_profile_wait(self, profile_id):
         state = self._sound_watch
         if state is None:
@@ -564,7 +559,7 @@ class PlanContext:
     def close_sound_watch(self):
         if self._parallel_sound is not None:
             self.sound_cancel()
-        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch = None; self._sound_watch_pending = None
         self._sound_watch_servicing = False
     def close(self):
         self.close_sound_watch()
@@ -595,7 +590,7 @@ class Combined:
         self.arm = Arm(); self.keyboard = Keyboard(usb_hid.devices); self.controls = Controls(self.arm, self.keyboard); self.sensor = BH1750()
         self.bundle = load_guard_bundle("/"); self.guard = LightStateGuard.from_bundle("/"); self.routes = {}
         self.blue = Button(board.GP4); self.yellow = Button(board.GP3); self.usb = usb_cdc.data or usb_cdc.console; self.host = bytearray()
-        self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
+        self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.sample_next = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
     def key(self, vk):
         # Convert Windows virtual-key values directly to USB HID usages.
         # Keep this branch-only mapping allocation-free on CircuitPython's small heap.
@@ -751,11 +746,19 @@ class Combined:
         if not self.calibrating: self.controls.paused = not self.controls.paused; return
         if self.result == "sampling": self.emit("ERR|CAL|BUSY|stage=%d" % (self.stage + 1)); return
         if self.result is not None: self.save_cal(); return
-        self.samples = []; self.sample_started = time.monotonic(); self.result = "sampling"; self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
+        self.samples = []; self.sample_started = time.monotonic(); self.sample_next = self.sample_started; self.result = "sampling"; self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
     def cal_tick(self):
         if not self.calibrating or self.result != "sampling": return
+        now = time.monotonic()
+        # The main loop runs every 10 ms. Appending a float on every pass built
+        # ~500 Python objects, then sorted() needed a second pointer array and
+        # could stop code.py with MemoryError exactly at the five-second mark.
+        # Ten samples/second is ample for a slowly changing lux sensor and
+        # caps both the live list and the final median/sort compiler pressure.
+        if now < self.sample_next: return
+        self.sample_next = now + .1
         self.samples.append(self.sensor.lux())
-        if time.monotonic() - self.sample_started < 5: return
+        if now - self.sample_started < 5: return
         values = sorted(self.samples); center = values[len(values)//2]; spread = max(values)-min(values)
         if len(values) < 5 or spread > 5: self.result = None; self.emit("ERR|CAL|UNSTABLE|stage=%d|spread=%.1f" % (self.stage+1, spread)); return
         self.result = calibrated_profile(

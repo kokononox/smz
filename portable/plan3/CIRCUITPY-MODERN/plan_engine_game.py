@@ -3,12 +3,10 @@ import gc
 
 GameAbort = RuntimeError
 
-
 def _heap(ctx, stage):
     emit = getattr(getattr(ctx, "r", None), "emit", None)
     if emit is not None:
         emit("EVT|DEBUG|GAME|stage=%s|free=%d" % (stage, getattr(gc, "mem_free", lambda: -1)()))
-
 
 def _load(ctx):
     global GameAbort
@@ -28,11 +26,13 @@ def _load(ctx):
     gc.collect(); _heap(ctx, "after-runtime-import")
     return core, runtime
 
-
-def run_game(commands, ctx):
+def run_game(commands, ctx, resume=None):
     core, runtime = _load(ctx)
-    return runtime.run_game(commands, ctx, core)
+    return runtime.run_game(commands, ctx, core, resume)
 
+def service_sound_exit(ctx, signal):
+    import plan_engine_game_runtime as runtime
+    return runtime.service_sound_exit(ctx, signal)
 
 def _file_inventory(name):
     offsets = bytearray()
@@ -53,16 +53,14 @@ def _file_inventory(name):
                 offsets.append((offset >> shift) & 255)
     return needs_parallel, offsets
 
-
-def run_game_file(name, ctx):
-    # Reserve the contiguous Flash index before compiler fragmentation.
+def _run_game_file(name, ctx, resume):
     gc.collect(); _heap(ctx, "before-file-index-reserve"); gc.collect()
     needs_parallel, offsets = _file_inventory(name)
     gc.collect(); _heap(ctx, "after-file-index-reserve|commands=%d|offset-bytes=%d" %
                        (len(offsets) // 4, len(offsets)))
     if needs_parallel:
-        # Compile bounded Parallel units before Core/Runtime fragmentation.
-        for module, stage in (("plan_engine_game_parallel", "parallel"),
+        for module, stage in (("plan_engine_game_sound", "sound"),
+                              ("plan_engine_game_parallel", "parallel"),
                               ("plan_engine_game_events", "events"),
                               ("plan_engine_game_response", "response")):
             gc.collect(); _heap(ctx, "before-" + stage + "-preload"); gc.collect()
@@ -74,10 +72,20 @@ def run_game_file(name, ctx):
             gc.collect(); _heap(ctx, "after-" + stage + "-preload")
     core, runtime = _load(ctx)
     commands = core._FileCommands(name, offsets)
+    gc.collect()
+    _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
+          (len(commands), len(commands.offsets)))
     try:
-        gc.collect()
-        _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
-              (len(commands), len(commands.offsets)))
-        return runtime.run_game(commands, ctx, core)
+        signal = runtime.run_game(commands, ctx, core, resume)
+        if signal is not None:
+            signal["_game_cursor"].commands = None
+        return signal
     finally:
         commands.close()
+
+def run_game_file(name, ctx):
+    # finally: commands.close()
+    return _run_game_file(name, ctx, None)
+
+def resume_game_file(name, ctx, resume):
+    return _run_game_file(name, ctx, resume)

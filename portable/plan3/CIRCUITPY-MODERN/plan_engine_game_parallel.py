@@ -1,7 +1,7 @@
 """Cooperative Game parallel scheduler, imported only at the first PGROUP."""
 
 def run(commands, start, end, ctx, state, core, events, response_runner,
-        execute):
+        execute, resolve_sound_watch):
     branches = core._items(commands, start, end, "PARITEM", "PGROUP", "ENDPAR")
     now = int(ctx.now() * 1000)
     tasks = [{"it": events(commands, a, b, ctx, state), "due": now,
@@ -12,9 +12,14 @@ def run(commands, start, end, ctx, state, core, events, response_runner,
     try:
         while tasks:
             if not ctx.gate(): core._abort()
-            winner = state.get("_response")
+            if state["watch"] and ctx.r.arm.sound_result is True:
+                # Latch the ASND result before finally/end_profile_wait sends
+                # ASNDCANCEL.  Returning only the watch object could otherwise
+                # lose the winning Splash while unwinding the scheduler.
+                ctx.poll_sound_watch()
+                return ctx._sound_watch
+            winner = resolve_sound_watch(ctx) if state["watch"] else None
             if winner is not None:
-                state["_response"] = None
                 core._emit_heap(ctx, "before-response-callback")
                 ctx.suspend_sound_watch()
                 try:
