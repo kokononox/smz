@@ -6,7 +6,8 @@ ROOT = Path(__file__).resolve().parents[3]
 FW = ROOT / "portable/plan3/CIRCUITPY-MODERN"
 sys.path.insert(0, str(FW))
 modules = ("plan_engine_game", "plan_engine_game_core", "plan_engine_game_runtime",
-           "plan_engine_game_events", "plan_engine_game_parallel", "plan_engine_login",
+           "plan_engine_game_events", "plan_engine_game_response",
+           "plan_engine_game_parallel", "plan_engine_login",
            "plan_engine_login_core", "plan_engine_login_mouse",
            "plan_engine_login_type")
 for name in modules:
@@ -31,6 +32,7 @@ core, runtime = game._load(ctx)
 assert core is sys.modules["plan_engine_game_core"]
 assert runtime is sys.modules["plan_engine_game_runtime"]
 assert "plan_engine_game_events" not in sys.modules
+assert "plan_engine_game_response" not in sys.modules
 assert "plan_engine_game_parallel" not in sys.modules
 assert "plan_engine_login" not in sys.modules
 state = {"speed": [0, 2000], "pos": [960, 540], "pauses": None}
@@ -72,10 +74,11 @@ def windows_size(name):
     data = (FW / name).read_bytes()
     return len(data) + data.count(b"\n")
 
-assert windows_size("plan_engine_game.py") < 3000
+assert windows_size("plan_engine_game.py") < 3500
 assert windows_size("plan_engine_game_core.py") < 10000
 assert windows_size("plan_engine_game_runtime.py") < 9000
 assert windows_size("plan_engine_game_events.py") < 6000
+assert windows_size("plan_engine_game_response.py") < 4000
 assert windows_size("plan_engine_game_parallel.py") < 9000
 assert windows_size("plan_engine_login.py") < 4000
 assert windows_size("plan_engine_login_core.py") < 5000

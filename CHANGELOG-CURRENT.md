@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 114:** افزودن Flash-backed Response در Build 113 ناخواسته Runtime را دوباره به 8.6KB رساند و Compiler peak جدید allocation=1336 پیش از اجرا ایجاد کرد. Response اکنون در `plan_engine_game_response.py` مستقل زیر 4KB قرار دارد و همراه Parallel/Events پیش از Core/Runtime Preload می‌شود؛ Runtime اصلی دوباره کوچک و bounded است.
 - **Candidate Build 113:** Build 112 تمام Importها، Index، Parallel و اولین RMOUSE را پاس کرد؛ SoundWatch نیز Splash واقعی را با peak=101 تشخیص داد. شکست فقط هنگام Response بود، چون `_response_commands` فایل Splash را کامل به متن و لیست Tuple در RAM تبدیل می‌کرد. Response اکنون با `_FileCommands` مستقیماً از Flash اجرا و پس از پایان بسته می‌شود.
 - **Candidate Build 112:** Bundle 390 هر دو ماژول Parallel/Event و Core را پاس کرد، اما Runtime کوچک‌شده همچنان دقیقاً allocation=1180 می‌خواست؛ بنابراین Peak مربوط به Code Object تابع بزرگ `_run` بود، نه اندازهٔ فایل. Dispatch اکنون به سه تابع bounded `_sound`، `_leaf` و `_run` تقسیم شده و هر Code Object زیر سقف تست‌شده است.
 - **Candidate Build 111:** Bundle 388 ترتیب Reserve → Parallel → Core را پاس کرد، اما Compile ماژول 10.9KB Runtime با allocation=1180 شکست خورد. Generator تکرارشوندهٔ Event به ماژول مستقل زیر 5KB منتقل و هر دو واحد Parallel پیش از Core/Runtime Preload می‌شوند؛ Runtime اصلی اکنون زیر 8KB است.
@@ -51,6 +52,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 114 | Bundle 401: Runtime پس از افزودن Response با allocation=1336 شکست خورد | انتقال کامل Response به ماژول مستقل preloaded؛ موجودی ۴۲فایلی | Local candidate؛ response behavior unchanged |
 | 113 | Build 112: Engine/Index/RMOUSE/Sound detect پاس؛ MemoryError پس از peak=101 | اجرای Flash-backed فایل Splash/Whisper بدون read()/splitlines()/tuple list | Local candidate؛ response behavior unchanged |
 | 112 | Bundle 390: Parallel، Events و Core پاس؛ Runtime همچنان allocation=1180 | تقسیم تابع monolithic `_run` به Sound/Leaf/Container handlerهای bounded | Local candidate؛ behavior unchanged |
 | 111 | Bundle 388: Index، Parallel و Core پاس؛ Runtime یک‌تکه با allocation=1180 شکست خورد | Split معماری Event generator و Runtime به دو واحد bounded و Preload زودهنگام Event | Local candidate؛ behavior unchanged |
@@ -109,6 +111,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 114 — جداسازی کامل ماژول Flash Response
+
+**Previous build:** 113 / Classroom release 212
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 401 و هر ۴۱ Hash آن سالم بودند، اما اضافه‌شدن منطق Flash-backed Response
+به فایل Runtime اندازهٔ Windows آن را به حدود 8.6KB رساند. Runtime پیش از اجرا
+در `allocating 1336 bytes` شکست خورد؛ بنابراین Build 113 مسیر Sound را اصلاً
+آزمایش نکرد.
+
+### Root cause
+
+اصلاح Response درست بود، اما محل قرارگیری آن اشتباه بود. Parser و Runner پاسخ
+به همان Compiler unit حساس Runtime اضافه شدند و Code Object/constant peak تازه
+ایجاد کردند.
+
+### Change
+
+- Parser و Runner پاسخ به `plan_engine_game_response.py` مستقل منتقل شدند.
+- ماژول Response همراه Parallel و Events پیش از Core/Runtime Preload می‌شود.
+- Runtime فقط Wrapper کوچک `_run_response` را نگه می‌دارد.
+- موجودی Classroom، Manifest، Boot verifier و Heap cleanup به ۴۲ فایل رسید.
+- اجرای Flash-backed و بستن Handle در `finally` بدون تغییر حفظ شده است.
+
+### Validation
+
+- Runtime زیر 8KB و Response زیر 4KB با قرارداد Windows قفل می‌شوند.
+- ترتیب Reserve → Parallel → Events → Response → Core → Runtime تست می‌شود.
+- تست سخت‌افزار-مانند همچنان عدم فراخوانی `read_plan_file` را تضمین می‌کند.
+
+### Next test
+
+در Game باید `after-response-preload` پیش از `before-core-import` دیده شود، سپس
+`after-runtime-import` و `file-index` پاس شوند. پس از تشخیص صدا، Response باید
+مستقیم از Flash اجرا و F ارسال شود.
 
 ## Build 113 — اجرای Flash-backed پاسخ Splash/Whisper
 

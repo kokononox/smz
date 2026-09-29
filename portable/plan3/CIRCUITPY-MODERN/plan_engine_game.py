@@ -63,7 +63,8 @@ def run_game_file(name, ctx):
     if needs_parallel:
         # Compile bounded Parallel units before Core/Runtime fragmentation.
         for module, stage in (("plan_engine_game_parallel", "parallel"),
-                              ("plan_engine_game_events", "events")):
+                              ("plan_engine_game_events", "events"),
+                              ("plan_engine_game_response", "response")):
             gc.collect(); _heap(ctx, "before-" + stage + "-preload"); gc.collect()
             try:
                 __import__(module)

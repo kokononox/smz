@@ -23,51 +23,14 @@ def _event_module():
 def _events(commands, start, end, ctx, state):
     return _event_module().events(commands, start, end, ctx, state)
 
-def _response_commands(ctx, name):
-    if not name.endswith(".txt") or "/" in name or "\\" in name:
-        raise ValueError("unsafe sound response route")
-    commands = []
-    allowed = ("PLAN", "SCREEN", "SPEED", "DELAY", "KEY", "KDOWN", "KUP",
-               "WHEEL", "RAW", "RMOUSE", "RPKG", "PKGITEM", "ENDPKG",
-               "LOOP", "LOOPTIME", "ENDLOOP", "BEEP", "LABEL", "GOTO")
-    for raw in ctx.read_plan_file(name).splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"): continue
-        parts = line.split("|", 1)
-        op = parts[0].upper(); args = parts[1] if len(parts) == 2 else ""
-        if op not in allowed: raise ValueError("unsupported sound response " + op)
-        commands.append((op, args))
-    return commands
+def _response_module():
+    import plan_engine_game_response as module
+    module.bind(_core)
+    return module
 
 
 def _run_response(ctx, name, state):
-    if not name.endswith(".txt") or "/" in name or "\\" in name:
-        raise ValueError("unsafe sound response route")
-    file_backed = False
-    _core._emit_heap(ctx, "before-response-file")
-    try:
-        try:
-            commands = _core._FileCommands(name)
-            file_backed = True
-        except OSError:
-            # Host simulations provide virtual response files through Context.
-            commands = _response_commands(ctx, name)
-        labels = {}
-        allowed = ("PLAN", "SCREEN", "SPEED", "DELAY", "KEY", "KDOWN", "KUP",
-                   "WHEEL", "RAW", "RMOUSE", "RPKG", "PKGITEM", "ENDPKG",
-                   "LOOP", "LOOPTIME", "ENDLOOP", "BEEP", "LABEL", "GOTO")
-        for index, item in enumerate(commands):
-            if item[0] not in allowed:
-                raise ValueError("unsupported sound response " + item[0])
-            if item[0] == "LABEL": labels[item[1]] = index
-        _core._emit_heap(ctx, "after-response-index|commands=%d" % len(commands))
-        ctx.log("sound response start " + name)
-        _run(commands, 0, len(commands), ctx, state, labels)
-        ctx.log("sound response done " + name)
-    finally:
-        if file_backed:
-            commands.close()
-        gc.collect()
+    return _response_module().run(ctx, name, state, _run)
 
 def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "before-parallel-import"); gc.collect()
