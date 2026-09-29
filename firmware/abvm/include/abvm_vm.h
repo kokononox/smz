@@ -143,6 +143,8 @@ int abvm_light_detected(AbvmVm *vm, uint8_t lane, uint16_t constant_id,
                         uint32_t now);
 int abvm_constant(const AbvmVm *vm, uint16_t constant_id, uint8_t kind,
                   const uint8_t **payload, uint32_t *size);
+int abvm_find_constant(const AbvmVm *vm, uint8_t kind, uint16_t *constant_id,
+                       const uint8_t **payload, uint32_t *size);
 const char *abvm_status_name(uint8_t status);
 
 #ifdef __cplusplus

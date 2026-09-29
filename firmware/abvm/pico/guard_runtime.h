@@ -1,0 +1,41 @@
+#ifndef AMS_ABVM_GUARD_RUNTIME_H
+#define AMS_ABVM_GUARD_RUNTIME_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "abvm_vm.h"
+
+typedef enum GuardRuntimeEventType {
+    GUARD_EVENT_NONE = 0,
+    GUARD_EVENT_STATE = 1,
+    GUARD_EVENT_ROUTE = 2,
+    GUARD_EVENT_DENIED = 3,
+    GUARD_EVENT_FAULT = 4,
+} GuardRuntimeEventType;
+
+typedef struct GuardRuntimeEvent {
+    uint8_t type;
+    uint8_t profile_id;
+    uint8_t stage;
+    uint8_t context;
+    uint16_t route_id;
+    uint32_t lux_tenths;
+    const char *reason;
+} GuardRuntimeEvent;
+
+bool guard_runtime_init(const AbvmVm *vm);
+bool guard_runtime_available(void);
+bool guard_runtime_start(uint32_t now);
+void guard_runtime_stop(void);
+bool guard_runtime_pause(void);
+bool guard_runtime_resume(void);
+void guard_runtime_service(AbvmVm *vm, uint32_t now);
+void guard_runtime_observe(AbvmVm *vm, uint32_t lux_tenths, uint32_t now);
+bool guard_runtime_take_event(GuardRuntimeEvent *event);
+bool guard_runtime_running(void);
+bool guard_runtime_paused(void);
+uint8_t guard_runtime_active_profile(void);
+uint8_t guard_runtime_stage(void);
+const char *guard_runtime_profile_name(uint8_t profile_id);
+
+#endif

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 using Ams.UI.Models;
 
 namespace Ams.UI.Services;
@@ -33,11 +34,18 @@ public static class NativeUf2Exporter
             var source = Path.Combine(staging, "project.amsj");
             var program = Path.Combine(staging, "program.abp");
             var patched = Path.Combine(staging, "project.uf2");
-            await File.WriteAllTextAsync(source, PipelineWorkspaceSerializer.Serialize(workspace),
+            var root = JsonNode.Parse(PipelineWorkspaceSerializer.Serialize(workspace))?.AsObject()
+                ?? throw new InvalidDataException("ساختار پروژه برای Native Guard معتبر نیست.");
+            root["nativeGuard"] = BuildNativeGuard();
+            await File.WriteAllTextAsync(source, root.ToJsonString(
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
                 new UTF8Encoding(false), cancellationToken);
 
             var compilerSummary = await RunPythonAsync(compiler,
-                ["compile", source, program, "--routes", "Game", "Whisper"], cancellationToken);
+                ["compile", source, program, "--routes",
+                 "Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
+                 "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper"],
+                cancellationToken);
             if (!File.Exists(program) || new FileInfo(program).Length == 0)
                 throw new InvalidDataException("کامپایلر ABP فایل program.abp را نساخت.");
 
@@ -59,6 +67,28 @@ public static class NativeUf2Exporter
         {
             try { Directory.Delete(staging, true); } catch { }
         }
+    }
+
+    private static JsonObject BuildNativeGuard()
+    {
+        var profiles = new JsonArray();
+        foreach (var profile in LightStateProfileStore.Load())
+            profiles.Add(new JsonObject
+            {
+                ["id"] = profile.Id,
+                ["enabled"] = profile.Enabled,
+                ["luxCenter"] = profile.LuxCenter,
+                ["luxTolerance"] = profile.LuxTolerance,
+                ["stableDurationMs"] = profile.StableDurationMs,
+                ["hysteresisLux"] = profile.HysteresisLux,
+            });
+        return new JsonObject
+        {
+            ["enabled"] = true,
+            ["sampleMode"] = "hires",
+            ["sensorTimeoutMs"] = 1500,
+            ["profiles"] = profiles,
+        };
     }
 
     internal static string FindTool(string name)

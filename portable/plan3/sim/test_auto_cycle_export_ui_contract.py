@@ -40,7 +40,10 @@ assert "ExportAutoCycleModernCommand" in ui and "ExportAutoCycleCompleteCommand"
 assert "ساخت Native UF2 پروژهٔ فعلی" in ui and "ExportNativeUf2Command" in ui
 assert ui.count("AutoCycleUiKit.Action(") == 2
 assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter.ExportAsync(" in native_vm
-assert '"compile", source, program, "--routes", "Game", "Whisper"' in native_exporter
+assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
+assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper"' in native_exporter
+assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
+assert "LightStateProfileStore.Load()" in native_exporter
 assert "PipelineWorkspaceSerializer.Serialize(workspace)" in native_exporter
 assert "abvm_uf2.py" in native_exporter and "File.Copy(patched, outputUf2, true)" in native_exporter
 assert "native-tools\\abvm.py" in project and "native-tools\\abvm_uf2.py" in project and "native-tools\\abvm_slot.py" in project
@@ -50,4 +53,4 @@ assert "RebuildManifest(stagingDir, manifestNames)" in modern_bundle
 assert "ToolTip" in ui and "ToolTip" in firmware_ui
 assert "GridUnitType.Star" in schedule_ui
 assert "PipelineTabs" in tabs_ui and "Ctrl" not in tabs_ui or "ModifierKeys.Control" in tabs_ui
-print("auto-cycle compact UI + native UF2 export + pipeline tabs: 34 passed, 0 failed")
+print("auto-cycle compact UI + native UF2 export + pipeline tabs: 38 passed, 0 failed")

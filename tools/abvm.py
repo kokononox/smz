@@ -28,9 +28,11 @@ CONST_HEADER = struct.Struct("<BBHI")
 RESOURCE = struct.Struct("<HHHHHHHHHHIIII")      # 36 bytes
 SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum ms
 LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, mode
+GUARD_HEADER = struct.Struct("<BBBBI")               # version/count/mode/reserved/timeout
+GUARD_PROFILE = struct.Struct("<BBHIIII")             # id/enabled/route/low/high/stable/hysteresis
 
-FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT = 1, 2, 4, 8
-CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT = range(1, 8)
+FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD = 1, 2, 4, 8, 16
+CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT, CONST_GUARD = range(1, 9)
 OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE = range(7)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
@@ -68,8 +70,9 @@ ROUTE_POLICIES = {
 }
 
 ROUTE_IDS = {
-    "Desktop": 1, "Launch": 2, "Startup": 3, "LoginOrDc": 4,
-    "LaunchRecovery": 5, "CharacterDashboard": 6,
+    "Desktop": 1, "Launch": 2, "Restart": 2, "Startup": 3,
+    "LoginOrDc": 4, "LaunchRecovery": 5, "Dc": 5,
+    "CharacterDashboard": 6,
     "EnteringGameLoading": 7, "Game": 8, "Targeted": 9,
     "Whisper": 10, "Splash": 11,
 }
@@ -77,9 +80,11 @@ ROUTE_IDS = {
 ROUTE_POLICY_BY_NAME = {
     "Desktop": ROUTE_ABORT_AND_START,
     "Launch": ROUTE_ABORT_AND_START,
+    "Restart": ROUTE_ABORT_AND_START,
     "Startup": ROUTE_ABORT_AND_START,
     "LoginOrDc": ROUTE_ABORT_AND_START,
     "LaunchRecovery": ROUTE_ABORT_AND_START,
+    "Dc": ROUTE_ABORT_AND_START,
     "CharacterDashboard": ROUTE_ABORT_AND_START,
     "EnteringGameLoading": ROUTE_ABORT_AND_START,
     "Game": ROUTE_ABORT_AND_RESTART,
@@ -104,7 +109,7 @@ OPCODES = {
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
     "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
-    "LIGHT": CONST_LIGHT,
+    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD,
 }
 
 
@@ -297,6 +302,8 @@ class Compiler:
         self.source_entries: dict[int, dict[str, Any]] = {}
         self.current_route = ""
         self.scope_depth = 0
+        self.labels: dict[str, int] = {}
+        self.gotos: list[tuple[int, str]] = []
 
     def emit(self, op: int, flags: int = 0, a: int = 0,
              b: int = 0, c: int = 0, d: int = 0) -> int:
@@ -323,7 +330,13 @@ class Compiler:
                 raise AbvmError("pipeline is not a list: " + name)
             start = len(self.code)
             self.current_route = name
+            self.labels = {}
+            self.gotos = []
             self.compile_nodes(nodes, 0, ())
+            for pc, label in self.gotos:
+                if label not in self.labels:
+                    raise AbvmError(f"Go To Label target is missing in {name}: {label}")
+                self.patch(pc, d=self.labels[label])
             self.emit(OP_END)
             self.routes.append(RouteInfo(
                 ROUTE_IDS.get(name, 100 + len(self.routes)),
@@ -334,6 +347,7 @@ class Compiler:
                 len(self.code) - start, self.pool.text(name)))
         if not self.routes:
             raise AbvmError("none of the requested routes exist")
+        self.compile_guard(source)
         return self.finish(source)
 
     def frame(self, depth: int) -> None:
@@ -363,7 +377,7 @@ class Compiler:
                       path: tuple[int, ...]) -> None:
         self.frame(depth)
         for index, node in enumerate(nodes):
-            if disabled(node) or step_type(node) in ("comment", "label"):
+            if disabled(node) or step_type(node) == "comment":
                 continue
             node_path = path + (index,)
             first = len(self.code)
@@ -378,7 +392,17 @@ class Compiler:
     def compile_node(self, node: dict[str, Any], depth: int,
                      path: tuple[int, ...]) -> None:
         kind, p = step_type(node), props(node)
-        if kind == "delay":
+        if kind == "label":
+            label = str(p.get("label") or "").strip()
+            if not label or label in self.labels:
+                raise AbvmError("empty or duplicate Label: " + label)
+            self.labels[label] = len(self.code)
+        elif kind == "gotoLabel":
+            label = str(p.get("label") or "").strip()
+            if not label:
+                raise AbvmError("Go To Label has no target")
+            self.gotos.append((self.emit(OP_JUMP), label))
+        elif kind == "delay":
             lo, hi = ordered(p.get("minMs"), p.get("maxMs"))
             self.emit(OP_DELAY, b=lo, c=hi)
         elif kind == "keystroke":
@@ -508,7 +532,7 @@ class Compiler:
     def compile_watch(self, node: dict[str, Any], depth: int,
                       path: tuple[int, ...]) -> None:
         p = props(node)
-        profile = integer(p.get("calibrationId"))
+        profile = integer(p.get("calibrationId"), 1)
         lo = integer(p.get("timeoutMinSec")) * 1000
         hi = integer(p.get("timeoutMaxSec")) * 1000
         if not lo and not hi:
@@ -553,6 +577,60 @@ class Compiler:
             self.emit(OP_KEY, flags=1, b=vk(p.get("key") or "E"),
                       c=max(0, hold_lo), d=max(0, hold_hi))
         self.patch(watch, d=len(self.code))
+
+    def compile_guard(self, source: dict[str, Any]) -> None:
+        guard = source.get("nativeGuard")
+        if not isinstance(guard, dict) or not guard.get("enabled", False):
+            return
+        expected = {
+            "desktop": (1, "Desktop"),
+            "login-or-dc": (2, "LoginOrDc"),
+            "character-dashboard": (3, "CharacterDashboard"),
+            "entering-game-loading": (4, "EnteringGameLoading"),
+            "game": (5, "Game"),
+            "targeted": (6, "Targeted"),
+        }
+        profiles = guard.get("profiles")
+        if not isinstance(profiles, list) or len(profiles) != len(expected):
+            raise AbvmError("Native Guard needs exactly six profiles")
+        by_id = {str(item.get("id") or ""): item for item in profiles
+                 if isinstance(item, dict)}
+        if set(by_id) != set(expected):
+            raise AbvmError("Native Guard profile IDs are incomplete or duplicated")
+        compiled_routes = {route.route_id for route in self.routes}
+        required_routes = {ROUTE_IDS[name] for _, name in expected.values()} | {ROUTE_IDS["Dc"]}
+        if not required_routes.issubset(compiled_routes):
+            missing = sorted(required_routes - compiled_routes)
+            raise AbvmError("Native Guard routes are missing: " + ",".join(map(str, missing)))
+        packed = bytearray(GUARD_HEADER.pack(
+            1, len(expected),
+            1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
+            0, max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
+        ranges = []
+        for profile_id, (numeric_id, route_name) in expected.items():
+            item = by_id[profile_id]
+            if not item.get("enabled", True):
+                raise AbvmError("Native Guard profile is disabled: " + profile_id)
+            center = float(item.get("luxCenter", item.get("center", 0)))
+            tolerance = float(item.get("luxTolerance", item.get("tolerance", 0)))
+            hysteresis = float(item.get("hysteresisLux", item.get("hysteresis", 1)))
+            stable = integer(item.get("stableDurationMs", item.get("stableMs", 750)))
+            if not all(value >= 0 for value in (center, tolerance, hysteresis, stable)):
+                raise AbvmError("Native Guard profile has a negative value: " + profile_id)
+            low = max(0, int(round((center - tolerance) * 10)))
+            high = int(round((center + tolerance) * 10))
+            if high > 10_000_000 or stable > 3_600_000:
+                raise AbvmError("Native Guard profile is out of range: " + profile_id)
+            ranges.append((profile_id, low, high))
+            packed.extend(GUARD_PROFILE.pack(
+                numeric_id, 1, ROUTE_IDS[route_name], low, high, stable,
+                int(round(hysteresis * 10))))
+        for i, (left_id, left_low, left_high) in enumerate(ranges):
+            for right_id, right_low, right_high in ranges[i + 1:]:
+                if max(left_low, right_low) <= min(left_high, right_high):
+                    raise AbvmError(f"Native Guard profiles overlap: {left_id}/{right_id}")
+        self.pool.add(CONST_GUARD, bytes(packed))
+        self.flags |= FLAG_HAS_GUARD
 
     def finish(self, source: dict[str, Any]) -> Program:
         code = b"".join(ins.pack() for ins in self.code)
@@ -738,6 +816,27 @@ class Verifier:
         measured_profiles: set[int] = set()
         measured_lanes = 1
         measured_flags = 0
+        guard_constants = [payload for kind, _, payload in image.constants
+                           if kind == CONST_GUARD]
+        if guard_constants:
+            if len(guard_constants) != 1:
+                raise AbvmError("multiple Native Guard descriptors")
+            raw = guard_constants[0]
+            if len(raw) != GUARD_HEADER.size + 6 * GUARD_PROFILE.size:
+                raise AbvmError("invalid Native Guard descriptor size")
+            version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
+            if version != 1 or count != 6 or mode not in (0, 1) or reserved or timeout < 250:
+                raise AbvmError("invalid Native Guard descriptor header")
+            ids = set()
+            for index in range(count):
+                item = GUARD_PROFILE.unpack_from(raw, GUARD_HEADER.size + index * GUARD_PROFILE.size)
+                profile_id, enabled, route_id, low, high, stable, hysteresis = item
+                if profile_id not in range(1, 7) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
+                    raise AbvmError("invalid Native Guard profile")
+                ids.add(profile_id)
+            if ids != set(range(1, 7)):
+                raise AbvmError("Native Guard profile set mismatch")
+            measured_flags |= FLAG_HAS_GUARD
 
         def walk(start: int, end: int, depth: int, watch_depth: int = 0,
                  scope_depth: int = 0) -> None:

@@ -765,6 +765,29 @@ int abvm_constant(const AbvmVm *vm, uint16_t constant_id, uint8_t kind,
     return constant_at(vm, constant_id, kind, payload, size);
 }
 
+int abvm_find_constant(const AbvmVm *vm, uint8_t kind,
+                       uint16_t *constant_id, const uint8_t **payload,
+                       uint32_t *size) {
+    if (!vm || !constant_id || !payload || !size) return 0;
+    uint16_t index = 0;
+    uint32_t cursor = vm->header.constant_offset;
+    uint32_t end = cursor + vm->header.constant_size;
+    while (cursor < end) {
+        if (cursor + 8u > end) return 0;
+        uint8_t actual = vm->image[cursor];
+        uint32_t length = read_u32(vm->image + cursor + 4u);
+        cursor += 8u;
+        if (cursor + length > end) return 0;
+        if (actual == kind) {
+            *constant_id = index; *payload = vm->image + cursor; *size = length;
+            return 1;
+        }
+        cursor = (cursor + length + 3u) & ~3u;
+        ++index;
+    }
+    return 0;
+}
+
 int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now) {
     if (!vm) return 0;
     for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {

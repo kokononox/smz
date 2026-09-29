@@ -22,7 +22,7 @@ Not implemented here:
 - USB HID
 - ARM UART mouse transport
 - ADC/sound sampling
-- Guard button service
+- cue PWM and audible Guard feedback
 - cue PWM
 - flash A/B deployment
 - watchdog/rollback
