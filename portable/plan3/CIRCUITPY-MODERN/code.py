@@ -478,7 +478,6 @@ def _release_plan_heap(self, emit_cal=False):
             pass
 
 def _prepare_fresh_run(self):
-    """Make every manual Start equivalent to a clean cable-reconnect start."""
     _release_plan_heap(self)
     try:
         self.keyboard.release_all()
@@ -488,13 +487,8 @@ def _prepare_fresh_run(self):
         self.arm.release(False)
     except Exception:
         pass
-    self.arm.sound_result = None
-    self.arm.sound_detail = None
-    # A Stop is normally observed by cycle.tick() in the same loop pass.  Keep
-    # this explicit so a very fast host OFF/ON pair still starts a new window.
-    if getattr(self.cycle, "phase", "idle") == "idle":
-        self.cycle.previous_running = False
-    gc.collect()
+    self.arm.sound_result = None; self.arm.sound_detail = None
+    if self.cycle.phase == "idle": self.cycle.previous_running = False
 
 def _prepare_calibration_heap(self):
     # Calibration also needs a contiguous block for its atomic JSON write.
