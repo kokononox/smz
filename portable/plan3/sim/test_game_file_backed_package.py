@@ -83,6 +83,8 @@ assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
        stages.index("after-parallel-preload") < \
        stages.index("before-events-preload") < \
        stages.index("after-events-preload") < \
+       stages.index("before-response-preload") < \
+       stages.index("after-response-preload") < \
        stages.index("before-core-import") < \
        stages.index("after-runtime-import"), stages
 

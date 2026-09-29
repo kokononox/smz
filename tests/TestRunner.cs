@@ -4266,6 +4266,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_response.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
@@ -4342,6 +4343,7 @@ class TestRunner
             var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
             var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
             var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
+            var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
             Assert(!gameHelper.Contains("import plan_engine_parse")
                    && !gameHelper.Contains("import plan_engine_exec")
@@ -4349,7 +4351,7 @@ class TestRunner
                    && gameHelper.Contains("def run_game_file(")
                    && gameHelper.Contains("before-core-import")
                    && gameHelper.Contains("after-runtime-import")
-                   && gameHelper.Length < 3000
+                   && gameHelper.Length < 3500
                    && gameCore.Contains("class _FileCommands:")
                    && gameCore.Contains("def _pick_items(")
                    && gameCore.Length < 10000
@@ -4360,7 +4362,8 @@ class TestRunner
                    && gameRuntime.Contains("def _leaf(")
                    && gameRuntime.Contains("def _sound(")
                    && gameRuntime.Contains("def _profile(")
-                   && gameRuntime.Contains("_core._FileCommands(name)")
+                   && gameResponse.Contains("_core._FileCommands(name)")
+                   && gameResponse.Length < 4000
                    && gameRuntime.Length < 9000
                    && gameEvents.Contains("def events(")
                    && gameEvents.Length < 6000
