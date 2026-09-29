@@ -12,6 +12,7 @@ human=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_human.py'
 game=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game.py'
 game_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_core.py'
 game_runtime=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_runtime.py'
+game_events=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_events.py'
 game_parallel=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_game_parallel.py'
 login=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login.py'
 login_core=root/'portable/plan3/CIRCUITPY-MODERN/plan_engine_login_core.py'
@@ -57,7 +58,8 @@ assert executor.stat().st_size < 20000, executor.stat().st_size
 assert 'from plan_engine_parallel import run_parallel' in executor.read_text()
 assert game.exists() and game.stat().st_size < 3000
 assert game_core.exists() and game_core.stat().st_size < 10000
-assert game_runtime.exists() and game_runtime.stat().st_size < 12000
+assert game_runtime.exists() and game_runtime.stat().st_size < 8000
+assert game_events.exists() and game_events.stat().st_size < 6000
 assert game_parallel.exists() and game_parallel.stat().st_size < 9000
 assert 'plan_engine_parse' not in game.read_text() and 'plan_engine_exec' not in game.read_text()
 assert 'before-core-import' in game.read_text() and 'after-runtime-import' in game.read_text()
@@ -70,10 +72,10 @@ assert login_type.exists() and login_type.stat().st_size < 7000
 assert 'before-mouse-runtime-import' in login.read_text()
 assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_game.py',
     'plan_engine_game_core.py', 'plan_engine_game_runtime.py',
-    'plan_engine_game_parallel.py', 'plan_engine_login.py',
+    'plan_engine_game_events.py', 'plan_engine_game_parallel.py', 'plan_engine_login.py',
     'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
     'plan_engine_login_type.py'))
-assert 'manifestNames.Length != 40' in bundle
+assert 'manifestNames.Length != 41' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token
