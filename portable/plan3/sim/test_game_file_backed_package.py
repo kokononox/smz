@@ -74,6 +74,15 @@ assert any("after-file-index-reserve|commands=6|offset-bytes=24" in value
            for value in telemetry), telemetry
 assert any("before-parallel-preload" in value for value in telemetry), telemetry
 assert any("after-parallel-preload" in value for value in telemetry), telemetry
+stages = [value.split("stage=", 1)[1].split("|free=", 1)[0]
+          for value in telemetry if "stage=" in value]
+# Bundle 381 reserved the index successfully but failed compiling Parallel after
+# Core/Runtime.  Lock the peak-safe order: reserve -> Parallel -> Core -> Runtime.
+assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
+       stages.index("before-parallel-preload") < \
+       stages.index("after-parallel-preload") < \
+       stages.index("before-core-import") < \
+       stages.index("after-runtime-import"), stages
 
 # The reserved bytearray is accepted without rescanning/reallocating offsets.
 with tempfile.NamedTemporaryFile("w", delete=False) as route:
