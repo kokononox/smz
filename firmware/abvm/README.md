@@ -50,4 +50,6 @@ cc -std=c11 -Wall -Wextra -Werror \
 ```
 
 `AbvmVm` currently occupies 1,256 bytes on the Linux CI ABI. Program bytes
-remain caller-owned and can later be read directly from RP2040 XIP flash.
+remain caller-owned and can later be read directly from RP2040 XIP flash. The
+smoke test also injects 100 deterministic single-bit corruptions and requires
+every image to fail closed.
