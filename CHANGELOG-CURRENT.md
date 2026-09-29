@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 113:** Build 112 تمام Importها، Index، Parallel و اولین RMOUSE را پاس کرد؛ SoundWatch نیز Splash واقعی را با peak=101 تشخیص داد. شکست فقط هنگام Response بود، چون `_response_commands` فایل Splash را کامل به متن و لیست Tuple در RAM تبدیل می‌کرد. Response اکنون با `_FileCommands` مستقیماً از Flash اجرا و پس از پایان بسته می‌شود.
 - **Candidate Build 112:** Bundle 390 هر دو ماژول Parallel/Event و Core را پاس کرد، اما Runtime کوچک‌شده همچنان دقیقاً allocation=1180 می‌خواست؛ بنابراین Peak مربوط به Code Object تابع بزرگ `_run` بود، نه اندازهٔ فایل. Dispatch اکنون به سه تابع bounded `_sound`، `_leaf` و `_run` تقسیم شده و هر Code Object زیر سقف تست‌شده است.
 - **Candidate Build 111:** Bundle 388 ترتیب Reserve → Parallel → Core را پاس کرد، اما Compile ماژول 10.9KB Runtime با allocation=1180 شکست خورد. Generator تکرارشوندهٔ Event به ماژول مستقل زیر 5KB منتقل و هر دو واحد Parallel پیش از Core/Runtime Preload می‌شوند؛ Runtime اصلی اکنون زیر 8KB است.
 - **Candidate Build 110:** Bundle 381 رزرو Index را پاس کرد، اما چون Core و Runtime پیش از Parallel بارگذاری شدند، Compile Scheduler با free=46,768 و allocation=1388 شکست خورد. ترتیب Peak اکنون Reserve → Parallel preload → Core → Runtime است؛ هیچ منطق Scheduler، Sound، Mouse یا ARM تغییر نکرده است.
@@ -50,6 +51,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 113 | Build 112: Engine/Index/RMOUSE/Sound detect پاس؛ MemoryError پس از peak=101 | اجرای Flash-backed فایل Splash/Whisper بدون read()/splitlines()/tuple list | Local candidate؛ response behavior unchanged |
 | 112 | Bundle 390: Parallel، Events و Core پاس؛ Runtime همچنان allocation=1180 | تقسیم تابع monolithic `_run` به Sound/Leaf/Container handlerهای bounded | Local candidate؛ behavior unchanged |
 | 111 | Bundle 388: Index، Parallel و Core پاس؛ Runtime یک‌تکه با allocation=1180 شکست خورد | Split معماری Event generator و Runtime به دو واحد bounded و Preload زودهنگام Event | Local candidate؛ behavior unchanged |
 | 110 | Bundle 381: Index رزرو شد؛ Parallel پس از Core/Runtime با allocation=1388 شکست خورد | جابه‌جایی Preload Scheduler به بلافاصله پس از Reserve و پیش از Core/Runtime | Local candidate؛ behavior unchanged |
@@ -107,6 +109,44 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 113 — اجرای Flash-backed پاسخ Splash/Whisper
+
+**Previous build:** 112 / Classroom release 211
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Build 112 تمام مرزهای Compiler را پاس کرد، Index با ۳۶۹ فرمان ساخته شد،
+Parallel و Mouse اجرا شدند و SoundWatch با `peak=101` صدای واقعی Splash را
+تشخیص داد. MemoryError بدون اندازه بلافاصله هنگام شروع Response رخ داد.
+
+### Root cause
+
+`_response_commands` از `ctx.read_plan_file(name)` استفاده می‌کرد؛ در نتیجه
+فایل Response ابتدا کامل در یک String و سپس دوباره به List از Tupleها تبدیل
+می‌شد. این تخصیص هم‌زمان پس از اجرای RMOUSE/Sound روی Heap Fragmented انجام
+می‌شد، هرچند فایل Splash فقط 251 بایت بود.
+
+### Change
+
+- روی Pico، پاسخ Splash/Whisper با `_FileCommands` مستقیم از Flash اجرا می‌شود.
+- فقط Offsetهای فشرده نگه‌داری و فایل در `finally` بسته می‌شود.
+- مسیر مجازی `read_plan_file` فقط برای Host simulation باقی مانده است.
+- تله‌متری `before-response-file` و `after-response-index|commands=N` اضافه شد.
+- Keyboard response، Delay، Loop/RPKG، SoundWatch، Mouse و ARM تغییر نکرده‌اند.
+
+### Validation
+
+- تست سخت‌افزار-مانند تضمین می‌کند Response بدون `read_plan_file` اجرا و Handle
+  فایل بسته می‌شود.
+- سقف Code Objectهای Build 112 و موجودی ۴۱فایلی حفظ می‌شوند.
+
+### Next test
+
+پس از `SOUND|result=detected` باید `before-response-file`،
+`after-response-index|commands=5`، `sound response start` و
+`sound response done` ثبت شوند. کلید F باید اجرا و Cast بعدی شروع شود.
 
 ## Build 112 — تقسیم Code Object تابع Dispatch Game
 

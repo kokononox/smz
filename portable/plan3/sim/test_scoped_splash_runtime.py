@@ -74,3 +74,27 @@ profile_wait=runtime_source.split('    def poll_profile_wait(self, profile_id):'
 assert '_sound_watch_callback' not in profile_wait,profile_wait
 assert 'return state.get("scope_result")' in profile_wait,profile_wait
 print('scoped Splash: profile waiter is passive; sleep_ms exclusively services callback')
+
+# Hardware response routes must stay file-backed instead of allocating the
+# whole text plus a tuple list after SoundWatch has fragmented the Pico heap.
+import plan_engine_game_runtime as game_runtime
+import plan_engine_game_core as game_core
+closed=[]
+class FlashCommands:
+    def __init__(self,name):
+        assert name=='splash_steps.txt'
+        self.rows=[('PLAN','2'),('KEY','combo=70|hold=80,180'),('DELAY','1,1')]
+    def __len__(self): return len(self.rows)
+    def __getitem__(self,index): return self.rows[index]
+    def __iter__(self): return iter(self.rows)
+    def close(self): closed.append(True)
+original_commands=game_core._FileCommands
+game_core._FileCommands=FlashCommands
+flash=Ctx(True)
+flash.read_plan_file=lambda name: (_ for _ in ()).throw(AssertionError('heap read '+name))
+game_runtime._core=game_core
+game_runtime._run_response(flash,'splash_steps.txt',
+    {'speed':[0,2000],'pos':[960,540],'pauses':None})
+game_core._FileCommands=original_commands
+assert ('key',(70,)) in flash.ev and closed==[True],flash.ev
+print('scoped Splash: hardware response remains file-backed')
