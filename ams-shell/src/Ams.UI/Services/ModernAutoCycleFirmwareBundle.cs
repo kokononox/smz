@@ -22,11 +22,7 @@ public static class ModernAutoCycleFirmwareBundle
         "guard-calibration.json", "guard-transition.json",
         "guard_calibration_protocol.py", "guard_transition.py",
         "live_light_guard.py", "login_or_dc_steps.txt", "pico-calibration.json",
-        "plan.txt", "plan_engine.py", "plan_engine_exec.py", "plan_engine_game.py",
-        "plan_engine_game_core.py", "plan_engine_game_runtime.py",
-        "plan_engine_game_actions.py",
-        "plan_engine_game_events.py", "plan_engine_game_response.py",
-        "plan_engine_game_parallel.py", "plan_engine_game_sound.py",
+        "plan.txt", "plan_engine.py", "plan_engine_exec.py",
         "plan_engine_human.py", "plan_engine_login.py",
         "plan_engine_login_core.py", "plan_engine_login_mouse.py",
         "plan_engine_login_type.py", "plan_engine_parallel.py",
@@ -62,6 +58,14 @@ public static class ModernAutoCycleFirmwareBundle
             "plan_cycle.py", "cycle_runtime.py", "restart_windows.py",
             "auto_resume_boot.py", "resume_essentials_runtime.py",
             "recovery_runtime.py", "calibration_fit.py",
+            "plan_engine_game.py", "plan_engine_game.mpy",
+            "plan_engine_game_core.py", "plan_engine_game_core.mpy",
+            "plan_engine_game_runtime.py", "plan_engine_game_runtime.mpy",
+            "plan_engine_game_actions.py", "plan_engine_game_actions.mpy",
+            "plan_engine_game_events.py", "plan_engine_game_events.mpy",
+            "plan_engine_game_response.py", "plan_engine_game_response.mpy",
+            "plan_engine_game_parallel.py", "plan_engine_game_parallel.mpy",
+            "plan_engine_game_sound.py", "plan_engine_game_sound.mpy",
         };
         foreach (var name in stale)
         {
@@ -71,11 +75,13 @@ public static class ModernAutoCycleFirmwareBundle
         var pycache = Path.Combine(stagingDir, "__pycache__");
         if (Directory.Exists(pycache)) Directory.Delete(pycache, true);
 
-        foreach (var name in Files)
+        var selectedFiles = Files.Concat(manifestNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        foreach (var name in selectedFiles)
             File.Copy(Path.Combine(runtimeDir, name), Path.Combine(stagingDir, name), true);
 
         RebuildManifest(stagingDir, manifestNames);
-        return Files.Select(name => Path.Combine(stagingDir, name)).ToArray();
+        return selectedFiles.Select(name => Path.Combine(stagingDir, name)).ToArray();
     }
 
     /// <summary>

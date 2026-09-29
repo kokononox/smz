@@ -10,6 +10,7 @@ on:
       - 'portable/plan3/CIRCUITPY-MODERN/**'
       - 'portable/plan3/sim/test_calibration_heap_release.py'
       - 'tools/apply_calibration_save_heap_fix.py'
+      - 'tools/build_circuitpython_mpy_runtime.py'
       - 'tools/current_release_notes.py'
       - 'CHANGELOG-CURRENT.md'
       - 'README.md'
@@ -35,7 +36,7 @@ jobs:
         run: |
           $changed = @(git diff --name-only HEAD^ HEAD)
           $releaseRelevant = @($changed | Where-Object {
-            $_ -match '^(ams-shell/|tests/|portable/plan3/CIRCUITPY-MODERN/|tools/apply_calibration_save_heap_fix.py|tools/current_release_notes.py|\.github/workflows/classroom-studio-current.yml)'
+            $_ -match '^(ams-shell/|tests/|portable/plan3/CIRCUITPY-MODERN/|tools/apply_calibration_save_heap_fix.py|tools/build_circuitpython_mpy_runtime.py|tools/current_release_notes.py|\.github/workflows/classroom-studio-current.yml)'
           })
           if ($releaseRelevant.Count -gt 0 -and -not ($changed -contains 'CHANGELOG-CURRENT.md')) {
             throw 'Build-affecting changes require an update to CHANGELOG-CURRENT.md'
@@ -58,6 +59,14 @@ jobs:
 
       - name: Verify bridge stack imports
         run: python -c "import sys; sys.path.insert(0, 'ams-shell/bridge'); import ams_crypto, ams_serial, bridge; print('bridge stack imports OK')"
+
+      - name: Precompile low-memory Game runtime for CircuitPython 10.3.0
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .tools | Out-Null
+          $url = 'https://adafruit-circuit-python.s3.amazonaws.com/bin/mpy-cross/windows/mpy-cross-windows-10.3.0.static.exe'
+          Invoke-WebRequest -Uri $url -OutFile .tools/mpy-cross.exe
+          python tools/build_circuitpython_mpy_runtime.py --compiler .tools/mpy-cross.exe
 
       - name: Restore
         run: dotnet restore ams-shell/AMS.sln

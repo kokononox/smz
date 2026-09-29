@@ -106,15 +106,18 @@ runtime.build_calibration_get = build_calibration_get
 runtime.parse_calibration_set = parse_calibration_set
 
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
-              "plan_engine_game.py", "plan_engine_game_core.py",
-              "plan_engine_game_runtime.py", "plan_engine_game_events.py",
-              "plan_engine_game_response.py", "plan_engine_game_parallel.py",
-              "plan_engine_game_sound.py", "plan_engine_game_actions.py",
               "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
               "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
               "startup_steps.txt", "whisper_steps.txt", "splash_steps.txt",
               "calibration_nvm.py"):
+    if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
+        _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
+for _stem in ("plan_engine_game", "plan_engine_game_core",
+              "plan_engine_game_runtime", "plan_engine_game_events",
+              "plan_engine_game_response", "plan_engine_game_parallel",
+              "plan_engine_game_sound", "plan_engine_game_actions"):
+    _name = _stem + (".mpy" if _PathCompat.isfile("/" + _stem + ".mpy") else ".py")
     if _name not in _guard_bundle.HASHED_BUNDLE_FILES:
         _guard_bundle.HASHED_BUNDLE_FILES += (_name,)
 runtime.HASHED_BUNDLE_FILES = _guard_bundle.HASHED_BUNDLE_FILES

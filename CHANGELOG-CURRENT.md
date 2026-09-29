@@ -2,6 +2,38 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 118 R16 — حذف کامپایل Source روی Pico
+
+**Previous build:** 118 R15 / Classroom release 222
+**Status:** CircuitPython 10.3 MPY candidate; 56 portable contracts green; hardware retest required
+
+### Problem observed
+
+Bundle 780 ماژول Actions را با موفقیت Preload کرد، اما شکست فقط یک مرحله جابه‌جا شد: `plan_engine_game_core.py` با `free=29568` هنگام تخصیص پیوستهٔ ۸۹۶ بایت در `core-import` متوقف شد. این نتیجه نشان داد شکستن بیشتر فایل‌های Source فقط محل شکست Compiler را تغییر می‌دهد.
+
+### Root cause
+
+هر Import از فایل `.py`، CircuitPython را مجبور می‌کند Parser و Compiler را روی Heap قطعه‌قطعه‌شدهٔ RP2040 اجرا کند. حتی با مجموع RAM آزاد کافی، ماژول بعدی ممکن است بلوک موقت پیوستهٔ لازم را پیدا نکند. بنابراین مشکل بنیادی خودِ کامپایل Source روی برد است، نه فقط اندازهٔ Runtime یا Core.
+
+### Change
+
+- هر هشت ماژول Game در Workflow انتشار با `mpy-cross` رسمی و دقیقاً هم‌نسخه با Firmware نصب‌شده، یعنی CircuitPython `10.3.0` و MPY `v6.3`، از پیش کامپایل می‌شوند.
+- فایل‌های `plan_engine_game*.mpy` جای Sourceهای متناظر را در Manifest نهایی می‌گیرند؛ Pico دیگر Game Runtime را Parse/Compile نمی‌کند.
+- محیط توسعه همچنان Sourceهای خوانای `.py` را نگه می‌دارد؛ Exporter بر اساس Manifest به‌صورت قطعی فقط نمایش `.py` یا `.mpy` را روی CIRCUITPY کپی می‌کند.
+- Export پیش از کپی، هر دو نمایش قدیمی `.py/.mpy` را حذف می‌کند تا فایل باقیمانده نتواند اولویت Import را تغییر دهد.
+- Boot verifier پسوند واقعی را تشخیص می‌دهد و Hash همان فایل انتخاب‌شده را Fail-closed بررسی می‌کند.
+
+### Validation
+
+- تولید واقعی هشت MPY با Compiler رسمی CircuitPython 10.3.0 موفق بود؛ اندازهٔ خروجی هر ماژول بین ۱۰۳۰ تا ۲۹۹۹ بایت است.
+- تبدیل ۴۴ ورودی Manifest از PY به MPY با Hash باینری دقیق موفق بود.
+- هر ۵۶ قرارداد Portable، Python compile، Boot inventory، Export selection و پاک‌سازی نسخهٔ قدیمی سبز هستند.
+- منطق Cursor، Deadline، SoundWatch، Response فایل‌محور، Random Package، ARM و Cadence تغییر نکرده است.
+
+### Next test
+
+Bundle جدید باید تمام `after-*-preload`ها، `after-core-import` و `after-runtime-import` را بدون `MemoryError` ثبت کند. سپس صدای Splash، Response و حداقل دو Cast متوالی باید بدون `KeyError('_game_cursor')` یا Restart کامل Game اجرا شوند.
+
 ## Build 118 R15 — شکستن واحد کامپایل Runtime
 
 **Previous build:** 118 R14 / Classroom release 221
