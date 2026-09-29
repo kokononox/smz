@@ -9,6 +9,7 @@
 - تمام مسیرهای خروج SoundWatch اکنون Cursor، Labelها و Game state را به Signal متصل می‌کنند؛ بنابراین ورود بعدی دیگر با `KeyError('_game_cursor')` متوقف نمی‌شود.
 - شبیه‌ساز داخلی به مدل واقعی ARM ارتقا یافت: صدا هنگام Sleep مستقیماً تزریق نمی‌شود و فقط با `arm.pump()` قابل دریافت است.
 - Route واقعی ۳۶۹ فرمانی با مدل Pump در ۶ Cast و ۵ Catch، یک Deadline ثابت و بدون Restart Game پاس شد.
+- بسته‌بندی Release پس از سبزشدن PR #75 دوباره Trigger شد؛ Firmware بدون تغییر است.
 
 ## Build 118 R12 — ادامهٔ همان Cursor پس از Splash
 
