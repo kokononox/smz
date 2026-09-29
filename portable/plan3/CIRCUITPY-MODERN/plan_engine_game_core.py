@@ -10,8 +10,11 @@ class GameAbort(RuntimeError):
 
 class _FileCommands:
     """Random-access command rows backed by Flash, not a heap-resident list."""
-    def __init__(self, name):
+    def __init__(self, name, offsets=None):
         self.file = open("/" + name, "r")
+        if offsets is not None:
+            self.offsets = offsets
+            return
         self.offsets = bytearray()
         while True:
             offset = self.file.tell()

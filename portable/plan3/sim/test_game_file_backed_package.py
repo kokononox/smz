@@ -69,8 +69,25 @@ class ParallelContext(Context):
 game.run_game_file(parallel_name, ParallelContext())
 Path("/" + parallel_name).unlink()
 assert "plan_engine_game_parallel" in sys.modules
+assert any("before-file-index-reserve" in value for value in telemetry), telemetry
+assert any("after-file-index-reserve|commands=6|offset-bytes=24" in value
+           for value in telemetry), telemetry
 assert any("before-parallel-preload" in value for value in telemetry), telemetry
 assert any("after-parallel-preload" in value for value in telemetry), telemetry
+
+# The reserved bytearray is accepted without rescanning/reallocating offsets.
+with tempfile.NamedTemporaryFile("w", delete=False) as route:
+    route.write("PLAN|2\nDELAY|0,0\n")
+    reserved_name = route.name.lstrip("/")
+needs_parallel, reserved = game._file_inventory(reserved_name)
+assert not needs_parallel and isinstance(reserved, bytearray) and len(reserved) == 8
+reserved_commands = core._FileCommands(reserved_name, reserved)
+try:
+    assert reserved_commands.offsets is reserved
+    assert reserved_commands[1] == ("DELAY", "0,0")
+finally:
+    reserved_commands.close()
+Path("/" + reserved_name).unlink()
 
 # PGROUP branches must flatten nested LOOP/RPKG containers without recursively
 # nesting _events generators around the lazy mouse generator.  That call shape

@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 109:** Build 108 Parallel را با موفقیت روی Heap تازه Preload کرد، اما Bundle 380 بلافاصله بعد از آن هنگام ساخت Offset index برای ۳۶۹ فرمان با allocation برابر 1336 بایت شکست خورد. Index فشرده اکنون پیش از هر Import موتور Game روی Heap تازه رزرو و سپس بدون Scan/Allocation مجدد به FileCommands منتقل می‌شود؛ Parallel، Sound و Mouse تغییر نکرده‌اند.
 - **Candidate Build 108:** Build 107 خطای pystack را حذف کرد، اما Bundle 371 پس از ۲۱ ثانیه Prelude و با وجود 45KB Heap آزاد، هنگام Compile دیرهنگام ماژول Parallel به‌دلیل Fragmentation نتوانست بلوک پیوستهٔ 1388 بایتی بگیرد. Route فایل‌محور پیش از Load اسکن می‌شود و در صورت داشتن PGROUP، همان Scheduler موجود بلافاصله پس از Game Runtime و روی Heap تازه Preload می‌شود؛ منطق Parallel، Sound، Mouse و ARM تغییر نکرده‌اند.
 - **Candidate Build 107:** Build 106 Poll تو‌در‌توی SoundWatch را حذف کرد و Listener از مرحلهٔ Arm عبور کرد، اما Bundle 355 هنگام اولین RMOUSE در ساختار `PGROUP→LOOP→RPKG` و پس از Lazy import کامل موس با `pystack exhausted` متوقف شد. Generator بازگشتی Containerهای Game با Stack تکرارشوندهٔ صریح جایگزین شد؛ تولید/ارسال موس، ARM و Cadence بدون تغییرند.
 - **Candidate Build 106:** Bundle 350 کل مسیر Desktop→Login→Dashboard→Loading→Game، Split Type و ایندکس ۳۶۹ فرمان را پاس کرد. در نخستین `WPROFILE`، Poll همان SoundWatch هم داخل scoped waiter و هم از callback تعاونی `sleep_ms` انجام می‌شد و با وجود 43KB Heap آزاد، pystack را خالی می‌کرد. scoped waiter اکنون فقط نتیجه را می‌خواند و `sleep_ms` تنها مالک Poll callback است؛ ARM، Natural Mouse و Cadence تغییر نکرده‌اند.
@@ -46,6 +47,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 109 | Bundle 380: Parallel preload پاس؛ ساخت Index پس از Compile با allocation=1336 شکست خورد | رزرو Offset bytearray پیش از Importهای Game و تحویل بدون Allocation مجدد | Local candidate؛ runtime behavior unchanged |
 | 108 | Bundle 371: انتقال‌ها و file-index پاس؛ Compile دیرهنگام Parallel با free=45952 و allocation=1388 شکست خورد | Preload مشروط Scheduler پیش از File index و Prelude روی Heap تازه | Local candidate؛ scheduler/mouse/ARM unchanged |
 | 107 | Bundle 355: SoundWatch arm و همهٔ Lazy importها پاس؛ اولین RMOUSE داخل LOOP/RPKG با `pystack exhausted` متوقف شد | تبدیل Generator بازگشتی Containerهای Game به Stack Iterative | Local candidate؛ ARM/Mouse path unchanged |
 | 106 | Bundle 350: تمام انتقال‌ها، Login Type، Game index و Parallel import پاس؛ نخستین WPROFILE با `pystack exhausted` متوقف شد | حذف Poll تو‌در‌توی callback از scoped waiter؛ `sleep_ms` تنها مالک سرویس SoundWatch | Local candidate؛ ARM/Mouse unchanged |
@@ -99,6 +101,51 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 109 — رزرو File Index پیش از Importهای Game
+
+**Previous build:** 108 / Classroom release 207
+**Status:** local candidate; index-reserve hardware retest required
+
+### Problem observed
+
+Bundle 380 تله‌متری موفق
+`before-parallel-preload=48816 → after-parallel-preload=45968` را ثبت کرد؛
+بنابراین اصلاح Build 108 پاس شد. بلافاصله بعد از Preload، ساخت Bytearray
+فشردهٔ Offsetهای ۳۶۹ فرمان به بلوک پیوستهٔ 1336 بایت نیاز داشت و با
+`MemoryError` متوقف شد.
+
+### Root cause
+
+Index فایل پس از Compile ماژول‌های Game/Core/Runtime/Parallel ساخته می‌شد.
+با وجود حافظهٔ آزاد کافی، Heap پس از Compiler بلوک پیوستهٔ لازم برای رشد
+Bytearray را نداشت.
+
+### Change
+
+- Route پیش از هر Import Game یک بار اسکن و Offset چهاربایتی هر فرمان در
+  Bytearray نهایی رزرو می‌شود.
+- همان Scan وجود `PGROUP` را نیز مشخص می‌کند.
+- Buffer آماده پس از Import و Preload مستقیماً به `_FileCommands` منتقل
+  می‌شود؛ فایل دوباره Scan و Index دوباره Allocate نمی‌شود.
+- تله‌متری `before/after-file-index-reserve` تعداد فرمان و اندازهٔ Offset را
+  ثبت می‌کند.
+- Scheduler، SoundWatch، Natural Mouse، ARM، DDA و Cadence تغییر نکرده‌اند.
+
+### Validation
+
+- تست فایل‌محور هویت همان Bytearray رزروشده را در `_FileCommands` کنترل
+  می‌کند.
+- تست PGROUP ترتیب Reserve → Engine load → Parallel preload → اجرا را پوشش
+  می‌دهد.
+
+### Next test
+
+با Build 109 Bundle را کامل بازسازی کنید. در Game باید ابتدا
+`after-file-index-reserve|commands=369|offset-bytes=1476`، سپس
+`after-runtime-import` و `after-parallel-preload` ثبت شوند. خطای allocation
+1336 نباید تکرار شود و Route باید وارد اولین RMOUSE شود. سپس Splash واقعی،
+Timeout و نرمی موس بررسی شوند.
 
 ## Build 108 — پیش‌بارگذاری Parallel روی Heap تازه
 
