@@ -6,10 +6,11 @@ _core = None
 _response_run = None
 
 def _queue_sound_watch(ctx, state):
+    if state["_response"] is not None:
+        return
     winner = ctx.poll_sound_watch()
     if winner is None:
         return
-    ctx.suspend_sound_watch()
     state["_response"] = winner
 
 def _event_module():
@@ -44,6 +45,7 @@ def _service_pending_response(ctx, state):
         return False
     state["_response"] = None
     _core._emit_heap(ctx, "before-response-callback")
+    ctx.suspend_sound_watch()
     try:
         _run_response(ctx, winner["file"], state)
     finally:
@@ -60,7 +62,7 @@ def _parallel(commands, start, end, ctx, state):
         raise
     gc.collect(); _core._emit_heap(ctx, "after-parallel-import")
     return parallel.run(commands, start, end, ctx, state, _core,
-                        _events, _run_response, _service_pending_response)
+                        _events, _response_run, _run)
 
 
 def _profile(args, ctx, state):
