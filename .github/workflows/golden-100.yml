@@ -52,7 +52,15 @@ jobs:
           python-version: '3.12'
       - name: Validate Golden 100 contract on Windows
         shell: pwsh
-        run: python .github/scripts/golden_100_contract.py portable/plan3/CIRCUITPY
+        run: |
+          $output = & python .github/scripts/golden_100_contract.py portable/plan3/CIRCUITPY 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) {
+            $summary = ($output -join ' | ').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error file=.github/workflows/golden-100.yml,title=Golden 100 Windows contract::$summary"
+            exit $exitCode
+          }
 
   flashable-golden-100:
     name: golden-100 / flashable bundle
