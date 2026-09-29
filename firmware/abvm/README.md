@@ -22,7 +22,7 @@ Not implemented here:
 - USB HID
 - ARM UART mouse transport
 - ADC/sound sampling
-- Guard light/button service
+- Guard button service
 - cue PWM
 - flash A/B deployment
 - watchdog/rollback
@@ -30,7 +30,7 @@ Not implemented here:
 Those are adapters around this core. They must call `abvm_tick()` regularly,
 execute `ABVM_EVENT_ACTION` without blocking, and report completion through
 `abvm_complete_action()`. Sound detection is delivered with
-`abvm_sound_detected()`. Pause, Stop, and interrupt entry first produce
+`abvm_sound_detected()`; typed light detections use `abvm_light_detected()`. Pause, Stop, and interrupt entry first produce
 `ABVM_EVENT_RELEASE_ALL`.
 
 ## Host smoke test
@@ -49,7 +49,7 @@ cc -std=c11 -Wall -Wextra -Werror \
 /tmp/abvm-smoke /tmp/program.abp
 ```
 
-`AbvmVm` currently occupies 1,256 bytes on the Linux CI ABI. Program bytes
+`AbvmVm` currently occupies 1,272 bytes on the Linux CI ABI. Program bytes
 remain caller-owned and can later be read directly from RP2040 XIP flash. The
 smoke test also injects 100 deterministic single-bit corruptions and requires
 every image to fail closed.

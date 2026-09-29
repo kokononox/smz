@@ -149,6 +149,31 @@
         "IsDisabled": false
       },
       {
+        "Type": "waitForLight",
+        "Props": {
+          "luxCenter": 125,
+          "luxTolerance": 25,
+          "stableSec": 0.25,
+          "sampleMode": "hires",
+          "timeoutMs": 1500
+        },
+        "Children": [
+          {
+            "Type": "keystroke",
+            "Props": {
+              "key": "L",
+              "holdMin": 40,
+              "holdMax": 80
+            },
+            "Children": [],
+            "Delay": 0,
+            "IsDisabled": false
+          }
+        ],
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
         "Type": "typeText",
         "Props": {
           "text": "native interrupt",

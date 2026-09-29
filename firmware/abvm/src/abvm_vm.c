@@ -337,7 +337,14 @@ static int verify_image(AbvmVm *vm) {
         if (ins.opcode == ABVM_OP_WATCH) {
             if (ins.operand_b > ins.operand_c)
                 return fail(vm, "watch descriptor");
-            if (ins.flags == 2u) {
+            if (ins.flags == 3u) {
+                if (!constant_at(vm, ins.operand_a, ABVM_CONST_LIGHT,
+                                 &payload, &size) || size != 16u ||
+                    read_u32(payload) > read_u32(payload + 4u) ||
+                    read_u32(payload + 4u) > 1000000u ||
+                    read_u32(payload + 8u) > 3600000u || payload[12] > 1u)
+                    return fail(vm, "light descriptor");
+            } else if (ins.flags == 2u) {
                 if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
                                  &payload, &size) || size != 8u ||
                     !read_u16(payload) || !read_u16(payload + 2u) ||
@@ -700,16 +707,26 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
             }
             case ABVM_OP_WATCH: {
                 uint16_t profile = ins.operand_a;
-                if (ins.flags == 2u) {
+                uint8_t kind = 0u;
+                if (ins.flags == 3u) {
+                    const uint8_t *payload; uint32_t size;
+                    if (!constant_at(vm, ins.operand_a, ABVM_CONST_LIGHT,
+                                     &payload, &size) || size != 16u) {
+                        fail(vm, "light descriptor"); break;
+                    }
+                    profile = 0u; kind = ABVM_CONST_LIGHT;
+                } else if (ins.flags == 2u) {
                     const uint8_t *payload; uint32_t size;
                     if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
                                      &payload, &size) || size != 8u) {
                         fail(vm, "sound descriptor"); break;
                     }
-                    profile = read_u16(payload);
-                }
+                    profile = read_u16(payload); kind = ABVM_CONST_SOUND;
+                } else kind = ABVM_CONST_SOUND;
                 lane->blocked=ABVM_BLOCK_WATCH;
                 lane->watch_profile=profile;
+                lane->watch_constant=ins.operand_a;
+                lane->watch_kind=kind;
                 lane->watch_after_pc=ins.operand_d;
                 lane->watch_deadline=now+
                     random_range(vm,ins.operand_b,ins.operand_c);
@@ -753,7 +770,7 @@ int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now) {
     for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {
         AbvmLane *lane=&vm->lanes[i];
         if (lane->active && lane->blocked==ABVM_BLOCK_WATCH &&
-            lane->watch_profile==profile) {
+            lane->watch_kind==ABVM_CONST_SOUND && lane->watch_profile==profile) {
             lane->blocked=ABVM_BLOCK_NONE;
             lane->pc++;
             lane->due=now;
@@ -761,6 +778,19 @@ int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now) {
         }
     }
     return 0;
+}
+
+int abvm_light_detected(AbvmVm *vm, uint8_t lane_index,
+                        uint16_t constant_id, uint32_t now) {
+    if (!vm || lane_index >= ABVM_MAX_LANES) return 0;
+    AbvmLane *lane = &vm->lanes[lane_index];
+    if (!lane->active || lane->blocked != ABVM_BLOCK_WATCH ||
+        lane->watch_kind != ABVM_CONST_LIGHT ||
+        lane->watch_constant != constant_id) return 0;
+    lane->blocked = ABVM_BLOCK_NONE;
+    lane->pc++;
+    lane->due = now;
+    return 1;
 }
 
 const char *abvm_status_name(uint8_t status) {

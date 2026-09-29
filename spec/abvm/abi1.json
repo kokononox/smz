@@ -1,5 +1,6 @@
 {
   "constantKinds": {
+    "LIGHT": 7,
     "MOUSE": 3,
     "RANGES": 4,
     "SCOPE": 5,

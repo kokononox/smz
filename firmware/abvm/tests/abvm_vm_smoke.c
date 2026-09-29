@@ -46,8 +46,11 @@ int main(int argc, char **argv) {
                          "complete action")) return 1;
         } else if (event.type == ABVM_EVENT_WATCH_ARMED) {
             ++watches;
-            if (!require(abvm_sound_detected(&vm,event.operand_a,now),
-                         "sound detect")) return 1;
+            int accepted = event.flags == 3u
+                ? abvm_light_detected(&vm,event.lane,event.constant_id,now)
+                : abvm_sound_detected(&vm,event.operand_a,now);
+            if (!require(accepted, event.flags == 3u
+                         ? "light detect" : "sound detect")) return 1;
         } else if (event.type == ABVM_EVENT_INTERRUPT_RESUME) {
             resumed = 1;
         } else if (event.type == ABVM_EVENT_ROUTE_COMPLETE) {

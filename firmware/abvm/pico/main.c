@@ -8,6 +8,7 @@
 #include "abvm_vm.h"
 #include "arm_uart_mouse.h"
 #include "hid_keyboard.h"
+#include "light_sensor.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
@@ -34,9 +35,9 @@ static int cdc_printf(const char *format, ...) {
 }
 #define printf cdc_printf
 static void print_status(void) {
-    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), (unsigned long)vm.now);
+    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), (unsigned long)vm.now);
 }
-static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); }
+static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); light_sensor_cancel_watch(now); }
 static void start_game(uint32_t now) { if (abvm_start_route(&vm, GAME_ROUTE_ID, now)) printf("CONTROL|start|route=Game\n"); else printf("ERR|CONTROL|start\n"); }
 static void toggle_pause(uint32_t now) {
     if (vm.status == ABVM_STATUS_PAUSED) { if (abvm_resume(&vm, now)) printf("CONTROL|resume\n"); else printf("ERR|CONTROL|resume\n"); }
@@ -51,8 +52,23 @@ static bool button_pressed(Button *button, uint32_t now) {
 }
 static void service_buttons(uint32_t now) { if (button_pressed(&pause_button, now)) toggle_pause(now); if (button_pressed(&start_button, now)) toggle_start_stop(now); }
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|abvm-native-pico|abi=%u|format=%u|hid=keyboard+type+arm-rmouse|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION);
-    else if (!strcmp(line, "STATUS")) print_status(); else if (!strcmp(line, "START")) start_game(now);
+    if (!strcmp(line, "PING")) printf("OK|PONG|abvm-native-pico|abi=%u|format=%u|hid=keyboard+type+arm-rmouse|light=bh1750|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION);
+    else if (!strcmp(line, "STATUS")) print_status();
+    else if (!strcmp(line, "LUX?")) {
+        uint32_t lux, age;
+        if (light_sensor_latest(&lux, &age, now))
+            printf("OK|LUX|lux=%lu.%lu|sensor=ok|age=%lu\n", (unsigned long)(lux / 10u), (unsigned long)(lux % 10u), (unsigned long)age);
+        else printf("ERR|NOSENSOR|LUX\n");
+    }
+    else if (!strncmp(line, "LCAL|", 5)) {
+        char *end = NULL; unsigned long duration = strtoul(line + 5, &end, 10);
+        if (!end || *end || duration < 100u || duration > 60000u)
+            printf("ERR|ARG|LCAL\n");
+        else if (!light_sensor_present()) printf("ERR|NOSENSOR|LCAL\n");
+        else if (!light_sensor_calibration_start((uint32_t)duration, now))
+            printf("ERR|BUSY|LCAL\n");
+    }
+    else if (!strcmp(line, "START")) start_game(now);
     else if (!strcmp(line, "PAUSE")) { if (!abvm_pause(&vm, now)) printf("ERR|CONTROL|pause\n"); }
     else if (!strcmp(line, "RESUME")) { if (!abvm_resume(&vm, now)) printf("ERR|CONTROL|resume\n"); }
     else if (!strcmp(line, "STOP")) { abvm_stop(&vm, now); printf("CONTROL|stop\n"); }
@@ -67,6 +83,19 @@ static void service_cdc(uint32_t now) {
     }
 }
 static void service_keyboard(uint32_t now) { uint8_t lane; if (hid_keyboard_service(now, &lane) && !abvm_complete_action(&vm, lane, now)) printf("ERR|HID|complete|lane=%u\n", lane); }
+static void service_light(uint32_t now) {
+    light_sensor_service(&vm, now);
+    if (light_sensor_take_fault()) {
+        printf("ERR|LIGHT|sensor-lost\n");
+        abvm_stop(&vm, now);
+    }
+    LightCalibrationResult result;
+    if (light_sensor_calibration_take(&result)) {
+        if (result.valid)
+            printf("OK|LCAL|min=%lu|max=%lu|avg=%lu|samples=%lu\n", (unsigned long)result.minimum_lux, (unsigned long)result.maximum_lux, (unsigned long)result.average_lux, (unsigned long)result.samples);
+        else printf("ERR|NOSENSOR|LCAL\n");
+    }
+}
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
     if (arm_uart_mouse_service(now, &completed_lane) && (vm.status == ABVM_STATUS_RUNNING || vm.status == ABVM_STATUS_PAUSED) && !abvm_complete_action(&vm, completed_lane, now)) printf("ERR|ARM|complete|lane=%u\n", completed_lane);
@@ -94,6 +123,15 @@ static void service_vm(uint32_t now) {
             else { printf("ERR|HID|submit|lane=%u|op=%u|reason=%u\n", event.lane, event.opcode, result); abvm_stop(&vm, now); } break;
         }
         case ABVM_EVENT_WATCH_ARMED: {
+            LightWatchSubmit light = light_sensor_arm(&vm, &event, now);
+            if (light == LIGHT_WATCH_ACCEPTED) {
+                printf("WATCH|armed|lane=%u|constant=%u|timeout=%lu|source=bh1750\n", event.lane, event.constant_id, (unsigned long)event.operand_b);
+                break;
+            }
+            if (light != LIGHT_WATCH_UNSUPPORTED) {
+                printf("ERR|LIGHT|arm|lane=%u|constant=%u|reason=%u\n", event.lane, event.constant_id, light);
+                abvm_stop(&vm, now); break;
+            }
             ArmSoundSubmit sound = arm_uart_sound_arm(&vm, &event, now);
             if (sound == ARM_SOUND_ACCEPTED) printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|source=arm\n", event.lane, event.operand_a, (unsigned long)event.operand_b);
             else { printf("ERR|ARM|sound-arm|lane=%u|profile=%u|reason=%u\n", event.lane, event.operand_a, sound); abvm_stop(&vm, now); }
@@ -109,13 +147,13 @@ static void service_vm(uint32_t now) {
 void tud_umount_cb(void) { release_all_actors(now_ms()); }
 void tud_suspend_cb(bool remote_wakeup_en) { (void)remote_wakeup_en; release_all_actors(now_ms()); }
 int main(void) {
-    board_init(); tusb_init(); hid_keyboard_init(); arm_uart_mouse_init();
+    board_init(); tusb_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     if (!abvm_init(&vm, program, program_size)) { while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); } }
     while (!tud_mounted()) { tud_task(); sleep_ms(1); }
-    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts);
-    printf("READY|keys=GP3-pause,GP4-start-stop|arm=UART0-GP16-GP17-57600|cdc=PING,STATUS,START,PAUSE,RESUME,STOP,WHISPER,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_vm(now); sleep_ms(1); }
+    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts);
+    printf("READY|keys=GP3-pause,GP4-start-stop|arm=UART0-GP16-GP17-57600|cdc=PING,STATUS,LUX?,LCAL-ms,START,PAUSE,RESUME,STOP,WHISPER,SOUND-id\n");
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); sleep_ms(1); }
 }

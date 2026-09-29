@@ -65,11 +65,13 @@ typedef struct AbvmLane {
     uint32_t watch_after_pc;
     uint32_t watch_deadline;
     uint16_t watch_profile;
+    uint16_t watch_constant;
     uint8_t frame_count;
     uint8_t active;
     uint8_t terminal;
     uint8_t blocked;
-    uint16_t reserved;
+    uint8_t watch_kind;
+    uint8_t reserved;
     AbvmFrame frames[ABVM_MAX_FRAMES];
 } AbvmLane;
 
@@ -137,6 +139,8 @@ void abvm_stop(AbvmVm *vm, uint32_t now);
 AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now);
 int abvm_complete_action(AbvmVm *vm, uint8_t lane, uint32_t now);
 int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now);
+int abvm_light_detected(AbvmVm *vm, uint8_t lane, uint16_t constant_id,
+                        uint32_t now);
 int abvm_constant(const AbvmVm *vm, uint16_t constant_id, uint8_t kind,
                   const uint8_t **payload, uint32_t *size);
 const char *abvm_status_name(uint8_t status);

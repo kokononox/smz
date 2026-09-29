@@ -27,9 +27,10 @@ ROUTE = struct.Struct("<HHIII")                  # 16 bytes
 CONST_HEADER = struct.Struct("<BBHI")
 RESOURCE = struct.Struct("<HHHHHHHHHHIIII")      # 36 bytes
 SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum ms
+LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, mode
 
-FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND = 1, 2, 4
-CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND = range(1, 7)
+FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT = 1, 2, 4, 8
+CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT = range(1, 8)
 OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE = range(7)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
@@ -103,6 +104,7 @@ OPCODES = {
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
     "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
+    "LIGHT": CONST_LIGHT,
 }
 
 
@@ -406,6 +408,8 @@ class Compiler:
             self.compile_scope(node, depth, path)
         elif kind == "waitForSound":
             self.compile_watch(node, depth, path)
+        elif kind == "waitForLight":
+            self.compile_light_watch(node, depth, path)
         else:
             raise AbvmError("unsupported ABVM step: " + kind)
 
@@ -477,9 +481,10 @@ class Compiler:
         if len(lanes) != 2:
             raise AbvmError("phase-0 Parallel Group requires exactly two lanes")
         terminals = [i for i, lane in enumerate(lanes)
-                     if any(self.contains(item, "waitForSound") for item in lane)]
+                     if any(self.contains(item, "waitForSound") or
+                            self.contains(item, "waitForLight") for item in lane)]
         if len(terminals) != 1:
-            raise AbvmError("Parallel Group requires one terminal Sound lane")
+            raise AbvmError("Parallel Group requires one terminal Watch lane")
         terminal = terminals[0]
         self.flags |= FLAG_HAS_SCOPE
         self.max_lanes = 2
@@ -524,6 +529,31 @@ class Compiler:
         self.compile_nodes(children(node), depth + 1, path)
         self.patch(watch, d=len(self.code))
 
+    def compile_light_watch(self, node: dict[str, Any], depth: int,
+                            path: tuple[int, ...]) -> None:
+        p = props(node)
+        center = max(0, integer(p.get("luxCenter"), 1250))
+        tolerance = max(1, integer(p.get("luxTolerance"), 50))
+        low, high = max(0, center - tolerance), center + tolerance
+        stable = max(0, round(float(p.get("stableSec") or 2) * 1000))
+        timeout = integer(p.get("timeoutMs"), 20_000)
+        mode = 1 if str(p.get("sampleMode") or "hires").lower() == "lowres" else 0
+        if high > 1_000_000 or stable > 3_600_000 or timeout <= 0:
+            raise AbvmError("Wait For Light range, stability, or timeout is out of range")
+        descriptor = LIGHT.pack(low, high, stable, mode)
+        self.flags |= FLAG_HAS_LIGHT
+        watch = self.emit(OP_WATCH, flags=3,
+                          a=self.pool.add(CONST_LIGHT, descriptor),
+                          b=timeout, c=timeout)
+        self.compile_nodes(children(node), depth + 1, path)
+        if not children(node) and bool(p.get("armed")) and not bool(p.get("insertIfElse")):
+            react_lo, react_hi = ordered(p.get("reactMin"), p.get("reactMax"), 80, 180)
+            hold_lo, hold_hi = ordered(p.get("holdMin"), p.get("holdMax"), 30, 90)
+            self.emit(OP_DELAY, b=max(0, react_lo), c=max(0, react_hi))
+            self.emit(OP_KEY, flags=1, b=vk(p.get("key") or "E"),
+                      c=max(0, hold_lo), d=max(0, hold_hi))
+        self.patch(watch, d=len(self.code))
+
     def finish(self, source: dict[str, Any]) -> Program:
         code = b"".join(ins.pack() for ins in self.code)
         constants = bytearray()
@@ -544,7 +574,7 @@ class Compiler:
             max_frames=self.max_frames,
             max_lanes=self.max_lanes,
             max_actors=max(1, self.max_lanes),
-            max_events=2 if self.flags & FLAG_HAS_SOUND else 1,
+            max_events=2 if self.flags & (FLAG_HAS_SOUND | FLAG_HAS_LIGHT) else 1,
             max_interrupts=int(any(
                 (route.flags & ROUTE_POLICY_MASK) ==
                 ROUTE_INTERRUPT_AND_RESUME for route in self.routes)),
@@ -780,23 +810,32 @@ class Verifier:
                     pc = ins.d
                     continue
                 if ins.op == OP_WATCH:
-                    measured_flags |= FLAG_HAS_SOUND
                     if watch_depth:
                         raise AbvmError("nested Watch is forbidden")
                     if not pc < ins.d <= end or ins.b > ins.c:
                         raise AbvmError("invalid Watch response bounds")
-                    if ins.flags == 2:
+                    if ins.flags == 3:
+                        measured_flags |= FLAG_HAS_LIGHT
+                        raw = image.const(ins.a, CONST_LIGHT)
+                        if len(raw) != LIGHT.size:
+                            raise AbvmError("invalid Light descriptor size")
+                        low, high, stable, mode = LIGHT.unpack(raw)
+                        if low > high or high > 1_000_000 or stable > 3_600_000 or mode not in (0, 1):
+                            raise AbvmError("invalid Light descriptor")
+                    elif ins.flags == 2:
+                        measured_flags |= FLAG_HAS_SOUND
                         raw = image.const(ins.a, CONST_SOUND)
                         if len(raw) != SOUND.size:
                             raise AbvmError("invalid Sound descriptor size")
                         profile, threshold, minimum = SOUND.unpack(raw)
                         if not profile or not 1 <= threshold <= 1023 or not minimum:
                             raise AbvmError("invalid Sound descriptor")
+                        measured_profiles.add(profile)
                     elif ins.flags == 1 and ins.a:
-                        profile = ins.a
+                        measured_flags |= FLAG_HAS_SOUND
+                        measured_profiles.add(ins.a)
                     else:
                         raise AbvmError("unknown Watch descriptor")
-                    measured_profiles.add(profile)
                     walk(pc + 1, ins.d, depth + 1,
                          watch_depth + 1, scope_depth)
                     pc = ins.d
@@ -899,10 +938,12 @@ class VmContext:
 class ReferenceVm:
     """Host semantic oracle; firmware will use fixed arrays for the same state."""
     def __init__(self, data: bytes, seed: int = 1,
-                 detected_profiles: Iterable[int] = ()) -> None:
+                 detected_profiles: Iterable[int] = (),
+                 light_detected: bool = False) -> None:
         self.image = Verifier.verify(data)
         self.rng = random.Random(seed)
         self.detected = set(detected_profiles)
+        self.light_detected = light_detected
         self.now = 0
         self.events: list[tuple[Any, ...]] = []
         self.running = False
@@ -1165,12 +1206,25 @@ class ReferenceVm:
         elif ins.op == OP_LANE_END:
             self.finish_lane(lane)
         elif ins.op == OP_WATCH:
-            if ins.flags == 2:
-                profile, _, _ = SOUND.unpack(self.image.const(ins.a, CONST_SOUND))
+            if ins.flags == 3:
+                low, high, stable, mode = LIGHT.unpack(
+                    self.image.const(ins.a, CONST_LIGHT))
+                profile = (low, high, stable, mode)
+                hit = self.light_detected
+                kind = "LIGHT"
             else:
-                profile = ins.a
-            hit = profile in self.detected
-            self.events.append(("WATCH", profile, "detected" if hit else "timeout"))
+                if ins.flags == 2:
+                    profile, _, _ = SOUND.unpack(self.image.const(ins.a, CONST_SOUND))
+                else:
+                    profile = ins.a
+                hit = profile in self.detected
+                kind = "SOUND"
+            if kind == "LIGHT":
+                self.events.append(("WATCH", kind, profile,
+                                    "detected" if hit else "timeout"))
+            else:
+                self.events.append(("WATCH", profile,
+                                    "detected" if hit else "timeout"))
             lane.pc = lane.pc + 1 if hit else ins.d
             lane.due = self.now + self.rng.randint(ins.b, ins.c)
         elif ins.op == OP_JUMP:
