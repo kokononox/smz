@@ -68,3 +68,14 @@ target_link_libraries(ams_usb_smoke pico_stdlib pico_unique_id tinyusb_device ti
 pico_enable_stdio_usb(ams_usb_smoke 0)
 pico_enable_stdio_uart(ams_usb_smoke 0)
 pico_add_extra_outputs(ams_usb_smoke)
+
+# Stage-2 diagnostic: standards-based CDC + keyboard HID composite, still with
+# no ABVM, Guard, sensor or UART actor initialization.
+add_executable(ams_usb_composite_smoke usb_composite_smoke.c usb_composite_smoke_descriptors.c)
+target_include_directories(ams_usb_composite_smoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+target_compile_options(ams_usb_composite_smoke PRIVATE -Wall -Wextra -Werror)
+target_compile_definitions(ams_usb_composite_smoke PRIVATE CFG_TUSB_OS=OPT_OS_PICO)
+target_link_libraries(ams_usb_composite_smoke pico_stdlib pico_unique_id tinyusb_device tinyusb_board)
+pico_enable_stdio_usb(ams_usb_composite_smoke 0)
+pico_enable_stdio_uart(ams_usb_composite_smoke 0)
+pico_add_extra_outputs(ams_usb_composite_smoke)

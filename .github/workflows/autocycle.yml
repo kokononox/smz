@@ -145,6 +145,7 @@ jobs:
           cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
           test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
           test -s "$RUNNER_TEMP/abvm-pico/ams_usb_smoke.uf2"
+          test -s "$RUNNER_TEMP/abvm-pico/ams_usb_composite_smoke.uf2"
           arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
       - name: Build and flatten 30 patchable identity templates
         shell: bash
@@ -190,6 +191,8 @@ jobs:
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.uf2
             ${{ runner.temp }}/abvm-pico/ams_usb_smoke.uf2
             ${{ runner.temp }}/abvm-pico/ams_usb_smoke.elf
+            ${{ runner.temp }}/abvm-pico/ams_usb_composite_smoke.uf2
+            ${{ runner.temp }}/abvm-pico/ams_usb_composite_smoke.elf
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
             ${{ runner.temp }}/program.abp
             ${{ runner.temp }}/native-runtime/**
@@ -349,7 +352,11 @@ jobs:
           source="$(find staged -type f -name ams_usb_smoke.uf2 -print -quit)"
           test -n "$source"
           cp "$source" AMS-Native-USB-Recovery.uf2
+          composite="$(find staged -type f -name ams_usb_composite_smoke.uf2 -print -quit)"
+          test -n "$composite"
+          cp "$composite" AMS-Native-USB-Composite-Test.uf2
           sha256sum AMS-Native-USB-Recovery.uf2 | awk '{print toupper($1)}' > AMS-Native-USB-Recovery.sha256.txt
+          sha256sum AMS-Native-USB-Composite-Test.uf2 | awk '{print toupper($1)}' > AMS-Native-USB-Composite-Test.sha256.txt
           {
             echo '# Native USB Recovery smoke test'
             echo
@@ -357,7 +364,9 @@ jobs:
             echo
             echo "Source commit: ${{ github.event.pull_request.head.sha }}"
             echo
-            echo "SHA-256: $(cat AMS-Native-USB-Recovery.sha256.txt)"
+            echo "CDC-only SHA-256: $(cat AMS-Native-USB-Recovery.sha256.txt)"
+            echo
+            echo "CDC+HID SHA-256: $(cat AMS-Native-USB-Composite-Test.sha256.txt)"
           } > usb-smoke-release.md
       - name: Publish direct-download prerelease
         uses: softprops/action-gh-release@v2
@@ -370,3 +379,5 @@ jobs:
           files: |
             AMS-Native-USB-Recovery.uf2
             AMS-Native-USB-Recovery.sha256.txt
+            AMS-Native-USB-Composite-Test.uf2
+            AMS-Native-USB-Composite-Test.sha256.txt
