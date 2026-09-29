@@ -72,21 +72,28 @@ def service_pending_response(ctx, state, run_response):
 def service_sound_exit(ctx, signal, run_response):
     # Called only after plan_engine_game_parallel, runtime._run, run_game_file
     # and code._run_light_route have all returned.
+    if not isinstance(signal, dict) or "profiles" not in signal:
+        return False
     ctx._sound_watch = signal
     winner = resolve_sound_watch(ctx)
     if winner is None:
         winner = signal.get("scope_result")
     state = signal.get("game_state")
     if winner is not None and state is not None:
+        # Disarm before ASNDCANCEL: a DETECTED frame already in flight belongs
+        # to the cast being closed and must never arm the fresh cast.
+        ctx.r.arm.sound_armed = False
         ctx.r.arm.send("ASNDCANCEL", 2)
-        ctx.r.arm.sound_result = None
-        ctx.r.arm.sound_detail = None
+        ctx.r.arm.drain_sound()
         _core._emit_heap(ctx, "before-response-callback")
+        ctx.r.emit("EVT|SOUNDWATCH|response-start|file=%s" % winner["file"])
         ctx.suspend_sound_watch()
         try:
             run_response(ctx, winner["file"], state)
         finally:
             ctx.resume_sound_watch(winner["cooldown"])
+        ctx.r.arm.drain_sound()
+        ctx.r.emit("EVT|SOUNDWATCH|response-done|file=%s" % winner["file"])
         _core._emit_heap(ctx, "after-response-callback")
     ctx.close_sound_watch()
     if state is not None:

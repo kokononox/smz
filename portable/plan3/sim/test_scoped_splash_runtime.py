@@ -160,14 +160,36 @@ assert '_resolve_sound_watch(ctx)' in runtime_text
 assert 'def service_sound_exit(ctx, signal):' in runtime_text
 service_body=sound_text.split('def service_sound_exit(ctx, signal, run_response):',1)[1]
 assert 'ctx.r.arm.send("ASNDCANCEL", 2)' in service_body
+assert 'ctx.r.arm.drain_sound()' in service_body
+assert 'EVT|SOUNDWATCH|response-start' in service_body
+assert 'EVT|SOUNDWATCH|response-done' in service_body
 assert 'plan_engine_parse' not in sound_text
 facade_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game.py').read_text(encoding='utf-8')
 assert 'def service_sound_exit(ctx, signal):' in facade_text
+run_file_body=facade_text.split('def run_game_file(name, ctx):',1)[1]
+assert 'finally:' in run_file_body and 'commands.close()' in run_file_body
 assert '("plan_engine_game_sound", "sound")' in facade_text
 code_text=(root/'CIRCUITPY-MODERN'/'code.py').read_text(encoding='utf-8')
 assert 'plan_engine_game.service_sound_exit(ctx, signal)' in code_text
+assert 'EVT|SOUNDWATCH|next-cast' in code_text
 route_loop=code_text.split('route_ctx = runtime.PlanContext(self)',1)[1].split(
     'except RuntimeError as exc:',1)[0]
 assert 'while True:' in route_loop and 'signal = _run_light_route' in route_loop
 assert 'route_ctx.close()' in route_loop and 'gc.collect()' in route_loop
 print('SoundWatch: raw detection unwinds Game; response runs before fresh cast')
+
+# UART cancellation is generation-gated: a late DETECTED from the closed cast
+# is ignored, while the next explicitly armed listener may accept a result.
+context_text=(root/'CIRCUITPY-MODERN'/'combined_guard_runtime.py').read_text(encoding='utf-8')
+assert 'self.sound_detail = None; self.sound_armed = False' in context_text
+detected_body=context_text.split(
+    'elif line.startswith("EVT|ASND|DETECTED") or line.startswith("EVT|ASND|TIMEOUT"):',1
+    )[1].split('elif line.startswith("EVT|HOSTUSB|"):',1)[0]
+assert 'if self.sound_armed:' in detected_body
+assert 'self.sound_armed = False' in detected_body
+assert 'def drain_sound(self, milliseconds=60):' in context_text
+sound_start_body=context_text.split('def sound_start(self, threshold, minimum, timeout):',1)[1].split(
+    'def sound_poll(self):',1)[0]
+assert sound_start_body.index('arm.sound_armed = False') < sound_start_body.index('arm.pump()')
+assert sound_start_body.index('arm.pump()') < sound_start_body.index('arm.sound_armed = True')
+print('SoundWatch: delayed ASND generations cannot trigger the next cast')

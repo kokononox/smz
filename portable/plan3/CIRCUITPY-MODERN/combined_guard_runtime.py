@@ -118,7 +118,8 @@ class Arm:
         self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
         self.buf = bytearray(); self.pending = 0; self.held = set()
         self.relative_ready = None; self.async_sound = None; self.sound_result = None
-        self.sound_detail = None; self.host_usb_state = None; self.host_usb_seen = False
+        self.sound_detail = None; self.sound_armed = False; self.host_usb_state = None
+        self.host_usb_seen = False
     def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
     def write(self, line):
         data = self.frame(line); count = self.uart.write(data)
@@ -130,14 +131,12 @@ class Arm:
             raw, self.buf = self.buf.split(b"\n", 1); line = raw.decode("utf-8", "replace").strip()
             if line.startswith("OK|MMOVE"):
                 self.pending = max(0, self.pending - 1)
-            elif line.startswith("EVT|ASND|DETECTED"):
-                self.sound_result = True
-                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "peak=unknown"
-                print(line)
-            elif line.startswith("EVT|ASND|TIMEOUT"):
-                self.sound_result = False
-                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "max=unknown"
-                print(line)
+            elif line.startswith("EVT|ASND|DETECTED") or line.startswith("EVT|ASND|TIMEOUT"):
+                if self.sound_armed:
+                    self.sound_result = "|DETECTED" in line
+                    self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "value=unknown"
+                    self.sound_armed = False
+                    print(line)
             elif line.startswith("EVT|HOSTUSB|"):
                 state = line.rsplit("|", 1)[-1]
                 if state in ("UP", "SUSPEND", "DOWN"):
@@ -209,6 +208,11 @@ class Arm:
         end = time.monotonic() + 3
         while self.pending and time.monotonic() < end: self.pump(); time.sleep(.002)
         if self.pending: raise RuntimeError("arm move acknowledgement timeout")
+    def drain_sound(self, milliseconds=60):
+        self.sound_armed = False
+        end = time.monotonic() + max(0, milliseconds) / 1000
+        while time.monotonic() < end: self.pump(); time.sleep(.002)
+        self.sound_result = None; self.sound_detail = None
     def release(self, force=True):
         # Never emit MUP for a button that this runtime did not observe going
         # down. Unconditional MUP frames were interpreted by the Pro Micro as
@@ -364,7 +368,10 @@ class PlanContext:
             arm.relative_ready = "|REL=1" in reply
             arm.async_sound = "|ASND=1" in reply
         if arm.async_sound:
+            arm.sound_armed = False
+            arm.pump()
             arm.sound_result = None; arm.sound_detail = None
+            arm.sound_armed = True
             arm.send("ASND|%d,%d,%d" % (threshold, minimum, timeout), 2)
             self.r.emit("EVT|SOUND|listen|source=async|threshold=%d|min=%d|timeout=%d" %
                         (threshold, minimum, timeout))
@@ -390,12 +397,7 @@ class PlanContext:
         if time.monotonic() >= state["deadline"]:
             self._parallel_sound = None
             return False
-        # ARM 2.8.1 already exposes a short, HALT-abortable sound calibration
-        # window. Reusing 10 ms SCAL slices avoids adding bytes to the nearly
-        # full Leonardo firmware and returns the UART to MMOVE between polls.
-        # MMOVE is pipelined (two outstanding frames). Starting SCAL before
-        # those acknowledgements arrive makes ARM correctly answer ERR|BUSY.
-        # Drain the move queue first and retry only that transient rejection.
+        # Drain pipelined moves before each short SCAL slice.
         reply = None
         for attempt in range(3):
             self.r.arm.flush()
@@ -458,8 +460,10 @@ class PlanContext:
         return value if digits else None
     def sound_cancel(self):
         if self._parallel_sound == "async":
+            self.r.arm.sound_armed = False
             self.r.arm.flush()
             self.r.arm.send("ASNDCANCEL", 2)
+            self.r.arm.drain_sound()
         self._parallel_sound = None
     def _active_watch_profiles(self):
         state = self._sound_watch

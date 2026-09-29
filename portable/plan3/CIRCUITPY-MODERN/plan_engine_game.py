@@ -83,7 +83,10 @@ def run_game_file(name, ctx):
     gc.collect()
     _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
           (len(commands), len(commands.offsets)))
-    result = runtime.run_game(commands, ctx, core)
-    if result is None:
+    try:
+        return runtime.run_game(commands, ctx, core)
+    finally:
+        # A SoundWatch unwind no longer needs the source file/index.  Closing
+        # it deterministically prevents one open file and 1.5 KB index from
+        # surviving until the next cast's garbage collection.
         commands.close()
-    return result

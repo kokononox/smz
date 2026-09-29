@@ -778,8 +778,9 @@ def _run_light_route(ctx, commands):
         gc.collect(); _game_heap(ctx, "after-engine-import")
         signal = plan_engine_game.run_game_file(commands, ctx)
         if signal is not None:
-            plan_engine_game.service_sound_exit(ctx, signal)
-            return True
+            if plan_engine_game.service_sound_exit(ctx, signal):
+                ctx.r.emit("EVT|SOUNDWATCH|next-cast")
+                return True
         return None
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
