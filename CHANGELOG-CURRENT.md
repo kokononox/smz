@@ -1,3 +1,14 @@
+## ABVM phase 0 R2 — explicit runtime contract
+
+- Replaced the ambiguous two-lane Race contract with structured scopes and an
+  explicit `CANCEL_ON_TERMINAL_LANE` policy for fishing.
+- Added fail-closed route transition policies, a fixed resource certificate,
+  full program SHA-256, and an external PC-only source map.
+- Added generated ABI registries and packed layouts for Python, C#, and native
+  firmware consumers.
+- Kept the 16-byte instruction encoding; current real images remain only a few
+  KiB and do not justify an operand-constrained compact encoding.
+
 ## ABVM phase 0 — host compiler and ABP1 contract
 
 - Added the first PC-side AMSJ compiler for a binary `ABP1` application image.
