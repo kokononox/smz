@@ -477,7 +477,9 @@ class PlanContext:
             return
         profiles = self._active_watch_profiles()
         if not profiles:
+            state["armed"] = None
             return
+        state["armed"] = profiles
         threshold = min(item["peak_min"] for item in profiles)
         minimum = min(item["minimum"] for item in profiles)
         self.sound_start(threshold, minimum, 30000)
@@ -489,7 +491,8 @@ class PlanContext:
     def install_sound_watch(self, profiles):
         self.close_sound_watch()
         self._sound_watch = {"profiles": profiles, "scope": None,
-                             "scope_result": None, "cooldown_until": 0.0}
+                             "scope_result": None, "cooldown_until": 0.0,
+                             "armed": None}
         self._sound_watch_pending = None
         self._arm_sound_watch()
     def poll_sound_watch(self):
@@ -508,12 +511,22 @@ class PlanContext:
             return None
         if not result:
             self._arm_sound_watch(); return None
+        self._sound_watch_pending = True
+        return None
+    def take_sound_watch(self):
+        if self._sound_watch_pending is None:
+            return None
+        self._sound_watch_pending = None
+        state = self._sound_watch
+        if state is None:
+            return None
         peak = self.sound_peak()
         if peak is None:
             self.r.emit("EVT|SOUNDWATCH|ignored|reason=no-peak")
             self._arm_sound_watch(); return None
         from plan_engine_parse import select_sound_profile
-        winner = select_sound_profile(self._active_watch_profiles(), peak)
+        profiles = state["armed"]
+        winner = select_sound_profile(profiles if profiles is not None else (), peak)
         if winner is None:
             self.r.emit("EVT|SOUNDWATCH|ignored|peak=%d" % peak)
             self._arm_sound_watch(); return None
@@ -522,11 +535,6 @@ class PlanContext:
         if winner["mode"] == "scoped":
             state["scope_result"] = winner
             return None
-        self._sound_watch_pending = winner
-        return None
-    def take_sound_watch(self):
-        winner = self._sound_watch_pending
-        self._sound_watch_pending = None
         return winner
     def begin_profile_wait(self, profile_id):
         state = self._sound_watch

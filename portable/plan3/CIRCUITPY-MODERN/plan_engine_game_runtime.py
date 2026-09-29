@@ -73,6 +73,7 @@ def _profile(args, ctx, state):
                 finally: ctx.resume_sound_watch(winner["cooldown"])
                 break
             if not ctx.sleep_ms(10): _core._abort()
+            _service_pending_response(ctx, state)
     finally:
         ctx.end_profile_wait()
 
