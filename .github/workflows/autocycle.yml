@@ -71,6 +71,9 @@ jobs:
             python -m py_compile portable/plan3/CIRCUITPY-SPLIT/*.py
             python -m py_compile portable/plan3/tools/*.py portable/plan3/sim/*.py tools/abvm.py tools/generate_abvm_abi.py
             python tools/generate_abvm_abi.py --check
+            python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj /tmp/abvm-native-smoke.abp --routes Game Whisper
+            cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_vm_smoke.c -o /tmp/abvm-native-smoke
+            /tmp/abvm-native-smoke /tmp/abvm-native-smoke.abp
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="

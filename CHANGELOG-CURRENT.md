@@ -1,3 +1,14 @@
+## ABVM phase 1 R4 — native fixed-state loader and scheduler
+
+- Added a dependency-free C11 ABVM core with no runtime heap allocation.
+- Added native CRC32/SHA-256, canonical section, resource, route, opcode,
+  constant, Loop, Random Package, Scope, and Watch verification.
+- Added fixed arrays for lanes/frames plus one suspended interrupt context.
+- Added nonblocking action events as the future HID/UART actor boundary.
+- Added native Pause/Resume/Stop and Whisper interrupt/resume scheduling.
+- Added a host smoke test that executes the real Game/Whisper ABP and rejects
+  a corrupted image; the Portable CI now compiles and runs this native core.
+
 ## ABVM phase 0 R3 — deterministic control semantics
 
 - Added explicit `WALL` and `ACTIVE` route clock policies.

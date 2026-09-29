@@ -16,6 +16,7 @@ from typing import Any, Iterable
 MAGIC = b"ABP1"
 FORMAT_VERSION, VM_ABI = 2, 1
 MAX_FRAMES, MAX_LANES = 8, 2
+MAX_PACKAGE_ITEMS = 32
 MAX_ACTORS, MAX_EVENTS, MAX_INTERRUPTS = 4, 4, 1
 MAX_SOUND_PROFILES, MAX_SOUND_LISTENERS, MAX_PWM_CHANNELS = 8, 1, 1
 # 128 bytes: identity/version, section directory, CRC, limits, source and
@@ -125,6 +126,7 @@ def abi_registry() -> dict[str, Any]:
             "soundProfiles": MAX_SOUND_PROFILES,
             "soundListeners": MAX_SOUND_LISTENERS,
             "pwmChannels": MAX_PWM_CHANNELS,
+            "packageItems": MAX_PACKAGE_ITEMS,
         },
         "opcodes": OPCODES,
         "constantKinds": CONSTANT_KINDS,
@@ -358,7 +360,7 @@ class Compiler:
                       path: tuple[int, ...]) -> None:
         self.frame(depth)
         for index, node in enumerate(nodes):
-            if disabled(node) or step_type(node) == "comment":
+            if disabled(node) or step_type(node) in ("comment", "label"):
                 continue
             node_path = path + (index,)
             first = len(self.code)
@@ -433,7 +435,7 @@ class Compiler:
         enter = self.emit(OP_RPKG_ENTER, flags=mode, b=max(0, lo), c=max(0, hi))
         ranges = []
         for index, child in enumerate(children(node)):
-            if disabled(child) or step_type(child) == "comment":
+            if disabled(child) or step_type(child) in ("comment", "label"):
                 continue
             start = len(self.code)
             self.compile_nodes([child], depth + 1, path + (index,))
@@ -442,6 +444,9 @@ class Compiler:
             ranges.append((start, end))
         if not ranges:
             raise AbvmError("Random Package has no executable items")
+        if len(ranges) > MAX_PACKAGE_ITEMS:
+            raise AbvmError(
+                f"Random Package exceeds {MAX_PACKAGE_ITEMS} items")
         raw = struct.pack("<H", len(ranges)) + b"".join(
             struct.pack("<II", start, end) for start, end in ranges)
         self.patch(enter, a=self.pool.add(CONST_RANGES, raw), d=len(self.code))
@@ -724,7 +729,8 @@ class Verifier:
                 if ins.op == OP_RPKG_ENTER:
                     raw = image.const(ins.a, CONST_RANGES)
                     count = struct.unpack_from("<H", raw)[0]
-                    if not count or len(raw) != 2 + count * 8:
+                    if not count or count > MAX_PACKAGE_ITEMS or \
+                            len(raw) != 2 + count * 8:
                         raise AbvmError("invalid Random Package table")
                     for i in range(count):
                         first, last = struct.unpack_from("<II", raw, 2 + i * 8)

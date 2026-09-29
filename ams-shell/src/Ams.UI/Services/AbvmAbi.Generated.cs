@@ -34,6 +34,15 @@ internal enum AbvmOpcode : byte
     JUMP = 30,
 }
 
+internal enum AbvmConstantKind : byte
+{
+    UTF8 = 1,
+    TYPE = 2,
+    MOUSE = 3,
+    RANGES = 4,
+    SCOPE = 5,
+}
+
 internal enum AbvmScopePolicy : byte
 {
     JOIN_ALL = 1,

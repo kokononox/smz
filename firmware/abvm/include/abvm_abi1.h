@@ -10,6 +10,13 @@
 #define ABVM_INSTRUCTION_SIZE 16u
 #define ABVM_ROUTE_SIZE 16u
 #define ABVM_RESOURCE_SIZE 36u
+#define ABVM_LIMIT_FRAMES 8u
+#define ABVM_LIMIT_LANES 2u
+#define ABVM_LIMIT_ACTORS 4u
+#define ABVM_LIMIT_EVENTS 4u
+#define ABVM_LIMIT_INTERRUPTS 1u
+#define ABVM_LIMIT_SOUND_PROFILES 8u
+#define ABVM_LIMIT_PACKAGE_ITEMS 32u
 
 typedef enum AbvmOpcode {
     ABVM_OP_END = 0,
@@ -28,6 +35,14 @@ typedef enum AbvmOpcode {
     ABVM_OP_WATCH = 22,
     ABVM_OP_JUMP = 30,
 } AbvmOpcode;
+
+typedef enum AbvmConstantKind {
+    ABVM_CONST_UTF8 = 1,
+    ABVM_CONST_TYPE = 2,
+    ABVM_CONST_MOUSE = 3,
+    ABVM_CONST_RANGES = 4,
+    ABVM_CONST_SCOPE = 5,
+} AbvmConstantKind;
 
 typedef enum AbvmScopePolicy {
     ABVM_SCOPE_JOIN_ALL = 1,

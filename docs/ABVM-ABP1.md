@@ -10,6 +10,34 @@ ABVM compiles an AMSJ/`StepNode` tree on the PC and runs a verified application 
 - `Whisper` has an explicit `INTERRUPT_AND_RESUME` route policy but global interrupt/resume execution is not implemented yet.
 - Firmware deployment starts only after compiler, verifier, fuzz tests, and differential tests are stable.
 
+## Native fixed-state core
+
+`firmware/abvm` now contains the first dependency-free C11 implementation of
+the production-shaped loader, verifier, and scheduler. It is compiled on the
+host today and is designed to move unchanged behind Pico SDK/TinyUSB adapters.
+
+The core:
+
+- uses caller-owned program bytes and performs no heap allocation;
+- verifies header, canonical section layout, CRC32, full program SHA-256,
+  resource limits, route policies, opcodes, constants, loops, packages,
+  scope lanes, Watch ranges, and non-nesting rules;
+- keeps all lanes, frames, scope state, PRNG, and the single suspended
+  interrupt context in fixed-size structs;
+- executes Loop, Random Package, structured Scope, Delay, Watch, Jump, and
+  route completion;
+- emits nonblocking action events for Key, Type, and Mouse instead of touching
+  hardware;
+- supports fixed-state Pause/Resume/Stop and Whisper interrupt/resume;
+- rejects corrupted images before route start.
+
+The host smoke test runs a committed fishing-shaped Game/Whisper ABP through
+this native core, including Pause, interrupt, Watch detection, exact resume,
+completion, Stop, and corrupted-image rejection. The supplied current
+2,152-byte Game/Whisper image passes the same native smoke binary. HID, UART mouse, ADC sound, Guard buttons,
+flash slots, and TinyUSB are intentionally adapter work, not part of this
+portable scheduler.
+
 ## Single-image layout
 
 All integer fields are little-endian.

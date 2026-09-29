@@ -32,10 +32,21 @@ def generate() -> dict[Path, str]:
 #define ABVM_INSTRUCTION_SIZE {registry["sizes"]["instruction"]}u
 #define ABVM_ROUTE_SIZE {registry["sizes"]["route"]}u
 #define ABVM_RESOURCE_SIZE {registry["sizes"]["resourceCertificate"]}u
+#define ABVM_LIMIT_FRAMES {registry["limits"]["frames"]}u
+#define ABVM_LIMIT_LANES {registry["limits"]["lanes"]}u
+#define ABVM_LIMIT_ACTORS {registry["limits"]["actors"]}u
+#define ABVM_LIMIT_EVENTS {registry["limits"]["events"]}u
+#define ABVM_LIMIT_INTERRUPTS {registry["limits"]["interrupts"]}u
+#define ABVM_LIMIT_SOUND_PROFILES {registry["limits"]["soundProfiles"]}u
+#define ABVM_LIMIT_PACKAGE_ITEMS {registry["limits"]["packageItems"]}u
 
 typedef enum AbvmOpcode {{
 {enum_lines({f"ABVM_OP_{k}": v for k, v in registry["opcodes"].items()})}
 }} AbvmOpcode;
+
+typedef enum AbvmConstantKind {{
+{enum_lines({f"ABVM_CONST_{k}": v for k, v in registry["constantKinds"].items()})}
+}} AbvmConstantKind;
 
 typedef enum AbvmScopePolicy {{
 {enum_lines({f"ABVM_SCOPE_{k}": v for k, v in registry["scopePolicies"].items()})}
@@ -118,6 +129,11 @@ internal static class AbvmAbi
 internal enum AbvmOpcode : byte
 {{
 {enum_lines(registry["opcodes"])}
+}}
+
+internal enum AbvmConstantKind : byte
+{{
+{enum_lines(registry["constantKinds"])}
 }}
 
 internal enum AbvmScopePolicy : byte
