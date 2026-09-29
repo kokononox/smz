@@ -4360,6 +4360,7 @@ class TestRunner
                    && gameRuntime.Contains("def _leaf(")
                    && gameRuntime.Contains("def _sound(")
                    && gameRuntime.Contains("def _profile(")
+                   && gameRuntime.Contains("_core._FileCommands(name)")
                    && gameRuntime.Length < 9000
                    && gameEvents.Contains("def events(")
                    && gameEvents.Length < 6000

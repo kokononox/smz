@@ -41,14 +41,33 @@ def _response_commands(ctx, name):
 
 
 def _run_response(ctx, name, state):
-    commands = _response_commands(ctx, name)
-    labels = {}
-    for index, item in enumerate(commands):
-        if item[0] == "LABEL": labels[item[1]] = index
-    ctx.log("sound response start " + name)
-    _run(commands, 0, len(commands), ctx, state, labels)
-    ctx.log("sound response done " + name)
-
+    if not name.endswith(".txt") or "/" in name or "\\" in name:
+        raise ValueError("unsafe sound response route")
+    file_backed = False
+    _core._emit_heap(ctx, "before-response-file")
+    try:
+        try:
+            commands = _core._FileCommands(name)
+            file_backed = True
+        except OSError:
+            # Host simulations provide virtual response files through Context.
+            commands = _response_commands(ctx, name)
+        labels = {}
+        allowed = ("PLAN", "SCREEN", "SPEED", "DELAY", "KEY", "KDOWN", "KUP",
+                   "WHEEL", "RAW", "RMOUSE", "RPKG", "PKGITEM", "ENDPKG",
+                   "LOOP", "LOOPTIME", "ENDLOOP", "BEEP", "LABEL", "GOTO")
+        for index, item in enumerate(commands):
+            if item[0] not in allowed:
+                raise ValueError("unsupported sound response " + item[0])
+            if item[0] == "LABEL": labels[item[1]] = index
+        _core._emit_heap(ctx, "after-response-index|commands=%d" % len(commands))
+        ctx.log("sound response start " + name)
+        _run(commands, 0, len(commands), ctx, state, labels)
+        ctx.log("sound response done " + name)
+    finally:
+        if file_backed:
+            commands.close()
+        gc.collect()
 
 def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "before-parallel-import"); gc.collect()
