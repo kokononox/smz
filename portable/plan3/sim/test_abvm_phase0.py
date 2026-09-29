@@ -65,6 +65,10 @@ assert image.flags & abvm.FLAG_HAS_SOUND
 assert image.resources.max_lanes == 2
 assert image.resources.sound_profiles == 1
 assert image.resources.sound_listeners == 1
+sound_watch = next(ins for ins in image.instructions if ins.op == abvm.OP_WATCH)
+assert sound_watch.flags == 2
+sound_descriptor = image.const(sound_watch.a, abvm.CONST_SOUND)
+assert abvm.SOUND.unpack(sound_descriptor) == (2, 60, 60)
 assert len(image.program_sha256) == 64 and len(image.source_sha256) == 64
 assert image.route("Game").flags & abvm.ROUTE_POLICY_MASK == \
     abvm.ROUTE_ABORT_AND_RESTART

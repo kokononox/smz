@@ -26,9 +26,10 @@ INSTRUCTION = struct.Struct("<BBHIII")           # 16 bytes
 ROUTE = struct.Struct("<HHIII")                  # 16 bytes
 CONST_HEADER = struct.Struct("<BBHI")
 RESOURCE = struct.Struct("<HHHHHHHHHHIIII")      # 36 bytes
+SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum ms
 
 FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND = 1, 2, 4
-CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE = range(1, 6)
+CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND = range(1, 7)
 OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE = range(7)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
@@ -101,7 +102,7 @@ OPCODES = {
 
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
-    "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE,
+    "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
 }
 
 
@@ -510,9 +511,16 @@ class Compiler:
         lo, hi = ordered(lo, hi)
         if profile <= 0 or hi <= 0:
             raise AbvmError("Wait For Sound needs calibrationId and timeout")
+        threshold = max(1, integer(p.get("peakMin"),
+                                   integer(p.get("threshold"), 60)))
+        minimum = max(1, integer(p.get("minDurationMs"), 60))
+        if threshold > 1023 or minimum > 65_535:
+            raise AbvmError("Wait For Sound threshold or duration is out of range")
+        descriptor = SOUND.pack(profile, threshold, minimum)
         self.sound_profiles.add(profile)
         self.flags |= FLAG_HAS_SOUND
-        watch = self.emit(OP_WATCH, flags=1, a=profile, b=lo, c=hi)
+        watch = self.emit(OP_WATCH, flags=2,
+                          a=self.pool.add(CONST_SOUND, descriptor), b=lo, c=hi)
         self.compile_nodes(children(node), depth + 1, path)
         self.patch(watch, d=len(self.code))
 
@@ -775,9 +783,20 @@ class Verifier:
                     measured_flags |= FLAG_HAS_SOUND
                     if watch_depth:
                         raise AbvmError("nested Watch is forbidden")
-                    if not pc < ins.d <= end or ins.b > ins.c or not ins.a:
+                    if not pc < ins.d <= end or ins.b > ins.c:
                         raise AbvmError("invalid Watch response bounds")
-                    measured_profiles.add(ins.a)
+                    if ins.flags == 2:
+                        raw = image.const(ins.a, CONST_SOUND)
+                        if len(raw) != SOUND.size:
+                            raise AbvmError("invalid Sound descriptor size")
+                        profile, threshold, minimum = SOUND.unpack(raw)
+                        if not profile or not 1 <= threshold <= 1023 or not minimum:
+                            raise AbvmError("invalid Sound descriptor")
+                    elif ins.flags == 1 and ins.a:
+                        profile = ins.a
+                    else:
+                        raise AbvmError("unknown Watch descriptor")
+                    measured_profiles.add(profile)
                     walk(pc + 1, ins.d, depth + 1,
                          watch_depth + 1, scope_depth)
                     pc = ins.d
@@ -1146,8 +1165,12 @@ class ReferenceVm:
         elif ins.op == OP_LANE_END:
             self.finish_lane(lane)
         elif ins.op == OP_WATCH:
-            hit = ins.a in self.detected
-            self.events.append(("WATCH", ins.a, "detected" if hit else "timeout"))
+            if ins.flags == 2:
+                profile, _, _ = SOUND.unpack(self.image.const(ins.a, CONST_SOUND))
+            else:
+                profile = ins.a
+            hit = profile in self.detected
+            self.events.append(("WATCH", profile, "detected" if hit else "timeout"))
             lane.pc = lane.pc + 1 if hit else ins.d
             lane.due = self.now + self.rng.randint(ins.b, ins.c)
         elif ins.op == OP_JUMP:

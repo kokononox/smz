@@ -335,8 +335,19 @@ static int verify_image(AbvmVm *vm) {
             }
         }
         if (ins.opcode == ABVM_OP_WATCH) {
-            if (!ins.operand_a || ins.operand_b > ins.operand_c)
+            if (ins.operand_b > ins.operand_c)
                 return fail(vm, "watch descriptor");
+            if (ins.flags == 2u) {
+                if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
+                                 &payload, &size) || size != 8u ||
+                    !read_u16(payload) || !read_u16(payload + 2u) ||
+                    read_u16(payload + 2u) > 1023u ||
+                    !read_u32(payload + 4u) ||
+                    read_u32(payload + 4u) > 65535u)
+                    return fail(vm, "sound descriptor");
+            } else if (ins.flags != 1u || !ins.operand_a) {
+                return fail(vm, "watch descriptor version");
+            }
             for (uint32_t nested=pc+1u;nested<ins.operand_d;++nested) {
                 AbvmInstruction child;
                 if (!instruction_at(vm,nested,&child) ||
@@ -471,7 +482,8 @@ static AbvmEvent event_of(AbvmVm *vm, uint8_t type, uint8_t lane,
     event.route_id = vm->route_id;
     event.message = message;
     if (ins) {
-        event.opcode=ins->opcode; event.operand_a=ins->operand_a;
+        event.opcode=ins->opcode; event.flags=ins->flags;
+        event.operand_a=ins->operand_a; event.constant_id=ins->operand_a;
         event.operand_b=ins->operand_b; event.operand_c=ins->operand_c;
         event.operand_d=ins->operand_d;
     }
@@ -686,14 +698,28 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 vm->lane_count=2;
                 break;
             }
-            case ABVM_OP_WATCH:
+            case ABVM_OP_WATCH: {
+                uint16_t profile = ins.operand_a;
+                if (ins.flags == 2u) {
+                    const uint8_t *payload; uint32_t size;
+                    if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
+                                     &payload, &size) || size != 8u) {
+                        fail(vm, "sound descriptor"); break;
+                    }
+                    profile = read_u16(payload);
+                }
                 lane->blocked=ABVM_BLOCK_WATCH;
-                lane->watch_profile=ins.operand_a;
+                lane->watch_profile=profile;
                 lane->watch_after_pc=ins.operand_d;
                 lane->watch_deadline=now+
                     random_range(vm,ins.operand_b,ins.operand_c);
-                return event_of(vm,ABVM_EVENT_WATCH_ARMED,lane_index,
-                                &ins,"watch-armed");
+                AbvmEvent event=event_of(vm,ABVM_EVENT_WATCH_ARMED,
+                                         lane_index,&ins,"watch-armed");
+                event.operand_a=profile;
+                event.operand_b=lane->watch_deadline-now;
+                event.operand_c=event.operand_b;
+                return event;
+            }
             case ABVM_OP_JUMP:
                 lane->pc=ins.operand_d;
                 break;

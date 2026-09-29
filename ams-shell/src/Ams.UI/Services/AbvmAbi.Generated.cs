@@ -41,6 +41,7 @@ internal enum AbvmConstantKind : byte
     MOUSE = 3,
     RANGES = 4,
     SCOPE = 5,
+    SOUND = 6,
 }
 
 internal enum AbvmScopePolicy : byte

@@ -98,9 +98,10 @@ typedef struct AbvmEvent {
     uint8_t type;
     uint8_t opcode;
     uint8_t lane;
-    uint8_t reserved;
+    uint8_t flags;
     uint16_t operand_a;
     uint16_t route_id;
+    uint16_t constant_id;
     uint32_t operand_b;
     uint32_t operand_c;
     uint32_t operand_d;

@@ -34,7 +34,7 @@ static int cdc_printf(const char *format, ...) {
 }
 #define printf cdc_printf
 static void print_status(void) {
-    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), (unsigned long)vm.now);
+    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), (unsigned long)vm.now);
 }
 static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); }
 static void start_game(uint32_t now) { if (abvm_start_route(&vm, GAME_ROUTE_ID, now)) printf("CONTROL|start|route=Game\n"); else printf("ERR|CONTROL|start\n"); }
@@ -70,6 +70,13 @@ static void service_keyboard(uint32_t now) { uint8_t lane; if (hid_keyboard_serv
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
     if (arm_uart_mouse_service(now, &completed_lane) && (vm.status == ABVM_STATUS_RUNNING || vm.status == ABVM_STATUS_PAUSED) && !abvm_complete_action(&vm, completed_lane, now)) printf("ERR|ARM|complete|lane=%u\n", completed_lane);
+    uint16_t profile, peak; bool detected;
+    if (arm_uart_sound_take(&profile, &detected, &peak)) {
+        if (detected) {
+            bool accepted = abvm_sound_detected(&vm, profile, now);
+            printf("%s|SOUND|profile=%u|peak=%u|source=arm\n", accepted ? "OK" : "MISS", profile, peak);
+        } else printf("SOUND|timeout|profile=%u|peak=%u|source=arm\n", profile, peak);
+    }
     if (arm_uart_mouse_faulted() && vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) { printf("ERR|ARM|%s\n", arm_uart_mouse_fault()); abvm_stop(&vm, now); }
 }
 static void service_vm(uint32_t now) {
@@ -86,7 +93,12 @@ static void service_vm(uint32_t now) {
             else if (result == HID_KEYBOARD_UNSUPPORTED) { printf("ACTION|stub|lane=%u|op=%u|a=%u|b=%lu|c=%lu|d=%lu\n", event.lane, event.opcode, event.operand_a, (unsigned long)event.operand_b, (unsigned long)event.operand_c, (unsigned long)event.operand_d); if (!abvm_complete_action(&vm, event.lane, now)) printf("ERR|ACTION|complete\n"); }
             else { printf("ERR|HID|submit|lane=%u|op=%u|reason=%u\n", event.lane, event.opcode, result); abvm_stop(&vm, now); } break;
         }
-        case ABVM_EVENT_WATCH_ARMED: printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu,%lu\n", event.lane, event.operand_a, (unsigned long)event.operand_b, (unsigned long)event.operand_c); break;
+        case ABVM_EVENT_WATCH_ARMED: {
+            ArmSoundSubmit sound = arm_uart_sound_arm(&vm, &event, now);
+            if (sound == ARM_SOUND_ACCEPTED) printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|source=arm\n", event.lane, event.operand_a, (unsigned long)event.operand_b);
+            else { printf("ERR|ARM|sound-arm|lane=%u|profile=%u|reason=%u\n", event.lane, event.operand_a, sound); abvm_stop(&vm, now); }
+            break;
+        }
         case ABVM_EVENT_RELEASE_ALL: release_all_actors(now); printf("HID|release-all|queued\n"); break;
         case ABVM_EVENT_INTERRUPT_RESUME: printf("CONTROL|interrupt-resume|route=%u\n", vm.route_id); break;
         case ABVM_EVENT_ROUTE_COMPLETE: release_all_actors(now); printf("ROUTE|complete|route=%u\n", event.route_id); break;
