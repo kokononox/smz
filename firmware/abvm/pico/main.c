@@ -25,6 +25,7 @@ static Button pause_button = {BUTTON_PAUSE_PIN, false, false, 0};
 static Button start_button = {BUTTON_START_STOP_PIN, false, false, 0};
 static char command[96];
 static size_t command_length;
+static bool arm_fault_reported;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
@@ -40,6 +41,10 @@ static void print_status(void) {
 }
 static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); light_sensor_cancel_watch(now); }
 static void start_control(uint32_t now) {
+    if (!arm_uart_mouse_ready()) {
+        printf("ERR|GUARD|ARM|ready=0|version=%s|detail=%s\n", arm_uart_mouse_version(), arm_uart_mouse_fault());
+        return;
+    }
     if (guard_runtime_available()) {
         if (!light_sensor_present()) { printf("ERR|GUARD|NOSENSOR\n"); return; }
         abvm_stop(&vm, now);
@@ -81,7 +86,7 @@ static bool button_pressed(Button *button, uint32_t now) {
 }
 static void service_buttons(uint32_t now) { if (button_pressed(&pause_button, now)) toggle_pause(now); if (button_pressed(&start_button, now)) toggle_start_stop(now); }
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|profiles=%u|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, guard_runtime_available() ? 6u : 0u);
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 6u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -159,7 +164,13 @@ static void service_mouse(uint32_t now) {
             printf("%s|SOUND|profile=%u|peak=%u|source=arm\n", accepted ? "OK" : "MISS", profile, peak);
         } else printf("SOUND|timeout|profile=%u|peak=%u|source=arm\n", profile, peak);
     }
-    if (arm_uart_mouse_faulted() && vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) { printf("ERR|ARM|%s\n", arm_uart_mouse_fault()); abvm_stop(&vm, now); }
+    if (arm_uart_mouse_faulted()) {
+        if (!arm_fault_reported) {
+            printf("ERR|ARM|detail=%s|version=%s\n", arm_uart_mouse_fault(), arm_uart_mouse_version());
+            arm_fault_reported = true;
+        }
+        if (vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) abvm_stop(&vm, now);
+    }
 }
 static void service_vm(uint32_t now) {
     if (arm_uart_mouse_releasing()) {
@@ -210,6 +221,7 @@ int main(void) {
      * being hashed and structurally verified. Attach only after boot work. */
     tusb_init();
     while (!tud_mounted()) { tud_task(); sleep_ms(1); }
+    if (!arm_uart_mouse_probe(now_ms())) arm_fault_reported = true;
     if (!program_verified) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }

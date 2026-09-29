@@ -19,6 +19,7 @@ typedef enum ArmSoundSubmit {
 } ArmSoundSubmit;
 
 void arm_uart_mouse_init(void);
+bool arm_uart_mouse_probe(uint32_t now);
 ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane);
@@ -29,4 +30,6 @@ bool arm_uart_mouse_releasing(void);
 bool arm_uart_sound_active(void);
 bool arm_uart_mouse_faulted(void);
 const char *arm_uart_mouse_fault(void);
+bool arm_uart_mouse_ready(void);
+const char *arm_uart_mouse_version(void);
 #endif

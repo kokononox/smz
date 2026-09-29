@@ -13,16 +13,20 @@
 #define ARM_LINE_MAX 96u
 #define ARM_FRAME_MAX 64u
 #define ARM_DELTA_LIMIT 700
+#define ARM_RETRY_MAX 2u
 
-typedef enum ArmState { ARM_IDLE, ARM_MOVE, ARM_SOUND_ARM, ARM_HALT, ARM_FAULT } ArmState;
+typedef enum ArmState { ARM_IDLE, ARM_PROBE, ARM_MOVE, ARM_SOUND_ARM, ARM_HALT, ARM_FAULT } ArmState;
 static ArmState state;
 static char tx[ARM_FRAME_MAX];
-static uint8_t tx_len, tx_pos;
+static char pending_payload[ARM_FRAME_MAX];
+static uint8_t tx_len, tx_pos, retry_count;
 static char rx[ARM_LINE_MAX];
 static uint8_t rx_len, lane, completion_lane;
 static bool completion_pending;
 static uint32_t deadline, prng = 0x6d2b79f5u;
-static const char *fault_text;
+static char fault_text[ARM_LINE_MAX];
+static char arm_version[24] = "unknown";
+static bool arm_ready;
 static bool sound_pending, sound_active, sound_event_pending, sound_event_detected;
 static uint16_t sound_profile, sound_threshold, sound_minimum, sound_peak;
 static uint32_t sound_deadline;
@@ -58,16 +62,36 @@ static bool json_int(const uint8_t *data, uint32_t size, const char *key, int32_
     }
     return false;
 }
-static bool queue_payload(const char *payload, uint32_t now, ArmState next) {
+static bool queue_frame(const char *payload, uint32_t now, ArmState next, bool fresh) {
     uint8_t sum = 0;
+    if (fresh) {
+        size_t length = strlen(payload);
+        if (length >= sizeof(pending_payload)) return false;
+        memcpy(pending_payload, payload, length + 1u);
+        retry_count = 0u;
+    }
     for (const char *p = payload; *p; ++p) sum = (uint8_t)(sum + (uint8_t)*p);
     int n = snprintf(tx, sizeof(tx), "#%02X|%s\n", sum, payload);
     if (n <= 0 || (size_t)n >= sizeof(tx)) return false;
     tx_len = (uint8_t)n; tx_pos = 0;
     deadline = now + ARM_ACK_TIMEOUT_MS; state = next; return true;
 }
+static bool queue_payload(const char *payload, uint32_t now, ArmState next) {
+    return queue_frame(payload, now, next, true);
+}
+static bool retry_pending(uint32_t now) {
+    if (!pending_payload[0] || retry_count >= ARM_RETRY_MAX) return false;
+    ++retry_count;
+    return queue_frame(pending_payload, now, state, false);
+}
 static void set_fault(const char *text) {
-    fault_text = text; state = ARM_FAULT; tx_len = tx_pos = rx_len = 0;
+    snprintf(fault_text, sizeof(fault_text), "%s", text ? text : "unknown");
+    state = ARM_FAULT; tx_len = tx_pos = rx_len = 0;
+    sound_pending = sound_active = false;
+}
+static void set_reply_fault(const char *line) {
+    snprintf(fault_text, sizeof(fault_text), "reply=%.*s", (int)(sizeof(fault_text) - 7u), line);
+    state = ARM_FAULT; tx_len = tx_pos = rx_len = 0;
     sound_pending = sound_active = false;
 }
 static bool queue_sound(uint32_t now) {
@@ -89,10 +113,17 @@ void arm_uart_mouse_init(void) {
     gpio_set_function(ARM_UART_RX_PIN, GPIO_FUNC_UART);
     uart_set_format(ARM_UART, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(ARM_UART, true); state = ARM_IDLE;
+    arm_ready = false; fault_text[0] = 0; pending_payload[0] = 0;
+}
+bool arm_uart_mouse_probe(uint32_t now) {
+    if (state != ARM_IDLE) return false;
+    while (uart_is_readable(ARM_UART)) (void)uart_getc(ARM_UART);
+    rx_len = 0u;
+    return queue_payload("HVER", now, ARM_PROBE);
 }
 ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now) {
     if (!event || event->opcode != ABVM_OP_RMOUSE) return ARM_MOUSE_UNSUPPORTED;
-    if (state != ARM_IDLE || completion_pending) return ARM_MOUSE_BUSY;
+    if (!arm_ready || state != ARM_IDLE || completion_pending) return ARM_MOUSE_BUSY;
     const uint8_t *payload; uint32_t size; int32_t w, h;
     if (!abvm_constant(vm,event->operand_a,ABVM_CONST_MOUSE,&payload,&size)) return ARM_MOUSE_INVALID;
     if (!json_int(payload,size,"w",&w) || !json_int(payload,size,"h",&h) ||
@@ -110,7 +141,7 @@ ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, u
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now) {
     if (!event || event->type != ABVM_EVENT_WATCH_ARMED || event->flags != 2u)
         return ARM_SOUND_UNSUPPORTED;
-    if (state==ARM_FAULT||state==ARM_HALT||sound_pending||sound_active) return ARM_SOUND_BUSY;
+    if (!arm_ready || state==ARM_FAULT||state==ARM_HALT||sound_pending||sound_active) return ARM_SOUND_BUSY;
     const uint8_t *payload; uint32_t size;
     if (!abvm_constant(vm,event->constant_id,ABVM_CONST_SOUND,&payload,&size)||size!=8u)
         return ARM_SOUND_INVALID;
@@ -129,7 +160,7 @@ static uint16_t parse_peak(const char *line) {
     unsigned long value=strtoul(p+6,NULL,10);
     return value>65535u?65535u:(uint16_t)value;
 }
-static void handle_line(void) {
+static void handle_line(uint32_t now) {
     rx[rx_len]=0;
     if (!strncmp(rx,"EVT|ASND|DETECTED",17)) {
         sound_peak=parse_peak(rx); sound_event_detected=true;
@@ -140,27 +171,47 @@ static void handle_line(void) {
         sound_event_pending=true; sound_active=false; return;
     }
     if (!strncmp(rx,"EVT|",4)) return;
+    if (state==ARM_PROBE&&!strncmp(rx,"OK|HVER|",8)) {
+        const char *value=rx+8; const char *separator=strchr(value,'|');
+        size_t length=separator?(size_t)(separator-value):strlen(value);
+        if (length>=sizeof(arm_version)) length=sizeof(arm_version)-1u;
+        memcpy(arm_version,value,length); arm_version[length]=0;
+        if (!strstr(rx,"|REL=1")||!strstr(rx,"|ASND=1")) {
+            set_reply_fault("ERR|INCOMPATIBLE|HVER"); return;
+        }
+        arm_ready=true; pending_payload[0]=0; state=ARM_IDLE; return;
+    }
     if (state==ARM_MOVE&&!strcmp(rx,"OK|MMOVE")) {
-        completion_lane=lane; completion_pending=true; state=ARM_IDLE; return;
+        completion_lane=lane; completion_pending=true; pending_payload[0]=0; state=ARM_IDLE; return;
     }
     if (state==ARM_SOUND_ARM&&!strcmp(rx,"OK|ASND")) {
-        state=ARM_IDLE; sound_active=true; return;
+        pending_payload[0]=0; state=ARM_IDLE; sound_active=true; return;
     }
-    if (state==ARM_HALT&&!strcmp(rx,"OK|HALT")) { state=ARM_IDLE; return; }
-    if (!strncmp(rx,"ERR|",4)) { set_fault("arm error"); return; }
-    set_fault("arm malformed reply");
+    if (state==ARM_HALT&&!strcmp(rx,"OK|HALT")) {
+        pending_payload[0]=0; state=ARM_IDLE; return;
+    }
+    if (state==ARM_IDLE&&!strcmp(rx,"OK|HALT")) return;
+    if (state==ARM_HALT&&!strncmp(rx,"ERR|ABORTED|",12)) {
+        pending_payload[0]=0; state=ARM_IDLE; return;
+    }
+    if ((!strcmp(rx,"ERR|CKSUM")||!strcmp(rx,"ERR|NOFRAME"))&&retry_pending(now)) return;
+    if (!strncmp(rx,"ERR|",4)) { set_reply_fault(rx); return; }
+    set_reply_fault(rx);
 }
+
 bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane_out) {
     while (tx_pos<tx_len&&uart_is_writable(ARM_UART)) uart_putc_raw(ARM_UART,tx[tx_pos++]);
     if (tx_pos==tx_len) tx_len=tx_pos=0;
     while (uart_is_readable(ARM_UART)) {
         char c=(char)uart_getc(ARM_UART);
         if (c=='\r') continue;
-        if (c=='\n') { if (rx_len) { handle_line(); rx_len=0; } continue; }
+        if (c=='\n') { if (rx_len) { handle_line(now); rx_len=0; } continue; }
         if (rx_len+1u>=sizeof(rx)) { set_fault("arm rx overflow"); break; }
         rx[rx_len++]=c;
     }
-    if (state!=ARM_IDLE&&state!=ARM_FAULT&&reached(now,deadline)) set_fault("arm ack timeout");
+    if (state!=ARM_IDLE&&state!=ARM_FAULT&&reached(now,deadline)) {
+        if (!retry_pending(now)) set_fault("ack-timeout");
+    }
     if (state==ARM_IDLE&&sound_pending&&!queue_sound(now)) set_fault("arm sound frame");
     if (sound_active&&reached(now,sound_deadline+ARM_ACK_TIMEOUT_MS)) {
         sound_active=false; sound_event_detected=false; sound_event_pending=true; sound_peak=0;
@@ -176,13 +227,16 @@ bool arm_uart_sound_take(uint16_t *profile, bool *detected, uint16_t *peak) {
     sound_event_pending=false; return true;
 }
 void arm_uart_mouse_release_all(uint32_t now) {
-    if (state==ARM_FAULT) return;
+    if (state==ARM_FAULT || state==ARM_HALT) return;
+    if (state==ARM_PROBE) return;
     if (state==ARM_MOVE) { completion_lane=lane; completion_pending=true; }
     sound_pending=sound_active=false;
-    if (!queue_payload("HALT",now,ARM_HALT)) set_fault("arm halt frame");
+    if (!queue_payload("HALT",now,ARM_HALT)) set_fault("halt-frame");
 }
 bool arm_uart_mouse_busy(void) { return state!=ARM_IDLE||completion_pending; }
 bool arm_uart_mouse_releasing(void) { return state==ARM_HALT; }
 bool arm_uart_sound_active(void) { return sound_pending||sound_active||state==ARM_SOUND_ARM; }
 bool arm_uart_mouse_faulted(void) { return state==ARM_FAULT; }
-const char *arm_uart_mouse_fault(void) { return fault_text; }
+const char *arm_uart_mouse_fault(void) { return fault_text[0] ? fault_text : "none"; }
+bool arm_uart_mouse_ready(void) { return arm_ready && state != ARM_FAULT; }
+const char *arm_uart_mouse_version(void) { return arm_version; }
