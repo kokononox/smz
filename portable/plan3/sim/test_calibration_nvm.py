@@ -4,9 +4,18 @@ import sys
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'portable/plan3/CIRCUITPY-MODERN'))
 import calibration_nvm as store
-nvm=bytearray(4096)
+class CountingNvm(bytearray):
+    def __init__(self, size):
+        super().__init__(size)
+        self.write_ops = 0
+    def __setitem__(self, key, value):
+        self.write_ops += 1
+        return super().__setitem__(key, value)
+
+nvm=CountingNvm(4096)
 profiles={'game':{'center':24.2,'tolerance':2.0,'stable_ms':750}}
 store.save(nvm,'rev-a',profiles)
+assert nvm.write_ops == 3, nvm.write_ops
 assert store.load(nvm,'rev-a') == profiles
 assert store.load(nvm,'rev-b') is None
 assert bytes(nvm[:1536]) == b'\0'*1536
@@ -41,4 +50,7 @@ old_cal2[store.BASE+store.HEADER:store.BASE+store.HEADER+len(old_payload)]=old_p
 assert store.load(old_cal2,'current-revision') is None
 nvm[store.BASE+8] ^= 1
 assert store.load(nvm,'rev-a') is None
-print('calibration NVM: checksum, revision authority, CAL1 exact migration and reserved regions passed')
+cleared=CountingNvm(4096)
+store.clear(cleared)
+assert cleared.write_ops == 1, cleared.write_ops
+print('calibration NVM: 3-write atomic save, 1-write clear, checksum, revision authority and reserved regions passed')
