@@ -49,6 +49,13 @@ ROUTE_INTERRUPT_AND_RESUME = 2
 ROUTE_CANCEL_SCOPE_AND_CONTINUE = 3
 ROUTE_ABORT_AND_RESTART = 4
 ROUTE_POLICY_MASK = 0x00FF
+ROUTE_CLOCK_WALL = 0x0000
+ROUTE_CLOCK_ACTIVE = 0x0100
+ROUTE_CLOCK_MASK = 0x0100
+ROUTE_PAUSE_RELEASE_HID = 0x0200
+ROUTE_ALLOWED_FLAGS = (
+    ROUTE_POLICY_MASK | ROUTE_CLOCK_MASK | ROUTE_PAUSE_RELEASE_HID
+)
 ROUTE_POLICIES = {
     ROUTE_DENY: "DENY",
     ROUTE_ABORT_AND_START: "ABORT_AND_START",
@@ -77,6 +84,10 @@ ROUTE_POLICY_BY_NAME = {
     "Whisper": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
 }
+
+# Real-time routes keep absolute deadlines while paused and while an interrupt
+# route executes.  ACTIVE is reserved for workflows whose timers must freeze.
+ROUTE_CLOCK_BY_NAME = {name: ROUTE_CLOCK_WALL for name in ROUTE_IDS}
 
 OPCODES = {
     "END": OP_END, "DELAY": OP_DELAY, "KEY": OP_KEY,
@@ -122,6 +133,13 @@ def abi_registry() -> dict[str, Any]:
         },
         "routePolicies": {
             name: value for value, name in ROUTE_POLICIES.items()
+        },
+        "routeClockPolicies": {
+            "WALL": ROUTE_CLOCK_WALL,
+            "ACTIVE": ROUTE_CLOCK_ACTIVE,
+        },
+        "routeFlags": {
+            "PAUSE_RELEASE_HID": ROUTE_PAUSE_RELEASE_HID,
         },
     }
 
@@ -304,7 +322,10 @@ class Compiler:
             self.emit(OP_END)
             self.routes.append(RouteInfo(
                 ROUTE_IDS.get(name, 100 + len(self.routes)),
-                ROUTE_POLICY_BY_NAME.get(name, ROUTE_DENY), start,
+                ROUTE_POLICY_BY_NAME.get(name, ROUTE_DENY) |
+                ROUTE_CLOCK_BY_NAME.get(name, ROUTE_CLOCK_WALL) |
+                ROUTE_PAUSE_RELEASE_HID,
+                start,
                 len(self.code) - start, self.pool.text(name)))
         if not self.routes:
             raise AbvmError("none of the requested routes exist")
@@ -511,7 +532,9 @@ class Compiler:
             max_lanes=self.max_lanes,
             max_actors=max(1, self.max_lanes),
             max_events=2 if self.flags & FLAG_HAS_SOUND else 1,
-            max_interrupts=0,
+            max_interrupts=int(any(
+                (route.flags & ROUTE_POLICY_MASK) ==
+                ROUTE_INTERRUPT_AND_RESUME for route in self.routes)),
             sound_profiles=len(self.sound_profiles),
             sound_listeners=1 if self.sound_profiles else 0,
             pwm_channels=0,
@@ -772,12 +795,20 @@ class Verifier:
 
         route_ids: set[int] = set()
         route_ranges: list[tuple[int, int]] = []
+        measured_interrupts = 0
         for route in image.routes:
             if route.route_id in route_ids:
                 raise AbvmError("duplicate route id")
             route_ids.add(route.route_id)
-            if (route.flags & ROUTE_POLICY_MASK) not in ROUTE_POLICIES:
+            if route.flags & ~ROUTE_ALLOWED_FLAGS:
+                raise AbvmError("unknown route flags")
+            policy = route.flags & ROUTE_POLICY_MASK
+            if policy not in ROUTE_POLICIES:
                 raise AbvmError("unknown route transition policy")
+            if not route.flags & ROUTE_PAUSE_RELEASE_HID:
+                raise AbvmError("route must release HID on Pause")
+            if policy == ROUTE_INTERRUPT_AND_RESUME:
+                measured_interrupts += 1
             image.const(route.name_const, CONST_UTF8)
             if route.length <= 0 or route.pc + route.length > len(image.instructions):
                 raise AbvmError("route bounds invalid")
@@ -802,6 +833,8 @@ class Verifier:
             raise AbvmError("resource sound-listener count mismatch")
         if resource.max_actors < measured_lanes:
             raise AbvmError("resource actor count is too small")
+        if resource.max_interrupts != int(bool(measured_interrupts)):
+            raise AbvmError("resource interrupt count mismatch")
         if measured_flags != image.flags:
             raise AbvmError("header capabilities do not match bytecode")
         payload_sizes = [len(payload) for _, _, payload in image.constants]
@@ -831,6 +864,13 @@ class Lane:
             self.frames = []
 
 
+@dataclass
+class VmContext:
+    route: RouteInfo
+    route_name: str
+    lanes: list[Lane]
+
+
 class ReferenceVm:
     """Host semantic oracle; firmware will use fixed arrays for the same state."""
     def __init__(self, data: bytes, seed: int = 1,
@@ -841,28 +881,150 @@ class ReferenceVm:
         self.now = 0
         self.events: list[tuple[Any, ...]] = []
         self.running = False
+        self.paused = False
+        self.paused_at: int | None = None
+        self.pressed_keys: set[int] = set()
         self.lanes: list[Lane] = []
+        self.current_route: RouteInfo | None = None
+        self.current_route_name = ""
+        self.suspended: list[VmContext] = []
 
-    def run(self, route_name: str, max_fetches: int = 100_000) -> list[tuple[Any, ...]]:
+    def start(self, route_name: str, clear_events: bool = True) -> None:
         route = self.image.route(route_name)
-        self.lanes = [Lane(route.pc, route.pc + route.length)]
-        self.running = True
-        fetches = 0
-        while self.running and any(lane.active for lane in self.lanes):
-            active = [lane for lane in self.lanes if lane.active]
-            self.now = max(self.now, min(lane.due for lane in active))
-            for lane in [item for item in active if item.due <= self.now]:
-                self.step(lane)
-                fetches += 1
-                if fetches > max_fetches:
-                    raise AbvmError("reference VM fetch budget exhausted")
-        return self.events
-
-    def stop(self) -> None:
-        self.running = False
+        if clear_events:
+            self.events.clear()
+        self.release_hid("start")
         for lane in self.lanes:
             lane.active = False
-        self.events.append(("STOP", self.now))
+        for context in self.suspended:
+            for lane in context.lanes:
+                lane.active = False
+        self.lanes = [Lane(route.pc, route.pc + route.length)]
+        self.current_route = route
+        self.current_route_name = route_name
+        self.suspended.clear()
+        self.running = True
+        self.paused = False
+        self.paused_at = None
+        self.events.append(("ROUTE_START", route_name, self.now))
+
+    def run(self, route_name: str,
+            max_fetches: int = 100_000) -> list[tuple[Any, ...]]:
+        self.start(route_name)
+        self.run_until_idle(max_fetches)
+        return self.events
+
+    def run_until_idle(self, max_fetches: int = 100_000) -> None:
+        fetches = 0
+        while self.step_next():
+            fetches += 1
+            if fetches > max_fetches:
+                raise AbvmError("reference VM fetch budget exhausted")
+        if self.paused:
+            raise AbvmError("reference VM is paused")
+
+    def step_next(self) -> bool:
+        if not self.running or self.paused:
+            return False
+        active = [lane for lane in self.lanes if lane.active]
+        if not active:
+            if self.suspended:
+                finished = self.current_route_name
+                context = self.suspended.pop()
+                self.current_route = context.route
+                self.current_route_name = context.route_name
+                self.lanes = context.lanes
+                self.events.append((
+                    "INTERRUPT_RESUME", finished,
+                    self.current_route_name, self.now))
+                return True
+            self.running = False
+            self.events.append(("ROUTE_COMPLETE", self.current_route_name, self.now))
+            return False
+        self.now = max(self.now, min(lane.due for lane in active))
+        lane = next(item for item in active if item.due <= self.now)
+        self.step(lane)
+        return True
+
+    def advance(self, milliseconds: int) -> None:
+        if milliseconds < 0:
+            raise AbvmError("clock cannot move backwards")
+        self.now += milliseconds
+        self.events.append(("CLOCK_ADVANCE", milliseconds, self.now))
+
+    def release_hid(self, reason: str) -> None:
+        released = tuple(sorted(self.pressed_keys))
+        self.pressed_keys.clear()
+        self.events.append(("HID_RELEASE_ALL", reason, released, self.now))
+
+    @staticmethod
+    def shift_context_deadlines(lanes: list[Lane], delta: int) -> None:
+        for lane in lanes:
+            lane.due += delta
+            for frame in lane.frames or []:
+                if frame.get("deadline") is not None:
+                    frame["deadline"] += delta
+
+    def pause(self) -> bool:
+        if not self.running or self.paused:
+            return False
+        if self.current_route is None or \
+                not self.current_route.flags & ROUTE_PAUSE_RELEASE_HID:
+            raise AbvmError("current route has no safe Pause policy")
+        self.release_hid("pause")
+        self.paused = True
+        self.paused_at = self.now
+        self.events.append((
+            "PAUSE", self.current_route_name, self.now,
+            tuple(lane.pc for lane in self.lanes if lane.active)))
+        return True
+
+    def resume(self) -> bool:
+        if not self.running or not self.paused:
+            return False
+        paused_at = self.paused_at if self.paused_at is not None else self.now
+        elapsed = self.now - paused_at
+        if self.current_route is not None and \
+                (self.current_route.flags & ROUTE_CLOCK_MASK) == ROUTE_CLOCK_ACTIVE:
+            self.shift_context_deadlines(self.lanes, elapsed)
+        self.paused = False
+        self.paused_at = None
+        self.events.append((
+            "RESUME", self.current_route_name, self.now, elapsed,
+            tuple(lane.pc for lane in self.lanes if lane.active)))
+        return True
+
+    def interrupt(self, route_name: str) -> None:
+        if not self.running or self.paused:
+            raise AbvmError("interrupt requires a running VM")
+        if self.suspended:
+            raise AbvmError("nested interrupt exceeds firmware contract")
+        route = self.image.route(route_name)
+        if (route.flags & ROUTE_POLICY_MASK) != ROUTE_INTERRUPT_AND_RESUME:
+            raise AbvmError("route is not an interrupt-and-resume route")
+        if self.current_route is None:
+            raise AbvmError("current route is missing")
+        self.release_hid("interrupt")
+        self.suspended.append(VmContext(
+            self.current_route, self.current_route_name, self.lanes))
+        previous = self.current_route_name
+        self.current_route = route
+        self.current_route_name = route_name
+        self.lanes = [Lane(route.pc, route.pc + route.length, self.now)]
+        self.events.append(("INTERRUPT_START", previous, route_name, self.now))
+
+    def stop(self) -> None:
+        self.release_hid("stop")
+        self.running = False
+        self.paused = False
+        self.paused_at = None
+        for lane in self.lanes:
+            lane.active = False
+        for context in self.suspended:
+            for lane in context.lanes:
+                lane.active = False
+        self.suspended.clear()
+        self.events.append(("STOP", self.current_route_name, self.now))
 
     def finish_lane(self, lane: Lane) -> None:
         lane.active = False
@@ -900,6 +1062,10 @@ class ReferenceVm:
             self.events.append(("KEY", keys, ins.c, ins.d))
             lane.pc += 1
         elif ins.op in (OP_KDOWN, OP_KUP):
+            if ins.op == OP_KDOWN:
+                self.pressed_keys.add(ins.a)
+            else:
+                self.pressed_keys.discard(ins.a)
             self.events.append(("KDOWN" if ins.op == OP_KDOWN else "KUP", ins.a))
             lane.pc += 1
         elif ins.op == OP_TYPE:

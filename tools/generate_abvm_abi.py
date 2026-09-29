@@ -45,6 +45,14 @@ typedef enum AbvmRoutePolicy {{
 {enum_lines({f"ABVM_ROUTE_{k}": v for k, v in registry["routePolicies"].items()})}
 }} AbvmRoutePolicy;
 
+typedef enum AbvmRouteClockPolicy {{
+{enum_lines({f"ABVM_CLOCK_{k}": v for k, v in registry["routeClockPolicies"].items()})}
+}} AbvmRouteClockPolicy;
+
+typedef enum AbvmRouteFlag {{
+{enum_lines({f"ABVM_ROUTE_FLAG_{k}": v for k, v in registry["routeFlags"].items()})}
+}} AbvmRouteFlag;
+
 #pragma pack(push, 1)
 typedef struct AbvmHeader {{
     uint32_t magic;
@@ -120,6 +128,17 @@ internal enum AbvmScopePolicy : byte
 internal enum AbvmRoutePolicy : byte
 {{
 {enum_lines(registry["routePolicies"])}
+}}
+
+internal enum AbvmRouteClockPolicy : ushort
+{{
+{enum_lines(registry["routeClockPolicies"])}
+}}
+
+[System.Flags]
+internal enum AbvmRouteFlag : ushort
+{{
+{enum_lines(registry["routeFlags"])}
 }}
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]

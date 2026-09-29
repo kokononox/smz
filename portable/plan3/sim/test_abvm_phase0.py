@@ -66,8 +66,14 @@ assert image.resources.max_lanes == 2
 assert image.resources.sound_profiles == 1
 assert image.resources.sound_listeners == 1
 assert len(image.program_sha256) == 64 and len(image.source_sha256) == 64
-assert image.route("Game").flags == abvm.ROUTE_ABORT_AND_RESTART
-assert image.route("Whisper").flags == abvm.ROUTE_INTERRUPT_AND_RESUME
+assert image.route("Game").flags & abvm.ROUTE_POLICY_MASK == \
+    abvm.ROUTE_ABORT_AND_RESTART
+assert image.route("Whisper").flags & abvm.ROUTE_POLICY_MASK == \
+    abvm.ROUTE_INTERRUPT_AND_RESUME
+assert image.route("Game").flags & abvm.ROUTE_CLOCK_MASK == \
+    abvm.ROUTE_CLOCK_WALL
+assert image.route("Game").flags & abvm.ROUTE_PAUSE_RELEASE_HID
+assert image.resources.max_interrupts == 1
 assert compiled.source_map["programSha256"] == image.program_sha256
 assert any(entry["type"] == "waitForSound"
            for entry in compiled.source_map["entries"])
@@ -86,6 +92,119 @@ timeout_events = timeout.run("Game")
 assert ("WATCH", 2, "timeout") in timeout_events
 assert not any(event[0] == "KEY" and 70 in event[1] for event in timeout_events)
 assert ("TYPE", "hi :)") in abvm.ReferenceVm(compiled.image).run("Whisper")
+
+# Pause releases held HID state, preserves the exact PC, and leaves absolute
+# Game deadlines unchanged under the WALL clock policy.
+control_project = {"pipelines": {
+    "Game": [node("forLoop", {
+        "mode": "time", "timeValue": 10, "timeUnit": "second"}, [
+            node("keyDown", {"key": "A"}),
+            node("delay", {"minMs": 1000, "maxMs": 1000}),
+            node("keyUp", {"key": "A"})])],
+    "Whisper": [
+        node("delay", {"minMs": 3000, "maxMs": 3000}),
+        node("typeText", {"text": "interrupt"})],
+}}
+control = abvm.Compiler().compile_amsj(control_project)
+paused = abvm.ReferenceVm(control.image, seed=1)
+paused.start("Game")
+assert paused.step_next() and paused.step_next()
+assert paused.pressed_keys == {65}
+game_lane = next(lane for lane in paused.lanes if lane.active)
+saved_pc = game_lane.pc
+saved_deadline = game_lane.frames[0]["deadline"]
+assert paused.pause()
+assert not paused.pressed_keys
+paused.advance(5000)
+assert game_lane.pc == saved_pc
+assert game_lane.frames[0]["deadline"] == saved_deadline
+assert paused.resume()
+assert game_lane.pc == saved_pc
+assert game_lane.frames[0]["deadline"] == saved_deadline
+assert any(event[:2] == ("HID_RELEASE_ALL", "pause")
+           for event in paused.events)
+
+# ACTIVE clock routes shift pending due times and loop deadlines by the exact
+# pause duration. This policy is supported but is not used by current Game.
+abvm.ROUTE_CLOCK_BY_NAME["Game"] = abvm.ROUTE_CLOCK_ACTIVE
+try:
+    active_program = abvm.Compiler().compile_amsj(control_project)
+finally:
+    abvm.ROUTE_CLOCK_BY_NAME["Game"] = abvm.ROUTE_CLOCK_WALL
+active_clock = abvm.ReferenceVm(active_program.image, seed=1)
+active_clock.start("Game")
+assert active_clock.step_next() and active_clock.step_next()
+active_lane = active_clock.lanes[0]
+active_deadline = active_lane.frames[0]["deadline"]
+assert active_clock.pause()
+active_clock.advance(5000)
+assert active_clock.resume()
+assert active_lane.frames[0]["deadline"] == active_deadline + 5000
+
+# Whisper executes as one bounded global interrupt. Game PC/deadline stay
+# intact, and its three seconds count against the wall-clock Game deadline.
+interrupted = abvm.ReferenceVm(control.image, seed=1)
+interrupted.start("Game")
+assert interrupted.step_next() and interrupted.step_next()
+assert interrupted.pressed_keys == {65}
+game_context_lane = interrupted.lanes[0]
+interrupt_pc = game_context_lane.pc
+interrupt_deadline = game_context_lane.frames[0]["deadline"]
+interrupted.interrupt("Whisper")
+assert not interrupted.pressed_keys
+assert any(event[:2] == ("HID_RELEASE_ALL", "interrupt")
+           for event in interrupted.events)
+try:
+    interrupted.interrupt("Whisper")
+    raise AssertionError("nested interrupt was accepted")
+except abvm.AbvmError as exc:
+    assert "nested interrupt" in str(exc)
+while interrupted.suspended:
+    assert interrupted.step_next()
+assert interrupted.current_route_name == "Game"
+assert game_context_lane.pc == interrupt_pc
+assert game_context_lane.frames[0]["deadline"] == interrupt_deadline
+assert interrupted.now == 3000
+assert any(event[0] == "INTERRUPT_RESUME" for event in interrupted.events)
+
+# Stop cancels every scope lane and always releases HID.
+stopped = abvm.ReferenceVm(compiled.image, seed=2)
+stopped.start("Game")
+while not any(event[0] == "SCOPE_BEGIN" for event in stopped.events):
+    assert stopped.step_next()
+stopped.stop()
+assert not stopped.running and not stopped.paused
+assert not stopped.pressed_keys
+assert not any(lane.active for lane in stopped.lanes)
+assert stopped.events[-1][0] == "STOP"
+
+# Control-path stress: repeated commands remain bounded and never retain HID.
+stress_program = abvm.Compiler().compile_amsj({"pipelines": {
+    "Game": [node("forLoop", {"mode": "count", "count": 0}, [
+        node("keyDown", {"key": "A"}),
+        node("delay", {"minMs": 2, "maxMs": 2}),
+        node("keyUp", {"key": "A"})])],
+}}, ["Game"])
+pause_stress = abvm.ReferenceVm(stress_program.image, seed=9)
+pause_stress.start("Game")
+for _ in range(50):
+    assert pause_stress.step_next()
+    assert pause_stress.pause()
+    pause_stress.advance(1)
+    assert pause_stress.resume()
+assert not pause_stress.pressed_keys
+pause_stress.stop()
+
+for boundary in range(50):
+    stop_stress = abvm.ReferenceVm(stress_program.image, seed=boundary)
+    stop_stress.start("Game")
+    for _ in range(boundary % 8):
+        if not stop_stress.step_next():
+            break
+    stop_stress.stop()
+    assert not stop_stress.running
+    assert not stop_stress.pressed_keys
+    assert not stop_stress.suspended
 
 corrupt = bytearray(compiled.image)
 corrupt[abvm.HEADER.size + 3] ^= 0x40

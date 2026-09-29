@@ -1,3 +1,16 @@
+## ABVM phase 0 R3 — deterministic control semantics
+
+- Added explicit `WALL` and `ACTIVE` route clock policies.
+- Added fixed-state Pause/Resume: HID is released, opcode dispatch stops, and
+  the same PCs and frame state resume without recursion or callback work.
+- Added terminal Stop semantics that cancel current and suspended lanes and
+  always release HID.
+- Added one-slot global `INTERRUPT_AND_RESUME` execution for Whisper; nested
+  interrupts are rejected by the runtime/resource contract.
+- Added reference tests for Pause during a held key, wall/active deadline
+  behavior, Whisper interruption, exact Game resume, Stop inside Scope, and
+  50-cycle Pause/Resume plus 50-boundary Stop stress.
+
 ## ABVM phase 0 R2 — explicit runtime contract
 
 - Replaced the ambiguous two-lane Race contract with structured scopes and an

@@ -55,7 +55,47 @@ Every route carries one fail-closed policy:
 | `ABORT_AND_RESTART` | Game restart |
 | `DENY` | unsupported or invalid transitions |
 
-Unknown values are rejected. Clock and Pause accounting will be added before firmware execution is enabled; it must not remain implicit.
+Unknown values are rejected.
+
+## Pause, Resume, Stop, and clock domains
+
+Every route must carry `PAUSE_RELEASE_HID`. Pause is a scheduler state
+transition, never a blocking cue or a call made from inside Mouse/Type code:
+
+1. release every held keyboard key and halt the ARM mouse actor;
+2. retain route, lane, frame, actor, PC, PRNG, and deadline state;
+3. stop opcode dispatch at the next VM boundary;
+4. resume from those exact PCs.
+
+Two explicit clock policies exist:
+
+| Clock | Pause behavior |
+| --- | --- |
+| `WALL` | absolute due times and deadlines continue while paused |
+| `ACTIVE` | due times and deadlines shift by the exact pause duration |
+
+Current Game uses `WALL`: Pause, Whisper, Catch, and cooldown time remain part
+of its ten-minute deadline. `ACTIVE` is implemented and tested for future
+workflows but is not selected by current routes.
+
+Stop is terminal and idempotent: release all HID, cancel every active/suspended
+lane and actor, clear interrupt state, and perform no further fetch. It never
+runs a melody on the stopped route's stack.
+
+## Global interrupt-and-resume
+
+A route with `INTERRUPT_AND_RESUME` may suspend one running context:
+
+- held HID is released before switching contexts;
+- the complete Game lane/frame state remains in its fixed slot;
+- the interrupt route runs in the reserved interrupt slot;
+- completion restores the original context at the exact PC;
+- absolute Game deadlines are not rewritten under `WALL`;
+- a nested interrupt is rejected because the certificate declares one slot;
+- Stop cancels both current and suspended contexts.
+
+`Whisper` now has this verified host/reference behavior. Hardware sound
+delivery and Pico actor implementations remain future firmware work.
 
 ## Resource certificate
 

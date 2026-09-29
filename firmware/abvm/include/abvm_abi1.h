@@ -44,6 +44,15 @@ typedef enum AbvmRoutePolicy {
     ABVM_ROUTE_ABORT_AND_RESTART = 4,
 } AbvmRoutePolicy;
 
+typedef enum AbvmRouteClockPolicy {
+    ABVM_CLOCK_WALL = 0,
+    ABVM_CLOCK_ACTIVE = 256,
+} AbvmRouteClockPolicy;
+
+typedef enum AbvmRouteFlag {
+    ABVM_ROUTE_FLAG_PAUSE_RELEASE_HID = 512,
+} AbvmRouteFlag;
+
 #pragma pack(push, 1)
 typedef struct AbvmHeader {
     uint32_t magic;

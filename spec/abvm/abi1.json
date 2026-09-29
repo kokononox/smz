@@ -35,6 +35,13 @@
     "TYPE": 5,
     "WATCH": 22
   },
+  "routeClockPolicies": {
+    "ACTIVE": 256,
+    "WALL": 0
+  },
+  "routeFlags": {
+    "PAUSE_RELEASE_HID": 512
+  },
   "routePolicies": {
     "ABORT_AND_RESTART": 4,
     "ABORT_AND_START": 1,

@@ -51,6 +51,18 @@ internal enum AbvmRoutePolicy : byte
     ABORT_AND_RESTART = 4,
 }
 
+internal enum AbvmRouteClockPolicy : ushort
+{
+    WALL = 0,
+    ACTIVE = 256,
+}
+
+[System.Flags]
+internal enum AbvmRouteFlag : ushort
+{
+    PAUSE_RELEASE_HID = 512,
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 internal struct AbvmHeader
 {
