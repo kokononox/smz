@@ -96,6 +96,7 @@ ROUTE_POLICY_BY_NAME = {
 # Real-time routes keep absolute deadlines while paused and while an interrupt
 # route executes.  ACTIVE is reserved for workflows whose timers must freeze.
 ROUTE_CLOCK_BY_NAME = {name: ROUTE_CLOCK_WALL for name in ROUTE_IDS}
+LEGACY_ROUTE_ALIASES = {"Restart": "Launch", "Dc": "LaunchRecovery"}
 
 OPCODES = {
     "END": OP_END, "DELAY": OP_DELAY, "KEY": OP_KEY,
@@ -324,6 +325,8 @@ class Compiler:
             raise AbvmError("AMSJ pipelines object is missing")
         for name in route_names:
             nodes = pipelines.get(name)
+            if nodes is None:
+                nodes = pipelines.get(LEGACY_ROUTE_ALIASES.get(name, ""))
             if nodes is None:
                 continue
             if not isinstance(nodes, list):

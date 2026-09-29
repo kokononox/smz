@@ -20,6 +20,15 @@ events = abvm.ReferenceVm(program.image).run("Game")
 assert not any(event[0] == "KEY" for event in events), "forward GOTO must skip X"
 assert any(event[0] == "DELAY" for event in events)
 
+# Build 119 projects use the legacy UI names Launch and LaunchRecovery.
+# Native export requests their canonical Restart and Dc names.  The compiler
+# must migrate both aliases without requiring users to edit working projects.
+legacy = json.loads(json.dumps(source))
+legacy["pipelines"]["Launch"] = legacy["pipelines"].pop("Restart")
+legacy["pipelines"]["LaunchRecovery"] = legacy["pipelines"].pop("Dc")
+legacy_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(legacy, routes).image)
+assert {route.route_id for route in legacy_image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
 bad = json.loads(json.dumps(source))
 bad["nativeGuard"]["profiles"][5]["luxCenter"] = 200
 try:
