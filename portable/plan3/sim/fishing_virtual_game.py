@@ -15,24 +15,32 @@ import plan_engine_game_runtime as runtime
 
 
 class Arm:
-    def __init__(self):
+    def __init__(self, game):
+        self.game = game
         self.sound_result = None
         self.sound_detail = None
         self.async_sound = True
     def send(self, command, timeout=0):
         if command == "ASNDCANCEL": self.sound_result = None
-    def pump(self): pass
+    def pump(self):
+        game = self.game
+        if (self.sound_result is None and game._parallel_sound == "async"
+                and game.cast_times and game.catches < len(game.cast_times)):
+            due = game.cast_times[game.catches] + 8.0
+            if game.t >= due:
+                self.sound_result = True; self.sound_detail = "peak=100"
+                game.events.append((round(due,3),"splash",100))
 
 
 class Runner:
-    def __init__(self): self.arm=Arm(); self.telemetry=[]
+    def __init__(self, game): self.arm=Arm(game); self.telemetry=[]
     def emit(self, value): self.telemetry.append(value)
 
 
 class VirtualFishingGame:
     screen_w=1920; screen_h=1080
     def __init__(self):
-        self.r=Runner(); self.t=0.0; self.events=[]; self.cast_times=[]
+        self.t=0.0; self.events=[]; self.cast_times=[]; self.r=Runner(self)
         self.catches=0; self._sound_watch=None; self._sound_watch_pending=None
         self._sound_watch_servicing=False; self._parallel_sound=None
         self.pause_from=2.0; self.pause_until=3.5; self.pause_seen=False
@@ -46,11 +54,6 @@ class VirtualFishingGame:
             self.t=self.pause_until; self.events.append((self.t,"resume",None)); self.pause_seen=True
             target += self.pause_until-self.pause_from
         self.t=target
-        if self.cast_times and self.catches < len(self.cast_times):
-            due=self.cast_times[self.catches]+8.0
-            if self.t >= due and self._parallel_sound == "async":
-                self.r.arm.sound_result=True; self.r.arm.sound_detail="peak=100"
-                self.events.append((round(due,3),"splash",100))
         return self.gate()
     def key_combo(self, values, lo, hi):
         key=values[0]
@@ -67,6 +70,7 @@ class VirtualFishingGame:
     def sound_start(self,threshold,minimum,timeout): self._parallel_sound="async"
     def sound_cancel(self): self._parallel_sound=None; self.r.arm.sound_result=None
     def sound_poll(self):
+        self.r.arm.pump()
         if self.r.arm.sound_result is None: return None
         result=self.r.arm.sound_result; self.r.arm.sound_result=None; return result
     def sound_peak(self): return 100

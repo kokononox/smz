@@ -91,6 +91,8 @@ def service_sound_exit(ctx, signal, run_response):
     ctx._sound_watch = signal
     winner = resolve_sound_watch(ctx)
     if winner is None:
+        winner = signal.pop("_exit_winner", None)
+    if winner is None:
         winner = signal.get("scope_result")
     state = signal.get("game_state")
     if winner is not None and state is not None:

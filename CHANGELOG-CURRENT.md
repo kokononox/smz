@@ -2,6 +2,14 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 118 R13 — حفظ Scoped Winner تا Resume
+
+- لاگ واقعی Bundle 670 ثابت کرد ASND گاهی فقط هنگام `pump()` داخل `resolve_sound_watch()` دریافت می‌شود؛ در این حالت Scoped Winner داخل Scheduler اجرا و Route زودتر Complete می‌شد.
+- Scoped Winner اکنون پیش از `finally/end_profile_wait` در Signal خروجی حفظ و Response فقط پس از Unwind کامل اجرا می‌شود.
+- تمام مسیرهای خروج SoundWatch اکنون Cursor، Labelها و Game state را به Signal متصل می‌کنند؛ بنابراین ورود بعدی دیگر با `KeyError('_game_cursor')` متوقف نمی‌شود.
+- شبیه‌ساز داخلی به مدل واقعی ARM ارتقا یافت: صدا هنگام Sleep مستقیماً تزریق نمی‌شود و فقط با `arm.pump()` قابل دریافت است.
+- Route واقعی ۳۶۹ فرمانی با مدل Pump در ۶ Cast و ۵ Catch، یک Deadline ثابت و بدون Restart Game پاس شد.
+
 ## Build 118 R12 — ادامهٔ همان Cursor پس از Splash
 
 - پاسخ Scoped Splash پس از Unwind امن Scheduler اجرا می‌شود و سپس همان Cursor صریح، Frameهای Loop و Deadline اصلی `LOOPTIME` روی فایل Flash بازشده Resume می‌شوند.

@@ -134,7 +134,11 @@ def _run(commands, start, end, ctx, state, labels, cursor=None):
         else:
             raise ValueError("unsupported Game command " + op)
         if state["watch"] and ctx.r.arm.sound_result is True:
-            return ctx._sound_watch
+            ctx.poll_sound_watch()
+            signal = ctx._sound_watch
+            signal["_game_cursor"] = cursor
+            signal["_game_labels"] = labels
+            return signal
         _service_pending_response(ctx, state)
 def run_game(commands, ctx, core, resume=None):
     global _core

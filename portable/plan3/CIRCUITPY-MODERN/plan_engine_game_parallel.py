@@ -19,6 +19,10 @@ def run(commands, start, end, ctx, state, core, events, response_runner,
                 ctx.poll_sound_watch()
                 return ctx._sound_watch
             winner = resolve_sound_watch(ctx) if state["watch"] else None
+            if (state["watch"] and ctx._sound_watch is not None
+                    and ctx._sound_watch.get("scope_result") is not None):
+                ctx._sound_watch["_exit_winner"] = ctx._sound_watch["scope_result"]
+                return ctx._sound_watch
             if winner is not None:
                 core._emit_heap(ctx, "before-response-callback")
                 ctx.suspend_sound_watch()
