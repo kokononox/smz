@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 116:** Bundle 420 همهٔ Preload/Importها و Bind زودهنگام Response را پاس کرد، اما پس از peak=105 هنوز پیش از `before-response-callback` شکست خورد. علت باقی‌مانده دو فراخوانی اضافی روی pystack محدود بود: `suspend_sound_watch()` هنوز داخل callback اجرا می‌شد و Scheduler برای سرویس Winner وارد Wrapper دیگری می‌شد. Callback اکنون فقط Winner را در Slot ازقبل‌موجود می‌گذارد؛ Scheduler پاسخ را Inline و مستقیماً با Runner ازپیش Bindشده اجرا می‌کند.
 - **Candidate Build 115:** Bundle 410 تمام Importها، Index ۳۶۹فرمانی، Parallel، نخستین RMOUSE و تشخیص واقعی Sound با peak=178 را پاس کرد، اما Response هنوز مستقیماً از callback تو‌در‌توی `sleep_ms` اجرا می‌شد و پیش از `before-response-file` با `MemoryError('')` شکست خورد. Callback اکنون فقط Winner را Queue می‌کند؛ ماژول Response پیش از اجرای Route یک‌بار Bind/Cache می‌شود و Runner پس از بازگشت callback در Scheduler اجرا می‌گردد. Telemetry مرزی Bind/Callback اضافه شده و Mouse/ARM/Cadence تغییر نکرده‌اند.
 - **Candidate Build 114:** افزودن Flash-backed Response در Build 113 ناخواسته Runtime را دوباره به 8.6KB رساند و Compiler peak جدید allocation=1336 پیش از اجرا ایجاد کرد. Response اکنون در `plan_engine_game_response.py` مستقل زیر 4KB قرار دارد و همراه Parallel/Events پیش از Core/Runtime Preload می‌شود؛ Runtime اصلی دوباره کوچک و bounded است.
 - **Candidate Build 113:** Build 112 تمام Importها، Index، Parallel و اولین RMOUSE را پاس کرد؛ SoundWatch نیز Splash واقعی را با peak=101 تشخیص داد. شکست فقط هنگام Response بود، چون `_response_commands` فایل Splash را کامل به متن و لیست Tuple در RAM تبدیل می‌کرد. Response اکنون با `_FileCommands` مستقیماً از Flash اجرا و پس از پایان بسته می‌شود.
@@ -53,6 +54,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 116 | Bundle 420: Response bind پاس؛ peak=105 سپس شکست پیش از callback telemetry | Queue کاملاً بدون فراخوانی + اجرای Inline Runner مستقیم در Scheduler | Local candidate؛ hardware retest pending |
 | 115 | Bundle 410: همهٔ Importها/RMOUSE/Sound detect پاس؛ MemoryError پیش از ورود به Response | Queue-only callback + Response runner ازپیش Bind/Cache و اجرای پس از unwind | Local candidate؛ hardware retest pending |
 | 114 | Bundle 401: Runtime پس از افزودن Response با allocation=1336 شکست خورد | انتقال کامل Response به ماژول مستقل preloaded؛ موجودی ۴۲فایلی | Local candidate؛ response behavior unchanged |
 | 113 | Build 112: Engine/Index/RMOUSE/Sound detect پاس؛ MemoryError پس از peak=101 | اجرای Flash-backed فایل Splash/Whisper بدون read()/splitlines()/tuple list | Local candidate؛ response behavior unchanged |
@@ -113,6 +115,49 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 116 — Callback کاملاً بدون فراخوانی و Runner مستقیم
+
+**Previous build:** 115 / Classroom release 214
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 420 و هر ۴۲ Hash آن سالم بودند. تمام Importها، Index، Parallel، Mouse و
+`before/after-response-bind` پاس شدند. SoundWatch صدای واقعی را با `peak=105`
+تشخیص داد، اما پیش از نخستین `before-response-callback` با `MemoryError('')`
+متوقف شد.
+
+### Root cause
+
+Build 115 اجرای کامل Response را از callback خارج کرد، ولی callback هنوز
+`suspend_sound_watch()` را فراخوانی می‌کرد و Scheduler نیز برای سرویس Winner
+وارد Wrapper جداگانه می‌شد. روی pystack محدود CircuitPython، شکست پیش از اولین
+دستور Wrapper نشان داد حتی این Call boundary باقی‌مانده در Stack فعال
+`LOOP/RPKG/PGROUP/sleep_ms` کافی است.
+
+### Change
+
+- callback فقط Slot ازقبل‌موجود `_response` را بررسی و Winner را در آن قرار می‌دهد.
+- هیچ Suspend، UART، Emit یا Response call داخل callback انجام نمی‌شود.
+- Scheduler پس از بازگشت callback، Suspend و Telemetry را Inline اجرا می‌کند.
+- Runner ازپیش Bindشده مستقیماً فراخوانی می‌شود؛ Wrapper میانی حذف شده است.
+- Scoped Splash، Cooldown، File-backed Response و رفتار ادامهٔ Whisper حفظ شده‌اند.
+- Mouse، ARM، DDA، Cadence، Guard و Exporter تغییر نکرده‌اند.
+
+### Validation
+
+- Bundle 420: ۴۲ از ۴۲ Hash معتبر و ۳۶۹ فرمان Game.
+- تست Callback تضمین می‌کند `suspend_sound_watch` داخل Queue function وجود ندارد.
+- قرارداد Scheduler فراخوانی مستقیم `response_runner(..., execute)` را قفل می‌کند.
+- همهٔ قراردادهای Portable، Hash، Compile و Security باید پیش از Merge پاس شوند.
+
+### Next test
+
+پس از تشخیص صدای واقعی باید `before-response-callback`، سپس
+`before-response-file` و `after-response-index` ثبت شوند، کلید F اجرا شود و
+`after-response-callback` دیده شود. `MemoryError` و `pystack exhausted` نباید
+تکرار شوند.
 
 ## Build 114 — جداسازی کامل ماژول Flash Response
 

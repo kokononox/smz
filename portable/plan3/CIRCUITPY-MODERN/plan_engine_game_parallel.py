@@ -1,7 +1,7 @@
 """Cooperative Game parallel scheduler, imported only at the first PGROUP."""
 
-def run(commands, start, end, ctx, state, core, events, run_response,
-        service_pending_response):
+def run(commands, start, end, ctx, state, core, events, response_runner,
+        execute):
     branches = core._items(commands, start, end, "PARITEM", "PGROUP", "ENDPAR")
     now = int(ctx.now() * 1000)
     tasks = [{"it": events(commands, a, b, ctx, state), "due": now,
@@ -12,7 +12,16 @@ def run(commands, start, end, ctx, state, core, events, run_response,
     try:
         while tasks:
             if not ctx.gate(): core._abort()
-            service_pending_response(ctx, state)
+            winner = state.get("_response")
+            if winner is not None:
+                state["_response"] = None
+                core._emit_heap(ctx, "before-response-callback")
+                ctx.suspend_sound_watch()
+                try:
+                    response_runner(ctx, winner["file"], state, execute)
+                finally:
+                    ctx.resume_sound_watch(winner["cooldown"])
+                core._emit_heap(ctx, "after-response-callback")
             now = int(ctx.now() * 1000); progressed = False
             for task in tuple(tasks):
                 if task not in tasks: continue
@@ -21,7 +30,7 @@ def run(commands, start, end, ctx, state, core, events, run_response,
                     if winner is not None:
                         ctx.suspend_sound_watch()
                         try:
-                            run_response(ctx, winner["file"], state)
+                            response_runner(ctx, winner["file"], state, execute)
                         finally:
                             ctx.end_profile_wait()
                             ctx.resume_sound_watch(winner["cooldown"])
@@ -63,7 +72,7 @@ def run(commands, start, end, ctx, state, core, events, run_response,
                                 if a[5] > b[5] or (a[5] == b[5] and a[0] > b[0]): winner = item
                     if persistent:
                         if winner is not None and winner["sound_spec"][6]:
-                            run_response(ctx, winner["sound_spec"][6], state)
+                            response_runner(ctx, winner["sound_spec"][6], state, execute)
                         resumed = int(ctx.now() * 1000)
                         cooldown = winner["sound_spec"][7] if winner is not None else 0
                         for item in waiters: item["due"] = max(item["due"], resumed + cooldown)

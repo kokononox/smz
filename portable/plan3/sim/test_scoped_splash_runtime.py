@@ -114,4 +114,10 @@ assert 'state["_response"] = winner' in runtime_text
 assert 'lambda: _queue_sound_watch(ctx, state)' in runtime_text
 assert 'before-response-bind' in runtime_text and 'before-response-callback' in runtime_text
 assert '_response_run(ctx, name, state, _run)' in runtime_text
+queue_body=runtime_text.split('def _queue_sound_watch(ctx, state):',1)[1].split(
+    'def _event_module():',1)[0]
+assert 'suspend_sound_watch' not in queue_body,queue_body
+parallel_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_parallel.py').read_text(encoding='utf-8')
+assert 'response_runner(ctx, winner["file"], state, execute)' in parallel_text
+assert 'service_pending_response' not in parallel_text
 print('SoundWatch: callback queues only; pre-bound runner executes after callback unwind')
