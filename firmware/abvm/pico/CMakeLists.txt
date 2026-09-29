@@ -57,3 +57,14 @@ target_link_libraries(ams_abvm_pico pico_stdlib pico_unique_id hardware_uart har
 pico_enable_stdio_usb(ams_abvm_pico 0)
 pico_enable_stdio_uart(ams_abvm_pico 0)
 pico_add_extra_outputs(ams_abvm_pico)
+
+# Diagnostic-only USB enumeration probe. It deliberately excludes ABVM, Guard,
+# sensors and actors so Windows enumeration can be tested in isolation.
+add_executable(ams_usb_smoke usb_smoke.c usb_smoke_descriptors.c)
+target_include_directories(ams_usb_smoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+target_compile_options(ams_usb_smoke PRIVATE -Wall -Wextra -Werror)
+target_compile_definitions(ams_usb_smoke PRIVATE CFG_TUSB_OS=OPT_OS_PICO)
+target_link_libraries(ams_usb_smoke pico_stdlib pico_unique_id tinyusb_device tinyusb_board)
+pico_enable_stdio_usb(ams_usb_smoke 0)
+pico_enable_stdio_uart(ams_usb_smoke 0)
+pico_add_extra_outputs(ams_usb_smoke)

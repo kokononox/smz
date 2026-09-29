@@ -144,6 +144,7 @@ jobs:
             -DABVM_PROGRAM="$RUNNER_TEMP/program.abp"
           cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
           test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
+          test -s "$RUNNER_TEMP/abvm-pico/ams_usb_smoke.uf2"
           arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
       - name: Build and flatten 30 patchable identity templates
         shell: bash
@@ -187,6 +188,8 @@ jobs:
           name: ams-abvm-pico-bringup
           path: |
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.uf2
+            ${{ runner.temp }}/abvm-pico/ams_usb_smoke.uf2
+            ${{ runner.temp }}/abvm-pico/ams_usb_smoke.elf
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
             ${{ runner.temp }}/program.abp
             ${{ runner.temp }}/native-runtime/**
