@@ -776,12 +776,18 @@ def _run_light_route(ctx, commands):
             _game_heap(ctx, "engine-import-memoryerror")
             raise
         gc.collect(); _game_heap(ctx, "after-engine-import")
-        signal = plan_engine_game.run_game_file(commands, ctx)
-        if signal is not None:
-            if plan_engine_game.service_sound_exit(ctx, signal):
-                ctx.r.emit("EVT|SOUNDWATCH|next-cast")
-                return True
-        return None
+        resume = None
+        while True:
+            if resume is None:
+                signal = plan_engine_game.run_game_file(commands, ctx)
+            else:
+                signal = plan_engine_game.resume_game_file(commands, ctx, resume)
+            if signal is None:
+                return None
+            if not plan_engine_game.service_sound_exit(ctx, signal):
+                return None
+            ctx.r.emit("EVT|SOUNDWATCH|next-cast|mode=resume")
+            resume = signal
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
         import plan_engine_game

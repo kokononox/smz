@@ -152,8 +152,16 @@ def _leaf(op, args, ctx, state):
         return True
     return False
 
-def _run(commands, start, end, ctx, state, labels):
-    cursor = _event_module().Cursor(commands, start, end, ctx)
+def _run(commands, start, end, ctx, state, labels, cursor=None):
+    if cursor is None:
+        cursor = _event_module().Cursor(commands, start, end, ctx)
+    else:
+        # A scoped SoundWatch response is deliberately executed only after the
+        # scheduler stack has unwound.  The Flash file is reopened afterwards,
+        # so rebind the explicit VM cursor without resetting its frames or the
+        # LOOPTIME deadline stored in them.
+        cursor.commands = commands
+        cursor.ctx = ctx
     while True:
         item = cursor.next()
         if item is None:
@@ -164,6 +172,8 @@ def _run(commands, start, end, ctx, state, labels):
         elif op == "PGROUP":
             signal = _parallel(commands, item[2], item[3], ctx, state)
             if signal is not None:
+                signal["_game_cursor"] = cursor
+                signal["_game_labels"] = labels
                 return signal
         elif op == "LABEL":
             pass
@@ -177,22 +187,29 @@ def _run(commands, start, end, ctx, state, labels):
             return ctx._sound_watch
         _service_pending_response(ctx, state)
 
-def run_game(commands, ctx, core):
+def run_game(commands, ctx, core, resume=None):
     global _core
     _core = core
     _prepare_response(ctx)
-    labels = {}
-    for label_index, item in enumerate(commands):
-        if item[0] == "LABEL":
-            if not item[1] or item[1] in labels:
-                raise ValueError("LABEL needs a unique name")
-            labels[item[1]] = label_index
+    cursor = None
+    if resume is None:
+        labels = {}
+        for label_index, item in enumerate(commands):
+            if item[0] == "LABEL":
+                if not item[1] or item[1] in labels:
+                    raise ValueError("LABEL needs a unique name")
+                labels[item[1]] = label_index
+        state = {"speed": [0, 2000],
+                 "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
+                 "pauses": None, "watch": False}
+    else:
+        labels = resume["_game_labels"]
+        cursor = resume["_game_cursor"]
+        state = resume["game_state"]
     gc.collect()
-    state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
-             "pauses": None, "watch": False}
     result = None
     try:
-        result = _run(commands, 0, len(commands), ctx, state, labels)
+        result = _run(commands, 0, len(commands), ctx, state, labels, cursor)
         return result
     except RuntimeError as exc:
         if str(exc) == "route aborted": _core._abort()

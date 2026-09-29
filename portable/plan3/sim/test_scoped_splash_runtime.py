@@ -168,15 +168,25 @@ facade_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game.py').read_text(encoding='
 assert 'def service_sound_exit(ctx, signal):' in facade_text
 run_file_body=facade_text.split('def run_game_file(name, ctx):',1)[1]
 assert 'finally:' in run_file_body and 'commands.close()' in run_file_body
+assert 'def resume_game_file(name, ctx, resume):' in facade_text
+assert 'signal["_game_cursor"].commands = None' in facade_text
 assert '("plan_engine_game_sound", "sound")' in facade_text
 code_text=(root/'CIRCUITPY-MODERN'/'code.py').read_text(encoding='utf-8')
 assert 'plan_engine_game.service_sound_exit(ctx, signal)' in code_text
-assert 'EVT|SOUNDWATCH|next-cast' in code_text
-route_loop=code_text.split('route_ctx = runtime.PlanContext(self)',1)[1].split(
-    'except RuntimeError as exc:',1)[0]
-assert 'while True:' in route_loop and 'signal = _run_light_route' in route_loop
-assert 'route_ctx.close()' in route_loop and 'gc.collect()' in route_loop
-print('SoundWatch: raw detection unwinds Game; response runs before fresh cast')
+assert 'EVT|SOUNDWATCH|next-cast|mode=resume' in code_text
+light_runner=code_text.split('def _run_light_route(ctx, commands):',1)[1].split(
+    '    if any(item[0]',1)[0]
+assert 'resume = None' in light_runner
+assert 'plan_engine_game.resume_game_file(commands, ctx, resume)' in light_runner
+assert 'return True' not in light_runner
+assert 'state.clear()' not in service_body and 'ctx.close_sound_watch()' not in service_body
+parallel_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_parallel.py').read_text(
+    encoding='utf-8')
+raw_exit=parallel_text.split('ctx.r.arm.sound_result is True:',1)[1].split(
+    'winner = resolve_sound_watch',1)[0]
+assert raw_exit.index('ctx.poll_sound_watch()') < raw_exit.index(
+    'return ctx._sound_watch')
+print('SoundWatch: response unwinds safely, then resumes the same Cursor/deadline')
 
 # UART cancellation drains a late DETECTED from the closed cast before the
 # next listener is installed, without growing the startup runtime compiler.

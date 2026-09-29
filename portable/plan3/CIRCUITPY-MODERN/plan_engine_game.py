@@ -29,9 +29,9 @@ def _load(ctx):
     return core, runtime
 
 
-def run_game(commands, ctx):
+def run_game(commands, ctx, resume=None):
     core, runtime = _load(ctx)
-    return runtime.run_game(commands, ctx, core)
+    return runtime.run_game(commands, ctx, core, resume)
 
 
 def service_sound_exit(ctx, signal):
@@ -59,7 +59,7 @@ def _file_inventory(name):
     return needs_parallel, offsets
 
 
-def run_game_file(name, ctx):
+def _run_game_file(name, ctx, resume):
     # Reserve the contiguous Flash index before compiler fragmentation.
     gc.collect(); _heap(ctx, "before-file-index-reserve"); gc.collect()
     needs_parallel, offsets = _file_inventory(name)
@@ -84,9 +84,24 @@ def run_game_file(name, ctx):
     _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
           (len(commands), len(commands.offsets)))
     try:
-        return runtime.run_game(commands, ctx, core)
+        signal = runtime.run_game(commands, ctx, core, resume)
+        if signal is not None:
+            # Do not retain the closed Flash handle through the response.  The
+            # cursor is rebound to the freshly opened file on resume.
+            signal["_game_cursor"].commands = None
+        return signal
     finally:
         # A SoundWatch unwind no longer needs the source file/index.  Closing
         # it deterministically prevents one open file and 1.5 KB index from
         # surviving until the next cast's garbage collection.
         commands.close()
+
+
+def run_game_file(name, ctx):
+    # The shared worker retains the original ownership contract:
+    # `finally:` always executes `commands.close()`.
+    return _run_game_file(name, ctx, None)
+
+
+def resume_game_file(name, ctx, resume):
+    return _run_game_file(name, ctx, resume)

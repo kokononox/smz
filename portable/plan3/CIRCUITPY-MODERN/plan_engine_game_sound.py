@@ -106,8 +106,9 @@ def service_sound_exit(ctx, signal, run_response):
         _drain_cancelled_sound(ctx)
         ctx.r.emit("EVT|SOUNDWATCH|response-done|file=%s" % winner["file"])
         _core._emit_heap(ctx, "after-response-callback")
-    ctx.close_sound_watch()
-    if state is not None:
-        state.clear()
+    # Keep the watch, VM state and explicit Cursor alive.  The caller reopens
+    # the Flash command file and resumes immediately after the interrupted
+    # PGROUP; closing/clearing here used to restart Game from its first command
+    # and silently reset the ten-minute LOOPTIME deadline.
     gc.collect()
     return winner is not None
