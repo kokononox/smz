@@ -1,8 +1,8 @@
 # Pico bring-up UF2
 
-This is the first RP2040 adapter around the native ABVM core. It embeds one
-verified `program.abp` directly in the UF2, so the board remains portable and
-does not require a PC connection after flashing.
+This is the RP2040 adapter around the native ABVM core. It embeds one verified
+`program.abp` directly in the UF2, so the board remains portable and does not
+require a PC connection after flashing.
 
 Firmware identity is validated by the pinned
 [`nekirovoix/pico1`](https://github.com/nekirovoix/pico1) generator before the
@@ -29,20 +29,28 @@ pico1 manifest, native ABVM manifest, and SHA-256 list.
 
 ## Safety boundary
 
-This image exposes TinyUSB CDC plus a real HID keyboard actor. Key/KDown/KUp
-are submitted nonblockingly and release-all emits a zero keyboard report.
-Type and Mouse remain safe stubs until their dedicated actors are connected.
+The image exposes TinyUSB CDC plus a real HID keyboard actor. It also routes
+`RMOUSE` to the ARM board over UART0 on GP16/GP17 at 57600 baud using checksum
+frames. Relative motion completes only after `OK|MMOVE`; malformed replies,
+ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits both a
+zero keyboard report and framed `HALT`. Type remains a safe stub until its
+dedicated actor is connected.
 
 Implemented on board:
 
 - native ABP verification at boot;
 - millisecond scheduler clock;
 - USB CDC diagnostics and control;
+- TinyUSB keyboard Key/KDown/KUp actor;
+- bounded relative mouse endpoint generation with no absolute cursor ledger;
+- nonblocking ARM UART TX/RX and `OK|MMOVE` action completion;
+- framed `HALT` on Pause, Stop, interrupt, route completion, fault, USB unmount,
+  and USB suspend;
 - GP3 debounced Pause/Resume;
 - GP4 debounced Start/Stop;
 - Game start, Pause/Resume/Stop, Watch timeout/detection, and Whisper
   interrupt/resume;
-- fail-closed boot when the embedded image is corrupt.
+- fail-closed boot and transport behavior.
 
 ## Build one identity
 
