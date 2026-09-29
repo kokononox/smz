@@ -519,7 +519,22 @@ def _audible_next_cal(self):
 
 def _audible_cal_tick(self):
     was_sampling = self.result == "sampling"
-    _original_cal_tick(self)
+    try:
+        _original_cal_tick(self)
+    except Exception as exc:
+        # Calibration must never terminate the firmware loop silently. Clear
+        # the bounded sample buffer first so even MemoryError reporting has
+        # contiguous headroom.
+        self.samples = []
+        self.result = None
+        gc.collect()
+        self.emit("ERR|CAL|TICK|stage=%d|detail=%s:%s" %
+            (self.stage + 1, type(exc).__name__, str(exc)[:48]))
+        self.cal_save_error_tone()
+        _debug_event(self, "CAL", "tick-failed stage=%d id=%s error=%s" %
+            (self.stage + 1, runtime.PROFILES[self.stage],
+             type(exc).__name__), persist=True)
+        return
     if was_sampling and isinstance(self.result, dict):
         self.samples = []
         _prepare_calibration_heap(self)
@@ -574,6 +589,7 @@ def _repeatable_yellow_action(self):
         if (self.last_cal_error or "").startswith("OVERLAP:"):
             self.samples = []
             self.sample_started = runtime.time.monotonic()
+            self.sample_next = self.sample_started
             self.result = "sampling"
             self.last_cal_error = None
             self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d|retry=1" %
@@ -585,6 +601,7 @@ def _repeatable_yellow_action(self):
     retry = 1 if self.saved and isinstance(self.result, dict) else 0
     self.samples = []
     self.sample_started = runtime.time.monotonic()
+    self.sample_next = self.sample_started
     self.result = "sampling"
     self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d|retry=%d" %
         (self.stage + 1, runtime.PROFILES[self.stage], len(self.saved_ids), retry))

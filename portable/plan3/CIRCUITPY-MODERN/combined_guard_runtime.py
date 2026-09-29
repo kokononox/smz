@@ -590,7 +590,7 @@ class Combined:
         self.arm = Arm(); self.keyboard = Keyboard(usb_hid.devices); self.controls = Controls(self.arm, self.keyboard); self.sensor = BH1750()
         self.bundle = load_guard_bundle("/"); self.guard = LightStateGuard.from_bundle("/"); self.routes = {}
         self.blue = Button(board.GP4); self.yellow = Button(board.GP3); self.usb = usb_cdc.data or usb_cdc.console; self.host = bytearray()
-        self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
+        self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.sample_next = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
     def key(self, vk):
         # Convert Windows virtual-key values directly to USB HID usages.
         # Keep this branch-only mapping allocation-free on CircuitPython's small heap.
@@ -746,11 +746,19 @@ class Combined:
         if not self.calibrating: self.controls.paused = not self.controls.paused; return
         if self.result == "sampling": self.emit("ERR|CAL|BUSY|stage=%d" % (self.stage + 1)); return
         if self.result is not None: self.save_cal(); return
-        self.samples = []; self.sample_started = time.monotonic(); self.result = "sampling"; self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
+        self.samples = []; self.sample_started = time.monotonic(); self.sample_next = self.sample_started; self.result = "sampling"; self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
     def cal_tick(self):
         if not self.calibrating or self.result != "sampling": return
+        now = time.monotonic()
+        # The main loop runs every 10 ms. Appending a float on every pass built
+        # ~500 Python objects, then sorted() needed a second pointer array and
+        # could stop code.py with MemoryError exactly at the five-second mark.
+        # Ten samples/second is ample for a slowly changing lux sensor and
+        # caps both the live list and the final median/sort compiler pressure.
+        if now < self.sample_next: return
+        self.sample_next = now + .1
         self.samples.append(self.sensor.lux())
-        if time.monotonic() - self.sample_started < 5: return
+        if now - self.sample_started < 5: return
         values = sorted(self.samples); center = values[len(values)//2]; spread = max(values)-min(values)
         if len(values) < 5 or spread > 5: self.result = None; self.emit("ERR|CAL|UNSTABLE|stage=%d|spread=%.1f" % (self.stage+1, spread)); return
         self.result = calibrated_profile(

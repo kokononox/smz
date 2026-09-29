@@ -4285,10 +4285,11 @@ class TestRunner
             // handoff. Keep a bounded deferred entrypoint while explicitly pinning the
             // unwind-before-response contract instead of the old pre-R5 byte count.
             var modernEntry = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
-            Assert(modernEntry.Length < 56000
+            Assert(modernEntry.Length < 57000
                    && modernEntry.Contains("DeferredPlanEngine")
                    && modernEntry.Contains("signal = plan_engine_game.run_game_file(commands, ctx)")
-                   && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)"),
+                   && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)")
+                   && modernEntry.Contains("ERR|CAL|TICK|stage=%d|detail=%s:%s"),
                 "modern AutoCycle export uses the small deferred-loading entrypoint");
             var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
             var modernExec = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_exec.py"));
@@ -4302,7 +4303,8 @@ class TestRunner
             Assert(modernRuntime.Contains("line.startswith(\"EVT|ASND|DETECTED\")")
                    && modernRuntime.Contains("line.startswith(\"EVT|ASND|TIMEOUT\")")
                    && modernRuntime.Contains("EVT|SOUND|listen|source=async")
-                   && modernRuntime.Contains("mode=async"),
+                   && modernRuntime.Contains("mode=async")
+                   && modernRuntime.Contains("self.sample_next = now + .1"),
                 "Build 81: packaged Classroom runtime preserves the ARM 2.8.2-S4 async sound contract");
             var modernCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
             Assert(modernCode.Contains("_LIGHT_ROUTE_COMMANDS")
