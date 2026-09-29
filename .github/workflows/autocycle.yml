@@ -146,6 +146,7 @@ jobs:
           test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
           test -s "$RUNNER_TEMP/abvm-pico/ams_usb_smoke.uf2"
           test -s "$RUNNER_TEMP/abvm-pico/ams_usb_composite_smoke.uf2"
+          test -s "$RUNNER_TEMP/abvm-pico/ams_full_runtime_safe_usb.uf2"
           arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
       - name: Build and flatten 30 patchable identity templates
         shell: bash
@@ -193,6 +194,8 @@ jobs:
             ${{ runner.temp }}/abvm-pico/ams_usb_smoke.elf
             ${{ runner.temp }}/abvm-pico/ams_usb_composite_smoke.uf2
             ${{ runner.temp }}/abvm-pico/ams_usb_composite_smoke.elf
+            ${{ runner.temp }}/abvm-pico/ams_full_runtime_safe_usb.uf2
+            ${{ runner.temp }}/abvm-pico/ams_full_runtime_safe_usb.elf
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
             ${{ runner.temp }}/program.abp
             ${{ runner.temp }}/native-runtime/**
@@ -355,8 +358,12 @@ jobs:
           composite="$(find staged -type f -name ams_usb_composite_smoke.uf2 -print -quit)"
           test -n "$composite"
           cp "$composite" AMS-Native-USB-Composite-Test.uf2
+          full="$(find staged -type f -name ams_full_runtime_safe_usb.uf2 -print -quit)"
+          test -n "$full"
+          cp "$full" AMS-Native-Full-Runtime-Safe-USB.uf2
           sha256sum AMS-Native-USB-Recovery.uf2 | awk '{print toupper($1)}' > AMS-Native-USB-Recovery.sha256.txt
           sha256sum AMS-Native-USB-Composite-Test.uf2 | awk '{print toupper($1)}' > AMS-Native-USB-Composite-Test.sha256.txt
+          sha256sum AMS-Native-Full-Runtime-Safe-USB.uf2 | awk '{print toupper($1)}' > AMS-Native-Full-Runtime-Safe-USB.sha256.txt
           {
             echo '# Native USB Recovery smoke test'
             echo
@@ -367,6 +374,8 @@ jobs:
             echo "CDC-only SHA-256: $(cat AMS-Native-USB-Recovery.sha256.txt)"
             echo
             echo "CDC+HID SHA-256: $(cat AMS-Native-USB-Composite-Test.sha256.txt)"
+            echo
+            echo "Full-runtime safe-USB SHA-256: $(cat AMS-Native-Full-Runtime-Safe-USB.sha256.txt)"
           } > usb-smoke-release.md
       - name: Publish direct-download prerelease
         uses: softprops/action-gh-release@v2
@@ -381,3 +390,5 @@ jobs:
             AMS-Native-USB-Recovery.sha256.txt
             AMS-Native-USB-Composite-Test.uf2
             AMS-Native-USB-Composite-Test.sha256.txt
+            AMS-Native-Full-Runtime-Safe-USB.uf2
+            AMS-Native-Full-Runtime-Safe-USB.sha256.txt
