@@ -122,9 +122,7 @@ def _run(commands, start, end, ctx, state, labels, cursor=None):
         elif op == "PGROUP":
             signal = _parallel(commands, item[2], item[3], ctx, state)
             if signal is not None:
-                signal["_game_cursor"] = cursor
-                signal["_game_labels"] = labels
-                return signal
+                return _event_module().exit_signal(ctx, cursor, labels, signal)
         elif op == "LABEL":
             pass
         elif op == "GOTO":
@@ -134,11 +132,7 @@ def _run(commands, start, end, ctx, state, labels, cursor=None):
         else:
             raise ValueError("unsupported Game command " + op)
         if state["watch"] and ctx.r.arm.sound_result is True:
-            ctx.poll_sound_watch()
-            signal = ctx._sound_watch
-            signal["_game_cursor"] = cursor
-            signal["_game_labels"] = labels
-            return signal
+            return _event_module().exit_signal(ctx, cursor, labels)
         _service_pending_response(ctx, state)
 def run_game(commands, ctx, core, resume=None):
     global _core

@@ -2,6 +2,37 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 118 R14 — کاهش Peak کامپایل Runtime
+
+**Previous build:** 118 R13 / Classroom release 220
+**Status:** compiler-memory hotfix candidate; local simulation green; hardware retest required
+
+### Problem observed
+
+Bundle 700 پیش از اجرای Game و پیش از رسیدن به Random Package در مرحلهٔ `runtime-import` با `free=20656` و خطای تخصیص ۱۳۳۶ بایت متوقف شد.
+
+### Root cause
+
+اصلاح معنایی R13 درست بود، اما ساخت Signal خروجی و نگهداری Cursor در واحد کامپایل Runtime، Peak حافظهٔ کامپایل CircuitPython را از حد تخصیص پیوسته عبور داد. بستهٔ ۱۷۶ حرکتی علت مستقیم نیست؛ فقط بعد از بارگذاری می‌تواند فشار اجرایی را بیشتر کند.
+
+### Change
+
+- ساخت Exit Signal به ماژول ازپیش‌بارگذاری‌شدهٔ Events منتقل شد.
+- Runtime فقط Cursor و Labelها را به Events واگذار می‌کند.
+- رفتار Scoped Winner، Resume و Response فایل‌محور R13 بدون تغییر حفظ شد.
+- Route، Random Package، ARM و Cadence دست‌نخورده باقی ماندند.
+
+### Validation
+
+- اندازهٔ Runtime از ۶۵۹۰ به ۶۴۲۵ بایت LF کاهش یافت و از Runtime موفق R12 نیز کوچک‌تر شد.
+- تست Scoped Splash/SoundWatch و کامپایل Python سبز است.
+- شبیه‌ساز داخلی: ۳ Cast، ۲ Catch و Deadline ثابت.
+- Route واقعی ۳۶۹ فرمانی Bundle 700 با مدل Pump: ۶ Cast، ۵ Catch و بدون `MemoryError` یا `KeyError`.
+
+### Next test
+
+روی Pico، Bundle جدید باید از `after-runtime-import` عبور کند، صدا را تشخیص دهد، Response را اجرا کند و حداقل دو Cast متوالی را بدون `MemoryError` یا `KeyError('_game_cursor')` کامل کند.
+
 ## Build 118 R13 — حفظ Scoped Winner تا Resume
 
 **Previous build:** 118 R12 / Classroom release 216

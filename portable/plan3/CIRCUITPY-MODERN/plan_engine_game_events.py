@@ -102,6 +102,15 @@ def session(commands, ctx, resume):
     return labels, None, state
 
 
+def exit_signal(ctx, cursor, labels, signal=None):
+    if signal is None:
+        ctx.poll_sound_watch()
+        signal = ctx._sound_watch
+    signal["_game_cursor"] = cursor
+    signal["_game_labels"] = labels
+    return signal
+
+
 def events(commands, start, end, ctx, state):
     i = start
     # Explicit container frames keep CircuitPython's bounded pystack flat.
