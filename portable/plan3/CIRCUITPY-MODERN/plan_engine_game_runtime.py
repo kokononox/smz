@@ -113,8 +113,6 @@ def _leaf(op, args, ctx, state):
 def _run(commands, start, end, ctx, state, labels, cursor=None):
     if cursor is None:
         cursor = _event_module().Cursor(commands, start, end, ctx)
-    else:
-        cursor.commands = commands; cursor.ctx = ctx
     while True:
         item = cursor.next()
         if item is None: return
@@ -142,19 +140,7 @@ def run_game(commands, ctx, core, resume=None):
     global _core
     _core = core
     _prepare_response(ctx)
-    cursor = None
-    if resume is None:
-        labels = {}
-        for label_index, item in enumerate(commands):
-            if item[0] == "LABEL":
-                if not item[1] or item[1] in labels:
-                    raise ValueError("LABEL needs a unique name")
-                labels[item[1]] = label_index
-        state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
-                 "pauses": None, "watch": False}
-    else:
-        labels = resume["_game_labels"]; cursor = resume["_game_cursor"]
-        state = resume["game_state"]
+    labels, cursor, state = _event_module().session(commands, ctx, resume)
     gc.collect()
     result = None
     try:

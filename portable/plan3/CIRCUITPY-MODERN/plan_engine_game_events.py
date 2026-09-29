@@ -86,6 +86,22 @@ class Cursor:
                 return (op, args, -1, -1)
 
 
+def session(commands, ctx, resume):
+    if resume is not None:
+        cursor = resume["_game_cursor"]
+        cursor.commands = commands; cursor.ctx = ctx
+        return resume["_game_labels"], cursor, resume["game_state"]
+    labels = {}
+    for index, item in enumerate(commands):
+        if item[0] == "LABEL":
+            if not item[1] or item[1] in labels:
+                raise ValueError("LABEL needs a unique name")
+            labels[item[1]] = index
+    state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
+             "pauses": None, "watch": False}
+    return labels, None, state
+
+
 def events(commands, start, end, ctx, state):
     i = start
     # Explicit container frames keep CircuitPython's bounded pystack flat.
