@@ -51,21 +51,16 @@ internal static class AutoCycleExportUiBootstrap
         };
         panel.Children.Add(AutoCycleUiKit.Title("پروفایل‌های صدای Game"));
         panel.Children.Add(AutoCycleUiKit.Helper(
-            "Whisper در تمام Game سراسری است و بعد از واکنش همان نقطه را ادامه می‌دهد. " +
-            "Splash فقط در محل استپ Splash Listener فعال می‌شود؛ با تشخیص یا پایان Timeout بازه‌ای، پرتاب بعدی شروع می‌شود."));
+            "فقط Whisper شنوندهٔ سراسری Game است و بعد از واکنش همان Cursor را ادامه می‌دهد. " +
+            "صدای Catch داخل استپ صریح Wait For Sound تنظیم می‌شود."));
 
         var profiles = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
-        profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var whisper = ProfileCard("ویسپر", nameof(MainViewModel.WhisperSoundEnabled),
             nameof(MainViewModel.WhisperPeakMin), nameof(MainViewModel.WhisperPeakMax),
             nameof(MainViewModel.WhisperPriority), nameof(MainViewModel.WhisperCooldownMs));
-        var splash = ProfileCard("چلپ آب — فقط Scoped", nameof(MainViewModel.SplashSoundEnabled),
-            nameof(MainViewModel.SplashPeakMin), nameof(MainViewModel.SplashPeakMax),
-            nameof(MainViewModel.SplashPriority), nameof(MainViewModel.SplashCooldownMs),
-            nameof(MainViewModel.SplashTimeoutMinSec), nameof(MainViewModel.SplashTimeoutMaxSec));
-        Grid.SetColumn(whisper, 0); Grid.SetColumn(splash, 1);
-        profiles.Children.Add(whisper); profiles.Children.Add(splash);
+        Grid.SetColumn(whisper, 0);
+        profiles.Children.Add(whisper);
         panel.Children.Add(profiles);
         var summary = AutoCycleUiKit.Helper("");
         summary.Foreground = AutoCycleUiKit.Success;

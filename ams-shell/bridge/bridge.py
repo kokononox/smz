@@ -155,7 +155,29 @@ class PicoLink:
             self.ser.reset_input_buffer()
         except Exception:
             pass
-        pong = self.command("PING", timeout=2.5)
+        # Build 119: opening the Pico data CDC while Guard is busy can miss the
+        # first PING even though the port is healthy.  Retrying the idempotent
+        # probe avoids the old "unplug/replug the cable" recovery.  Do not
+        # reset the input queue between attempts: EVT traffic and a late PONG
+        # are both valid evidence from the same live board.
+        pong = None
+        last_error = None
+        for attempt in range(4):
+            try:
+                pong = self.command("PING", timeout=2.0)
+                break
+            except PicoError as exc:
+                last_error = exc
+                if "ERR|TIMEOUT|PING" not in str(exc) or attempt == 3:
+                    break
+                time.sleep(0.12)
+        if pong is None:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+            raise last_error or PicoError("ERR|TIMEOUT|PING")
         if "role=brain" not in pong and "pico-light" not in pong:
             try:
                 self.ser.close()

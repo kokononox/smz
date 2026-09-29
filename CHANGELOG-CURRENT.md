@@ -2,6 +2,40 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 119 R17 — بازگشت کنترل‌شدهٔ Catch Wait و شروع مجدد تمیز
+
+**Previous build:** 118 R15 / Classroom release 221
+**Status:** selective UX fallback; restart-A preserved; hardware retest required
+
+### Problem observed
+
+نسخهٔ سبک از MemoryError عبور کرد، اما Route بازی بدون مسلح‌شدن صدای Catch بلافاصله Complete می‌شد و پس از Stop/Start نیز اجرای قابل‌مشاهده‌ای نداشت. Classroom گاهی تا قطع و وصل کابل، PING پیکو را دریافت نمی‌کرد. همچنین انتزاع Build 95 محل واقعی انتظار برای صدای چلپ و تنظیمات ID 2 را از پروژه پنهان کرده بود.
+
+### Root cause
+
+`Splash Listener` فقط یک Marker بدون تنظیم بود و پاسخ Catch در تب جداگانه نگه‌داری می‌شد؛ در نتیجه ساختار پروژه از مدل واقعی «پس از رهاکردن قلاب، همین‌جا منتظر صدای ID 2 بمان» فاصله گرفت. شروع مجدد دستی نیز Heap/نتیجهٔ Async Sound را صریح پاک نمی‌کرد و Bridge فقط یک PING اولیه می‌فرستاد.
+
+### Change
+
+- استپ صریح `Wait For Sound` با ID، Peak، Min duration، Cooldown و Timeout به منو برگشت؛ Catch فقط با ID 2 و فقط در همان محل Cast فعال می‌شود.
+- پاسخ Catch به Child همان استپ منتقل می‌شود؛ تب Splash از UI حذف و فقط برای مهاجرت فایل‌های Build 95–118 نگه‌داری می‌شود.
+- ID 1/Whisper تنها شنوندهٔ سراسری Game باقی ماند و پس از واکنش همان Cursor و Deadline را ادامه می‌دهد.
+- فایل‌های قدیمی `splashListener` هنگام بازشدن به Wait For Sound صریح تبدیل و اکشن‌های تب Splash، از جمله F، به Child آن کپی می‌شوند.
+- Stop → Start ماژول‌های Route، کلیدها و نتیجهٔ Async Sound را پاک می‌کند تا هر اجرا بدون قطع کابل از محیط تازه آغاز شود.
+- Bridge روی همان COM تا چهار PING بی‌خطر می‌فرستد و برای بازیابی اتصال به Cable cycle نیاز ندارد.
+- منطق موفق Restart-A و قاعدهٔ «After فقط با Deadline چرخه» از R11 بدون تغییر حفظ شد.
+
+### Validation
+
+- پروژهٔ واقعی ارسالی تأیید شد: ID 2 برابر Splash با Peak `76..511` است، Marker در شاخهٔ Game قرار دارد و پاسخ تب قدیمی کلید F است.
+- قراردادهای Explicit Catch، Scoped Runtime، Whisper resume، Stop/Start و Restart-A سبز هستند.
+- تست Bridge تأیید می‌کند PING دوم روی همان COM31 بدون Close/Reopen متصل می‌شود.
+- Python compile و بررسی whitespace سبز است؛ TestRunner دات‌نت در CI ویندوز اجرا خواهد شد.
+
+### Next test
+
+پس از Export پروژهٔ مهاجرت‌یافته، لاگ باید در هر Cast شامل `SOUNDWATCH|armed` و سپس `detected` یا `timeout` باشد؛ با تشخیص ID 2 کلید F اجرا و Cast بعدی با همان Deadline ادامه یابد. سپس Stop/Start و اتصال مجدد Classroom را بدون قطع کابل چند بار تکرار کنید.
+
 ## Build 118 R15 — شکستن واحد کامپایل Runtime
 
 **Previous build:** 118 R14 / Classroom release 221

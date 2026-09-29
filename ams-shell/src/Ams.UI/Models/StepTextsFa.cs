@@ -79,6 +79,7 @@ public static class StepTextsFa
         ["peakMax"] = "سقف بازهٔ Peak",
         ["soundPriority"] = "اولویت در بازه‌های هم‌پوشان (عدد بزرگ‌تر برنده است)",
         ["minDurationMs"] = "حداقل مدت (ms) — رویداد معمولاً ۱٫۵–۲٫۲ ثانیه است؛ ۶۰–۱۰۰ امن است",
+        ["cooldownMs"] = "فاصلهٔ ایمنی پس از تشخیص صدا (ms)",
         ["calibrationId"] = "شناسهٔ کالیبراسیون همین Step صوتی (فقط ۱ یا ۲؛ در هر پروژه یکتا)",
         ["timeoutMs"] = "Timeout قدیمی (ms)",
         ["responseRoute"] = "رفتار تشخیص (inline یا Splash scoped)",

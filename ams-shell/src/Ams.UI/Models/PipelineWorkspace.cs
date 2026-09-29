@@ -43,8 +43,8 @@ public sealed class SoundWatchProfile
     public int ListenWindowMs { get; set; } = 1000;
     public int CooldownMs { get; set; } = 1500;
     /// <summary>
-    /// Per-cast timeout range for the scoped Splash listener. These values belong to
-    /// the Splash profile, not to the retired generic Wait For Sound editor.
+    /// Legacy Build 95-118 per-cast timeout storage. Build 119 migrates these
+    /// values into the explicit Catch / Wait For Sound node.
     /// </summary>
     public int TimeoutMinSec { get; set; } = 18;
     public int TimeoutMaxSec { get; set; } = 22;
@@ -73,7 +73,7 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 5;
+    public const int FormatVersion = 6;
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },
@@ -86,7 +86,9 @@ public sealed class PipelineWorkspace
         new() { Kind = PipelineKind.Game, Title = "Game", FileName = "game_steps.txt" },
         new() { Kind = PipelineKind.Targeted, Title = "Targeted", FileName = "targeted_steps.txt" },
         new() { Kind = PipelineKind.Whisper, Title = "Whisper", FileName = "whisper_steps.txt" },
-        new() { Kind = PipelineKind.Splash, Title = "Splash", FileName = "splash_steps.txt" },
+        // Compatibility storage only; hidden from PipelineTabs. New catch
+        // actions are children of the explicit Game Wait For Sound step.
+        new() { Kind = PipelineKind.Splash, Title = "Splash (legacy)", FileName = "splash_steps.txt" },
     };
 
     public List<SoundWatchProfile> SoundProfiles { get; } = new()

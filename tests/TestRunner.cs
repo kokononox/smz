@@ -30,9 +30,9 @@ class TestRunner
         Assert(errorDef.Label == "Raise Error / Stop Macro" && errorDef.Fields.Any(f => f.Key == "message"),
             "raiseError definition exists with a message field");
         Assert(StepDefinitions.Get("waitForSound").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("global")),
-            "legacy waitForSound remains loadable with its per-step timeout policy");
+            "Wait For Sound exposes its per-step timeout policy");
         Assert(StepDefinitions.Get("splashListener").Fields.Count == 0,
-            "Build 95: Splash Listener is a zero-configuration scoped marker");
+            "Build 119: old Splash Listener remains load-only for migration");
         Assert(StepDefinitions.Get("waitForLight").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("stopWithAlarm")),
             "waitForLight exposes a per-step timeout policy");
 
@@ -2316,7 +2316,7 @@ class TestRunner
             "v0.9.41: no reboot scheduling is left in the run loop");
 
         // 11-14) the vertical rail mirrors the Insert tab, grouped into per-section submenus
-        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "splashListener", "waitForLight", "openFile", "buzzer", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
+        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "waitForSound", "waitForLight", "openFile", "buzzer", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
         int v41rs = v41xaml.IndexOf("<!-- Icon rail", StringComparison.Ordinal);
         int v41rj = v41xaml.IndexOf("<!-- Steps column", StringComparison.Ordinal);
         Assert(v41rs > 0 && v41rj > v41rs,
@@ -4535,7 +4535,27 @@ class TestRunner
                 Children =
                 {
                     new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } },
-                    new StepNode { Type = "splashListener" },
+                    new StepNode
+                    {
+                        Type = "waitForSound",
+                        Props = new Dictionary<string, object?>
+                        {
+                            ["responseRoute"] = "splash", ["calibrationId"] = 2,
+                            ["peakMin"] = 25, ["peakMax"] = 95,
+                            ["soundPriority"] = 5, ["minDurationMs"] = 60,
+                            ["cooldownMs"] = 900, ["timeoutMinSec"] = 19,
+                            ["timeoutMaxSec"] = 24, ["armed"] = false,
+                            ["insertIfElse"] = false,
+                        },
+                        Children =
+                        {
+                            new StepNode
+                            {
+                                Type = "keystroke",
+                                Props = new Dictionary<string, object?> { ["key"] = "F" },
+                            },
+                        },
+                    },
                 },
             };
             current[PipelineKind.Game].Steps.Add(watchedLoop);
@@ -4546,14 +4566,8 @@ class TestRunner
             var whisperProfile = current.SoundProfiles.Single(x => x.Id == 1);
             whisperProfile.Enabled = true; whisperProfile.PeakMin = 20; whisperProfile.PeakMax = 80;
             whisperProfile.Priority = 10; whisperProfile.CooldownMs = 1800;
-            current[PipelineKind.Splash].Steps.Add(new StepNode
-            {
-                Type = "keystroke", Props = new Dictionary<string, object?> { ["key"] = "F" },
-            });
             var splashProfile = current.SoundProfiles.Single(x => x.Id == 2);
-            splashProfile.Enabled = true; splashProfile.PeakMin = 25; splashProfile.PeakMax = 95;
-            splashProfile.Priority = 5; splashProfile.CooldownMs = 900;
-            splashProfile.TimeoutMinSec = 19; splashProfile.TimeoutMaxSec = 24;
+            splashProfile.Enabled = false;
             ModernAutoCycleFirmwareBundle.ExportCurrentProject(
                 Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
                 1920, 1080, "test sound-watch.amsj", "CURRENT-PROJECT-REGRESSION");
@@ -4564,32 +4578,41 @@ class TestRunner
                    && watchedGame.Contains("splash,25,95,60,5,900,splash_steps.txt,scoped")
                    && watchedGame.Contains("WPROFILE|splash,19000,24000")
                    && whisperRoute.Contains("BEEP|700,180")
+                   && File.ReadAllText(Path.Combine(modernTmp, "splash_steps.txt")).Contains("KEY|combo=70")
                    && watchedSnapshot.Contains("soundProfiles")
-                   && watchedSnapshot.Contains("\"Enabled\": true"),
-                "Build 95: global Whisper and dedicated Splash Listener use profile-owned timeout range");
+                   && watchedSnapshot.Contains("\"Type\": \"waitForSound\"")
+                   && !watchedSnapshot.Contains("\"Type\": \"splashListener\""),
+                "Build 119: global Whisper plus explicit ID-2 Catch wait export with inline response");
 
             var legacyWorkspace = new PipelineWorkspace();
             foreach (var tab in legacyWorkspace.Tabs) tab.Steps.Clear();
             legacyWorkspace[PipelineKind.Game].Steps.Add(new StepNode
             {
-                Type = "waitForSound",
-                Props = new Dictionary<string, object?>
-                {
-                    ["responseRoute"] = "splash", ["timeoutMinSec"] = 17,
-                    ["timeoutMaxSec"] = 23, ["armed"] = false, ["insertIfElse"] = false,
-                },
+                Type = "splashListener",
             });
+            legacyWorkspace[PipelineKind.Splash].Steps.Add(new StepNode
+            {
+                Type = "keystroke", Props = new Dictionary<string, object?> { ["key"] = "F" },
+            });
+            var legacySplashProfile = legacyWorkspace.SoundProfiles.Single(x => x.Id == 2);
+            legacySplashProfile.Enabled = true;
+            legacySplashProfile.PeakMin = 25;
+            legacySplashProfile.PeakMax = 95;
+            legacySplashProfile.TimeoutMinSec = 17;
+            legacySplashProfile.TimeoutMaxSec = 23;
             var legacyWorkspaceJson = PipelineWorkspaceSerializer.Serialize(legacyWorkspace)
-                .Replace("\"pipelineVersion\": 5", "\"pipelineVersion\": 4")
-                .Replace("\"TimeoutMinSec\": 18,", "")
-                .Replace("\"TimeoutMaxSec\": 22,", "");
+                .Replace("\"pipelineVersion\": 6", "\"pipelineVersion\": 5");
             var migratedWorkspace = PipelineWorkspaceSerializer.Deserialize(legacyWorkspaceJson);
             var migratedSplash = migratedWorkspace.SoundProfiles.Single(x => x.Id == 2);
-            Assert(migratedWorkspace[PipelineKind.Game].Steps
-                       .Any(x => x.Type == "splashListener")
-                   && migratedSplash.TimeoutMinSec == 17
-                   && migratedSplash.TimeoutMaxSec == 23,
-                "Build 95: legacy responseRoute=splash migrates to Splash Listener and profile timeout");
+            var migratedCatch = migratedWorkspace[PipelineKind.Game].Steps
+                .Single(x => x.Type == "waitForSound");
+            Assert(PropEx.GetInt(migratedCatch.Props, "calibrationId", 0) == 2
+                   && PropEx.GetInt(migratedCatch.Props, "timeoutMinSec", 0) == 17
+                   && PropEx.GetInt(migratedCatch.Props, "timeoutMaxSec", 0) == 23
+                   && migratedCatch.Children.Single().Type == "keystroke"
+                   && migratedWorkspace[PipelineKind.Splash].Steps.Count == 0
+                   && !migratedSplash.Enabled,
+                "Build 119: Build-95 Splash marker/tab migrates to explicit ID-2 Catch wait with response child");
 
             ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
             Assert(true, "Build 104: target read-back accepts 40 valid hashes and matching Guard revisions");
