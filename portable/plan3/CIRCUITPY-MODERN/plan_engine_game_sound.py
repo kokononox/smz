@@ -1,5 +1,6 @@
 """Small SoundWatch resolver loaded before the deep Game scheduler stack."""
 import gc
+import time
 
 _core = None
 
@@ -7,6 +8,19 @@ _core = None
 def bind(core):
     global _core
     _core = core
+
+
+def _drain_cancelled_sound(ctx):
+    """Consume late ASND frames before the next cast can install a listener."""
+    arm = ctx.r.arm
+    arm.sound_result = None
+    arm.sound_detail = None
+    deadline = time.monotonic() + .06
+    while time.monotonic() < deadline:
+        arm.pump()
+        time.sleep(.002)
+    arm.sound_result = None
+    arm.sound_detail = None
 
 
 def _select_profile(profiles, peak):
@@ -80,11 +94,8 @@ def service_sound_exit(ctx, signal, run_response):
         winner = signal.get("scope_result")
     state = signal.get("game_state")
     if winner is not None and state is not None:
-        # Disarm before ASNDCANCEL: a DETECTED frame already in flight belongs
-        # to the cast being closed and must never arm the fresh cast.
-        ctx.r.arm.sound_armed = False
         ctx.r.arm.send("ASNDCANCEL", 2)
-        ctx.r.arm.drain_sound()
+        _drain_cancelled_sound(ctx)
         _core._emit_heap(ctx, "before-response-callback")
         ctx.r.emit("EVT|SOUNDWATCH|response-start|file=%s" % winner["file"])
         ctx.suspend_sound_watch()
@@ -92,7 +103,7 @@ def service_sound_exit(ctx, signal, run_response):
             run_response(ctx, winner["file"], state)
         finally:
             ctx.resume_sound_watch(winner["cooldown"])
-        ctx.r.arm.drain_sound()
+        _drain_cancelled_sound(ctx)
         ctx.r.emit("EVT|SOUNDWATCH|response-done|file=%s" % winner["file"])
         _core._emit_heap(ctx, "after-response-callback")
     ctx.close_sound_watch()

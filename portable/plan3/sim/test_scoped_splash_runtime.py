@@ -160,7 +160,7 @@ assert '_resolve_sound_watch(ctx)' in runtime_text
 assert 'def service_sound_exit(ctx, signal):' in runtime_text
 service_body=sound_text.split('def service_sound_exit(ctx, signal, run_response):',1)[1]
 assert 'ctx.r.arm.send("ASNDCANCEL", 2)' in service_body
-assert 'ctx.r.arm.drain_sound()' in service_body
+assert '_drain_cancelled_sound(ctx)' in service_body
 assert 'EVT|SOUNDWATCH|response-start' in service_body
 assert 'EVT|SOUNDWATCH|response-done' in service_body
 assert 'plan_engine_parse' not in sound_text
@@ -178,18 +178,13 @@ assert 'while True:' in route_loop and 'signal = _run_light_route' in route_loop
 assert 'route_ctx.close()' in route_loop and 'gc.collect()' in route_loop
 print('SoundWatch: raw detection unwinds Game; response runs before fresh cast')
 
-# UART cancellation is generation-gated: a late DETECTED from the closed cast
-# is ignored, while the next explicitly armed listener may accept a result.
+# UART cancellation drains a late DETECTED from the closed cast before the
+# next listener is installed, without growing the startup runtime compiler.
 context_text=(root/'CIRCUITPY-MODERN'/'combined_guard_runtime.py').read_text(encoding='utf-8')
-assert 'self.sound_detail = None; self.sound_armed = False' in context_text
-detected_body=context_text.split(
-    'elif line.startswith("EVT|ASND|DETECTED") or line.startswith("EVT|ASND|TIMEOUT"):',1
-    )[1].split('elif line.startswith("EVT|HOSTUSB|"):',1)[0]
-assert 'if self.sound_armed:' in detected_body
-assert 'self.sound_armed = False' in detected_body
-assert 'def drain_sound(self, milliseconds=60):' in context_text
-sound_start_body=context_text.split('def sound_start(self, threshold, minimum, timeout):',1)[1].split(
-    'def sound_poll(self):',1)[0]
-assert sound_start_body.index('arm.sound_armed = False') < sound_start_body.index('arm.pump()')
-assert sound_start_body.index('arm.pump()') < sound_start_body.index('arm.sound_armed = True')
-print('SoundWatch: delayed ASND generations cannot trigger the next cast')
+assert 'sound_armed' not in context_text and 'drain_sound' not in context_text
+drain_body=sound_text.split('def _drain_cancelled_sound(ctx):',1)[1].split(
+    'def _select_profile(',1)[0]
+assert 'time.monotonic() + .06' in drain_body
+assert drain_body.count('arm.sound_result = None') == 2
+assert 'arm.pump()' in drain_body
+print('SoundWatch: delayed ASND is drained outside the startup runtime')
