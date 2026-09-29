@@ -27,6 +27,9 @@
 
   <ItemGroup>
     <None Include="light-state-profiles.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm.py"><Link>native-tools\abvm.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm_uf2.py"><Link>native-tools\abvm_uf2.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm_slot.py"><Link>native-tools\abvm_slot.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\**" Exclude="..\..\bridge\bridge.py;..\..\bridge\light_state_bridge.py"><Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\bridge.py"><Link>bridge\_bridge_core.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\light_state_bridge.py"><Link>bridge\bridge.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>

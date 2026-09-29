@@ -36,6 +36,14 @@ internal static class AutoCycleExportUiBootstrap
         button.SetBinding(Button.CommandProperty,
             new Binding(nameof(MainViewModel.ExportAutoCycleModernCommand)));
         panel.Children.Add(button);
+
+        var nativeButton = AutoCycleUiKit.Action("ساخت Native UF2 پروژهٔ فعلی", true);
+        nativeButton.Tag = "AutoCycle.NativeUf2";
+        nativeButton.ToolTip =
+            "پروژهٔ باز را محلی به ABP تبدیل می‌کند و بدون SDK، GCC یا GitHub داخل UF2 پایهٔ انتخاب‌شده قرار می‌دهد.";
+        nativeButton.SetBinding(Button.CommandProperty,
+            new Binding(nameof(MainViewModel.ExportNativeUf2Command)));
+        panel.Children.Add(nativeButton);
         if (panel.Parent is StackPanel cardBody && !cardBody.Children.OfType<FrameworkElement>()
                 .Any(x => Equals(x.Tag, "AutoCycle.SoundProfiles")))
             cardBody.Children.Insert(Math.Max(2, cardBody.Children.Count - 1), BuildSoundProfiles(vm));
