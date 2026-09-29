@@ -1,0 +1,23 @@
+#ifndef AMS_ABVM_ARM_UART_MOUSE_H
+#define AMS_ABVM_ARM_UART_MOUSE_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "abvm_vm.h"
+
+typedef enum ArmMouseSubmit {
+    ARM_MOUSE_UNSUPPORTED = 0,
+    ARM_MOUSE_ACCEPTED = 1,
+    ARM_MOUSE_BUSY = 2,
+    ARM_MOUSE_INVALID = 3,
+} ArmMouseSubmit;
+
+void arm_uart_mouse_init(void);
+ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
+bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane);
+void arm_uart_mouse_release_all(uint32_t now);
+bool arm_uart_mouse_busy(void);
+bool arm_uart_mouse_releasing(void);
+bool arm_uart_mouse_faulted(void);
+const char *arm_uart_mouse_fault(void);
+#endif
