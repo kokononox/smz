@@ -97,6 +97,7 @@ add_custom_command(
 add_executable(ams_abvm_pico
     main.c
     hid_keyboard.c
+    arm_uart_mouse.c
     usb_descriptors.c
     "${ABVM_ROOT}/src/abvm_vm.c"
     "${GENERATED_PROGRAM}"
@@ -108,15 +109,12 @@ target_include_directories(ams_abvm_pico PRIVATE
     "${ABVM_ROOT}/include"
     "${PICO1_OUT}"
 )
-target_compile_options(ams_abvm_pico PRIVATE
-    -Wall -Wextra -Werror
-)
-target_compile_definitions(ams_abvm_pico PRIVATE
-    CFG_TUSB_OS=OPT_OS_PICO
-)
+target_compile_options(ams_abvm_pico PRIVATE -Wall -Wextra -Werror)
+target_compile_definitions(ams_abvm_pico PRIVATE CFG_TUSB_OS=OPT_OS_PICO)
 target_link_libraries(ams_abvm_pico
     pico_stdlib
     pico_unique_id
+    hardware_uart
     tinyusb_device
     tinyusb_board
 )
