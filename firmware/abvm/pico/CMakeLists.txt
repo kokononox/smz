@@ -1,17 +1,13 @@
 cmake_minimum_required(VERSION 3.13)
-
 if(NOT DEFINED ENV{PICO_SDK_PATH})
     message(FATAL_ERROR "PICO_SDK_PATH must point to a Pico SDK checkout")
 endif()
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-
 project(ams_abvm_pico C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
-
 pico_sdk_init()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 set(ABVM_PROGRAM "" CACHE FILEPATH "Verified program.abp embedded in the UF2")
 if(NOT ABVM_PROGRAM)
     message(FATAL_ERROR "Set -DABVM_PROGRAM=/absolute/path/program.abp")
@@ -20,17 +16,12 @@ get_filename_component(ABVM_PROGRAM "${ABVM_PROGRAM}" ABSOLUTE)
 if(NOT EXISTS "${ABVM_PROGRAM}")
     message(FATAL_ERROR "ABVM_PROGRAM does not exist: ${ABVM_PROGRAM}")
 endif()
-
 file(READ "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" EXPECTED_PICO1_REVISION)
 string(STRIP "${EXPECTED_PICO1_REVISION}" EXPECTED_PICO1_REVISION)
 set(PICO1_ROOT "" CACHE PATH "Optional pinned checkout of https://github.com/nekirovoix/pico1")
 if(NOT PICO1_ROOT)
     include(FetchContent)
-    FetchContent_Declare(pico1
-        GIT_REPOSITORY https://github.com/nekirovoix/pico1.git
-        GIT_TAG "${EXPECTED_PICO1_REVISION}"
-        GIT_SHALLOW FALSE
-    )
+    FetchContent_Declare(pico1 GIT_REPOSITORY https://github.com/nekirovoix/pico1.git GIT_TAG "${EXPECTED_PICO1_REVISION}" GIT_SHALLOW FALSE)
     FetchContent_GetProperties(pico1)
     if(NOT pico1_POPULATED)
         FetchContent_Populate(pico1)
@@ -41,84 +32,33 @@ get_filename_component(PICO1_ROOT "${PICO1_ROOT}" ABSOLUTE)
 if(NOT EXISTS "${PICO1_ROOT}/generator/generate.py")
     message(FATAL_ERROR "pico1 generator not found under ${PICO1_ROOT}")
 endif()
-execute_process(
-    COMMAND git -C "${PICO1_ROOT}" rev-parse HEAD
-    OUTPUT_VARIABLE ACTUAL_PICO1_REVISION
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE PICO1_GIT_RESULT
-)
-if(NOT PICO1_GIT_RESULT EQUAL 0 OR
-   NOT ACTUAL_PICO1_REVISION STREQUAL EXPECTED_PICO1_REVISION)
-    message(FATAL_ERROR
-        "pico1 checkout must be pinned to ${EXPECTED_PICO1_REVISION}; got ${ACTUAL_PICO1_REVISION}")
+execute_process(COMMAND git -C "${PICO1_ROOT}" rev-parse HEAD OUTPUT_VARIABLE ACTUAL_PICO1_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE PICO1_GIT_RESULT)
+if(NOT PICO1_GIT_RESULT EQUAL 0 OR NOT ACTUAL_PICO1_REVISION STREQUAL EXPECTED_PICO1_REVISION)
+    message(FATAL_ERROR "pico1 checkout must be pinned to ${EXPECTED_PICO1_REVISION}; got ${ACTUAL_PICO1_REVISION}")
 endif()
-
-set(ABVM_FIRMWARE_CONFIG "${CMAKE_CURRENT_LIST_DIR}/pico1.json" CACHE FILEPATH
-    "pico1 firmware-personalization configuration")
+set(ABVM_FIRMWARE_CONFIG "${CMAKE_CURRENT_LIST_DIR}/pico1.json" CACHE FILEPATH "pico1 firmware-personalization configuration")
 get_filename_component(ABVM_FIRMWARE_CONFIG "${ABVM_FIRMWARE_CONFIG}" ABSOLUTE)
 if(NOT EXISTS "${ABVM_FIRMWARE_CONFIG}")
     message(FATAL_ERROR "ABVM_FIRMWARE_CONFIG does not exist: ${ABVM_FIRMWARE_CONFIG}")
 endif()
-
 set(ABVM_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(REPO_ROOT "${ABVM_ROOT}/../..")
 set(GENERATED_PROGRAM "${CMAKE_CURRENT_BINARY_DIR}/abvm_program_image.c")
 set(PICO1_OUT "${CMAKE_CURRENT_BINARY_DIR}/pico1")
 set(GENERATED_PICO1_HEADER "${PICO1_OUT}/abvm_pico1_config.h")
 set(GENERATED_PICO1_MANIFEST "${PICO1_OUT}/abvm-firmware-manifest.json")
-
-add_custom_command(
-    OUTPUT "${GENERATED_PROGRAM}"
-    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_embed.py"
-            "${ABVM_PROGRAM}" "${GENERATED_PROGRAM}"
-    DEPENDS "${ABVM_PROGRAM}" "${REPO_ROOT}/tools/abvm_embed.py"
-    VERBATIM
-)
-
-add_custom_command(
-    OUTPUT "${GENERATED_PICO1_HEADER}" "${GENERATED_PICO1_MANIFEST}"
-           "${PICO1_OUT}/build-config.json" "${PICO1_OUT}/build-manifest.json"
-    COMMAND "${Python3_EXECUTABLE}" "${PICO1_ROOT}/generator/generate.py"
-            --config "${ABVM_FIRMWARE_CONFIG}" --out "${PICO1_OUT}"
-    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_pico1.py"
-            --validated-config "${PICO1_OUT}/build-config.json"
-            --pico1-manifest "${PICO1_OUT}/build-manifest.json"
-            --program "${ABVM_PROGRAM}"
-            --revision-file "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION"
-            --out "${PICO1_OUT}"
-    DEPENDS "${ABVM_FIRMWARE_CONFIG}"
-            "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION"
-            "${PICO1_ROOT}/generator/generate.py"
-            "${REPO_ROOT}/tools/abvm_pico1.py"
-            "${ABVM_PROGRAM}"
-    VERBATIM
-)
-
-add_executable(ams_abvm_pico
-    main.c
-    hid_keyboard.c
-    arm_uart_mouse.c
-    usb_descriptors.c
-    "${ABVM_ROOT}/src/abvm_vm.c"
-    "${GENERATED_PROGRAM}"
-    "${GENERATED_PICO1_HEADER}"
-)
-
-target_include_directories(ams_abvm_pico PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${ABVM_ROOT}/include"
-    "${PICO1_OUT}"
-)
+add_custom_command(OUTPUT "${GENERATED_PROGRAM}"
+    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_slot.py" "${ABVM_PROGRAM}" "${GENERATED_PROGRAM}"
+    DEPENDS "${ABVM_PROGRAM}" "${REPO_ROOT}/tools/abvm_slot.py" VERBATIM)
+add_custom_command(OUTPUT "${GENERATED_PICO1_HEADER}" "${GENERATED_PICO1_MANIFEST}" "${PICO1_OUT}/build-config.json" "${PICO1_OUT}/build-manifest.json"
+    COMMAND "${Python3_EXECUTABLE}" "${PICO1_ROOT}/generator/generate.py" --config "${ABVM_FIRMWARE_CONFIG}" --out "${PICO1_OUT}"
+    COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/abvm_pico1.py" --validated-config "${PICO1_OUT}/build-config.json" --pico1-manifest "${PICO1_OUT}/build-manifest.json" --program "${ABVM_PROGRAM}" --revision-file "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" --out "${PICO1_OUT}"
+    DEPENDS "${ABVM_FIRMWARE_CONFIG}" "${CMAKE_CURRENT_LIST_DIR}/PICO1_REVISION" "${PICO1_ROOT}/generator/generate.py" "${REPO_ROOT}/tools/abvm_pico1.py" "${ABVM_PROGRAM}" VERBATIM)
+add_executable(ams_abvm_pico main.c hid_keyboard.c arm_uart_mouse.c usb_descriptors.c "${ABVM_ROOT}/src/abvm_vm.c" "${GENERATED_PROGRAM}" "${GENERATED_PICO1_HEADER}")
+target_include_directories(ams_abvm_pico PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${ABVM_ROOT}/include" "${PICO1_OUT}")
 target_compile_options(ams_abvm_pico PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(ams_abvm_pico PRIVATE CFG_TUSB_OS=OPT_OS_PICO)
-target_link_libraries(ams_abvm_pico
-    pico_stdlib
-    pico_unique_id
-    hardware_uart
-    tinyusb_device
-    tinyusb_board
-)
-
+target_link_libraries(ams_abvm_pico pico_stdlib pico_unique_id hardware_uart tinyusb_device tinyusb_board)
 pico_enable_stdio_usb(ams_abvm_pico 0)
 pico_enable_stdio_uart(ams_abvm_pico 0)
 pico_add_extra_outputs(ams_abvm_pico)

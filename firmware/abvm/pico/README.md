@@ -1,92 +1,35 @@
 # Pico bring-up UF2
 
-This is the RP2040 adapter around the native ABVM core. It embeds one verified
-`program.abp` directly in the UF2, so the board remains portable and does not
-require a PC connection after flashing.
+This is the RP2040 adapter around the native ABVM core. It embeds one verified `program.abp` in a fixed flash slot, so the board remains portable and does not require a PC connection after flashing.
 
-Firmware identity is validated by the pinned
-[`nekirovoix/pico1`](https://github.com/nekirovoix/pico1) generator before the
-native Pico SDK build. The Pico SDK adapter consumes pico1's canonical
-`build-config.json` to generate TinyUSB VID/PID, manufacturer, product, and a
-serial number made from the configured prefix plus the RP2040 unique ID.
-CircuitPython-only storage settings are retained in the audit manifest but are
-not applied: this native UF2 has no FAT or USB mass-storage interface. CMake
-fetches the exact commit recorded in `PICO1_REVISION`; an already-pinned local
-checkout may instead be supplied with `-DPICO1_ROOT=/path/to/pico1`.
+Firmware identity is validated by pinned [`nekirovoix/pico1`](https://github.com/nekirovoix/pico1). The native adapter consumes its canonical configuration to generate TinyUSB VID/PID, manufacturer, product, and a serial number composed from the configured prefix and RP2040 unique ID. CircuitPython storage settings remain in the audit manifest but are not applied: this UF2 has no FAT or USB mass-storage interface.
 
-USB identity is configuration-driven; the native runtime has no compiled-in
-VID/PID allowlist. The committed experimental batch contains 30 independently
-validated identities imported from `pico1-firmware-batch30-verified.zip`.
-Build all variants with:
+USB identity is configuration-driven and has no compiled-in VID/PID allowlist. `batch30.json` contains 30 independently validated experimental identities. `build_batch.sh` builds all variants.
+
+## Fast per-project UF2 export
+
+Native builds contain a validated 128 KiB ABP flash slot. GitHub only needs to build a runtime/identity template when firmware changes. Classroom Studio or a browser can replace the project locally without Pico SDK or an ARM compiler:
 
 ```bash
-firmware/abvm/pico/build_batch.sh /tmp/program.abp \
-  firmware/abvm/pico/batch30.json /tmp/abvm-batch30
+python tools/abvm.py compile project.amsj /tmp/program.abp --routes Game Whisper
+python tools/abvm_uf2.py runtime-NB01.uf2 /tmp/program.abp project-NB01.uf2
 ```
 
-Each output directory contains its personalized UF2, canonical configuration,
-pico1 manifest, native ABVM manifest, and SHA-256 list.
+The patcher validates UF2 framing, requires exactly one compatible slot, checks capacity, rewrites program length and SHA-256, clears unused slot bytes, and verifies the result before saving. At boot, ABVM still verifies the ABP CRC, SHA, format, resources, and opcodes.
 
 ## Safety boundary
 
-The image exposes TinyUSB CDC plus a real HID keyboard actor. It also routes
-`RMOUSE` to the ARM board over UART0 on GP16/GP17 at 57600 baud using checksum
-frames. Relative motion completes only after `OK|MMOVE`; malformed replies,
-ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits both a
-zero keyboard report and framed `HALT`. Type remains a safe stub until its
-dedicated actor is connected.
+The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. Type remains a safe stub.
 
-Implemented on board:
-
-- native ABP verification at boot;
-- millisecond scheduler clock;
-- USB CDC diagnostics and control;
-- TinyUSB keyboard Key/KDown/KUp actor;
-- bounded relative mouse endpoint generation with no absolute cursor ledger;
-- nonblocking ARM UART TX/RX and `OK|MMOVE` action completion;
-- framed `HALT` on Pause, Stop, interrupt, route completion, fault, USB unmount,
-  and USB suspend;
-- GP3 debounced Pause/Resume;
-- GP4 debounced Start/Stop;
-- Game start, Pause/Resume/Stop, Watch timeout/detection, and Whisper
-  interrupt/resume;
-- fail-closed boot and transport behavior.
+Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp, bounded relative mouse, nonblocking ARM UART, HALT on every release boundary, GP3 Pause/Resume, GP4 Start/Stop, Game/Whisper routing, and fail-closed boot/transport behavior.
 
 ## Build one identity
 
 ```bash
-python tools/abvm.py compile autocycle.amsj /tmp/program.abp \
-  --routes Game Whisper
-
+python tools/abvm.py compile autocycle.amsj /tmp/program.abp --routes Game Whisper
 export PICO_SDK_PATH=/path/to/pico-sdk
-cmake -S firmware/abvm/pico -B /tmp/abvm-pico \
-  -DPICO_BOARD=pico \
-  -DABVM_PROGRAM=/tmp/program.abp \
-  -DABVM_FIRMWARE_CONFIG=/absolute/path/to/pico1-config.json
+cmake -S firmware/abvm/pico -B /tmp/abvm-pico -DPICO_BOARD=pico -DABVM_PROGRAM=/tmp/program.abp -DABVM_FIRMWARE_CONFIG=/absolute/path/to/pico1-config.json
 cmake --build /tmp/abvm-pico --parallel
 ```
 
-Output:
-
-```text
-/tmp/abvm-pico/ams_abvm_pico.uf2
-/tmp/abvm-pico/pico1/build-config.json
-/tmp/abvm-pico/pico1/build-manifest.json
-/tmp/abvm-pico/pico1/abvm-firmware-manifest.json
-```
-
-## CDC commands
-
-```text
-PING
-STATUS
-START
-PAUSE
-RESUME
-STOP
-WHISPER
-SOUND 2
-```
-
-`SOUND 2` is a temporary diagnostic injection for the Catch profile until the
-ADC/sound adapter is connected.
+CDC commands: `PING`, `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP`, `WHISPER`, `SOUND 2`.
