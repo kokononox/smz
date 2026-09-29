@@ -1,10 +1,12 @@
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
+#include "pico/unique_id.h"
 #include "tusb.h"
 
-#define USB_VID 0x2e8au
-#define USB_PID 0x10a1u
+#include "abvm_pico1_config.h"
+
 #define USB_BCD 0x0100u
 
 enum {
@@ -36,8 +38,8 @@ static const tusb_desc_device_t device_descriptor = {
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = USB_VID,
-    .idProduct = USB_PID,
+    .idVendor = ABVM_USB_VID,
+    .idProduct = ABVM_USB_PID,
     .bcdDevice = USB_BCD,
     .iManufacturer = STRID_MANUFACTURER,
     .iProduct = STRID_PRODUCT,
@@ -77,14 +79,28 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
 
 static const char *string_descriptors[] = {
     (const char[]){0x09, 0x04},
-    "AMS",
-    "AMS ABVM Native Pico",
-    "ABVM-RP2040",
-    "ABVM Diagnostics",
-    "ABVM Keyboard",
+    ABVM_USB_MANUFACTURER,
+    ABVM_USB_PRODUCT,
+    NULL,
+    ABVM_USB_CDC_NAME,
+    ABVM_USB_HID_NAME,
 };
 
-static uint16_t string_buffer[32];
+static char serial_ascii[64];
+static bool serial_initialized;
+static uint16_t string_buffer[64];
+
+static const char *usb_serial_string(void) {
+    if (!serial_initialized) {
+        static const char prefix[] = ABVM_USB_SERIAL_PREFIX;
+        const size_t prefix_len = sizeof(prefix) - 1u;
+        memcpy(serial_ascii, prefix, prefix_len);
+        pico_get_unique_board_id_string(serial_ascii + prefix_len,
+                                        sizeof(serial_ascii) - prefix_len);
+        serial_initialized = true;
+    }
+    return serial_ascii;
+}
 
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
@@ -95,9 +111,11 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     } else {
         if (index >= sizeof(string_descriptors) / sizeof(string_descriptors[0]))
             return NULL;
-        const char *value = string_descriptors[index];
+        const char *value = index == STRID_SERIAL
+                                ? usb_serial_string()
+                                : string_descriptors[index];
         count = strlen(value);
-        if (count > 31u) count = 31u;
+        if (count > 63u) count = 63u;
         for (size_t i = 0; i < count; ++i)
             string_buffer[1 + i] = (uint8_t)value[i];
     }
