@@ -4280,11 +4280,14 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "restart_windows.py"))
                    && modernManifestEntries >= 32,
                 "modern AutoCycle export writes the split-memory bundle and manifest");
-            // Windows checkout expands LF to CRLF and the packaging workflow applies the
-            // verified calibration-heap overlay. Keep a bounded deferred entrypoint without
-            // pinning the old pre-overlay byte count.
-            Assert(File.ReadAllText(Path.Combine(modernTmp, "code.py")).Length < 55000
-                   && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("DeferredPlanEngine"),
+            // Windows checkout expands LF to CRLF and R5 adds the shallow sound-response
+            // handoff. Keep a bounded deferred entrypoint while explicitly pinning the
+            // unwind-before-response contract instead of the old pre-R5 byte count.
+            var modernEntry = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(modernEntry.Length < 56000
+                   && modernEntry.Contains("DeferredPlanEngine")
+                   && modernEntry.Contains("signal = plan_engine_game.run_game_file(commands, ctx)")
+                   && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)"),
                 "modern AutoCycle export uses the small deferred-loading entrypoint");
             var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
             var modernExec = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_exec.py"));
