@@ -34,18 +34,32 @@ def run_game(commands, ctx):
     return runtime.run_game(commands, ctx, core)
 
 
-def _file_needs_parallel(name):
+def _file_inventory(name):
+    offsets = bytearray()
+    needs_parallel = False
     with open("/" + name, "r") as route:
-        for raw in route:
+        while True:
+            offset = route.tell()
+            raw = route.readline()
+            if not raw:
+                break
             line = raw.strip()
-            if line and not line.startswith("#") and line.split("|", 1)[0].upper() == "PGROUP":
-                return True
-    return False
+            if not line or line.startswith("#"):
+                continue
+            op = line.split("|", 1)[0].upper()
+            if op == "PGROUP":
+                needs_parallel = True
+            for shift in (0, 8, 16, 24):
+                offsets.append((offset >> shift) & 255)
+    return needs_parallel, offsets
 
 
 def run_game_file(name, ctx):
-    needs_parallel = _file_needs_parallel(name)
-    gc.collect()
+    # Reserve the contiguous Flash index before compiler fragmentation.
+    gc.collect(); _heap(ctx, "before-file-index-reserve"); gc.collect()
+    needs_parallel, offsets = _file_inventory(name)
+    gc.collect(); _heap(ctx, "after-file-index-reserve|commands=%d|offset-bytes=%d" %
+                       (len(offsets) // 4, len(offsets)))
     core, runtime = _load(ctx)
     if needs_parallel:
         # Compile the scheduler while the heap is still fresh. Waiting until
@@ -57,7 +71,7 @@ def run_game_file(name, ctx):
             _heap(ctx, "parallel-preload-memoryerror")
             raise
         gc.collect(); _heap(ctx, "after-parallel-preload")
-    commands = core._FileCommands(name)
+    commands = core._FileCommands(name, offsets)
     try:
         gc.collect()
         _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
