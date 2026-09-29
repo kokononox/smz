@@ -299,7 +299,7 @@ class PlanContext:
     mouse_mode = "relative"
     def __init__(self, runtime):
         self.r = runtime; self._parallel_sound = None
-        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch = None; self._sound_watch_pending = None
         self._sound_watch_servicing = False
     def get_mouse_pos(self):
         value = getattr(self.r, "mouse_pos", None)
@@ -311,15 +311,16 @@ class PlanContext:
     def now(self): return time.monotonic()
     def gate(self): return self.r.controls.gate()
     def sleep_ms(self, ms):
-        callback = self._sound_watch_callback
-        if callback is None or self._sound_watch_servicing:
+        if self._sound_watch is None or self._sound_watch_servicing:
             return self.r.controls.sleep(ms)
         end = time.monotonic() + max(0, ms) / 1000
         while time.monotonic() < end:
             remaining = int(max(1, (end - time.monotonic()) * 1000))
             if not self.r.controls.sleep(min(10, remaining)):
                 return False
-            callback()
+            self.poll_sound_watch()
+            if self._sound_watch_pending is not None:
+                break
         return True
     def log(self, text): print("plan:", text)
     def mmove(self, x, y): self.r.arm.move(x, y)
@@ -485,15 +486,16 @@ class PlanContext:
             raise ValueError("SOUNDWATCH requires asynchronous ASND firmware")
         self.r.emit("EVT|SOUNDWATCH|armed|profiles=%d|threshold=%d" %
                     (len(profiles), threshold))
-    def install_sound_watch(self, profiles, callback):
+    def install_sound_watch(self, profiles):
         self.close_sound_watch()
         self._sound_watch = {"profiles": profiles, "scope": None,
                              "scope_result": None, "cooldown_until": 0.0}
-        self._sound_watch_callback = callback
+        self._sound_watch_pending = None
         self._arm_sound_watch()
     def poll_sound_watch(self):
         state = self._sound_watch
-        if state is None or self._sound_watch_servicing:
+        if (state is None or self._sound_watch_servicing
+                or self._sound_watch_pending is not None):
             return None
         if time.monotonic() < state["cooldown_until"]:
             return None
@@ -520,6 +522,11 @@ class PlanContext:
         if winner["mode"] == "scoped":
             state["scope_result"] = winner
             return None
+        self._sound_watch_pending = winner
+        return None
+    def take_sound_watch(self):
+        winner = self._sound_watch_pending
+        self._sound_watch_pending = None
         return winner
     def begin_profile_wait(self, profile_id):
         state = self._sound_watch
@@ -564,7 +571,7 @@ class PlanContext:
     def close_sound_watch(self):
         if self._parallel_sound is not None:
             self.sound_cancel()
-        self._sound_watch = None; self._sound_watch_callback = None
+        self._sound_watch = None; self._sound_watch_pending = None
         self._sound_watch_servicing = False
     def close(self):
         self.close_sound_watch()

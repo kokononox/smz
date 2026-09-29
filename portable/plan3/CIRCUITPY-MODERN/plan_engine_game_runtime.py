@@ -5,14 +5,6 @@ import random
 _core = None
 _response_run = None
 
-def _queue_sound_watch(ctx, state):
-    if state["_response"] is not None:
-        return
-    winner = ctx.poll_sound_watch()
-    if winner is None:
-        return
-    state["_response"] = winner
-
 def _event_module():
     import plan_engine_game_events as module
     module.bind(_core)
@@ -40,7 +32,9 @@ def _run_response(ctx, name, state):
 
 
 def _service_pending_response(ctx, state):
-    winner = state.get("_response")
+    if not state["watch"]:
+        return False
+    winner = ctx.take_sound_watch()
     if winner is None:
         return False
     state["_response"] = None
@@ -101,8 +95,8 @@ def _wait_sound(op, args, ctx):
 
 def _sound(op, args, ctx, state):
     if op == "SOUNDWATCH":
-        ctx.install_sound_watch(_core._watch_profiles(args),
-            lambda: _queue_sound_watch(ctx, state))
+        ctx.install_sound_watch(_core._watch_profiles(args))
+        state["watch"] = True
         ctx.log("soundwatch active")
     elif op == "WPROFILE":
         _profile(args, ctx, state)
@@ -151,41 +145,25 @@ def _leaf(op, args, ctx, state):
     return False
 
 def _run(commands, start, end, ctx, state, labels):
-    i = start
-    while i < end:
-        op, args = commands[i]
+    cursor = _event_module().Cursor(commands, start, end, ctx)
+    while True:
+        item = cursor.next()
+        if item is None:
+            return
+        op, args = item[0], item[1]
         if _leaf(op, args, ctx, state):
             pass
-        elif op == "RPKG":
-            finish, parts, order = _core._package(commands, i)
-            for selected in order:
-                _run(commands, parts[selected][0], parts[selected][1], ctx, state, labels)
-            i = finish
-        elif op in ("LOOP", "LOOPTIME"):
-            finish = _core._end(commands, i, op, "ENDLOOP")
-            if op == "LOOP":
-                remaining = int(args)
-                while remaining == 0 or remaining > 0:
-                    _run(commands, i + 1, finish, ctx, state, labels)
-                    if remaining > 0: remaining -= 1
-            else:
-                deadline = ctx.now() + float(args)
-                while ctx.now() < deadline:
-                    _run(commands, i + 1, finish, ctx, state, labels)
-            i = finish
         elif op == "PGROUP":
-            finish = _core._end(commands, i, "PGROUP", "ENDPAR")
-            _parallel(commands, i + 1, finish, ctx, state); i = finish
+            _parallel(commands, item[2], item[3], ctx, state)
         elif op == "LABEL":
             pass
         elif op == "GOTO":
             target = labels.get(args)
             if target is None: raise ValueError("GOTO label not found")
-            i = target; continue
+            cursor.jump(target)
         else:
             raise ValueError("unsupported Game command " + op)
         _service_pending_response(ctx, state)
-        i += 1
 
 def run_game(commands, ctx, core):
     global _core
@@ -199,7 +177,7 @@ def run_game(commands, ctx, core):
             labels[item[1]] = label_index
     gc.collect()
     state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
-             "pauses": None, "_response": None}
+             "pauses": None, "watch": False}
     try: _run(commands, 0, len(commands), ctx, state, labels)
     except RuntimeError as exc:
         if str(exc) == "route aborted": _core._abort()

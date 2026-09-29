@@ -1,4 +1,4 @@
-"""Iterative Game event generator, split to bound CircuitPython compile peaks."""
+"""Iterative Game flow and Parallel events with an explicit container stack."""
 import gc
 import random
 
@@ -7,6 +7,83 @@ _core = None
 def bind(core):
     global _core
     _core = core
+
+
+class Cursor:
+    """Resumable sequential command cursor; never recurses for containers."""
+    def __init__(self, commands, start, end, ctx):
+        self.commands = commands
+        self.ctx = ctx
+        self.root_end = end
+        self.i = start
+        self.end = end
+        self.frames = []
+
+    def jump(self, index):
+        self.frames[:] = []
+        self.i = index
+        self.end = self.root_end
+
+    def _resume(self):
+        while self.frames:
+            frame = self.frames[-1]
+            if frame[0] == "P" and frame[5] < len(frame[4]):
+                selected = frame[4][frame[5]]
+                frame[5] += 1
+                self.i, self.end = frame[3][selected]
+                return True
+            if frame[0] == "L":
+                again = (self.ctx.now() < frame[6]) if frame[6] is not None else (
+                    frame[5] is None or frame[5] > 1)
+                if again:
+                    if frame[5] is not None:
+                        frame[5] -= 1
+                    self.i, self.end = frame[3], frame[4]
+                    return True
+            self.frames.pop()
+            self.i, self.end = frame[2], frame[1]
+            if self.i < self.end:
+                return True
+        return False
+
+    def next(self):
+        while True:
+            if self.i >= self.end:
+                if not self._resume():
+                    return None
+                continue
+            i = self.i
+            op, args = self.commands[i]
+            if op == "RPKG":
+                finish, parts, order = _core._package(self.commands, i)
+                if order:
+                    selected = order[0]
+                    self.frames.append(["P", self.end, finish + 1,
+                                        parts, order, 1])
+                    self.i, self.end = parts[selected]
+                    continue
+                self.i = finish + 1
+                continue
+            if op in ("LOOP", "LOOPTIME"):
+                finish = _core._end(self.commands, i, op, "ENDLOOP")
+                if op == "LOOP":
+                    count = int(args)
+                    left = None if count == 0 else count
+                    deadline = None
+                else:
+                    left = None
+                    deadline = self.ctx.now() + float(args)
+                self.frames.append(["L", self.end, finish + 1, i + 1,
+                                    finish, left, deadline])
+                self.i, self.end = i + 1, finish
+                continue
+            if op == "PGROUP":
+                finish = _core._end(self.commands, i, "PGROUP", "ENDPAR")
+                self.i = finish + 1
+                return ("PGROUP", args, i + 1, finish)
+            self.i = i + 1
+            if op not in ("PKGITEM", "ENDPKG", "ENDLOOP", "PARITEM", "ENDPAR"):
+                return (op, args, -1, -1)
 
 
 def events(commands, start, end, ctx, state):
