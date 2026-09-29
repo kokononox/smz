@@ -35,23 +35,25 @@ add_custom_command(
 
 add_executable(ams_abvm_pico
     main.c
+    hid_keyboard.c
+    usb_descriptors.c
     "${ABVM_ROOT}/src/abvm_vm.c"
     "${GENERATED_PROGRAM}"
 )
 
 target_include_directories(ams_abvm_pico PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}"
     "${ABVM_ROOT}/include"
 )
 target_compile_options(ams_abvm_pico PRIVATE
     -Wall -Wextra -Werror
 )
-target_compile_definitions(ams_abvm_pico PRIVATE
-    PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=0
-)
 target_link_libraries(ams_abvm_pico
     pico_stdlib
+    tinyusb_device
+    tinyusb_board
 )
 
-pico_enable_stdio_usb(ams_abvm_pico 1)
+pico_enable_stdio_usb(ams_abvm_pico 0)
 pico_enable_stdio_uart(ams_abvm_pico 0)
 pico_add_extra_outputs(ams_abvm_pico)
