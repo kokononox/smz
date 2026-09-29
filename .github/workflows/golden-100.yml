@@ -42,7 +42,7 @@ jobs:
         shell: pwsh
         run: |
           git config --global core.autocrlf false
-          git -c core.autocrlf=false restore --source=HEAD --worktree --staged .
+          git -c core.autocrlf=false checkout-index --force --all
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
