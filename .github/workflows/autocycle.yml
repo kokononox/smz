@@ -272,7 +272,7 @@ jobs:
 
   test-package:
     name: modern-autocycle / diagnostic package
-    if: github.event_name == 'pull_request' && github.head_ref == 'feature/light-state-profiles'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feature/light-state-profiles' || github.head_ref == 'arch/abvm-phase0')
     needs: [portable-contracts, windows-app]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -286,42 +286,43 @@ jobs:
         run: |
           set -euo pipefail
           cd staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows
-          zip -qr ../../../../../../../Classroom-Studio-light-state-test.zip .
+          zip -qr ../../../../../../../Classroom-Studio-native-guard-test.zip .
           cd ../../../../../../../
-          sha256sum Classroom-Studio-light-state-test.zip | awk '{print toupper($1)}' > light-state-test-sha256.txt
+          sha256sum Classroom-Studio-native-guard-test.zip | awk '{print toupper($1)}' > native-guard-test-sha256.txt
           cat > TEST-GUIDE-FA.md <<'EOF'
-          # راهنمای تست مرحله اول
+          # راهنمای تست Native Global Guard
 
           1. فایل ZIP را Extract کنید؛ برنامه را از داخل ZIP اجرا نکنید.
           2. `ClassroomStudio.exe` را اجرا کنید.
-          3. وارد تب «وضعیت» شوید.
-          4. فعلاً برد را وصل نکنید؛ ظاهر RTL و نمایش شش پروفایل را بررسی کنید.
-          5. نتیجه مرحله اول را گزارش کنید تا تست اتصال و Live Watch را ادامه دهیم.
+          3. پروژهٔ فعلی را باز کنید.
+          4. گزینهٔ «ساخت Native UF2 پروژهٔ فعلی» را بزنید.
+          5. قالب هویت برد خود را انتخاب کنید و UF2 خروجی را روی Pico فلش کنید.
+          6. مسیر شش پروفایل Guard را اجرا و لاگ GuardHardwareMonitor را ارسال کنید.
 
-          این نسخه آزمایشی است و گیت اجرایی Launch/Auto Resume خاموش می‌ماند.
+          این نسخه فقط برای تست سخت‌افزاری Native Global Guard است.
           EOF
           {
-            echo '# Light State Profiles — test build'
+            echo '# Native Global Guard — hardware test build'
             echo
-            echo 'Source PR: #158'
+            echo 'Source PR: #${{ github.event.pull_request.number }}'
             echo
             echo "Source commit: ${{ github.event.pull_request.head.sha }}"
             echo
-            echo "SHA-256: $(cat light-state-test-sha256.txt)"
+            echo "SHA-256: $(cat native-guard-test-sha256.txt)"
             echo
             echo 'All portable, Windows, TestRunner and typed light-profile gates passed before packaging.'
           } > release-body.md
       - name: Publish prerelease test build
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: light-state-test-${{ github.run_number }}
+          tag_name: native-guard-test-${{ github.run_number }}
           target_commitish: ${{ github.event.pull_request.head.sha }}
-          name: "Light State Profiles test #${{ github.run_number }}"
+          name: "Native Global Guard test #${{ github.run_number }}"
           prerelease: true
           body_path: release-body.md
           files: |
-            Classroom-Studio-light-state-test.zip
-            light-state-test-sha256.txt
+            Classroom-Studio-native-guard-test.zip
+            native-guard-test-sha256.txt
             TEST-GUIDE-FA.md
             staged/windows-tests.log
             staged/light-telemetry-tests.log
