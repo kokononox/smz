@@ -73,7 +73,10 @@ static void service_mouse(uint32_t now) {
     if (arm_uart_mouse_faulted() && vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) { printf("ERR|ARM|%s\n", arm_uart_mouse_fault()); abvm_stop(&vm, now); }
 }
 static void service_vm(uint32_t now) {
-    if (arm_uart_mouse_releasing()) return; AbvmEvent event = abvm_tick(&vm, now);
+    if (arm_uart_mouse_releasing()) {
+        return;
+    }
+    AbvmEvent event = abvm_tick(&vm, now);
     switch (event.type) {
         case ABVM_EVENT_ACTION: { ArmMouseSubmit mouse = arm_uart_mouse_submit(&vm, &event, now);
             if (mouse == ARM_MOUSE_ACCEPTED) { printf("ARM|mouse|accepted|lane=%u\n", event.lane); break; }
