@@ -329,3 +329,44 @@ jobs:
             TEST-GUIDE-FA.md
             staged/windows-tests.log
             staged/light-telemetry-tests.log
+
+
+  usb-smoke-release:
+    name: diagnostics / publish USB smoke UF2
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/native-usb-smoke'
+    needs: [abvm-pico]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ams-abvm-pico-bringup
+          path: staged
+      - name: Stage and hash recovery UF2
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$(find staged -type f -name ams_usb_smoke.uf2 -print -quit)"
+          test -n "$source"
+          cp "$source" AMS-Native-USB-Recovery.uf2
+          sha256sum AMS-Native-USB-Recovery.uf2 | awk '{print toupper($1)}' > AMS-Native-USB-Recovery.sha256.txt
+          {
+            echo '# Native USB Recovery smoke test'
+            echo
+            echo 'Diagnostic CDC-only UF2. HID, ABVM, Guard, sensors and actors are disabled.'
+            echo
+            echo "Source commit: ${{ github.event.pull_request.head.sha }}"
+            echo
+            echo "SHA-256: $(cat AMS-Native-USB-Recovery.sha256.txt)"
+          } > usb-smoke-release.md
+      - name: Publish direct-download prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: native-usb-smoke-${{ github.run_number }}
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          name: "Native USB Recovery #${{ github.run_number }}"
+          prerelease: true
+          body_path: usb-smoke-release.md
+          files: |
+            AMS-Native-USB-Recovery.uf2
+            AMS-Native-USB-Recovery.sha256.txt
