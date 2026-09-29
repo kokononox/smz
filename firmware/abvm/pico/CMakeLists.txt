@@ -48,6 +48,9 @@ target_include_directories(ams_abvm_pico PRIVATE
 target_compile_options(ams_abvm_pico PRIVATE
     -Wall -Wextra -Werror
 )
+target_compile_definitions(ams_abvm_pico PRIVATE
+    CFG_TUSB_OS=OPT_OS_PICO
+)
 target_link_libraries(ams_abvm_pico
     pico_stdlib
     tinyusb_device
