@@ -1148,7 +1148,9 @@ class TestRunner
             Props = new Dictionary<string, object?> { ["x"] = 100, ["y"] = 100, ["w"] = 500, ["h"] = 400 },
         };
         new RunEngine(fbS, _ => { }, 1920, 1080).RunAsync(new[] { rndStep2 }, CancellationToken.None).Wait();
-        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: > 10 } && !fbS.Sent.Any(c => c.StartsWith("MMOVE|")),
+        // The sampled destination and speed are intentionally random. Shorter valid
+        // paths bottom out at eight points; assert density without a flaky distance assumption.
+        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: >= 8 } && !fbS.Sent.Any(c => c.StartsWith("MMOVE|")),
             $"randomMousePosition streams one dense path (calls={fbS.PathCalls}, pts={fbS.LastPath?.Count})");
         var lastPt = fbS.LastPath![^1];
         Assert(lastPt.X >= 100 && lastPt.X < 600 && lastPt.Y >= 100 && lastPt.Y < 500,
