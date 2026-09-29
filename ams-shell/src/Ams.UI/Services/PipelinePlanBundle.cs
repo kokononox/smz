@@ -38,22 +38,28 @@ public static class PipelinePlanBundle
         var directory = Path.GetDirectoryName(Path.GetFullPath(planPath))
             ?? throw new IOException("مسیر خروجی Pipeline نامعتبر است.");
 
+        var catchWaits = FindCatchWaits(workspace[PipelineKind.Game].Steps).ToList();
+        if (catchWaits.Count > 1)
+            throw new PlanExporter.PlanBlockedException(new[]
+            {
+                "Game: در این نسخه فقط یک Wait For Sound از نوع Catch/Splash مجاز است."
+            });
+        var catchWait = catchWaits.SingleOrDefault();
         var payloads = new List<(string Name, byte[] Bytes)>();
         foreach (var tab in workspace.Tabs)
         {
-            var normalized = NormalizeRecoveryCalls(tab.Steps);
+            var sourceSteps = tab.Kind == PipelineKind.Splash && catchWait is not null
+                ? catchWait.Children : tab.Steps;
+            var normalized = NormalizeRecoveryCalls(sourceSteps);
             var text = normalized.Count == 0
                 ? "PLAN|2\n"
                 : PlanExporter.CompileOnce(normalized, settings, screenW, screenH,
                     sourceName + "#" + tab.Kind, machine).Text;
             text = ExpandRecoveryCalls(text);
             if (tab.Kind == PipelineKind.Game)
-            {
-                text = ApplySplashProfileTimeout(text, workspace.SoundProfiles);
-                text = AddGameSoundWatch(text, workspace.SoundProfiles, workspace);
-            }
+                text = AddGameSoundWatch(text, workspace.SoundProfiles, workspace, catchWait);
             else if (text.Split('\n').Any(x => x.StartsWith("WPROFILE|splash,", StringComparison.Ordinal)))
-                throw new PlanExporter.PlanBlockedException(new[] { tab.Title + ": استپ Splash Listener فقط در تب Game مجاز است." });
+                throw new PlanExporter.PlanBlockedException(new[] { tab.Title + ": Wait For Sound نوع Catch فقط در تب Game مجاز است." });
             if (tab.Kind != PipelineKind.Desktop && ContainsCycleDirective(text))
                 throw new PlanExporter.PlanBlockedException(new[] { tab.FileName + ": directive چرخه فقط در plan.txt مجاز است." });
             payloads.Add((tab.FileName, new UTF8Encoding(false).GetBytes(text)));
@@ -106,7 +112,6 @@ public static class PipelinePlanBundle
             foreach (var node in nodes)
             {
                 if (!node.IsDisabled && node.Type == "waitForSound"
-                    && PropEx.GetString(node.Props, "responseRoute", "inline") != "splash"
                     && !PropEx.GetBool(node.Props, "armed")
                     && !PropEx.GetBool(node.Props, "insertIfElse"))
                 {
@@ -127,9 +132,10 @@ public static class PipelinePlanBundle
     }
 
     private static string AddGameSoundWatch(string text, IEnumerable<SoundWatchProfile> profiles,
-        PipelineWorkspace workspace)
+        PipelineWorkspace workspace, StepNode? catchWait)
     {
-        var enabled = profiles.Where(x => x.Enabled).OrderBy(x => x.Id).ToList();
+        var enabled = profiles.Where(x => x.Enabled && x.ResponseTab == PipelineKind.Whisper)
+            .OrderBy(x => x.Id).ToList();
         var errors = new List<string>();
         foreach (var profile in enabled)
         {
@@ -139,26 +145,53 @@ public static class PipelinePlanBundle
             if (profile.Priority is < -100 or > 100) errors.Add(profile.Name + ": Priority باید بین -100 و 100 باشد.");
             if (profile.MinDurationMs is < 10 or > 5000) errors.Add(profile.Name + ": Min duration باید بین 10 و 5000 ms باشد.");
             if (profile.CooldownMs is < 0 or > 60000) errors.Add(profile.Name + ": Cooldown باید بین 0 و 60000 ms باشد.");
-            if (profile.ResponseTab == PipelineKind.Splash
-                && (profile.TimeoutMinSec < 1 || profile.TimeoutMaxSec > 300
-                    || profile.TimeoutMinSec > profile.TimeoutMaxSec))
-                errors.Add(profile.Name + ": Timeout هر پرتاب باید بازهٔ مرتب 1 تا 300 ثانیه باشد.");
             var responseTab = workspace[profile.ResponseTab];
             if (responseTab.Steps.Count == 0)
                 errors.Add(profile.Name + ": تب واکنش " + responseTab.Title + " خالی است.");
             ValidateSoundResponse(responseTab.Steps, responseTab.Title, errors);
         }
-        var hasScopedSplash = HasScopedSplash(workspace[PipelineKind.Game].Steps);
-        if (hasScopedSplash && enabled.All(x => x.ResponseTab != PipelineKind.Splash))
-            errors.Add("Game: برای Splash Listener، پروفایل Splash را کنار خروجی Pico فعال کنید.");
+        if (catchWait is not null)
+        {
+            var p = catchWait.Props;
+            var id = PropEx.GetInt(p, "calibrationId", 2);
+            var peakMin = PropEx.GetInt(p, "peakMin", 0);
+            var peakMax = PropEx.GetInt(p, "peakMax", 511);
+            var minimum = PropEx.GetInt(p, "minDurationMs", 60);
+            var priority = PropEx.GetInt(p, "soundPriority", 5);
+            var cooldown = PropEx.GetInt(p, "cooldownMs", 900);
+            var lo = PropEx.GetInt(p, "timeoutMinSec", 18);
+            var hi = PropEx.GetInt(p, "timeoutMaxSec", 22);
+            if (id != 2) errors.Add("Catch Wait For Sound: شناسهٔ صدای Catch باید ID 2 باشد.");
+            if (peakMin < 0 || peakMax is < 1 or > 511 || peakMin > peakMax)
+                errors.Add("Catch Wait For Sound: بازهٔ Peak نامعتبر است.");
+            if (minimum is < 10 or > 5000) errors.Add("Catch Wait For Sound: Min duration نامعتبر است.");
+            if (priority is < -100 or > 100) errors.Add("Catch Wait For Sound: Priority نامعتبر است.");
+            if (cooldown is < 0 or > 60000) errors.Add("Catch Wait For Sound: Cooldown نامعتبر است.");
+            if (lo < 1 || hi > 300 || lo > hi) errors.Add("Catch Wait For Sound: Timeout باید بازهٔ مرتب ۱ تا ۳۰۰ ثانیه باشد.");
+            if (catchWait.Children.Count == 0)
+                errors.Add("Catch Wait For Sound: پاسخ تشخیص صدا را به‌صورت Child داخل همین استپ قرار دهید.");
+            ValidateSoundResponse(catchWait.Children, "Catch Wait For Sound", errors);
+        }
         if (errors.Count > 0) throw new PlanExporter.PlanBlockedException(errors);
-        if (enabled.Count == 0) return text;
+        if (enabled.Count == 0 && catchWait is null) return text;
 
-        var payload = string.Join(";", enabled.Select(profile => string.Join(",",
-            profile.ResponseTab == PipelineKind.Whisper ? "whisper" : "splash",
+        var payloads = enabled.Select(profile => string.Join(",",
+            "whisper",
             profile.PeakMin, profile.PeakMax, profile.MinDurationMs, profile.Priority,
-            profile.CooldownMs, workspace[profile.ResponseTab].FileName,
-            profile.ResponseTab == PipelineKind.Whisper ? "global" : "scoped")));
+            profile.CooldownMs, workspace[profile.ResponseTab].FileName, "global")).ToList();
+        if (catchWait is not null)
+        {
+            var p = catchWait.Props;
+            payloads.Add(string.Join(",",
+                "splash",
+                PropEx.GetInt(p, "peakMin", 0),
+                PropEx.GetInt(p, "peakMax", 511),
+                PropEx.GetInt(p, "minDurationMs", 60),
+                PropEx.GetInt(p, "soundPriority", 5),
+                PropEx.GetInt(p, "cooldownMs", 900),
+                "splash_steps.txt", "scoped"));
+        }
+        var payload = string.Join(";", payloads);
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var firstNewline = normalized.IndexOf('\n');
         if (!normalized.StartsWith("PLAN|2", StringComparison.Ordinal) || firstNewline < 0)
@@ -166,23 +199,17 @@ public static class PipelinePlanBundle
         return normalized.Insert(firstNewline + 1, "SOUNDWATCH|" + payload + "\n");
     }
 
-    private static bool HasScopedSplash(IEnumerable<StepNode> nodes)
-        => nodes.Any(node => !node.IsDisabled
-            && (node.Type == "splashListener"
-                || (node.Type == "waitForSound"
-                    && PropEx.GetString(node.Props, "responseRoute", "inline") == "splash")
-                || HasScopedSplash(node.Children)));
-
-    private static string ApplySplashProfileTimeout(string text, IEnumerable<SoundWatchProfile> profiles)
+    private static IEnumerable<StepNode> FindCatchWaits(IEnumerable<StepNode> nodes)
     {
-        var splash = profiles.Single(x => x.ResponseTab == PipelineKind.Splash);
-        var replacement = "WPROFILE|splash," + (splash.TimeoutMinSec * 1000)
-            + "," + (splash.TimeoutMaxSec * 1000);
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        for (var i = 0; i < lines.Length; i++)
-            if (lines[i].StartsWith("WPROFILE|splash,", StringComparison.Ordinal))
-                lines[i] = replacement;
-        return string.Join("\n", lines);
+        foreach (var node in nodes)
+        {
+            if (node.IsDisabled) continue;
+            if (node.Type == "waitForSound"
+                && PropEx.GetString(node.Props, "responseRoute", "inline") == "splash")
+                yield return node;
+            foreach (var child in FindCatchWaits(node.Children))
+                yield return child;
+        }
     }
 
     private static void ValidateSoundResponse(IEnumerable<StepNode> nodes, string tab, List<string> errors)

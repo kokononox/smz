@@ -82,11 +82,11 @@ public partial class MainViewModel
         get
         {
             var enabled = _pipelineWorkspace.SoundProfiles.Where(x => x.Enabled).ToList();
-            return enabled.Count == 0
+            var global = enabled.Where(x => x.ResponseTab == PipelineKind.Whisper).ToList();
+            return global.Count == 0
                 ? "شنوندهٔ سراسری محیط بازی خاموش است."
-                : string.Join(" · ", enabled.Select(x => x.ResponseTab == PipelineKind.Splash
-                    ? $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority} / Timeout {x.TimeoutMinSec}–{x.TimeoutMaxSec}s"
-                    : $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority}"));
+                : string.Join(" · ", global.Select(x =>
+                    $"{x.Name}: {x.PeakMin}–{x.PeakMax} / P{x.Priority}"));
         }
     }
 

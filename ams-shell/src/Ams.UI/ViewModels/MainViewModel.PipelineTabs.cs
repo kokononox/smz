@@ -14,7 +14,10 @@ public partial class MainViewModel
     private bool _pipelineLoadInProgress;
     private bool _pipelineSyncAttached;
 
-    public ObservableCollection<PipelineTabDocument> PipelineTabs => _pipelineWorkspace.Tabs;
+    // Splash is a legacy storage route only. Catch actions now live visibly
+    // under the explicit Wait For Sound step in Game.
+    public IReadOnlyList<PipelineTabDocument> PipelineTabs
+        => _pipelineWorkspace.Tabs.Where(x => x.Kind != PipelineKind.Splash).ToList();
     public PipelineTabDocument? ActivePipelineTab => _activePipelineTab;
     public string ActivePipelineTitle => _activePipelineTab?.Title ?? "Desktop";
     public bool IsLaunchPipeline => _activePipelineTab?.Kind == PipelineKind.Launch;

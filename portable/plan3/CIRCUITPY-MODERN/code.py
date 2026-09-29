@@ -477,6 +477,25 @@ def _release_plan_heap(self, emit_cal=False):
         except Exception:
             pass
 
+def _prepare_fresh_run(self):
+    """Make every manual Start equivalent to a clean cable-reconnect start."""
+    _release_plan_heap(self)
+    try:
+        self.keyboard.release_all()
+    except Exception:
+        pass
+    try:
+        self.arm.release(False)
+    except Exception:
+        pass
+    self.arm.sound_result = None
+    self.arm.sound_detail = None
+    # A Stop is normally observed by cycle.tick() in the same loop pass.  Keep
+    # this explicit so a very fast host OFF/ON pair still starts a new window.
+    if getattr(self.cycle, "phase", "idle") == "idle":
+        self.cycle.previous_running = False
+    gc.collect()
+
 def _prepare_calibration_heap(self):
     # Calibration also needs a contiguous block for its atomic JSON write.
     _release_plan_heap(self, True)
@@ -652,6 +671,7 @@ def _audible_buttons(self):
             # Short GP4 press: start and play the Start cue on release only.
             # Long GP4 press was consumed by the calibration branch above.
             if not stop_consumed and not self.blue.long:
+                _prepare_fresh_run(self)
                 self.guard.reset()
                 self.guard.last_decision = None
                 # A physical Start is a fresh observation boundary, exactly
@@ -1198,6 +1218,7 @@ def _live_host_poll(self):
                 # A host Start is a new run request. Reset the one-shot light
                 # transition gate so the same stable desktop state can execute
                 # again without power-cycling the Pico.
+                _prepare_fresh_run(self)
                 self.guard.reset()
                 self.guard.last_decision = None
                 self.debug_last_state = "__start__"

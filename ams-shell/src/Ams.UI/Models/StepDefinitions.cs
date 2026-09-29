@@ -302,7 +302,9 @@ public static class StepDefinitions
         },
         ["splashListener"] = new StepDefinition
         {
-            Label = "Splash Listener (Scoped)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0,
+            // Load-only compatibility for Build 95-118 documents. The serializer
+            // migrates this marker to an explicit Wait For Sound node.
+            Label = "Splash Listener (Legacy)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0,
             Fields = Array.Empty<FieldDef>(),
             Summarize = _ => "Splash Listener · Timeout از پروفایل Splash · تشخیص/Timeout → پرتاب بعدی",
             // Portable-only marker. PipelinePlanBundle supplies the profile timeout values.
@@ -310,8 +312,7 @@ public static class StepDefinitions
         },
         ["waitForSound"] = new StepDefinition
         {
-            // Legacy compatibility only. New projects insert splashListener instead.
-            Label = "Wait For Sound (Legacy)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,   // v0.9.34 — the If-structure needs the accordion/scope visuals (findImage parity)
+            Label = "Wait For Sound", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,
             Fields = new FieldDef[]
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
@@ -321,6 +322,7 @@ public static class StepDefinitions
                 new("peakMax", "Peak range maximum", FieldKind.Int, "511"),
                 new("soundPriority", "Priority when ranges overlap", FieldKind.Int, "0"),
                 new("minDurationMs", "Min duration (ms) — splash is a 1.5–2.2s event, 60–100 is safe (§16.2)", FieldKind.Int, "60"),
+                new("cooldownMs", "Cooldown after detection (ms)", FieldKind.Int, "900"),
                 new("timeoutMs", "Legacy timeout (ms)", FieldKind.Int, "20000"),
                 new("responseRoute", "Detection behavior", FieldKind.Combo, "inline", new[] { "inline", "splash" }),
                 new("timeoutMinSec", "Splash timeout minimum (seconds)", FieldKind.Int, "18"),
@@ -339,7 +341,7 @@ public static class StepDefinitions
                 : PropEx.GetBool(s.Props, "armed")
                     ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · trigger ≥{PropEx.GetInt(s.Props, "threshold", 90)} → {PropEx.GetString(s.Props, "act", "left")} click (armed)"
                     : PropEx.GetString(s.Props, "responseRoute", "inline") == "splash"
-                        ? $"Splash · timeout {PropEx.GetInt(s.Props, "timeoutMinSec", 18)}–{PropEx.GetInt(s.Props, "timeoutMaxSec", 22)}s · response tab → next cast"
+                        ? $"Catch sound ID {PropEx.GetInt(s.Props, "calibrationId", 2)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · timeout {PropEx.GetInt(s.Props, "timeoutMinSec", 18)}–{PropEx.GetInt(s.Props, "timeoutMaxSec", 22)}s · detected → child response"
                         : $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · P{PropEx.GetInt(s.Props, "soundPriority", 0)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
             Commands = s =>
             {
@@ -738,13 +740,19 @@ public static class StepDefinitions
     public static bool OpensIfElse(StepNode n)
         => IsConditionalContainer(n.Type) && PropEx.GetBool(n.Props, "insertIfElse");
 
+    public static bool IsCatchResponseContainer(StepNode n)
+        => n.Type == "waitForSound"
+           && PropEx.GetString(n.Props, "responseRoute", "inline") == "splash";
+
     /// <summary>True when this concrete node may adopt child steps.</summary>
     public static bool AcceptsChildren(StepNode n)
-        => Get(n.Type).IsContainer && (!IsConditionalContainer(n.Type) || OpensIfElse(n));
+        => Get(n.Type).IsContainer
+           && (!IsConditionalContainer(n.Type) || OpensIfElse(n) || IsCatchResponseContainer(n));
 
     /// <summary>True when this concrete node draws a scope band / vein in the flat list.</summary>
     public static bool IsScopeContainerNode(StepNode n)
-        => Get(n.Type).IsScopeContainer && (!IsConditionalContainer(n.Type) || OpensIfElse(n));
+        => Get(n.Type).IsScopeContainer
+           && (!IsConditionalContainer(n.Type) || OpensIfElse(n) || IsCatchResponseContainer(n));
 
     /// <summary>v0.9.23 — session typing fallbacks (human-calibrated defaults 80/220 ms,
     /// personalised by Options → "Measure from my hand"). TypeTextCommands uses them only

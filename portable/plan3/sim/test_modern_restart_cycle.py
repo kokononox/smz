@@ -50,8 +50,19 @@ assert owner.routes == [] and not cycle.marker.armed()
 assert owner.guard.resets == 1 and owner.debug_last_state == "__game-pass__"
 assert any("game-complete|action=continue|after=deadline-only" in x for x in owner.events)
 
+# Manual Stop -> Start creates a fresh run window without USB/cable recovery.
+owner.controls.stop(); cycle.tick()
+assert cycle.phase == "idle" and cycle.deadline is None and not cycle.marker.armed()
+clock.value += 1
+owner.controls.start(); cycle.tick()
+manual_deadline = cycle.deadline
+assert cycle.phase == "run" and manual_deadline is not None
+assert owner.routes == [] and any("cancelled|reason=manual-stop" in x for x in owner.events)
+cycle.route_complete("game_steps.txt")
+assert cycle.phase == "run" and cycle.deadline == manual_deadline
+
 # Only RUNFOR expiry enters After.
-clock.value = deadline; cycle.route_tick()
+clock.value = manual_deadline; cycle.route_tick()
 assert cycle.deadline_expired and not owner.controls.running
 cycle.tick()
 assert owner.routes == ["restart_steps.txt"]
@@ -91,7 +102,10 @@ race.phase = "wait-usb"; clock.value += 2; race.tick()
 assert race_owner.routes == ["startup_steps.txt"]
 
 source = (FW / "restart_cycle.py").read_text(encoding="utf-8")
+code_source = (FW / "code.py").read_text(encoding="utf-8")
 assert "wait-host-cdc" not in source and "microcontroller.reset()" not in source
 assert "RESET_DONE" not in source
 assert 'self._emit("game-complete", "action=continue|after=deadline-only")' in source
+assert "def _prepare_fresh_run(self):" in code_source
+assert code_source.count("_prepare_fresh_run(self)") >= 3
 print("modern restart cycle: A marker/USB resume and deadline-only After passed")

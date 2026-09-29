@@ -15,6 +15,7 @@ Scenarios:
  6. silence raises a timeout naming the command head (ERR|TIMEOUT|…)
  7. a non-brain port falls back to the encrypted BoardLink path
  8. HALT goes out as a bare write (abort path), close() sends HALT+BYE
+ 9. a busy Pico that misses the first PING reconnects without a cable cycle
 """
 import os
 import sys
@@ -79,6 +80,22 @@ class FakePort:
 
     def close(self):
         self.closed = True
+
+
+class RetryPingPort(FakePort):
+    """Ignore the first PING, then identify normally on the retry."""
+    def __init__(self):
+        super().__init__([])
+        self.pings = 0
+
+    def write(self, data):
+        data = bytes(data)
+        self.written.append(data)
+        if data.strip() == b"PING":
+            self.pings += 1
+            if self.pings >= 2:
+                self._rx += BRAIN_PONG.encode("utf-8") + b"\n"
+        return len(data)
 
 
 def fake_serial_module(port):
@@ -181,7 +198,13 @@ except Exception as e:
 # ── scenario 7: plain arm board -> encrypted fallback ─────────────────
 arm = FakePort([("PING", ["OK|PONG|ams-board 1.6"])])    # no role=brain
 br4 = fresh_bridge(arm)
-link4, dev4 = br4.open_link("COM17")
+test_key = os.path.join(BRIDGE_DIR, "ams_key.json")
+with open(test_key, "w", encoding="utf-8") as fh:
+    fh.write("{}")
+try:
+    link4, dev4 = br4.open_link("COM17")
+finally:
+    os.unlink(test_key)
 check("7a: non-brain port falls back to BoardLink", type(link4).__name__ == "BoardLink")
 check("7b: fallback connected to the same port", dev4 == "COM17")
 check("7c: fallback really used the encrypted path",
@@ -193,5 +216,15 @@ check("8a: abort path writes a bare HALT line", pico.written[-1] == b"HALT\n")
 link.close()
 check("8b: close sends HALT then BYE and closes the port",
       pico.written[-2] == b"HALT\n" and pico.written[-1] == b"BYE\n" and pico.closed)
+
+# ── scenario 9: missed first PING must not require cable replug ──────
+busy_pico = RetryPingPort()
+br5 = fresh_bridge(busy_pico)
+link5, dev5 = br5.open_link("COM31")
+check("9a: connect retries an idempotent PING on the same open port",
+      type(link5).__name__ == "PicoLink" and busy_pico.pings == 2)
+check("9b: retry keeps the same COM port and needs no close/reopen cycle",
+      dev5 == "COM31" and not busy_pico.closed)
+link5.close()
 
 print("=== bridge pico transport: %d checks passed, 0 failed ===" % PASSED)

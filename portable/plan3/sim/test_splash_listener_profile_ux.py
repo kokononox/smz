@@ -11,29 +11,30 @@ serializer = (root / "ams-shell/src/Ams.UI/Services/PipelineWorkspaceSerializer.
 exporter = (root / "ams-shell/src/Ams.UI/Services/PlanExporter.cs").read_text(encoding="utf-8")
 bundle = (root / "ams-shell/src/Ams.UI/Services/PipelinePlanBundle.cs").read_text(encoding="utf-8")
 
-assert "FormatVersion = 5" in model
+assert "FormatVersion = 6" in model
 assert "TimeoutMinSec" in model and "TimeoutMaxSec" in model
-assert "SplashTimeoutMinSec" in vm and "SplashTimeoutMaxSec" in vm
-assert "Timeout حداقل هر پرتاب" in ui and "Timeout حداکثر هر پرتاب" in ui
+assert "WhisperSoundEnabled" in vm
+assert "صدای Catch داخل استپ صریح Wait For Sound تنظیم می‌شود" in ui
+assert 'ProfileCard("اسپلش"' not in ui
 
-# New-project UI exposes the dedicated scoped marker, not generic Wait For Sound.
-assert xaml.count('CommandParameter="splashListener"') == 3
-assert 'CommandParameter="waitForSound"' not in xaml
+# Build 119 restores the explicit per-cast Wait For Sound editor.
+assert xaml.count('CommandParameter="waitForSound"') == 3
+assert 'CommandParameter="splashListener"' not in xaml
 assert '["splashListener"] = new StepDefinition' in steps
-assert 'Label = "Wait For Sound (Legacy)"' in steps
+assert 'Label = "Splash Listener (Legacy)"' in steps
+assert 'Label = "Wait For Sound"' in steps
 
-# Old responseRoute=splash documents migrate without changing the portable contract.
-assert "MigrateScopedSplash(workspace, version)" in serializer
-assert 'node.Type = "splashListener"' in serializer
+# Build 95-118 projects migrate back to an explicit node with visible children.
+assert "MigrateExplicitCatchWait(workspace)" in serializer
 assert 'node.Type == "waitForSound"' in serializer
-assert 'responseRoute", "inline") == "splash"' in serializer
+assert 'node.Type = "waitForSound"' in serializer
+assert "StepTreeSerializer.Restore(responseSnapshot)" in serializer
+assert "profile.Enabled = false" in serializer
 
 assert 'case "splashListener":EmitSplashListener(n);return;' in exporter
-assert 'WPROFILE|splash,18000,22000' in exporter
-assert "ApplySplashProfileTimeout" in bundle
-assert "splash.TimeoutMinSec * 1000" in bundle
-assert "splash.TimeoutMaxSec * 1000" in bundle
-assert "استپ Splash Listener فقط در تب Game مجاز است" in bundle
-assert "برای Splash Listener، پروفایل Splash" in bundle
+assert "FindCatchWaits" in bundle
+assert '"splash_steps.txt", "scoped"' in bundle
+assert "catchWait.Children" in bundle
+assert "x.ResponseTab == PipelineKind.Whisper" in bundle
 
-print("splash listener/profile UX contract passed")
+print("explicit catch wait + global whisper UX contract passed")
