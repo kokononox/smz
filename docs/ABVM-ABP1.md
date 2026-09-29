@@ -6,9 +6,10 @@ ABVM compiles an AMSJ/`StepNode` tree on the PC and runs a verified application 
 
 - The production exporter and Pico runtime remain unchanged.
 - The compiler currently targets the real `Game` and `Whisper` trees.
-- The host reference VM is the semantic oracle for future firmware.
-- `Whisper` has an explicit `INTERRUPT_AND_RESUME` route policy but global interrupt/resume execution is not implemented yet.
-- Firmware deployment starts only after compiler, verifier, fuzz tests, and differential tests are stable.
+- The host reference VM remains the semantic oracle.
+- The native core implements one fixed `INTERRUPT_AND_RESUME` slot.
+- A safe Pico SDK bring-up UF2 now runs the core with CDC/buttons and
+  deliberately stubbed input actors.
 
 ## Native fixed-state core
 
@@ -34,9 +35,30 @@ The core:
 The host smoke test runs a committed fishing-shaped Game/Whisper ABP through
 this native core, including Pause, interrupt, Watch detection, exact resume,
 completion, Stop, and corrupted-image rejection. The supplied current
-2,152-byte Game/Whisper image passes the same native smoke binary. HID, UART mouse, ADC sound, Guard buttons,
-flash slots, and TinyUSB are intentionally adapter work, not part of this
-portable scheduler.
+2,152-byte Game/Whisper image passes the same native smoke binary. HID, UART
+mouse, ADC sound, Guard buttons, flash slots, and TinyUSB are intentionally
+adapter work, not part of this portable scheduler.
+
+## Pico SDK bring-up image
+
+`firmware/abvm/pico` wraps the native core in the first RP2040 UF2:
+
+- `program.abp` is verified on the PC, converted to a `const` flash array at
+  build time, and verified again by the board at boot;
+- program and runtime are entirely inside the UF2, with no CIRCUITPY or FAT;
+- Pico's monotonic millisecond clock drives the scheduler;
+- USB CDC exposes PING/status/control and diagnostic sound injection;
+- GP3 is a debounced Pause/Resume button;
+- GP4 is a debounced Start/Stop button;
+- all work is serviced by a nonblocking one-millisecond board loop.
+
+This is deliberately a safe bring-up build. Key, Type, Mouse, and release-all
+events are logged as `ACTION|stub` / `HID|release-all|stub` and immediately
+acknowledged; the UF2 cannot emit keyboard or mouse input. CI builds with Pico
+SDK 2.1.1 and publishes UF2, ELF, and embedded ABP artifacts.
+
+The next adapter layer replaces only those stubs with TinyUSB keyboard and ARM
+UART actors. It must not change ABP bytecode or scheduler semantics.
 
 ## Single-image layout
 
@@ -181,4 +203,4 @@ Generated files are contracts and must not be edited manually.
 
 `program.abp` is independent of CircuitPython MPY. Migration can use a version-pinned MPY VM first and later replace it with a native RP2040 UF2 without changing AMSJ or ABP semantics.
 
-The transitional target is two FAT program slots with the active selector stored as redundant, generation-numbered NVM records. Production moves slots and selector records to raw flash, reads program data through XIP, and uses TinyUSB for HID/CDC. A slot activates only after size, CRC, program SHA-256, ABI, capabilities, and resource certificate pass.
+The current bring-up UF2 embeds one immutable ABP image and therefore has no FAT dependency. Production will place two program slots plus redundant generation-numbered selector records in raw flash, read program data through XIP, and use TinyUSB for HID/CDC. A slot activates only after size, CRC, program SHA-256, ABI, capabilities, and resource certificate pass.

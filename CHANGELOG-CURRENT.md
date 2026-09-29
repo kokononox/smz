@@ -1,3 +1,16 @@
+## ABVM phase 1 R5 — Pico SDK bring-up UF2
+
+- Added a Pico SDK target that embeds one verified `program.abp` directly in
+  flash and boots without CIRCUITPY, FAT, Python, or a connected PC.
+- Added USB CDC commands for PING, status, start, Pause/Resume, Stop, Whisper,
+  and diagnostic sound detection.
+- Added debounced GP3 Pause/Resume and GP4 Start/Stop control.
+- Connected the native VM to the RP2040 millisecond clock and nonblocking
+  board loop.
+- Kept HID, Type, Mouse, and release-all as explicitly logged safe stubs; this
+  UF2 cannot emit user input.
+- Added a CI Pico SDK/ARM build and uploaded UF2/ELF/program artifacts.
+
 ## ABVM phase 1 R4 — native fixed-state loader and scheduler
 
 - Added a dependency-free C11 ABVM core with no runtime heap allocation.

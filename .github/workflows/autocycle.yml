@@ -93,6 +93,53 @@ jobs:
             const tail = log.split('\n').slice(-80).join('\n');
             await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'<!-- autocycle-portable-failure -->\n**AutoCycle portable failure tail**\n```\n'+tail+'\n```'});
 
+  abvm-pico:
+    name: ABVM / Pico UF2 bring-up
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: 2.1.1
+          path: pico-sdk
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ARM toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v arm-none-eabi-gcc >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build
+          fi
+      - name: Compile ABP and build UF2
+        shell: bash
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
+        run: |
+          set -euo pipefail
+          python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj "$RUNNER_TEMP/program.abp" --routes Game Whisper
+          cmake -S firmware/abvm/pico -B "$RUNNER_TEMP/abvm-pico" -G Ninja \
+            -DPICO_BOARD=pico \
+            -DABVM_PROGRAM="$RUNNER_TEMP/program.abp"
+          cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
+          test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
+          arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
+      - name: Upload bring-up UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: ams-abvm-pico-bringup
+          path: |
+            ${{ runner.temp }}/abvm-pico/ams_abvm_pico.uf2
+            ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
+            ${{ runner.temp }}/program.abp
+          retention-days: 14
+          if-no-files-found: error
+
   windows-app:
     name: modern-autocycle / Windows TestRunner
     runs-on: windows-latest
