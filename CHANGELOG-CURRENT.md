@@ -4,6 +4,7 @@
 
 ## وضعیت فعلی در یک نگاه
 
+- **Candidate Build 110:** Bundle 381 رزرو Index را پاس کرد، اما چون Core و Runtime پیش از Parallel بارگذاری شدند، Compile Scheduler با free=46,768 و allocation=1388 شکست خورد. ترتیب Peak اکنون Reserve → Parallel preload → Core → Runtime است؛ هیچ منطق Scheduler، Sound، Mouse یا ARM تغییر نکرده است.
 - **Candidate Build 109:** Build 108 Parallel را با موفقیت روی Heap تازه Preload کرد، اما Bundle 380 بلافاصله بعد از آن هنگام ساخت Offset index برای ۳۶۹ فرمان با allocation برابر 1336 بایت شکست خورد. Index فشرده اکنون پیش از هر Import موتور Game روی Heap تازه رزرو و سپس بدون Scan/Allocation مجدد به FileCommands منتقل می‌شود؛ Parallel، Sound و Mouse تغییر نکرده‌اند.
 - **Candidate Build 108:** Build 107 خطای pystack را حذف کرد، اما Bundle 371 پس از ۲۱ ثانیه Prelude و با وجود 45KB Heap آزاد، هنگام Compile دیرهنگام ماژول Parallel به‌دلیل Fragmentation نتوانست بلوک پیوستهٔ 1388 بایتی بگیرد. Route فایل‌محور پیش از Load اسکن می‌شود و در صورت داشتن PGROUP، همان Scheduler موجود بلافاصله پس از Game Runtime و روی Heap تازه Preload می‌شود؛ منطق Parallel، Sound، Mouse و ARM تغییر نکرده‌اند.
 - **Candidate Build 107:** Build 106 Poll تو‌در‌توی SoundWatch را حذف کرد و Listener از مرحلهٔ Arm عبور کرد، اما Bundle 355 هنگام اولین RMOUSE در ساختار `PGROUP→LOOP→RPKG` و پس از Lazy import کامل موس با `pystack exhausted` متوقف شد. Generator بازگشتی Containerهای Game با Stack تکرارشوندهٔ صریح جایگزین شد؛ تولید/ارسال موس، ARM و Cadence بدون تغییرند.
@@ -47,6 +48,7 @@
 
 | Build | نتیجهٔ سخت‌افزاری | مسئله/تغییر اصلی | وضعیت |
 | --- | --- | --- | --- |
+| 110 | Bundle 381: Index رزرو شد؛ Parallel پس از Core/Runtime با allocation=1388 شکست خورد | جابه‌جایی Preload Scheduler به بلافاصله پس از Reserve و پیش از Core/Runtime | Local candidate؛ behavior unchanged |
 | 109 | Bundle 380: Parallel preload پاس؛ ساخت Index پس از Compile با allocation=1336 شکست خورد | رزرو Offset bytearray پیش از Importهای Game و تحویل بدون Allocation مجدد | Local candidate؛ runtime behavior unchanged |
 | 108 | Bundle 371: انتقال‌ها و file-index پاس؛ Compile دیرهنگام Parallel با free=45952 و allocation=1388 شکست خورد | Preload مشروط Scheduler پیش از File index و Prelude روی Heap تازه | Local candidate؛ scheduler/mouse/ARM unchanged |
 | 107 | Bundle 355: SoundWatch arm و همهٔ Lazy importها پاس؛ اولین RMOUSE داخل LOOP/RPKG با `pystack exhausted` متوقف شد | تبدیل Generator بازگشتی Containerهای Game به Stack Iterative | Local candidate؛ ARM/Mouse path unchanged |
@@ -101,6 +103,43 @@
 | 40 | Retry کالیبراسیون overlap | Calibration UX | Verified |
 | 39 | Facade صحیح در Export پروژهٔ جاری | Export ordering | Verified foundation |
 | 38 | Split executor اولیه | کاهش فشار Import | Superseded by 39 |
+
+## Build 110 — Preload Scheduler پیش از Core/Runtime
+
+**Previous build:** 109 / Classroom release 208
+**Status:** local candidate; hardware retest required
+
+### Problem observed
+
+Bundle 381 و هر ۴۰ Hash آن سالم بودند. رزرو Index کامل شد:
+`after-file-index-reserve|commands=369|offset-bytes=1476|free=55600`.
+سپس Core و Runtime بارگذاری شدند و Heap به 46,768 بایت رسید؛ Compile
+Scheduler در همان نقطه برای بلوک پیوستهٔ 1,388 بایت شکست خورد.
+
+### Root cause
+
+Build 109 تخصیص Index را زودهنگام کرد، اما Parallel را همچنان پس از دو Compile
+دیگر بارگذاری می‌کرد. Index رزروشده مشکل مستقلی نداشت؛ ترتیب Importها آخرین
+بلوک پیوستهٔ لازم برای Compiler Parallel را پیش از Preload خرد می‌کرد.
+
+### Change
+
+- ترتیب Game اکنون Reserve Index → Parallel preload → Core → Runtime → اجرا است.
+- Parallel روی Heap با حدود 55.6KB آزاد Compile می‌شود، نه پس از افت به 46.8KB.
+- همان Bytearray رزروشده بدون Scan یا Allocation دوباره به FileCommands می‌رسد.
+- Scheduler، SoundWatch، Natural Mouse، ARM، DDA و Cadence تغییر نکرده‌اند.
+
+### Validation
+
+- تست فایل‌محور ترتیب دقیق Reserve → Parallel → Core → Runtime را قفل می‌کند.
+- قراردادهای File index، Nested LOOP/RPKG/RMOUSE و Hashهای Bundle حفظ می‌شوند.
+
+### Next test
+
+Bundle را با Release بعدی کامل بازسازی کنید. در Game باید
+`after-file-index-reserve` سپس `before/after-parallel-preload` و بعد
+`before/after-core-import` و `after-runtime-import` ثبت شوند. پس از `file-index`
+باید Prelude و اولین RMOUSE اجرا شوند؛ سپس Splash واقعی و Timeout بررسی شوند.
 
 ## Build 109 — رزرو File Index پیش از Importهای Game
 
