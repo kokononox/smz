@@ -1,5 +1,6 @@
 """Tiny Game facade: imports core and runtime sequentially to cap RP2040 peaks."""
 import gc
+import plan_engine_game_inventory as inventory
 
 GameAbort = RuntimeError
 
@@ -35,27 +36,11 @@ def service_sound_exit(ctx, signal):
     return runtime.service_sound_exit(ctx, signal)
 
 def _file_inventory(name):
-    offsets = bytearray()
-    needs_parallel = False
-    with open("/" + name, "r") as route:
-        while True:
-            offset = route.tell()
-            raw = route.readline()
-            if not raw:
-                break
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            op = line.split("|", 1)[0].upper()
-            if op == "PGROUP":
-                needs_parallel = True
-            for shift in (0, 8, 16, 24):
-                offsets.append((offset >> shift) & 255)
-    return needs_parallel, offsets
+    return inventory.scan(name)
 
 def _run_game_file(name, ctx, resume):
     gc.collect(); _heap(ctx, "before-file-index-reserve"); gc.collect()
-    needs_parallel, offsets = _file_inventory(name)
+    needs_parallel, needs_type, offsets = _file_inventory(name)
     gc.collect(); _heap(ctx, "after-file-index-reserve|commands=%d|offset-bytes=%d" %
                        (len(offsets) // 4, len(offsets)))
     if needs_parallel:
@@ -71,6 +56,8 @@ def _run_game_file(name, ctx, resume):
                 _heap(ctx, stage + "-preload-memoryerror")
                 raise
             gc.collect(); _heap(ctx, "after-" + stage + "-preload")
+    if needs_type:
+        inventory.preload_type(ctx, _heap)
     core, runtime = _load(ctx)
     commands = core._FileCommands(name, offsets)
     gc.collect()

@@ -4264,6 +4264,7 @@ class TestRunner
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_inventory.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_actions.py"))
                    && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))

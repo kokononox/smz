@@ -3,6 +3,7 @@ import gc
 import random
 
 _mouse_module = None
+_type_runner = None
 
 class GameAbort(RuntimeError):
     pass
@@ -191,6 +192,14 @@ def _mouse(ctx, state):
     if state["pauses"] is None:
         state["pauses"] = _mouse_module.PausePlanner(ctx)
     return _mouse_module
+
+def _type(ctx):
+    global _type_runner
+    if _type_runner is None:
+        import plan_engine_login as helper
+        helper._typing(ctx)
+        _type_runner = helper.run_type
+    return _type_runner
 
 
 def _mouse_events(args, ctx, state):

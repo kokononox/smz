@@ -108,6 +108,9 @@ def _basic(op, args, ctx, state):
 def leaf(op, args, ctx, state):
     if _basic(op, args, ctx, state):
         return True
+    if op == "TYPE":
+        _core._type(ctx)(args, ctx)
+        return True
     if op == "RMOUSE":
         helper = _core._mouse(ctx, state)
         helper.run_rmouse(args, ctx, state["pauses"], state["pos"], state["speed"])

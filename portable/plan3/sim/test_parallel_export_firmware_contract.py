@@ -76,13 +76,14 @@ assert login_mouse.exists() and login_mouse.stat().st_size < 7000
 assert login_type.exists() and login_type.stat().st_size < 7000
 assert 'before-mouse-runtime-import' in login.read_text()
 assert all(name in bundle for name in ('plan_engine_parallel.py', 'plan_engine_game.py',
-    'plan_engine_game_core.py', 'plan_engine_game_runtime.py',
+    'plan_engine_game_core.py', 'plan_engine_game_inventory.py',
+    'plan_engine_game_runtime.py',
     'plan_engine_game_actions.py',
     'plan_engine_game_events.py', 'plan_engine_game_response.py',
     'plan_engine_game_parallel.py', 'plan_engine_game_sound.py', 'plan_engine_login.py',
     'plan_engine_login_core.py', 'plan_engine_login_mouse.py',
     'plan_engine_login_type.py'))
-assert 'manifestNames.Length != 44' in bundle
+assert 'manifestNames.Length != 45' in bundle
 for token in ('AFTER_ROUTE', 'STARTUP_ROUTE', 'class Marker',
               'phase = "wait-usb"', 'startup-in=', 'MAX_RESTARTS = 5'):
     assert token in cycle, token

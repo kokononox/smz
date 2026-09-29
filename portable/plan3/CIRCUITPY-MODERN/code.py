@@ -107,6 +107,7 @@ runtime.parse_calibration_set = parse_calibration_set
 
 for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py",
               "plan_engine_game.py", "plan_engine_game_core.py",
+              "plan_engine_game_inventory.py",
               "plan_engine_game_runtime.py", "plan_engine_game_events.py",
               "plan_engine_game_response.py", "plan_engine_game_parallel.py",
               "plan_engine_game_sound.py", "plan_engine_game_actions.py",
@@ -273,6 +274,13 @@ def _memory_safe_init(self):
     self.blue_stop_consumed = False
     self.blue_start_consumed = False
     self.blue_start_pending = False
+    # Physical button feedback must never play a blocking melody from inside
+    # a deep Game/Parallel/Mouse stack.  The cue sequencer is advanced by the
+    # cooperative control tick and therefore adds no nested sleep/call chain.
+    self.guard_cue_name = None
+    self.guard_cue_index = 0
+    self.guard_cue_next = 0
+    self.guard_cue_tone = None
     self.last_cal_error = None
     # Force the first sensor sample to emit STATE/unknown + lux instead of
     # silently comparing None == None.
@@ -359,23 +367,79 @@ def _cal_complete_melody(self):
         runtime.time.sleep(.035)
 
 def _guard_pattern(self, pattern):
+    # Calibration owns GP6 exclusively. Cancel a still-playing asynchronous
+    # Guard cue before entering any blocking calibration melody.
+    self.guard_cue_name = None
+    tone = self.guard_cue_tone
+    self.guard_cue_tone = None
+    if tone is not None:
+        try:
+            tone.duty_cycle = 0
+            tone.deinit()
+        except Exception:
+            pass
     for frequency, duration_ms in pattern:
         if frequency <= 0:
             runtime.time.sleep(duration_ms / 1000)
         else:
             self._cal_beep(frequency, duration_ms)
 
+def _queue_guard_cue(self, name):
+    self.guard_cue_name = name
+    self.guard_cue_index = 0
+    self.guard_cue_next = 0
+
+def _guard_cue_tick(self):
+    name = self.guard_cue_name
+    if name is None:
+        return
+    now = runtime.time.monotonic()
+    if now < self.guard_cue_next:
+        return
+    tone = self.guard_cue_tone
+    self.guard_cue_tone = None
+    if tone is not None:
+        try:
+            tone.duty_cycle = 0
+            tone.deinit()
+        except Exception:
+            pass
+    if name == "start":
+        pattern = _GUARD_START_PATTERN
+    elif name == "stop":
+        pattern = _GUARD_STOP_PATTERN
+    elif name == "pause":
+        pattern = _GUARD_PAUSE_PATTERN
+    else:
+        pattern = _GUARD_RESUME_PATTERN
+    index = self.guard_cue_index
+    if index >= len(pattern):
+        self.guard_cue_name = None
+        self.guard_cue_index = 0
+        return
+    frequency, duration_ms = pattern[index]
+    self.guard_cue_index = index + 1
+    self.guard_cue_next = now + duration_ms / 1000
+    if frequency > 0:
+        try:
+            self.guard_cue_tone = runtime.pwmio.PWMOut(
+                runtime.board.GP6, duty_cycle=32768,
+                frequency=int(frequency), variable_frequency=True)
+        except Exception:
+            self.guard_cue_name = None
+            self.emit("ERR|CAL|AUDIO")
+
 def _guard_start_tone(self):
-    self._guard_pattern(_GUARD_START_PATTERN)
+    self._queue_guard_cue("start")
 
 def _guard_stop_tone(self):
-    self._guard_pattern(_GUARD_STOP_PATTERN)
+    self._queue_guard_cue("stop")
 
 def _guard_pause_tone(self):
-    self._guard_pattern(_GUARD_PAUSE_PATTERN)
+    self._queue_guard_cue("pause")
 
 def _guard_resume_tone(self):
-    self._guard_pattern(_GUARD_RESUME_PATTERN)
+    self._queue_guard_cue("resume")
 
 def _calibration_enter_tone(self):
     self._guard_pattern(_CAL_ENTER_PATTERN)
@@ -411,6 +475,15 @@ def _silent_shutdown(self):
         self.arm.abort()
     except Exception:
         pass
+    self.guard_cue_name = None
+    tone = self.guard_cue_tone
+    self.guard_cue_tone = None
+    if tone is not None:
+        try:
+            tone.duty_cycle = 0
+            tone.deinit()
+        except Exception:
+            pass
 
 def _immediate_audible_start(self):
     # Acknowledge Start on the physical press, not on release. Route execution
@@ -698,6 +771,7 @@ def _cycle_controls_tick(self):
     # A newly stable optical state aborts the old route without stopping the
     # overall run; the outer loop consumes Guard.last_decision next.
     self.buttons()
+    self.guard_cue_tick()
     self.cycle.route_tick()
     profile = getattr(self, "route_active_profile", None)
     now = runtime.time.monotonic()
@@ -1070,6 +1144,7 @@ def _audible_loop(self):
     while True:
         self.host_poll()
         self.buttons()
+        self.guard_cue_tick()
         self.arm.pump()
         self.cycle.tick()
         if (self.controls.running and not self.calibrating and not self.sound_calibrating and
@@ -1292,6 +1367,8 @@ runtime.Combined.cal_save_success_tone = _cal_save_success_tone
 runtime.Combined.cal_save_error_tone = _cal_save_error_tone
 runtime.Combined.cal_complete_melody = _cal_complete_melody
 runtime.Combined._guard_pattern = _guard_pattern
+runtime.Combined._queue_guard_cue = _queue_guard_cue
+runtime.Combined.guard_cue_tick = _guard_cue_tick
 runtime.Combined.guard_start_tone = _guard_start_tone
 runtime.Combined.guard_stop_tone = _guard_stop_tone
 runtime.Combined.guard_pause_tone = _guard_pause_tone

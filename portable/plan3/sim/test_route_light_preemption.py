@@ -63,6 +63,7 @@ class Runtime:
         self.route_active_profile = "login-or-dc"
         self.route_light_last = 0
     def buttons(self): pass
+    def guard_cue_tick(self): pass
     def emit(self, line): events.append(("emit", line))
 
 board = Runtime()

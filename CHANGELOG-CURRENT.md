@@ -1,3 +1,21 @@
+## Build 120 — stack-safe physical controls and Game Type Text
+
+- Reworked the GP3 Pause/Resume and GP4 Stop/Start audio feedback as a
+  cooperative, non-blocking cue sequencer. Physical Stop still releases HID
+  and aborts the route immediately, but no longer plays a nested blocking
+  melody on the deep `LOOP/RPKG/PGROUP/RMOUSE` stack.
+- Preserved the existing audible patterns while advancing them from the
+  regular control tick. Silent shutdown also cancels and deinitializes any
+  active cue.
+- Added `TYPE` dispatch to the iterative Game VM. Type Text used directly in
+  Game or inside Whisper/Splash response files now uses the existing
+  human-typing implementation.
+- Game file inventory detects Type Text in both the main route and referenced
+  SoundWatch response files, then preloads and binds typing before entering
+  the deep Game stack.
+- Added regression coverage for non-blocking physical-button cues, immediate
+  Stop safety, Game Type Text dispatch, and response-route type preloading.
+
 # Classroom Studio — Current Hardware Changelog
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.

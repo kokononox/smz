@@ -94,8 +94,9 @@ assert stages.index("after-file-index-reserve|commands=6|offset-bytes=24") < \
 with tempfile.NamedTemporaryFile("w", delete=False) as route:
     route.write("PLAN|2\nDELAY|0,0\n")
     reserved_name = route.name.lstrip("/")
-needs_parallel, reserved = game._file_inventory(reserved_name)
-assert not needs_parallel and isinstance(reserved, bytearray) and len(reserved) == 8
+needs_parallel, needs_type, reserved = game._file_inventory(reserved_name)
+assert not needs_parallel and not needs_type
+assert isinstance(reserved, bytearray) and len(reserved) == 8
 reserved_commands = core._FileCommands(reserved_name, reserved)
 try:
     assert reserved_commands.offsets is reserved
