@@ -96,7 +96,7 @@ jobs:
   abvm-pico:
     name: ABVM / Pico UF2 bring-up
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -129,7 +129,43 @@ jobs:
           cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
           test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
           arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
-      - name: Upload bring-up UF2
+      - name: Build and flatten 30 patchable identity templates
+        shell: bash
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
+        run: |
+          set -euo pipefail
+          bash firmware/abvm/pico/build_batch.sh \
+            "$RUNNER_TEMP/program.abp" firmware/abvm/pico/batch30.json \
+            "$RUNNER_TEMP/abvm-templates" "$RUNNER_TEMP/abvm-pico/_deps/pico1-src"
+          mkdir -p "$RUNNER_TEMP/native-runtime"
+          python - <<'PY'
+          import hashlib, json, os, pathlib, shutil
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          root = temp / "abvm-templates"
+          out = temp / "native-runtime"
+          batch = json.loads(pathlib.Path("firmware/abvm/pico/batch30.json").read_text())
+          index = []
+          for profile in batch["profiles"]:
+              board = profile["target_board"]
+              code = profile["serial_prefix"].rstrip("-")
+              source = root / board / f"{board}.uf2"
+              target = out / f"runtime-{code}.uf2"
+              shutil.copy2(source, target)
+              index.append({
+                  "code": code, "file": target.name, "target_board": board,
+                  "manufacturer": profile["usb_manufacturer"],
+                  "product": profile["usb_product"],
+                  "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+              })
+          (out / "index.json").write_text(json.dumps({"schema": 1, "templates": index}, indent=2) + "\n")
+          assert len(index) == 30
+          PY
+          python tools/abvm_uf2.py \
+            "$RUNNER_TEMP/native-runtime/runtime-NB01.uf2" \
+            "$RUNNER_TEMP/program.abp" "$RUNNER_TEMP/template-selftest.uf2"
+          test -s "$RUNNER_TEMP/template-selftest.uf2"
+      - name: Upload bring-up UF2 and native templates
         uses: actions/upload-artifact@v4
         with:
           name: ams-abvm-pico-bringup
@@ -137,11 +173,13 @@ jobs:
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.uf2
             ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
             ${{ runner.temp }}/program.abp
+            ${{ runner.temp }}/native-runtime/**
           retention-days: 14
           if-no-files-found: error
 
   windows-app:
     name: modern-autocycle / Windows TestRunner
+    needs: [abvm-pico]
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -172,11 +210,18 @@ jobs:
           dotnet run --project tests/LightTelemetryTests/LightTelemetryTests.csproj -c Release 2>&1 | Tee-Object light-telemetry-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path light-telemetry-tests.log -Pattern '([1-9][0-9]*) failed' -Quiet) { exit 1 }
+      - name: Download native UF2 templates
+        uses: actions/download-artifact@v4
+        with:
+          name: ams-abvm-pico-bringup
+          path: native-artifact
       - name: Stage Windows test output
         if: success()
         shell: pwsh
         run: |
           $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          New-Item -ItemType Directory -Force "$out/native-runtime" | Out-Null
+          Copy-Item -Recurse -Force 'native-artifact/native-runtime/*' "$out/native-runtime/"
           Remove-Item -Recurse -Force "$out/bridge/__pycache__" -ErrorAction SilentlyContinue
           @(
             'Classroom Studio — Light State Profiles test build',
