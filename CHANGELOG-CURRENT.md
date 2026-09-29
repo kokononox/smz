@@ -2,6 +2,38 @@
 
 این سند مرجع سریع وضعیت شاخهٔ پایدار `stable/natural-mouse-v1` است. ترتیب ورودی‌ها معکوس زمانی است؛ جدیدترین Build همیشه بالاتر قرار می‌گیرد.
 
+## Build 118 R15 — شکستن واحد کامپایل Runtime
+
+**Previous build:** 118 R14 / Classroom release 221
+**Status:** compiler-sharding candidate; 55 portable contracts green; hardware retest required
+
+### Problem observed
+
+Bundle 710 با وجود R14 و `free=20992` دوباره دقیقاً در `runtime-import` با خطای تخصیص پیوستهٔ ۱۳۳۶ بایت متوقف شد. بنابراین کاهش ۱۶۵ بایتی فایل Runtime برای پایین‌آوردن Peak کامپایل CircuitPython کافی نبود.
+
+### Root cause
+
+مسئله کمبود مجموع Heap نیست؛ Runtime یک واحد کامپایل ۶۴۲۵ بایتی بود که پس از Preload شدن Sound، Parallel، Events، Response و Core باید یک‌جا کامپایل می‌شد. Heap آزاد کافی بود، اما بلوک پیوستهٔ موقت موردنیاز Compiler در Heap قطعه‌قطعه‌شده وجود نداشت.
+
+### Change
+
+- عملیات ترتیبی Game شامل `DELAY/KEY/RMOUSE/SOUNDWATCH/WPROFILE/WSND` به Shard مستقل `plan_engine_game_actions.py` منتقل شد.
+- اندازهٔ واحد Runtime از ۶۴۲۵ به ۳۴۹۱ بایت کاهش یافت؛ Shard عملیات نیز فقط ۳۷۶۷ بایت است.
+- Actions پیش از Core/Runtime روی Heap تازه‌تر Preload می‌شود؛ در زمان اجرا فقط Bind سبک Callbackها انجام می‌گیرد.
+- Cursor، Deadline، Scoped Winner، Response فایل‌محور، Random Package، ARM و Cadence بدون تغییر معنایی حفظ شدند.
+- موجودی Bundle و Manifest از ۴۳ به ۴۴ فایل افزایش یافت و Export/Verify/Calibration cleanup با آن همگام شد.
+
+### Validation
+
+- هر ۵۵ قرارداد Portable و Python compile سبز است.
+- قراردادهای File-backed Game، Scoped Splash، SoundWatch، Export و Calibration Heap سبز هستند.
+- شبیه‌ساز داخلی: ۳ Cast، ۲ Catch و Deadline ثابت، بدون Restart یا `KeyError`.
+- TestRunner محلی اجرا نشد چون SDK دات‌نت در محیط عامل موجود نبود؛ Gate رسمی Windows روی PR اجرا خواهد شد.
+
+### Next test
+
+روی Pico، Bundle جدید باید `after-actions-preload` و سپس `after-runtime-import` را ثبت کند. بعد از آن صدا و Response باید اجرا شوند و حداقل دو Cast متوالی بدون `MemoryError`، `KeyError('_game_cursor')` یا Restart کامل Game ادامه یابند.
+
 ## Build 118 R14 — کاهش Peak کامپایل Runtime
 
 **Previous build:** 118 R13 / Classroom release 220

@@ -109,7 +109,7 @@ for _name in ("pico-calibration.json", "README-FLASH.md", "plan_engine_parse.py"
               "plan_engine_game.py", "plan_engine_game_core.py",
               "plan_engine_game_runtime.py", "plan_engine_game_events.py",
               "plan_engine_game_response.py", "plan_engine_game_parallel.py",
-              "plan_engine_game_sound.py",
+              "plan_engine_game_sound.py", "plan_engine_game_actions.py",
               "plan_engine_human.py", "plan_engine_login.py",
               "plan_engine_exec.py", "plan_engine_parallel.py",
               "sound_step_calibration.py", "restart_cycle.py", "restart_windows.py",
@@ -455,7 +455,7 @@ _original_yellow_action = runtime.Combined.yellow_action
 _PLAN_MODULES = ("plan_engine_exec", "plan_engine_game", "plan_engine_game_core",
                  "plan_engine_game_runtime", "plan_engine_game_events",
                  "plan_engine_game_response", "plan_engine_game_parallel",
-                 "plan_engine_game_sound",
+                 "plan_engine_game_sound", "plan_engine_game_actions",
                  "plan_engine_human", "plan_engine_login", "plan_engine_login_core",
                  "plan_engine_login_mouse", "plan_engine_login_type",
                  "plan_engine_parallel", "plan_engine_parse")

@@ -120,9 +120,10 @@ assert ('key',(70,)) in flash.ev and closed==[True],flash.ev
 print('scoped Splash: hardware response remains file-backed')
 
 runtime_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_runtime.py').read_text(encoding='utf-8')
+actions_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_actions.py').read_text(encoding='utf-8')
 sound_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_sound.py').read_text(encoding='utf-8')
 assert '_queue_sound_watch' not in runtime_text
-assert 'ctx.install_sound_watch(_core._watch_profiles(args))' in runtime_text
+assert 'ctx.install_sound_watch(_core._watch_profiles(args))' in actions_text
 assert 'before-response-bind' in runtime_text
 assert 'before-response-callback' in sound_text
 assert '_response_run(ctx, name, state, _run)' in runtime_text
