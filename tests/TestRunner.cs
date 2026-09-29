@@ -4345,6 +4345,9 @@ class TestRunner
             var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
             var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
             var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
+            var gameRunStart = gameRuntime.IndexOf("def _run(", StringComparison.Ordinal);
+            var gameRunBody = gameRuntime.IndexOf('\n', gameRunStart) + 1;
+            var gameRunEnd = gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal);
             Assert(!gameHelper.Contains("import plan_engine_parse")
                    && !gameHelper.Contains("import plan_engine_exec")
                    && gameHelper.Contains("def run_game(")
@@ -4368,10 +4371,8 @@ class TestRunner
                    && gameEvents.Contains("def events(")
                    && gameEvents.Contains("class Cursor:")
                    && gameEvents.Length < 9000
-                   && !gameRuntime.Substring(
-                       gameRuntime.IndexOf("def _run(", StringComparison.Ordinal),
-                       gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal)
-                           - gameRuntime.IndexOf("def _run(", StringComparison.Ordinal))
+                   && gameRunStart >= 0 && gameRunBody > gameRunStart && gameRunEnd > gameRunBody
+                   && !gameRuntime.Substring(gameRunBody, gameRunEnd - gameRunBody)
                        .Contains("_run(commands,")
                    && gameParallel.Contains("sound_parallel_safe")
                    && gameParallel.Length < 9000,
