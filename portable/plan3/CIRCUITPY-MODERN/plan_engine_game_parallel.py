@@ -1,6 +1,7 @@
 """Cooperative Game parallel scheduler, imported only at the first PGROUP."""
 
-def run(commands, start, end, ctx, state, core, events, run_response):
+def run(commands, start, end, ctx, state, core, events, run_response,
+        service_pending_response):
     branches = core._items(commands, start, end, "PARITEM", "PGROUP", "ENDPAR")
     now = int(ctx.now() * 1000)
     tasks = [{"it": events(commands, a, b, ctx, state), "due": now,
@@ -11,6 +12,7 @@ def run(commands, start, end, ctx, state, core, events, run_response):
     try:
         while tasks:
             if not ctx.gate(): core._abort()
+            service_pending_response(ctx, state)
             now = int(ctx.now() * 1000); progressed = False
             for task in tuple(tasks):
                 if task not in tasks: continue

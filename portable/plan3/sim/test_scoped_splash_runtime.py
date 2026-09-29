@@ -11,12 +11,16 @@ class Ctx:
     def __init__(self, splash=True):
         self.t=0.0; self.ev=[]; self.cb=None; self.scope=None
         self.whisper=False; self.splash=splash; self.profile_result=None
+        self.in_callback=False
     def now(self): return self.t
     def gate(self): return self.t < 2
     def log(self,s): self.ev.append(('log',s))
     def sleep_ms(self,ms):
         self.t += ms/1000
-        if self.cb: self.cb()
+        if self.cb:
+            self.in_callback=True
+            try: self.cb()
+            finally: self.in_callback=False
         return self.gate()
     def install_sound_watch(self,profiles,cb): self.profiles=profiles; self.cb=cb; self.ev.append(('watch',len(profiles)))
     def poll_sound_watch(self):
@@ -37,8 +41,12 @@ class Ctx:
         if name=='whisper_steps.txt': return 'PLAN|2\nBEEP|1900,80\n'
         if name=='splash_steps.txt': return 'PLAN|2\nKEY|combo=70\n'
         raise AssertionError(name)
-    def beep(self,f,d): self.ev.append(('beep',f,d))
-    def key_combo(self,v,a,z): self.ev.append(('key',tuple(v)))
+    def beep(self,f,d):
+        assert not self.in_callback, 'response executed inside sleep callback'
+        self.ev.append(('beep',f,d))
+    def key_combo(self,v,a,z):
+        assert not self.in_callback, 'response executed inside sleep callback'
+        self.ev.append(('key',tuple(v)))
     def kdown(self,v): pass
     def kup(self,v): pass
     def wheel(self,v): pass
@@ -93,8 +101,17 @@ game_core._FileCommands=FlashCommands
 flash=Ctx(True)
 flash.read_plan_file=lambda name: (_ for _ in ()).throw(AssertionError('heap read '+name))
 game_runtime._core=game_core
+game_runtime._response_run=None
+game_runtime._prepare_response(flash)
 game_runtime._run_response(flash,'splash_steps.txt',
     {'speed':[0,2000],'pos':[960,540],'pauses':None})
 game_core._FileCommands=original_commands
 assert ('key',(70,)) in flash.ev and closed==[True],flash.ev
 print('scoped Splash: hardware response remains file-backed')
+
+runtime_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_runtime.py').read_text(encoding='utf-8')
+assert 'state["_response"] = winner' in runtime_text
+assert 'lambda: _queue_sound_watch(ctx, state)' in runtime_text
+assert 'before-response-bind' in runtime_text and 'before-response-callback' in runtime_text
+assert '_response_run(ctx, name, state, _run)' in runtime_text
+print('SoundWatch: callback queues only; pre-bound runner executes after callback unwind')
