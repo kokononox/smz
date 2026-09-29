@@ -30,7 +30,7 @@ typedef struct KeyboardActor {
 
 static KeyboardActor actor;
 
-static bool time_reached(uint32_t now, uint32_t due) {
+static bool deadline_reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
 }
 
@@ -153,7 +153,7 @@ bool hid_keyboard_service(uint32_t now, uint8_t *completed_lane) {
                 actor.phase = ACTOR_WAIT_HOLD;
             break;
         case ACTOR_WAIT_HOLD:
-            if (time_reached(now, actor.due)) actor.phase = ACTOR_SEND_RESTORE;
+            if (deadline_reached(now, actor.due)) actor.phase = ACTOR_SEND_RESTORE;
             break;
         case ACTOR_SEND_RESTORE:
             if (send_report(actor.persistent_modifiers, actor.persistent_keys)) {
