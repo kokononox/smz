@@ -1,58 +1,29 @@
-"""Game scheduler/interpreter; core is injected after sequential imports."""
-import gc
-import random
-
-_core = None
-_response_run = None
-_sound_support = None
-
+import gc,random
+_core=None; _response_run=None; _sound_support=None
 def _event_module():
     import plan_engine_game_events as module
-    module.bind(_core)
-    return module
-
-
-def _events(commands, start, end, ctx, state):
-    return _event_module().events(commands, start, end, ctx, state)
-
+    module.bind(_core); return module
+def _events(commands, start, end, ctx, state): return _event_module().events(commands, start, end, ctx, state)
 def _prepare_response(ctx):
     global _response_run
-    if _response_run is not None:
-        return
+    if _response_run is not None: return
     _core._emit_heap(ctx, "before-response-bind")
     import plan_engine_game_response as module
     module.bind(_core)
     _response_run = module.run
     _core._emit_heap(ctx, "after-response-bind")
-
-
 def _run_response(ctx, name, state):
-    if _response_run is None:
-        _prepare_response(ctx)
+    if _response_run is None: _prepare_response(ctx)
     return _response_run(ctx, name, state, _run)
-
-
 def _sound_module():
     global _sound_support
     if _sound_support is None:
         import plan_engine_game_sound as module
-        module.bind(_core)
-        _sound_support = module
+        module.bind(_core); _sound_support = module
     return _sound_support
-
-
-def _resolve_sound_watch(ctx):
-    return _sound_module().resolve_sound_watch(ctx)
-
-
-def _service_pending_response(ctx, state):
-    return _sound_module().service_pending_response(ctx, state, _run_response)
-
-
-def service_sound_exit(ctx, signal):
-    return _sound_module().service_sound_exit(ctx, signal, _run_response)
-
-
+def _resolve_sound_watch(ctx): return _sound_module().resolve_sound_watch(ctx)
+def _service_pending_response(ctx, state): return _sound_module().service_pending_response(ctx, state, _run_response)
+def service_sound_exit(ctx, signal): return _sound_module().service_sound_exit(ctx, signal, _run_response)
 def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "before-parallel-import"); gc.collect()
     try:
@@ -63,8 +34,6 @@ def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "after-parallel-import")
     return parallel.run(commands, start, end, ctx, state, _core,
                         _events, _response_run, _run, _resolve_sound_watch)
-
-
 def _profile(args, ctx, state):
     values = args.replace(" ", "").split(",")
     lo, hi = int(values[1]), int(values[2])
@@ -82,8 +51,6 @@ def _profile(args, ctx, state):
             _service_pending_response(ctx, state)
     finally:
         ctx.end_profile_wait()
-
-
 def _wait_sound(op, args, ctx):
     values = args.replace(" ", "").split(",")
     if op == "WSND":
@@ -98,8 +65,6 @@ def _wait_sound(op, args, ctx):
     if heard is None: _core._abort()
     ctx.log(("wsndp" if op == "WSNDP" else "wsnd") +
             (" heard" if heard else " timeout - continue"))
-
-
 def _sound(op, args, ctx, state):
     if op == "SOUNDWATCH":
         ctx.install_sound_watch(_core._watch_profiles(args))
@@ -110,14 +75,10 @@ def _sound(op, args, ctx, state):
         _profile(args, ctx, state)
     else:
         _wait_sound(op, args, ctx)
-
-
 def _beep(args, ctx):
     values = [int(v) for v in args.replace(",", " ").split()]
     if len(values) != 2: raise ValueError("BEEP needs frequency,duration")
     ctx.beep(values[0], values[1])
-
-
 def _basic(op, args, ctx, state):
     if op == "PLAN": pass
     elif op == "SCREEN":
@@ -138,8 +99,6 @@ def _basic(op, args, ctx, state):
     else:
         return False
     return True
-
-
 def _leaf(op, args, ctx, state):
     if _basic(op, args, ctx, state):
         return True
@@ -151,21 +110,14 @@ def _leaf(op, args, ctx, state):
         _sound(op, args, ctx, state)
         return True
     return False
-
 def _run(commands, start, end, ctx, state, labels, cursor=None):
     if cursor is None:
         cursor = _event_module().Cursor(commands, start, end, ctx)
     else:
-        # A scoped SoundWatch response is deliberately executed only after the
-        # scheduler stack has unwound.  The Flash file is reopened afterwards,
-        # so rebind the explicit VM cursor without resetting its frames or the
-        # LOOPTIME deadline stored in them.
-        cursor.commands = commands
-        cursor.ctx = ctx
+        cursor.commands = commands; cursor.ctx = ctx
     while True:
         item = cursor.next()
-        if item is None:
-            return
+        if item is None: return
         op, args = item[0], item[1]
         if _leaf(op, args, ctx, state):
             pass
@@ -186,7 +138,6 @@ def _run(commands, start, end, ctx, state, labels, cursor=None):
         if state["watch"] and ctx.r.arm.sound_result is True:
             return ctx._sound_watch
         _service_pending_response(ctx, state)
-
 def run_game(commands, ctx, core, resume=None):
     global _core
     _core = core
@@ -199,12 +150,10 @@ def run_game(commands, ctx, core, resume=None):
                 if not item[1] or item[1] in labels:
                     raise ValueError("LABEL needs a unique name")
                 labels[item[1]] = label_index
-        state = {"speed": [0, 2000],
-                 "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
+        state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
                  "pauses": None, "watch": False}
     else:
-        labels = resume["_game_labels"]
-        cursor = resume["_game_cursor"]
+        labels = resume["_game_labels"]; cursor = resume["_game_cursor"]
         state = resume["game_state"]
     gc.collect()
     result = None
