@@ -8,11 +8,13 @@ on:
       - 'portable/plan3/CIRCUITPY/**'
       - 'ams-shell/src/Ams.UI/Ams.UI.csproj'
       - '.github/workflows/golden-100.yml'
+      - '.gitattributes'
   pull_request:
     paths:
       - 'portable/plan3/CIRCUITPY/**'
       - 'ams-shell/src/Ams.UI/Ams.UI.csproj'
       - '.github/workflows/golden-100.yml'
+      - '.gitattributes'
 
 permissions:
   contents: read

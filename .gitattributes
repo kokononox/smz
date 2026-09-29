@@ -1,0 +1,2 @@
+# Golden-100 hashes describe exact repository bytes; never rewrite EOLs.
+portable/plan3/CIRCUITPY/** -text
