@@ -6,12 +6,18 @@ root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root/'CIRCUITPY-MODERN'))
 import plan_engine_game as game
 
+class ArmState:
+    sound_result=None
+class RuntimeState:
+    def __init__(self): self.arm=ArmState()
+
 class Ctx:
     screen_w=1920; screen_h=1080; speed_min=300; speed_max=2000
     def __init__(self, splash=True):
         self.t=0.0; self.ev=[]; self.scope=None; self.pending=None
         self.whisper=False; self.splash=splash; self.profile_result=None
         self.in_sleep=False
+        self.r=RuntimeState()
     def now(self): return self.t
     def gate(self): return self.t < 2
     def log(self,s): self.ev.append(('log',s))
@@ -21,7 +27,10 @@ class Ctx:
         try: self.poll_sound_watch()
         finally: self.in_sleep=False
         return self.gate()
-    def install_sound_watch(self,profiles): self.profiles=profiles; self.pending=None; self.ev.append(('watch',len(profiles)))
+    def install_sound_watch(self,profiles):
+        self.profiles=profiles; self.pending=None
+        self._sound_watch={"profiles":profiles,"scope_result":None}
+        self.ev.append(('watch',len(profiles)))
     def poll_sound_watch(self):
         if self.pending is None and not self.whisper and self.t >= .02:
             self.whisper=True
@@ -82,7 +91,7 @@ profile_wait=runtime_source.split('    def poll_profile_wait(self, profile_id):'
     '    def end_profile_wait(self):',1)[0]
 assert '_sound_watch_callback' not in profile_wait,profile_wait
 assert 'return state.get("scope_result")' in profile_wait,profile_wait
-print('scoped Splash: profile waiter is passive; sleep_ms exclusively services callback')
+print('scoped Splash: profile waiter is passive; response stays outside sleep')
 
 # Hardware response routes must stay file-backed instead of allocating the
 # whole text plus a tuple list after SoundWatch has fragmented the Pico heap.
@@ -119,6 +128,10 @@ assert '_response_run(ctx, name, state, _run)' in runtime_text
 parallel_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game_parallel.py').read_text(encoding='utf-8')
 assert 'response_runner(ctx, winner["file"], state, execute)' in parallel_text
 assert 'service_pending_response' not in parallel_text
+loop_body=parallel_text.split('while tasks:',1)[1].split('now = int(ctx.now()',1)[0]
+assert loop_body.index('ctx.r.arm.sound_result is True') < loop_body.index(
+    'resolve_sound_watch(ctx)')
+assert 'return ctx._sound_watch' in loop_body
 context_text=(root/'CIRCUITPY-MODERN'/'combined_guard_runtime.py').read_text(encoding='utf-8')
 assert '_sound_watch_callback' not in context_text
 assert 'self._sound_watch_pending = True' in context_text
@@ -140,4 +153,16 @@ assert 'profiles = state["armed"]' in resolve_body
 assert resolve_body.index('ctx.poll_sound_watch()') < resolve_body.index(
     'ctx.take_sound_watch()')
 assert '_resolve_sound_watch(ctx)' in runtime_text
-print('SoundWatch: sleep only observes raw UART state; Game polls after unwind')
+assert 'def service_sound_exit(ctx, signal):' in runtime_text
+service_body=runtime_text.split('def service_sound_exit(ctx, signal):',1)[1].split(
+    'def _parallel(',1)[0]
+assert 'ctx.r.arm.send("ASNDCANCEL", 2)' in service_body
+facade_text=(root/'CIRCUITPY-MODERN'/'plan_engine_game.py').read_text(encoding='utf-8')
+assert 'def service_sound_exit(ctx, signal):' in facade_text
+code_text=(root/'CIRCUITPY-MODERN'/'code.py').read_text(encoding='utf-8')
+assert 'plan_engine_game.service_sound_exit(ctx, signal)' in code_text
+route_loop=code_text.split('route_ctx = runtime.PlanContext(self)',1)[1].split(
+    'except RuntimeError as exc:',1)[0]
+assert 'while True:' in route_loop and 'signal = _run_light_route' in route_loop
+assert 'route_ctx.close()' in route_loop and 'gc.collect()' in route_loop
+print('SoundWatch: raw detection unwinds Game; response runs before fresh cast')

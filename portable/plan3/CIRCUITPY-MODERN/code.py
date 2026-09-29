@@ -757,8 +757,11 @@ def _run_light_route(ctx, commands):
             _game_heap(ctx, "engine-import-memoryerror")
             raise
         gc.collect(); _game_heap(ctx, "after-engine-import")
-        plan_engine_game.run_game_file(commands, ctx)
-        return
+        signal = plan_engine_game.run_game_file(commands, ctx)
+        if signal is not None:
+            plan_engine_game.service_sound_exit(ctx, signal)
+            return True
+        return None
     if any(item[0] in ("PGROUP", "SOUNDWATCH", "WPROFILE") for item in commands):
         gc.collect()
         import plan_engine_game
@@ -947,7 +950,14 @@ def _diagnostic_route(self, decision):
             # Keep simple Pico-only routes off the large plan_engine import.
             route_ctx = runtime.PlanContext(self)
             try:
-                _run_light_route(route_ctx, commands)
+                while True:
+                    signal = _run_light_route(route_ctx, commands)
+                    if signal is None:
+                        break
+                    route_ctx.close()
+                    del route_ctx
+                    gc.collect()
+                    route_ctx = runtime.PlanContext(self)
             except RuntimeError as exc:
                 if str(exc) == "route aborted":
                     self.emit("EVT|DEBUG|ROUTE/aborted " + name)

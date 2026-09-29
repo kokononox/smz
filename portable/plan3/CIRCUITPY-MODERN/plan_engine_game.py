@@ -34,6 +34,11 @@ def run_game(commands, ctx):
     return runtime.run_game(commands, ctx, core)
 
 
+def service_sound_exit(ctx, signal):
+    import plan_engine_game_runtime as runtime
+    return runtime.service_sound_exit(ctx, signal)
+
+
 def _file_inventory(name):
     offsets = bytearray()
     needs_parallel = False
@@ -74,10 +79,10 @@ def run_game_file(name, ctx):
             gc.collect(); _heap(ctx, "after-" + stage + "-preload")
     core, runtime = _load(ctx)
     commands = core._FileCommands(name, offsets)
-    try:
-        gc.collect()
-        _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
-              (len(commands), len(commands.offsets)))
-        return runtime.run_game(commands, ctx, core)
-    finally:
+    gc.collect()
+    _heap(ctx, "file-index|commands=%d|offset-bytes=%d" %
+          (len(commands), len(commands.offsets)))
+    result = runtime.run_game(commands, ctx, core)
+    if result is None:
         commands.close()
+    return result

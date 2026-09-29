@@ -12,6 +12,8 @@ def run(commands, start, end, ctx, state, core, events, response_runner,
     try:
         while tasks:
             if not ctx.gate(): core._abort()
+            if state["watch"] and ctx.r.arm.sound_result is True:
+                return ctx._sound_watch
             winner = resolve_sound_watch(ctx) if state["watch"] else None
             if winner is not None:
                 core._emit_heap(ctx, "before-response-callback")

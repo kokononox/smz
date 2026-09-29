@@ -75,6 +75,31 @@ def _service_pending_response(ctx, state):
     _core._emit_heap(ctx, "after-response-callback")
     return True
 
+
+def service_sound_exit(ctx, signal):
+    ctx._sound_watch = signal
+    winner = _resolve_sound_watch(ctx)
+    if winner is None:
+        winner = signal.get("scope_result")
+    state = signal.get("game_state")
+    if winner is not None and state is not None:
+        ctx.r.arm.send("ASNDCANCEL", 2)
+        ctx.r.arm.sound_result = None
+        ctx.r.arm.sound_detail = None
+        _core._emit_heap(ctx, "before-response-callback")
+        ctx.suspend_sound_watch()
+        try:
+            _run_response(ctx, winner["file"], state)
+        finally:
+            ctx.resume_sound_watch(winner["cooldown"])
+        _core._emit_heap(ctx, "after-response-callback")
+    ctx.close_sound_watch()
+    if state is not None:
+        state.clear()
+    gc.collect()
+    return winner is not None
+
+
 def _parallel(commands, start, end, ctx, state):
     gc.collect(); _core._emit_heap(ctx, "before-parallel-import"); gc.collect()
     try:
@@ -125,6 +150,7 @@ def _wait_sound(op, args, ctx):
 def _sound(op, args, ctx, state):
     if op == "SOUNDWATCH":
         ctx.install_sound_watch(_core._watch_profiles(args))
+        ctx._sound_watch["game_state"] = state
         state["watch"] = True
         ctx.log("soundwatch active")
     elif op == "WPROFILE":
@@ -183,7 +209,9 @@ def _run(commands, start, end, ctx, state, labels):
         if _leaf(op, args, ctx, state):
             pass
         elif op == "PGROUP":
-            _parallel(commands, item[2], item[3], ctx, state)
+            signal = _parallel(commands, item[2], item[3], ctx, state)
+            if signal is not None:
+                return signal
         elif op == "LABEL":
             pass
         elif op == "GOTO":
@@ -192,6 +220,8 @@ def _run(commands, start, end, ctx, state, labels):
             cursor.jump(target)
         else:
             raise ValueError("unsupported Game command " + op)
+        if state["watch"] and ctx.r.arm.sound_result is True:
+            return ctx._sound_watch
         _service_pending_response(ctx, state)
 
 def run_game(commands, ctx, core):
@@ -207,9 +237,13 @@ def run_game(commands, ctx, core):
     gc.collect()
     state = {"speed": [0, 2000], "pos": [ctx.screen_w // 2, ctx.screen_h // 2],
              "pauses": None, "watch": False}
-    try: _run(commands, 0, len(commands), ctx, state, labels)
+    result = None
+    try:
+        result = _run(commands, 0, len(commands), ctx, state, labels)
+        return result
     except RuntimeError as exc:
         if str(exc) == "route aborted": _core._abort()
         raise
     finally:
-        state.clear(); gc.collect()
+        if result is None:
+            state.clear(); gc.collect()
