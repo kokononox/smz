@@ -31,6 +31,8 @@ static Button start_button = {.pin=BUTTON_START_STOP_PIN};
 static char command[96];
 static size_t command_length;
 static bool arm_fault_reported;
+static bool ui_sound_calibration_pending;
+static uint32_t ui_sound_calibration_deadline;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
@@ -128,6 +130,19 @@ static void execute_command(char *line, uint32_t now) {
         else if (!light_sensor_calibration_start((uint32_t)duration, now))
             printf("ERR|BUSY|LCAL\n");
     }
+    else if (!strncmp(line, "SCAL|", 5)) {
+        char *end = NULL; unsigned long duration = strtoul(line + 5, &end, 10);
+        if (!end || *end || duration < 10u || duration > 1000u)
+            printf("ERR|ARG|SCAL\n");
+        else if (calibration_runtime_active() || ui_sound_calibration_pending)
+            printf("ERR|BUSY|SCAL\n");
+        else if (!arm_uart_sound_calibration_start(now,(uint16_t)duration))
+            printf("ERR|BUSY|SCAL\n");
+        else {
+            ui_sound_calibration_pending=true;
+            ui_sound_calibration_deadline=now+(uint32_t)duration+2000u;
+        }
+    }
     else if (!strcmp(line, "START") || !strcmp(line, "GUARD|ON")) start_control(now);
     else if (!strcmp(line, "PAUSE")) {
         bool vm_ok = vm.status != ABVM_STATUS_RUNNING || abvm_pause(&vm, now);
@@ -213,6 +228,16 @@ static void service_light(uint32_t now) {
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
     if (arm_uart_mouse_service(now, &completed_lane) && (vm.status == ABVM_STATUS_RUNNING || vm.status == ABVM_STATUS_PAUSED) && !abvm_complete_action(&vm, completed_lane, now)) printf("ERR|ARM|complete|lane=%u\n", completed_lane);
+    if (ui_sound_calibration_pending) {
+        uint16_t average,peak;
+        if (arm_uart_sound_calibration_take(&average,&peak)) {
+            ui_sound_calibration_pending=false;
+            printf("OK|SCAL|avg=%u|max=%u\n",average,peak);
+        } else if ((int32_t)(now-ui_sound_calibration_deadline)>=0) {
+            ui_sound_calibration_pending=false;
+            printf("ERR|TIMEOUT|SCAL\n");
+        }
+    }
     uint16_t profile, peak; bool detected;
     if (arm_uart_sound_take(&profile, &detected, &peak)) {
         if (detected) {
@@ -285,6 +310,6 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
 }

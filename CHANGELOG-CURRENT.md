@@ -1,3 +1,29 @@
+## ABVM native R21 — Classroom SCAL compatibility proxy
+
+### Problem observed
+
+Classroom Studio connected to the native Pico successfully, but Wait For Sound calibration logged `ERR|TIMEOUT|SCAL` and fell back to legacy WSND probing.
+
+### Root cause
+
+The native runtime supported physical two-step sound calibration internally but did not expose the existing bounded `SCAL|ms` CDC compatibility command used by the Classroom calibration dialog.
+
+### Change
+
+- Added asynchronous `SCAL|ms` validation and forwarding to the Leonardo ARM sound-calibration actor.
+- Return the legacy-compatible `OK|SCAL|avg=…|max=…` response without blocking CDC, HID, Guard, or buttons.
+- Reject malformed, overlapping, or physical-calibration-conflicting requests and bound missing replies with `ERR|TIMEOUT|SCAL`.
+
+### Validation
+
+- Added regression contracts for command parsing, bounded pending state, ARM result collection, success response, and timeout response.
+- Physical button calibration continues to consume ARM calibration results only when no Classroom SCAL request owns them.
+- Full Pico SDK and Windows gates run in CI.
+
+### Next test
+
+Open Wait For Sound, press the Classroom calibration button, and confirm the log receives `OK|SCAL|avg=…|max=…` instead of falling back to WSND probing. Then complete one physical sound-calibration run to verify both paths remain independent.
+
 ## ABVM native R20 — restore legacy Guard and calibration score
 
 ### Problem observed

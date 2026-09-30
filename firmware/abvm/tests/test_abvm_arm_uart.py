@@ -49,6 +49,14 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("flash_range_erase", self.storage)
         self.assertIn("program_sha256", self.storage)
 
+    def test_classroom_scal_proxy_is_async_and_bounded(self):
+        self.assertIn('!strncmp(line, "SCAL|", 5)', self.main)
+        self.assertIn("arm_uart_sound_calibration_start(now,(uint16_t)duration)", self.main)
+        self.assertIn("ui_sound_calibration_pending", self.main)
+        self.assertIn("arm_uart_sound_calibration_take(&average,&peak)", self.main)
+        self.assertIn('OK|SCAL|avg=%u|max=%u', self.main)
+        self.assertIn('ERR|TIMEOUT|SCAL', self.main)
+
 
 if __name__ == "__main__":
     unittest.main()
