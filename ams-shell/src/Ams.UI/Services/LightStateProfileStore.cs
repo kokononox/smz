@@ -47,6 +47,18 @@ public static class LightStateProfileStore
         // newly introduced required profiles (for example light Whisper).
         foreach (var fallback in LightStateDefaults.CreateInitialProfiles())
             if (seen.Add(fallback.Id)) valid.Add(fallback);
+        var defaults = LightStateDefaults.CreateInitialProfiles()
+            .ToDictionary(x => x.Id, StringComparer.Ordinal);
+        foreach (var profile in valid)
+        {
+            if (!defaults.TryGetValue(profile.Id, out var fallback)) continue;
+            if (profile.CalibrationCue is < 1 or > 8)
+                profile.CalibrationCue = fallback.CalibrationCue;
+            // Existing profile files predate optical cooldown. A zero value on
+            // either transient Whisper profile is migrated to the safe default.
+            if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)
+                profile.LightCooldownMs = fallback.LightCooldownMs;
+        }
         return valid;
     }
 }

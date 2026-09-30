@@ -22,11 +22,15 @@ internal static class LightStateProfileStoreContract
             var edited = LightStateDefaults.CreateInitialProfiles();
             edited.Single(x => x.Id == "targeted").LuxTolerance = 3.5;
             edited.Single(x => x.Id == "game").LuxCenter = 27.25;
+            edited.Single(x => x.Id == "game").CalibrationCue = 2;
+            edited.Single(x => x.Id == "whisper").LightCooldownMs = 12500;
             LightStateProfileStore.Save(edited, path);
             var loaded = LightStateProfileStore.Load(path);
             Check(loaded.Single(x => x.Id == "targeted").LuxTolerance == 3.5
-                  && loaded.Single(x => x.Id == "game").LuxCenter == 27.25,
-                "profile store round-trips user-edited center and tolerance");
+                  && loaded.Single(x => x.Id == "game").LuxCenter == 27.25
+                  && loaded.Single(x => x.Id == "game").CalibrationCue == 2
+                  && loaded.Single(x => x.Id == "whisper").LightCooldownMs == 12500,
+                "profile store round-trips calibration cue and optical cooldown");
 
             File.WriteAllText(path, "{not-json");
             var recovered = LightStateProfileStore.Load(path);
@@ -47,8 +51,11 @@ internal static class LightStateProfileStoreContract
             Check(migrated.Count == 8
                   && migrated.Single(x => x.Id == "game").LuxCenter == 88.5
                   && migrated.Single(x => x.Id == "whisper").LuxCenter == 55
-                  && migrated.Single(x => x.Id == "whisper-repeat").LuxCenter == 60,
-                "six-profile storage preserves calibration and appends both Whisper profiles");
+                  && migrated.Single(x => x.Id == "whisper-repeat").LuxCenter == 60
+                  && migrated.Single(x => x.Id == "whisper").LightCooldownMs == 5000
+                  && migrated.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 10000
+                  && migrated.All(x => x.CalibrationCue is >= 1 and <= 8),
+                "legacy storage gains safe Whisper cooldowns and distinct calibration motifs");
         }
         finally
         {

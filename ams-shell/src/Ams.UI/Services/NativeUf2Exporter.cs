@@ -88,6 +88,8 @@ public static class NativeUf2Exporter
                 ["luxTolerance"] = profile.LuxTolerance,
                 ["stableDurationMs"] = profile.StableDurationMs,
                 ["hysteresisLux"] = profile.HysteresisLux,
+                ["lightCooldownMs"] = profile.LightCooldownMs,
+                ["calibrationCue"] = profile.CalibrationCue,
             });
         return new JsonObject
         {

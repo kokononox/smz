@@ -3,9 +3,11 @@
 #include <string.h>
 #include "light_sensor.h"
 
-#define GUARD_VERSION 1u
+#define GUARD_VERSION_V1 1u
+#define GUARD_VERSION_V2 2u
 #define GUARD_PROFILE_COUNT 8u
-#define GUARD_DESCRIPTOR_SIZE (8u + GUARD_PROFILE_COUNT * 20u)
+#define GUARD_PROFILE_SIZE_V1 20u
+#define GUARD_PROFILE_SIZE_V2 24u
 #define GUARD_ROUTE_DC 5u
 #define GUARD_ROUTE_RESTART 2u
 #define GUARD_ROUTE_STARTUP 3u
@@ -14,11 +16,14 @@
 
 typedef struct GuardProfile {
     uint8_t id;
+    uint8_t calibration_cue;
     uint16_t route_id;
     uint32_t low;
     uint32_t high;
     uint32_t stable_ms;
     uint32_t hysteresis;
+    uint32_t cooldown_ms;
+    uint32_t next_allowed;
 } GuardProfile;
 
 typedef struct GuardState {
@@ -57,6 +62,12 @@ static uint32_t read_u32_le(const uint8_t *p) {
 }
 static bool reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
+}
+static GuardProfile *profile_by_id(uint8_t id);
+static void arm_light_whisper_cooldown(uint8_t profile_id,uint32_t now) {
+    GuardProfile *profile=profile_by_id(profile_id);
+    if(profile&&profile->cooldown_ms)
+        profile->next_allowed=now+profile->cooldown_ms;
 }
 static GuardProfile *profile_by_id(uint8_t id) {
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i)
@@ -177,9 +188,13 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
     }
     if (profile_id == 6u) {
         if (guard.stage == 5u && !guard.targeted_active) {
+            if (!abvm_interrupt_route(vm, profile->route_id, now)) {
+                fault(vm, now, "targeted-interrupt-failed");
+                return;
+            }
             guard.targeted_active = true;
-            execute(vm, profile_id, profile->route_id, 3u, lux, now,
-                    "game-to-targeted-side-state");
+            emit(GUARD_EVENT_ROUTE, profile_id, profile->route_id, 3u, lux,
+                 "game-to-targeted-interrupt");
         } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
                     "targeted-only-from-game");
         return;
@@ -187,7 +202,10 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
     if (profile_id == 7u || profile_id == 8u) {
         uint16_t whisper_route=profile_id==8u?
             GUARD_ROUTE_WHISPER_REPEAT:GUARD_ROUTE_WHISPER;
-        if (vm->route_id == GUARD_ROUTE_WHISPER ||
+        if(profile->next_allowed&&!reached(now,profile->next_allowed)) {
+            emit(GUARD_EVENT_DENIED,profile_id,0u,4u,lux,
+                 "light-whisper-cooldown");
+        } else if (vm->route_id == GUARD_ROUTE_WHISPER ||
             vm->route_id == GUARD_ROUTE_WHISPER_REPEAT) {
             emit(GUARD_EVENT_STATE, profile_id, 0u, 4u, lux,
                  "whisper-already-active");
@@ -211,6 +229,7 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             }
             guard.whisper_light_active = true;
             guard.whisper_light_route=whisper_route;
+            arm_light_whisper_cooldown(profile_id,now);
             emit(GUARD_EVENT_ROUTE, profile_id, whisper_route, 4u, lux,
                  profile_id==8u?"game-to-whisper-repeat-light-interrupt":
                                 "game-to-whisper-new-light-interrupt");
@@ -224,7 +243,11 @@ bool guard_runtime_init(const AbvmVm *vm) {
     if (!abvm_find_constant(vm, ABVM_CONST_GUARD, &constant_id,
                             &payload, &size)) return false;
     (void)constant_id;
-    if (size != GUARD_DESCRIPTOR_SIZE || payload[0] != GUARD_VERSION ||
+    uint8_t version=payload[0];
+    uint32_t profile_size=version==GUARD_VERSION_V2?
+        GUARD_PROFILE_SIZE_V2:GUARD_PROFILE_SIZE_V1;
+    if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2) ||
+        size != 8u + GUARD_PROFILE_COUNT * profile_size ||
         payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u || payload[3])
         return false;
     guard.sample_mode = payload[2];
@@ -232,17 +255,25 @@ bool guard_runtime_init(const AbvmVm *vm) {
     if (guard.sensor_timeout_ms < 250u) return false;
     uint8_t seen = 0u;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
-        const uint8_t *item = payload + 8u + (uint32_t)i * 20u;
+        const uint8_t *item = payload + 8u + (uint32_t)i * profile_size;
         GuardProfile *profile = &guard.profiles[i];
         profile->id = item[0];
+        profile->calibration_cue=version==GUARD_VERSION_V2?item[1]:item[0];
         profile->route_id = read_u16_le(item + 2u);
         profile->low = read_u32_le(item + 4u);
         profile->high = read_u32_le(item + 8u);
         profile->stable_ms = read_u32_le(item + 12u);
         profile->hysteresis = read_u32_le(item + 16u);
-        if (item[1] != 1u || profile->id < 1u || profile->id > 8u ||
+        profile->cooldown_ms=version==GUARD_VERSION_V2?
+            read_u32_le(item+20u):0u;
+        profile->next_allowed=0u;
+        if ((version==GUARD_VERSION_V1&&item[1]!=1u) ||
+            profile->calibration_cue<1u||profile->calibration_cue>8u ||
+            profile->id < 1u || profile->id > 8u ||
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
-            profile->low > profile->high || !profile->route_id)
+            profile->low > profile->high || !profile->route_id ||
+            profile->cooldown_ms>600000u ||
+            (profile->id!=7u&&profile->id!=8u&&profile->cooldown_ms))
             return false;
         seen |= (uint8_t)(1u << (profile->id - 1u));
     }
@@ -262,6 +293,8 @@ bool guard_runtime_start(uint32_t now) {
     guard.candidate_since = now;
     guard.last_good_sample_at = now;
     guard.event_pending = false;
+    for(uint8_t i=0;i<GUARD_PROFILE_COUNT;++i)
+        guard.profiles[i].next_allowed=0u;
     return true;
 }
 bool guard_runtime_start_after_restart(uint32_t now) {
@@ -307,6 +340,7 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
         }
         guard.whisper_light_active=true;
         guard.whisper_light_route=guard.whisper_pending_route;
+        arm_light_whisper_cooldown(guard.whisper_pending_profile,now);
         emit(GUARD_EVENT_ROUTE,guard.whisper_pending_profile,
              guard.whisper_pending_route,4u,guard.whisper_pending_lux,
              guard.whisper_pending_profile==8u?
@@ -411,6 +445,10 @@ bool guard_runtime_running(void) { return guard.running; }
 bool guard_runtime_paused(void) { return guard.paused; }
 uint8_t guard_runtime_active_profile(void) { return guard.active; }
 uint8_t guard_runtime_stage(void) { return guard.stage; }
+uint8_t guard_runtime_calibration_cue(uint8_t profile_id) {
+    GuardProfile *profile=profile_by_id(profile_id);
+    return profile?profile->calibration_cue:profile_id;
+}
 const char *guard_runtime_profile_name(uint8_t profile_id) {
     static const char *names[] = {
         "unknown", "desktop", "login-or-dc", "character-dashboard",

@@ -131,4 +131,28 @@ public partial class MainViewModel
         }
         return pairs.Count == 0 ? "هم‌پوشانی فعالی وجود ندارد." : "هشدار هم‌پوشانی — " + string.Join("؛ ", pairs);
     }
+
+    public async Task<string> PreviewLightCalibrationCueAsync(int cue)
+    {
+        var motifs = new Dictionary<int, (int Hz, int Duration, int Gap)[]>
+        {
+            [1] = [(262, 100, 45), (392, 100, 45), (523, 180, 0)],
+            [2] = [(659, 110, 40), (523, 110, 40), (392, 220, 0)],
+            [3] = [(330, 90, 35), (415, 90, 35), (494, 90, 35), (659, 190, 0)],
+            [4] = [(294, 160, 70), (440, 100, 50), (294, 230, 0)],
+            [5] = [(392, 90, 30), (494, 90, 30), (587, 90, 30), (784, 190, 0)],
+            [6] = [(880, 85, 30), (740, 85, 30), (880, 85, 30), (740, 180, 0)],
+            [7] = [(1047, 80, 25), (1319, 80, 25), (1568, 80, 25), (2093, 180, 0)],
+            [8] = [(1175, 90, 30), (988, 90, 30), (1175, 90, 30), (1568, 190, 0)],
+        };
+        if (!motifs.TryGetValue(cue, out var motif))
+            throw new ArgumentOutOfRangeException(nameof(cue));
+        var commands = new List<string>();
+        foreach (var (hz, duration, gap) in motif)
+        {
+            commands.Add($"BEEP|{hz},{duration},100,0");
+            if (gap > 0) commands.Add($"DLY|{gap}");
+        }
+        return await PreviewBuzzerCommandsAsync(commands);
+    }
 }
