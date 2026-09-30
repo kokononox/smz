@@ -23,6 +23,9 @@ Check(ok.IsSuccess && ok.Sequence == uint.MaxValue && ok.Lux == 59.2 && ok.Mode 
 var low = LightTelemetryParser.Parse("OK|LUX|seq=0|lux=0.0|mode=lowres|sensor=ok");
 Check(low.IsSuccess && low.Sequence == 0 && low.Lux == 0 && low.Mode == "lowres",
     "typed parser accepts lowres and zero after sequence wrap");
+var native = LightTelemetryParser.Parse("OK|LUX|lux=51.7|sensor=ok|age=40");
+Check(native.IsSuccess && native.Lux == 51.7 && native.Sequence is null && native.Mode is null,
+    "typed parser accepts Native Pico sample age");
 Check(LightTelemetryParser.Parse("ERR|NOSENSOR|LUX").Status == LightTelemetryStatus.NoSensor,
     "missing sensor maps to typed status");
 Check(LightTelemetryParser.Parse("ERR|I2C|LUX").Status == LightTelemetryStatus.I2cError,
@@ -34,6 +37,8 @@ Rejects("OK|LUX|seq=1|lux=NaN|mode=hires|sensor=ok", "NaN is rejected");
 Rejects("OK|LUX|seq=1|lux=-1|mode=hires|sensor=ok", "negative lux is rejected");
 Rejects("OK|LUX|seq=1|lux=1.0|mode=turbo|sensor=ok", "unknown mode is rejected");
 Rejects("OK|LUX|seq=1|lux=1.0|mode=hires|sensor=bad", "invalid sensor marker is rejected");
+Rejects("OK|LUX|lux=1.0|sensor=ok|age=-1", "negative Native sample age is rejected");
+Rejects("OK|LUX|lux=1.0|sensor=ok|extra=1", "unknown compact telemetry field is rejected");
 Rejects("ERR|NOSENSOR|LUX|extra", "typed errors must be exact");
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");

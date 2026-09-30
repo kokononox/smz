@@ -24,7 +24,7 @@ public static class LightTelemetryParser
             return new(errorStatus.Value, null, null, null, at, raw);
 
         var parts = raw.Split('|', StringSplitOptions.None);
-        if (parts.Length is not (4 or 6) || parts[0] != "OK" || parts[1] != "LUX")
+        if (parts.Length is not (4 or 5 or 6) || parts[0] != "OK" || parts[1] != "LUX")
             throw new LightTelemetryProtocolException(raw, "Expected a supported OK|LUX response shape.");
 
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -54,6 +54,13 @@ public static class LightTelemetryParser
                 throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
             sequence = parsedSequence;
             mode = parsedMode;
+        }
+        else if (fields.Count == 3)
+        {
+            if (!fields.TryGetValue("age", out var ageText)
+                || !uint.TryParse(ageText, NumberStyles.None,
+                    CultureInfo.InvariantCulture, out _))
+                throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
         }
         else if (fields.Count != 2)
         {

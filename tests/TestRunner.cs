@@ -40,6 +40,10 @@ class TestRunner
         Assert(compactLux.Status == LightTelemetryStatus.Ok && compactLux.Lux == 60.0
                && compactLux.Sequence is null && compactLux.Mode is null,
             "Light telemetry accepts compact Pico OK|LUX response");
+        var nativeLux = LightTelemetryParser.Parse("OK|LUX|lux=51.7|sensor=ok|age=40");
+        Assert(nativeLux.Status == LightTelemetryStatus.Ok && nativeLux.Lux == 51.7
+               && nativeLux.Sequence is null && nativeLux.Mode is null,
+            "Light telemetry accepts Native Pico response with sample age");
         var fullLux = LightTelemetryParser.Parse("OK|LUX|seq=7|lux=41.7|mode=hires|sensor=ok");
         Assert(fullLux.Status == LightTelemetryStatus.Ok && fullLux.Sequence == 7
                && fullLux.Mode == "hires" && fullLux.Lux == 41.7,

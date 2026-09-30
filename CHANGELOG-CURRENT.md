@@ -1,3 +1,12 @@
+## ABVM native R30 — Classroom Light Watch accepts Native sample age
+
+- Classroom's strict light-telemetry parser now accepts the Native Pico reply
+  `OK|LUX|lux=...|sensor=ok|age=...`.
+- The optional age remains validated as a nonnegative 32-bit millisecond value;
+  malformed or unknown compact fields are still rejected.
+- Added coverage in both the Windows TestRunner and typed light-telemetry suite
+  for the exact hardware response observed during Light Watch.
+
 ## ABVM native R29 — single-stage light save and adaptive overlap fit
 
 - Each five-second Native light sample is now saved immediately; calibrating
