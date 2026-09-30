@@ -35,7 +35,8 @@ public static class LightStateDefaults
         Profile("entering-game-loading", "صفحه لود ورود به بازی", 5),
         Profile("game", "محیط بازی", 26),
         Profile("targeted", "تارگت شدن توسط افراد", 20),
-        Profile("whisper", "ویسپر", 55),
+        Profile("whisper", "ویسپر افراد جدید", 55),
+        Profile("whisper-repeat", "ویسپر افراد تکراری", 60),
     };
 
     private static LightStateProfile Profile(string id, string name, double center) => new()

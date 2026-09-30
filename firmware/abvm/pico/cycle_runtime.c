@@ -105,6 +105,10 @@ bool cycle_runtime_available(void){return cycle.available;}
 bool cycle_runtime_waiting_for_usb(void){
     return cycle.phase==CYCLE_WAIT_USB||cycle.phase==CYCLE_AFTER;
 }
+bool cycle_runtime_restart_critical(void){
+    return cycle.phase==CYCLE_AFTER||cycle.phase==CYCLE_WAIT_USB||
+           cycle.phase==CYCLE_STARTUP;
+}
 void cycle_runtime_manual_start(uint32_t now) {
     if(!cycle.available)return;
     (void)calibration_store_cycle_reset();

@@ -96,20 +96,26 @@ class AbvmArmUartContractTests(unittest.TestCase):
             "soundProfiles": [{
                 "Id": 1, "Enabled": True, "ResponseTab": "Whisper",
                 "PeakMin": 20, "PeakMax": 80, "MinDurationMs": 60,
+            }, {
+                "Id": 3, "Enabled": True, "ResponseTab": "WhisperRepeat",
+                "PeakMin": 81, "PeakMax": 140, "MinDurationMs": 70,
             }],
-            "pipelines": {"Game": [], "Whisper": []},
+            "pipelines": {"Game": [], "Whisper": [], "WhisperRepeat": []},
         }
-        program = abvm.Compiler().compile_amsj(source, ("Game", "Whisper"))
+        program = abvm.Compiler().compile_amsj(
+            source, ("Game", "Whisper", "WhisperRepeat"))
         image = abvm.Verifier.verify(program.image)
-        profile, threshold, packed = next(
+        descriptors = [
             abvm.SOUND.unpack(payload)
             for kind, _, payload in image.constants
-            if kind == abvm.CONST_SOUND
-        )
-        self.assertEqual((profile, threshold), (1, 20))
-        self.assertEqual((packed & 0xffff, packed >> 16), (60, 80))
-        self.assertIn("peak<=whisper_maximum", self.main)
+            if kind == abvm.CONST_SOUND]
+        self.assertIn((1, 20, 60 | (80 << 16) | (2 << 26)), descriptors)
+        self.assertIn((3, 81, 70 | (140 << 16) | (2 << 26)), descriptors)
+        self.assertIn("peak<=whisper_profiles[i].maximum", self.main)
         self.assertIn("BUZZER_CUE_WHISPER", self.main)
+        self.assertIn("BUZZER_CUE_WHISPER_REPEAT", self.main)
+        self.assertIn("WHISPER_REPEAT_ROUTE_ID", self.main)
+        self.assertIn("reason=cooldown", self.main)
         self.assertIn("source=sound", self.main)
 
     def test_saved_calibration_is_explicit_and_runtime_logs_effective_values(self):

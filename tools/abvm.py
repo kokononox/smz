@@ -77,7 +77,7 @@ ROUTE_IDS = {
     "LoginOrDc": 4, "LaunchRecovery": 5, "Dc": 5,
     "CharacterDashboard": 6,
     "EnteringGameLoading": 7, "Game": 8, "Targeted": 9,
-    "Whisper": 10, "Splash": 11,
+    "Whisper": 10, "Splash": 11, "WhisperRepeat": 12,
 }
 
 ROUTE_POLICY_BY_NAME = {
@@ -93,6 +93,7 @@ ROUTE_POLICY_BY_NAME = {
     "Game": ROUTE_ABORT_AND_RESTART,
     "Targeted": ROUTE_ABORT_AND_START,
     "Whisper": ROUTE_INTERRUPT_AND_RESUME,
+    "WhisperRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
 }
 
@@ -331,7 +332,7 @@ class Compiler:
             setattr(self.code[index], key, value)
 
     def compile_global_whisper(self, source: dict[str, Any]) -> None:
-        """Persist the enabled game-wide Whisper classifier in the image.
+        """Persist enabled game-wide Whisper classifiers in the image.
 
         The native sound actor still owns only one physical listener.  A scoped
         Catch watch therefore supplies the samples, while Pico 1 compares each
@@ -342,14 +343,19 @@ class Compiler:
         profiles = source.get("soundProfiles") or source.get("SoundProfiles") or []
         if not isinstance(profiles, list):
             raise AbvmError("soundProfiles must be a list")
+        compiled = []
+        expected = {
+            1: ("Whisper", "whisper", 9, "9"),
+            3: ("WhisperRepeat", "whisperrepeat", 11, "11"),
+        }
         for item in profiles:
             if not isinstance(item, dict):
                 continue
             profile = integer(item.get("Id", item.get("id")), 0)
             enabled = bool(item.get("Enabled", item.get("enabled", False)))
             response = item.get("ResponseTab", item.get("responseTab"))
-            is_whisper = response in (9, "9", "Whisper", "whisper")
-            if profile != 1 or not enabled or not is_whisper:
+            if profile not in expected or not enabled or \
+                    response not in expected[profile]:
                 continue
             threshold = integer(
                 item.get("PeakMin", item.get("peakMin")), 0)
@@ -357,16 +363,30 @@ class Compiler:
                 item.get("PeakMax", item.get("peakMax")), 1023)
             minimum = max(1, integer(
                 item.get("MinDurationMs", item.get("minDurationMs")), 60))
+            cooldown = integer(
+                item.get("CooldownMs", item.get("cooldownMs")), 1800)
             if (threshold < 0 or threshold > 1023 or maximum < threshold or
-                    maximum > 1023 or minimum > 65_535):
+                    maximum > 1023 or minimum > 65_535 or
+                    cooldown < 0 or cooldown > 60_000):
                 raise AbvmError(
-                    "global Whisper range or duration is out of range")
-            # High 16 bits carry only the global Whisper upper edge.
-            # Ordinary WATCH descriptors keep them zero (ABI-1 compatible).
+                    "global Whisper range, duration, or cooldown is out of range")
+            compiled.append((profile, threshold, maximum, minimum, cooldown))
+        compiled.sort()
+        for index, left in enumerate(compiled):
+            for right in compiled[index + 1:]:
+                if max(left[1], right[1]) <= min(left[2], right[2]):
+                    raise AbvmError(
+                        "global Whisper sound ranges overlap: "
+                        f"ID {left[0]} and ID {right[0]}")
+        for profile, threshold, maximum, minimum, cooldown in compiled:
+            # Bits 16..25 carry the upper edge. Bits 26..31 carry cooldown
+            # seconds (0..60). Legacy descriptors used only a <=1023 upper
+            # word, so this remains backwards-compatible with ABI-1 images.
+            cooldown_seconds = (cooldown + 999) // 1000
             self.pool.add(
                 CONST_SOUND,
-                SOUND.pack(profile, threshold, minimum | (maximum << 16)))
-            return
+                SOUND.pack(profile, threshold, minimum |
+                           (maximum << 16) | (cooldown_seconds << 26)))
 
     def compile_amsj(self, source: dict[str, Any],
                      route_names: Iterable[str] = ("Game", "Whisper")) -> Program:
@@ -720,10 +740,11 @@ class Compiler:
             "game": (5, "Game"),
             "targeted": (6, "Targeted"),
             "whisper": (7, "Whisper"),
+            "whisper-repeat": (8, "WhisperRepeat"),
         }
         profiles = guard.get("profiles")
         if not isinstance(profiles, list) or len(profiles) != len(expected):
-            raise AbvmError("Native Guard needs exactly seven profiles")
+            raise AbvmError("Native Guard needs exactly eight profiles")
         by_id = {str(item.get("id") or ""): item for item in profiles
                  if isinstance(item, dict)}
         if set(by_id) != set(expected):
@@ -980,19 +1001,19 @@ class Verifier:
             if len(guard_constants) != 1:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
-            if len(raw) != GUARD_HEADER.size + 7 * GUARD_PROFILE.size:
+            if len(raw) != GUARD_HEADER.size + 8 * GUARD_PROFILE.size:
                 raise AbvmError("invalid Native Guard descriptor size")
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            if version != 1 or count != 7 or mode not in (0, 1) or reserved or timeout < 250:
+            if version != 1 or count != 8 or mode not in (0, 1) or reserved or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
             ids = set()
             for index in range(count):
                 item = GUARD_PROFILE.unpack_from(raw, GUARD_HEADER.size + index * GUARD_PROFILE.size)
                 profile_id, enabled, route_id, low, high, stable, hysteresis = item
-                if profile_id not in range(1, 8) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
+                if profile_id not in range(1, 9) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
                     raise AbvmError("invalid Native Guard profile")
                 ids.add(profile_id)
-            if ids != set(range(1, 8)):
+            if ids != set(range(1, 9)):
                 raise AbvmError("Native Guard profile set mismatch")
             measured_flags |= FLAG_HAS_GUARD
         cycle_constants = [payload for kind, _, payload in image.constants

@@ -9,13 +9,14 @@ from tools import abvm
 source = json.loads((Path(__file__).resolve().parents[3] /
     "firmware/abvm/tests/abvm_guard_smoke.amsj").read_text())
 routes = ("Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
-          "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper")
+          "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper",
+          "WhisperRepeat")
 program = abvm.Compiler().compile_amsj(source, routes)
 image = abvm.Verifier.verify(program.image)
 assert image.flags & abvm.FLAG_HAS_GUARD
 guards = [payload for kind, _, payload in image.constants if kind == abvm.CONST_GUARD]
-assert len(guards) == 1 and len(guards[0]) == abvm.GUARD_HEADER.size + 7 * abvm.GUARD_PROFILE.size
-assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+assert len(guards) == 1 and len(guards[0]) == abvm.GUARD_HEADER.size + 8 * abvm.GUARD_PROFILE.size
+assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12}
 events = abvm.ReferenceVm(program.image).run("Game")
 assert not any(event[0] == "KEY" for event in events), "forward GOTO must skip X"
 assert any(event[0] == "DELAY" for event in events)
@@ -27,7 +28,7 @@ legacy = json.loads(json.dumps(source))
 legacy["pipelines"]["Launch"] = legacy["pipelines"].pop("Restart")
 legacy["pipelines"]["LaunchRecovery"] = legacy["pipelines"].pop("Dc")
 legacy_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(legacy, routes).image)
-assert {route.route_id for route in legacy_image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+assert {route.route_id for route in legacy_image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12}
 
 bad = json.loads(json.dumps(source))
 bad["nativeGuard"]["profiles"][5]["luxCenter"] = 200

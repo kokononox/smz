@@ -41,7 +41,8 @@ assert "ساخت Native UF2 پروژهٔ فعلی" in ui and "ExportNativeUf2Com
 assert ui.count("AutoCycleUiKit.Action(") == 2
 assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter.ExportAsync(" in native_vm
 assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
-assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper"' in native_exporter
+assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",' in native_exporter
+assert '"Whisper", "WhisperRepeat"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
 assert 'root["nativeCycle"] = BuildNativeCycle(settings)' in native_exporter
 assert '"runMinSeconds"' in native_exporter and '"maxRestarts"' in native_exporter

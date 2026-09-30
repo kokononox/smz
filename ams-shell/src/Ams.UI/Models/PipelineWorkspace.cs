@@ -17,6 +17,7 @@ public enum PipelineKind
     Targeted,
     Whisper,
     Splash,
+    WhisperRepeat,
     // Resume is intentionally not a UI tab for now; keep the enum name only as a
     // source-compatibility alias for the old exporter.
 
@@ -73,7 +74,7 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 6;
+    public const int FormatVersion = 7;
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },
@@ -85,7 +86,8 @@ public sealed class PipelineWorkspace
         new() { Kind = PipelineKind.EnteringGameLoading, Title = "Entering Game / Loading", FileName = "entering_game_loading_steps.txt" },
         new() { Kind = PipelineKind.Game, Title = "Game", FileName = "game_steps.txt" },
         new() { Kind = PipelineKind.Targeted, Title = "Targeted", FileName = "targeted_steps.txt" },
-        new() { Kind = PipelineKind.Whisper, Title = "Whisper", FileName = "whisper_steps.txt" },
+        new() { Kind = PipelineKind.Whisper, Title = "Whisper New", FileName = "whisper_steps.txt" },
+        new() { Kind = PipelineKind.WhisperRepeat, Title = "Whisper Repeat", FileName = "whisper_repeat_steps.txt" },
         // Compatibility storage only; hidden from PipelineTabs. New catch
         // actions are children of the explicit Game Wait For Sound step.
         new() { Kind = PipelineKind.Splash, Title = "Splash (legacy)", FileName = "splash_steps.txt" },
@@ -99,6 +101,9 @@ public sealed class PipelineWorkspace
         new() { Id = 2, Name = "Splash", Enabled = false, PeakMin = 0, PeakMax = 511,
             Priority = 5, MinDurationMs = 60, ListenWindowMs = 1000, CooldownMs = 900,
             ResponseTab = PipelineKind.Splash },
+        new() { Id = 3, Name = "Whisper Repeat", Enabled = false, PeakMin = 0, PeakMax = 511,
+            Priority = 9, MinDurationMs = 60, ListenWindowMs = 1000, CooldownMs = 1800,
+            ResponseTab = PipelineKind.WhisperRepeat },
     };
 
     public PipelineTabDocument this[PipelineKind kind] => Tabs.Single(x => x.Kind == kind);

@@ -40,7 +40,7 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
@@ -66,7 +66,8 @@ public static class PipelineWorkspaceSerializer
             foreach (var source in loaded)
             {
                 var target = workspace.SoundProfiles.FirstOrDefault(x => x.Id == source.Id);
-                if (target is null || source.ResponseTab is not (PipelineKind.Whisper or PipelineKind.Splash))
+                if (target is null || source.ResponseTab is not
+                    (PipelineKind.Whisper or PipelineKind.Splash or PipelineKind.WhisperRepeat))
                     continue;
                 CopySoundProfile(source, target);
             }
@@ -165,6 +166,7 @@ public static class PipelineWorkspaceSerializer
             "Game" => PipelineKind.Game,
             "Targeted" => PipelineKind.Targeted,
             "Whisper" => PipelineKind.Whisper,
+            "WhisperRepeat" => PipelineKind.WhisperRepeat,
             "Splash" => PipelineKind.Splash,
             // The Resumable tab was retired; its old data is intentionally ignored.
             "Resumable" => null,

@@ -11,9 +11,10 @@ serializer = (root / "ams-shell/src/Ams.UI/Services/PipelineWorkspaceSerializer.
 exporter = (root / "ams-shell/src/Ams.UI/Services/PlanExporter.cs").read_text(encoding="utf-8")
 bundle = (root / "ams-shell/src/Ams.UI/Services/PipelinePlanBundle.cs").read_text(encoding="utf-8")
 
-assert "FormatVersion = 6" in model
+assert "FormatVersion = 7" in model
 assert "TimeoutMinSec" in model and "TimeoutMaxSec" in model
 assert "WhisperSoundEnabled" in vm
+assert "WhisperRepeatSoundEnabled" in vm
 assert "صدای Catch داخل استپ صریح Wait For Sound تنظیم می‌شود" in ui
 assert 'ProfileCard("اسپلش"' not in ui
 
