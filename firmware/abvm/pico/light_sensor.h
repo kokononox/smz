@@ -25,6 +25,10 @@ void light_sensor_init(uint32_t now);
 void light_sensor_service(AbvmVm *vm, uint32_t now);
 LightWatchSubmit light_sensor_arm(const AbvmVm *vm, const AbvmEvent *event,
                                   uint32_t now);
+LightWatchSubmit light_sensor_live_start(uint32_t low_lux, uint32_t high_lux,
+                                         uint32_t stable_ms, uint32_t timeout_ms,
+                                         uint8_t mode, uint32_t now);
+bool light_sensor_live_take(bool *detected, uint32_t *lux_tenths);
 void light_sensor_cancel_watch(uint32_t now);
 bool light_sensor_present(void);
 bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now);

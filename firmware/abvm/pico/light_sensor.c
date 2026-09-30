@@ -20,6 +20,7 @@
 
 typedef struct LightWatchState {
     bool active;
+    bool live;
     uint8_t lane;
     uint8_t mode;
     uint16_t constant_id;
@@ -52,6 +53,9 @@ static uint32_t latest_tenths;
 static uint32_t latest_at;
 static LightWatchState watch_state;
 static LightCalibrationState calibration;
+static bool live_result_pending;
+static bool live_result_detected;
+static uint32_t live_result_lux_tenths;
 
 static bool reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
@@ -172,6 +176,31 @@ LightWatchSubmit light_sensor_arm(const AbvmVm *vm, const AbvmEvent *event,
     return LIGHT_WATCH_ACCEPTED;
 }
 
+LightWatchSubmit light_sensor_live_start(uint32_t low_lux, uint32_t high_lux,
+                                         uint32_t stable_ms, uint32_t timeout_ms,
+                                         uint8_t mode, uint32_t now) {
+    if(watch_state.active||calibration.active)return LIGHT_WATCH_BUSY;
+    if(low_lux>high_lux||high_lux>1000000u||stable_ms>3600000u||
+       !timeout_ms||mode>1u)return LIGHT_WATCH_INVALID;
+    if(!sensor_present&&!probe(now))return LIGHT_WATCH_NO_SENSOR;
+    if(sensor_mode!=mode&&!set_mode(mode,now)){
+        lose_sensor(now);return LIGHT_WATCH_NO_SENSOR;
+    }
+    memset(&watch_state,0,sizeof(watch_state));
+    watch_state.active=true;watch_state.live=true;watch_state.mode=mode;
+    watch_state.low_tenths=low_lux*10u;
+    watch_state.high_tenths=high_lux*10u;
+    watch_state.stable_ms=stable_ms;watch_state.deadline=now+timeout_ms;
+    live_result_pending=false;
+    return LIGHT_WATCH_ACCEPTED;
+}
+
+bool light_sensor_live_take(bool *detected, uint32_t *lux_tenths) {
+    if(!live_result_pending||!detected||!lux_tenths)return false;
+    *detected=live_result_detected;*lux_tenths=live_result_lux_tenths;
+    live_result_pending=false;return true;
+}
+
 void light_sensor_service(AbvmVm *vm, uint32_t now) {
     if (!sensor_present && reached(now, next_probe)) (void)probe(now);
     bool new_sample = false;
@@ -180,6 +209,10 @@ void light_sensor_service(AbvmVm *vm, uint32_t now) {
     if (calibration.active && reached(now, calibration.deadline)) calibration_finish();
     if (!watch_state.active) return;
     if (reached(now, watch_state.deadline)) {
+        if(watch_state.live){
+            live_result_pending=true;live_result_detected=false;
+            live_result_lux_tenths=sample_valid?latest_tenths:0u;
+        }
         light_sensor_cancel_watch(now);
         return;
     }
@@ -198,8 +231,13 @@ void light_sensor_service(AbvmVm *vm, uint32_t now) {
         !reached(now, watch_state.in_range_since + watch_state.stable_ms)) return;
     uint8_t lane = watch_state.lane;
     uint16_t constant_id = watch_state.constant_id;
+    bool live=watch_state.live;
     watch_state.active = false;
     (void)set_mode(0u, now);
+    if(live){
+        live_result_pending=true;live_result_detected=true;
+        live_result_lux_tenths=latest_tenths;return;
+    }
     (void)abvm_light_detected(vm, lane, constant_id, now);
 }
 

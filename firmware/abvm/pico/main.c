@@ -39,6 +39,18 @@ static bool buzzer_action_pending;
 static uint8_t buzzer_action_lane;
 static uint32_t buzzer_action_deadline;
 static bool ui_sound_watch_pending;
+static bool ui_sound_watch_armed;
+static bool ui_sound_trigger_pending;
+static uint8_t ui_sound_trigger_button;
+static uint16_t ui_sound_trigger_hold_min,ui_sound_trigger_hold_max;
+static uint32_t ui_sound_trigger_due;
+static uint16_t ui_sound_trigger_peak;
+static bool ui_light_watch_pending;
+static bool ui_light_watch_armed;
+static bool ui_light_trigger_pending;
+static uint8_t ui_light_trigger_key;
+static uint16_t ui_light_trigger_hold_min,ui_light_trigger_hold_max;
+static uint32_t ui_light_trigger_due,ui_light_trigger_lux;
 static bool ui_buzzer_reply_pending;
 static uint32_t ui_buzzer_reply_deadline;
 static bool whisper_profile_enabled;
@@ -50,6 +62,16 @@ static uint16_t whisper_rearm_threshold;
 static uint16_t whisper_rearm_minimum;
 static uint32_t whisper_rearm_deadline;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
+static bool parse_csv_u32(const char *text,uint32_t *values,size_t count) {
+    if(!text||!values||!count)return false;
+    for(size_t i=0;i<count;++i){
+        char *end=NULL;values[i]=strtoul(text,&end,10);
+        if(!end||end==text)return false;
+        if(i+1u<count){if(*end!=',')return false;text=end+1;}
+        else if(*end)return false;
+    }
+    return true;
+}
 static uint16_t local_u16(const uint8_t *p) {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
@@ -230,13 +252,29 @@ static void execute_command(char *line, uint32_t now) {
             else printf("OK|SETRES\n");
         }
     }
-    else if (!strncmp(line, "MMOVE|", 6)) {
-        /* Live Classroom preview is intentionally write-only: bridge.py
-         * streams and paces the path, then synchronizes with PING. */
-        ArmMouseSubmit result=arm_uart_mouse_submit_live(line,now);
+    else if (!strncmp(line, "MMOVE|", 6) ||
+             !strncmp(line, "MCLICK|", 7) ||
+             !strncmp(line, "MWHEEL|", 7) ||
+             !strncmp(line, "MDOWN|", 6) ||
+             !strncmp(line, "MUP|", 4) ||
+             !strncmp(line, "KBDARM|", 7)) {
+        /* Live Classroom mouse previews are write-only while discrete mouse
+         * and explicitly arm-routed keyboard actions complete on the arm ACK. */
+        const char *command=!strncmp(line,"KBDARM|",7)?line+7:line;
+        ArmMouseSubmit result=arm_uart_mouse_submit_live(command,now);
         if(result!=ARM_MOUSE_ACCEPTED)
-            printf("ERR|MMOVE|reason=%u|arm-ready=%u|arm-usb=%u\n",
+            printf("ERR|DIRECT|reason=%u|arm-ready=%u|arm-usb=%u\n",
                    result,arm_uart_mouse_ready(),arm_uart_host_usb_state());
+    }
+    else if (!strncmp(line, "KCOMBO|", 7) ||
+             !strncmp(line, "KDOWN|", 6) ||
+             !strncmp(line, "KUP|", 4) ||
+             !strncmp(line, "KTEXT|", 6) ||
+             !strncmp(line, "KBDPICO|", 8)) {
+        const char *command=!strncmp(line,"KBDPICO|",8)?line+8:line;
+        HidKeyboardSubmit result=hid_keyboard_submit_live(command,now);
+        if(result!=HID_KEYBOARD_ACCEPTED)
+            printf("ERR|KEYBOARD|reason=%u\n",result);
     }
     else if (!strncmp(line, "WSND|", 5)) {
         char *p=line+5,*end=NULL;unsigned long threshold=strtoul(p,&end,10);
@@ -253,7 +291,52 @@ static void execute_command(char *line, uint32_t now) {
                         !arm_uart_sound_test_start(now,(uint16_t)threshold,
                                                   (uint16_t)minimum,(uint32_t)timeout))
                     printf("ERR|BUSY|WSND\n");
-                else ui_sound_watch_pending=true;
+                else {
+                    ui_sound_watch_pending=true;
+                    ui_sound_watch_armed=false;
+                }
+            }
+        }
+    }
+    else if (!strncmp(line,"TRGSND|",7)) {
+        uint32_t v[8];
+        if(!parse_csv_u32(line+7,v,8u)||!v[0]||v[0]>1023u||
+           !v[1]||!v[2]||v[2]>300000u||v[3]<1u||v[3]>3u||
+           v[4]>v[5]||v[6]>v[7]||v[7]>60000u)
+            printf("ERR|ARG|TRGSND\n");
+        else if(ui_sound_watch_pending||
+                !arm_uart_sound_test_start(now,(uint16_t)v[0],
+                                           (uint16_t)v[1],v[2]))
+            printf("ERR|BUSY|TRGSND\n");
+        else {
+            ui_sound_watch_pending=true;ui_sound_watch_armed=true;
+            ui_sound_trigger_button=(uint8_t)v[3];
+            ui_sound_trigger_due=v[4]+(v[5]-v[4])/2u;
+            ui_sound_trigger_hold_min=(uint16_t)v[6];
+            ui_sound_trigger_hold_max=(uint16_t)v[7];
+        }
+    }
+    else if (!strncmp(line,"WLUX|",5)||!strncmp(line,"TRGLUX|",7)) {
+        bool armed=!strncmp(line,"TRGLUX|",7);
+        uint32_t v[10];size_t count=armed?10u:5u;
+        const char *args=line+(armed?7u:5u);
+        if(!parse_csv_u32(args,v,count)||v[0]>v[1]||!v[3]||
+           v[4]>1u||(armed&&(v[5]>255u||v[6]>v[7]||
+                             v[8]>v[9]||v[9]>60000u)))
+            printf("ERR|ARG|%s\n",armed?"TRGLUX":"WLUX");
+        else {
+            LightWatchSubmit result=light_sensor_live_start(
+                v[0],v[1],v[2],v[3],(uint8_t)v[4],now);
+            if(result!=LIGHT_WATCH_ACCEPTED)
+                printf("ERR|LIGHT|reason=%u\n",result);
+            else {
+                ui_light_watch_pending=true;ui_light_watch_armed=armed;
+                if(armed){
+                    ui_light_trigger_key=(uint8_t)v[5];
+                    ui_light_trigger_due=v[6]+(v[7]-v[6])/2u;
+                    ui_light_trigger_hold_min=(uint16_t)v[8];
+                    ui_light_trigger_hold_max=(uint16_t)v[9];
+                }
             }
         }
     }
@@ -313,7 +396,14 @@ static void service_cdc(uint32_t now) {
         else if (value >= 32 && value <= 126) { if (command_length + 1u < sizeof(command)) command[command_length++] = (char)value; else command_length = 0; }
     }
 }
-static void service_keyboard(uint32_t now) { uint8_t lane; if (hid_keyboard_service(now, &lane) && !abvm_complete_action(&vm, lane, now)) printf("ERR|HID|complete|lane=%u\n", lane); }
+static void service_keyboard(uint32_t now) {
+    uint8_t lane;
+    if (hid_keyboard_service(now, &lane) &&
+        !abvm_complete_action(&vm, lane, now))
+        printf("ERR|HID|complete|lane=%u\n", lane);
+    char reply[24];
+    if(hid_keyboard_take_live_reply(reply,sizeof(reply)))printf("%s\n",reply);
+}
 static bool light_cal_cue_active, sound_cal_cue_active;
 static uint8_t event_u8(const char *event,const char *key,uint8_t fallback) {
     const char *p=strstr(event,key); if(!p)return fallback;
@@ -334,6 +424,38 @@ static void service_calibration_cue(const char *event,uint32_t now) {
 }
 static void service_light(uint32_t now) {
     light_sensor_service(&vm, now);
+    bool live_detected;uint32_t live_lux;
+    if(ui_light_watch_pending&&
+       light_sensor_live_take(&live_detected,&live_lux)){
+        ui_light_watch_pending=false;
+        if(!live_detected)
+            printf("ERR|TIMEOUT|%s|lux=%lu.%lu\n",
+                   ui_light_watch_armed?"TRGLUX":"WLUX",
+                   (unsigned long)(live_lux/10u),
+                   (unsigned long)(live_lux%10u));
+        else if(ui_light_watch_armed){
+            ui_light_trigger_pending=true;
+            ui_light_trigger_lux=live_lux;
+            ui_light_trigger_due=now+ui_light_trigger_due;
+        } else
+            printf("OK|WLUX|MATCH|lux=%lu.%lu\n",
+                   (unsigned long)(live_lux/10u),
+                   (unsigned long)(live_lux%10u));
+    }
+    if(ui_light_trigger_pending&&(int32_t)(now-ui_light_trigger_due)>=0){
+        HidKeyboardSubmit result=hid_keyboard_submit_trigger(
+            ui_light_trigger_key,ui_light_trigger_hold_min,
+            ui_light_trigger_hold_max,now);
+        if(result==HID_KEYBOARD_ACCEPTED){
+            ui_light_trigger_pending=false;
+            printf("EVT|TRGLUX|DETECTED|lux=%lu.%lu\n",
+                   (unsigned long)(ui_light_trigger_lux/10u),
+                   (unsigned long)(ui_light_trigger_lux%10u));
+        } else if(result!=HID_KEYBOARD_BUSY){
+            ui_light_trigger_pending=false;
+            printf("ERR|TRGLUX|KEY|reason=%u\n",result);
+        }
+    }
     if (light_sensor_take_fault()) {
         printf("ERR|LIGHT|sensor-lost\n");
         buzzer_play(BUZZER_CUE_ERROR, now);
@@ -376,6 +498,9 @@ static void service_light(uint32_t now) {
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
     if (arm_uart_mouse_service(now, &completed_lane) && (vm.status == ABVM_STATUS_RUNNING || vm.status == ABVM_STATUS_PAUSED) && !abvm_complete_action(&vm, completed_lane, now)) printf("ERR|ARM|complete|lane=%u\n", completed_lane);
+    char live_reply[96];
+    if(arm_uart_mouse_take_live_reply(live_reply,sizeof(live_reply)))
+        printf("%s\n",live_reply);
     if (ui_sound_calibration_pending) {
         uint16_t average,peak;
         if (arm_uart_sound_calibration_take(&average,&peak)) {
@@ -390,7 +515,12 @@ static void service_mouse(uint32_t now) {
     if (arm_uart_sound_take(&profile, &detected, &peak)) {
         if(profile==0u&&ui_sound_watch_pending) {
             ui_sound_watch_pending=false;
-            if(detected)printf("OK|WSND|DETECTED|peak=%u\n",peak);
+            if(detected&&ui_sound_watch_armed){
+                ui_sound_trigger_pending=true;
+                ui_sound_trigger_peak=peak;
+                ui_sound_trigger_due=now+ui_sound_trigger_due;
+            }
+            else if(detected)printf("OK|WSND|DETECTED|peak=%u\n",peak);
             else printf("ERR|TIMEOUT|WSND|max=%u\n",peak);
             return;
         }
@@ -419,6 +549,21 @@ static void service_mouse(uint32_t now) {
                    arm_uart_sound_minimum(),
                    arm_uart_sound_uses_calibration()?"saved":"project");
             buzzer_play(BUZZER_CUE_TIMEOUT, now);
+        }
+    }
+    if(ui_sound_trigger_pending&&(int32_t)(now-ui_sound_trigger_due)>=0){
+        const char *button=ui_sound_trigger_button==2u?"right":
+                           ui_sound_trigger_button==3u?"middle":"left";
+        char click[48];
+        snprintf(click,sizeof(click),"MCLICK|%s,1,%u,%u",button,
+                 ui_sound_trigger_hold_min,ui_sound_trigger_hold_max);
+        ArmMouseSubmit result=arm_uart_mouse_submit_internal(click,now);
+        if(result==ARM_MOUSE_ACCEPTED){
+            ui_sound_trigger_pending=false;
+            printf("EVT|TRGSND|DETECTED|peak=%u\n",ui_sound_trigger_peak);
+        } else if(result!=ARM_MOUSE_BUSY){
+            ui_sound_trigger_pending=false;
+            printf("ERR|TRGSND|CLICK|reason=%u\n",result);
         }
     }
     service_whisper_rearm(now);
