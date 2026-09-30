@@ -3545,6 +3545,15 @@ class TestRunner
             "custom buzzer: new action exists and legacy playAudio remains registered");
         Assert(StepDefinitions.BuildBuzzerCommands(buzCustom).SequenceEqual(new[] { "BEEP|900,150", "DLY|80", "BEEP|1200,250" }),
             "custom buzzer: custom sequence compiles to BEEP/DLY commands");
+        var buzStyled = new Dictionary<string, object?>
+        {
+            ["preset"] = "notification", ["volume"] = 42, ["envelope"] = "smooth",
+        };
+        Assert(StepDefinitions.BuildBuzzerCommands(buzStyled).SequenceEqual(
+                new[] { "BEEP|880,110,42,smooth", "DLY|45", "BEEP|1175,170,42,smooth" })
+               && buzDef.Fields.Any(f => f.Key == "volume")
+               && buzDef.Fields.Any(f => f.Key == "envelope"),
+            "custom buzzer: presets expose volume and smooth envelope on every tone");
         bool badBuzzer = false;
         try { StepDefinitions.BuildBuzzerCommands(new Dictionary<string, object?> { ["preset"]="custom", ["pattern"]="25000:10" }); }
         catch (FormatException) { badBuzzer = true; }
@@ -3554,6 +3563,12 @@ class TestRunner
         var buzFw = V27ReadSrc(Path.Combine("Services", "PicoFirmwareExporter.cs"));
         Assert(buzFw.Contains("PWMOut(board.GP6") && !buzFw.Contains("PWMOut(board.GP5") && !buzFw.Contains("board.D9"),
             "custom buzzer: passive PWM is Pico GP6 only");
+        var buzDialog = V27ReadSrc(Path.Combine("Views", "StepDialog.xaml.cs"));
+        var buzVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+        Assert(buzDialog.Contains("شنیدن صدای انتخاب‌شده روی بازر")
+               && buzVm.Contains("PreviewBuzzerAsync")
+               && buzFw.Contains("fade-in") && buzFw.Contains("fade-out"),
+            "custom buzzer: editor previews the selected styled tone on the connected Pico");
 
         // (c) meta guard: every version PIN in this file matches the current release.
         // Pin lines are the assertions that check the csproj Version tag, the app banner or
