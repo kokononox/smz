@@ -464,6 +464,16 @@ def main():
                     if send is None:
                         raise BoardError("bridge: _send unavailable")
                     _drain_stale(link)         # v0.9.60e - clean pipe before streaming
+                    # UART can be healthy while the Pro Micro USB HID side is
+                    # disconnected or suspended. Never turn that into a false
+                    # OK|PATH: Windows cannot receive mouse reports then.
+                    presence = link.command("PING", timeout=2.0)
+                    if ("role=brain" in presence and "arm-usb=" in presence
+                            and "arm-usb=3" not in presence):
+                        state = presence.split("arm-usb=", 1)[1].split("|", 1)[0]
+                        raise BoardError(
+                            "Pro Micro USB HID is not active (arm-usb="
+                            + state + "; expected 3/UP)")
                     # v0.9.60f - hardware-cadence thinning (the choppy-mouse fix). The arm
                     # executes ~50 moves/sec (~20 ms each, measured 2026-09-08), but dense
                     # WindMouse trails arrive at ~4 ms/point: oversubscribed 4-5x, the

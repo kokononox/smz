@@ -19,7 +19,7 @@
 #define ARM_LIVE_LANE 0xffu
 #define ARM_INTERNAL_LANE 0xfeu
 
-typedef enum ArmState { ARM_IDLE, ARM_PROBE, ARM_MOVE, ARM_SOUND_ARM, ARM_SOUND_CAL, ARM_HALT, ARM_FAULT } ArmState;
+typedef enum ArmState { ARM_IDLE, ARM_PROBE, ARM_MOVE, ARM_SOUND_ARM, ARM_SOUND_CANCEL, ARM_SOUND_CAL, ARM_HALT, ARM_FAULT } ArmState;
 static ArmState state;
 static char tx[ARM_FRAME_MAX];
 static char pending_payload[ARM_FRAME_MAX];
@@ -35,6 +35,7 @@ static char fault_text[ARM_LINE_MAX];
 static char arm_version[24] = "unknown";
 static bool arm_ready;
 static bool sound_pending, sound_active, sound_event_pending, sound_event_detected;
+static bool sound_result_latched;
 static uint16_t sound_profile, sound_threshold, sound_minimum, sound_peak;
 static bool sound_uses_calibration;
 static uint16_t calibration_average, calibration_peak;
@@ -127,6 +128,7 @@ void arm_uart_mouse_init(void) {
     uart_set_fifo_enabled(ARM_UART, true); state = ARM_IDLE;
     arm_ready = false; fault_text[0] = 0; pending_payload[0] = 0;
     live_reply_pending=false;live_reply[0]=0;
+    sound_result_latched=false;
     host_usb_seen=false;host_usb_state=ARM_HOST_USB_UNKNOWN;
 }
 bool arm_uart_mouse_probe(uint32_t now) {
@@ -182,6 +184,23 @@ static ArmMouseSubmit submit_direct(const char *command, uint32_t now,
          strncmp(command, "KTEXT|", 6u)) ||
         strlen(command) >= sizeof(deferred_mouse))
         return ARM_MOUSE_INVALID;
+    /* ARM 2.8 latches a detected ASND result and ACKs later MMOVEs without
+     * moving until ASNDCANCEL/rearm.  Classroom live preview must be
+     * independent of that completed runtime watch.  Cancel only the latched
+     * result, then run the command through the existing bounded defer slot. */
+    if (direct_lane == ARM_LIVE_LANE && sound_result_latched) {
+        if (!arm_ready || completion_pending || state != ARM_IDLE ||
+            deferred_mouse_pending || halt_pending)
+            return ARM_MOUSE_BUSY;
+        memcpy(deferred_mouse, command, strlen(command) + 1u);
+        deferred_lane=direct_lane;deferred_mouse_pending=true;
+        sound_result_latched=false;
+        if (!queue_payload("ASNDCANCEL",now,ARM_SOUND_CANCEL)) {
+            deferred_mouse_pending=false;
+            return ARM_MOUSE_INVALID;
+        }
+        return ARM_MOUSE_ACCEPTED;
+    }
     if (!arm_ready || state == ARM_FAULT || state == ARM_HALT ||
         state == ARM_PROBE || state == ARM_SOUND_CAL ||
         completion_pending || halt_pending)
@@ -220,6 +239,7 @@ ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint
     if (!abvm_constant(vm,event->constant_id,ABVM_CONST_SOUND,&payload,&size)||size!=8u)
         return ARM_SOUND_INVALID;
     sound_profile=read_u16_le(payload); sound_threshold=read_u16_le(payload+2u);
+    sound_result_latched=false;
     sound_minimum=(uint16_t)read_u32_le(payload+4u);
     sound_uses_calibration=false;
     if (!sound_threshold) {
@@ -241,6 +261,7 @@ bool arm_uart_sound_test_start(uint32_t now,uint16_t threshold,
         sound_active || !threshold || threshold>1023u || !minimum_ms ||
         !timeout_ms) return false;
     sound_profile=0u;sound_threshold=threshold;sound_minimum=minimum_ms;
+    sound_result_latched=false;
     sound_uses_calibration=false;sound_deadline=now+timeout_ms;
     sound_pending=true;
     if (state==ARM_IDLE&&!queue_sound(now)) {
@@ -262,6 +283,7 @@ bool arm_uart_sound_restart(uint32_t now,uint16_t profile,
     }
     if (!threshold || threshold>1023u) return false;
     sound_profile=profile;sound_threshold=threshold;sound_minimum=minimum_ms;
+    sound_result_latched=false;
     sound_deadline=now+timeout_ms;sound_pending=true;
     if (!queue_sound(now)) {
         sound_pending=false; return false;
@@ -308,11 +330,13 @@ static void handle_line(uint32_t now) {
     }
     if (!strncmp(rx,"EVT|ASND|DETECTED",17)) {
         sound_peak=parse_peak(rx); sound_event_detected=true;
-        sound_event_pending=true; sound_active=false; return;
+        sound_event_pending=true; sound_active=false;
+        sound_result_latched=true; return;
     }
     if (!strncmp(rx,"EVT|ASND|TIMEOUT",16)) {
         sound_peak=parse_peak(rx); sound_event_detected=false;
-        sound_event_pending=true; sound_active=false; return;
+        sound_event_pending=true; sound_active=false;
+        sound_result_latched=false; return;
     }
     if (!strncmp(rx,"EVT|",4)) return;
     if (state==ARM_PROBE&&!strncmp(rx,"OK|HVER|",8)) {
@@ -344,6 +368,9 @@ static void handle_line(uint32_t now) {
     }
     if (state==ARM_SOUND_ARM&&!strcmp(rx,"OK|ASND")) {
         pending_payload[0]=0; state=ARM_IDLE; sound_active=true; return;
+    }
+    if (state==ARM_SOUND_CANCEL&&!strcmp(rx,"OK|ASNDCANCEL")) {
+        pending_payload[0]=0;state=ARM_IDLE;return;
     }
     if (state==ARM_HALT&&!strcmp(rx,"OK|HALT")) {
         pending_payload[0]=0; state=ARM_IDLE; return;
@@ -408,6 +435,7 @@ void arm_uart_mouse_release_all(uint32_t now) {
         completion_lane=lane; completion_pending=true;
     }
     deferred_mouse_pending=false; sound_pending=sound_active=false;
+    sound_result_latched=false;
     if (state==ARM_IDLE) {
         if (!queue_payload("HALT",now,ARM_HALT)) set_fault("halt-frame");
     } else halt_pending=true;

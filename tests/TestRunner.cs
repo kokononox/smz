@@ -2552,6 +2552,10 @@ class TestRunner
             "v0.9.44: a brain without an arm lights only the Pico LED");
         Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-ver=2.8.2-S4|role=brain") == (true, true),
             "native ABVM identity lights both Pico and ready Pro Micro indicators");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-usb=3|arm-ver=2.8.2-S4|role=brain") == (true, true),
+            "native ABVM lights Pro Micro only when its USB HID host is UP");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-usb=1|arm-ver=2.8.2-S4|role=brain") == (true, false),
+            "native ABVM does not show false green when Pro Micro USB HID is down");
         Assert(v44mw.Contains("PicoPresent") && v44mw.Contains("ArmPresent")
                && v44vm.Contains("ParseBoardPresence") && v44vm.Contains("SendAsync(\"PING\")"),
             "v0.9.44: the status bar has Pico / Pro Micro indicators fed by the post-connect PING");

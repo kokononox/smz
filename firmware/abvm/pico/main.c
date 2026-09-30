@@ -218,7 +218,7 @@ static void service_buttons(uint32_t now) {
 }
 
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 7u : 0u);
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 7u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;

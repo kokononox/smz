@@ -17,7 +17,7 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn('queue_payload("HVER", now, ARM_PROBE)', self.arm)
         self.assertIn('strstr(rx,"|REL=1")', self.arm)
         self.assertIn('strstr(rx,"|ASND=1")', self.arm)
-        self.assertIn("arm-ready=%u|arm-ver=%s", self.main)
+        self.assertIn("arm-ready=%u|arm-usb=%u|arm-ver=%s", self.main)
 
     def test_transport_errors_are_bounded_and_observable(self):
         self.assertIn("#define ARM_RETRY_MAX 2u", self.arm)
@@ -131,6 +131,10 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn('"MWHEEL|"', self.main)
         self.assertIn('"KBDARM|"', self.main)
         self.assertIn("arm_uart_mouse_take_live_reply", self.main)
+        self.assertIn("sound_result_latched", self.arm)
+        self.assertIn('queue_payload("ASNDCANCEL",now,ARM_SOUND_CANCEL)', self.arm)
+        self.assertIn("direct_lane == ARM_LIVE_LANE && sound_result_latched", self.arm)
+        self.assertIn("arm-usb=%u", self.main)
         keyboard = (self.pico / "hid_keyboard.c").read_text(encoding="utf-8")
         self.assertIn("hid_keyboard_submit_live", self.main)
         self.assertIn('"KCOMBO|"', keyboard)
