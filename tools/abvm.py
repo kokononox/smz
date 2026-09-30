@@ -1,4 +1,5 @@
 
+
 #!/usr/bin/env python3
 """PC-side ABP1 compiler, verifier, and deterministic reference VM."""
 from __future__ import annotations
@@ -630,19 +631,6 @@ class Compiler:
     def compile_watch(self, node: dict[str, Any], depth: int,
                       path: tuple[int, ...]) -> None:
         p = props(node)
-        arm_preset = str(p.get("armCuePreset") or "off").strip().lower()
-        if arm_preset != "off":
-            self.compile_buzzer({
-                "preset": arm_preset,
-                "volume": integer(p.get("armCueVolume"), 60),
-                "envelope": str(p.get("armCueEnvelope") or "smooth"),
-                "tempo": integer(p.get("armCueTempo"), 100),
-                "pattern": str(p.get("armCuePattern") or
-                               "880:100,40;1175:150"),
-            })
-            # The sound detector arms only after the cue and its acoustic tail,
-            # so the GP6 feedback cannot satisfy its own Catch threshold.
-            self.emit(OP_DELAY, b=120, c=120)
         profile = integer(p.get("calibrationId"), 1)
         lo = integer(p.get("timeoutMinSec")) * 1000
         hi = integer(p.get("timeoutMaxSec")) * 1000
@@ -664,7 +652,20 @@ class Compiler:
         self.flags |= FLAG_HAS_SOUND
         watch = self.emit(OP_WATCH, flags=2,
                           a=self.pool.add(CONST_SOUND, descriptor), b=lo, c=hi)
+        # Detection response order is deliberate: execute the Catch children
+        # first (normally the F keystroke), then play the configured feedback.
+        # A timeout jumps to watch.d and skips both the response and the cue.
         self.compile_nodes(children(node), depth + 1, path)
+        catch_preset = str(p.get("armCuePreset") or "off").strip().lower()
+        if catch_preset != "off":
+            self.compile_buzzer({
+                "preset": catch_preset,
+                "volume": integer(p.get("armCueVolume"), 60),
+                "envelope": str(p.get("armCueEnvelope") or "smooth"),
+                "tempo": integer(p.get("armCueTempo"), 100),
+                "pattern": str(p.get("armCuePattern") or
+                               "880:100,40;1175:150"),
+            })
         self.patch(watch, d=len(self.code))
 
     def compile_light_watch(self, node: dict[str, Any], depth: int,
