@@ -155,17 +155,6 @@
         "IsDisabled": false
       },
       {
-        "Type": "keystroke",
-        "Props": {
-          "key": "NUMPAD4",
-          "holdMin": 40,
-          "holdMax": 80
-        },
-        "Children": [],
-        "Delay": 0,
-        "IsDisabled": false
-      },
-      {
         "Type": "waitForLight",
         "Props": {
           "luxCenter": 125,
@@ -196,6 +185,17 @@
           "text": "native interrupt",
           "hmin": 111,
           "hmax": 250
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "NUMPAD4",
+          "holdMin": 40,
+          "holdMax": 80
         },
         "Children": [],
         "Delay": 0,
