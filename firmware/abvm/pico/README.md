@@ -46,7 +46,9 @@ priority, cancels the transient Whisper overlay, and starts the DC route.
 
 ## Passive buzzer on GP6
 
-The native adapter preserves the original physical-feedback score on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the exact legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep, updated every 4 ms, so transition feedback cannot be confused with the restored calibration notes. Light calibration restores the six position notes (262/294/330/349/392/440 Hz), record-start, per-stage completion, rising save-success, low save-error, all-profile completion, and enter/exit melodies. Sound calibration restores ID 1/2 selection at 660/880 Hz, silence-start at 523 Hz, target-start at 988 Hz, plus the same save/error and enter/exit feedback.
+The native adapter preserves physical feedback on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep. Light calibration uses eight memorable 3–4 note motifs; Classroom Studio exposes a separate assignment menu so every environment can use any motif and preview it on the connected board. The selected cue IDs are stored in the Native Guard descriptor and require no PC helper at runtime. Sound calibration retains ID 1/2/3 selection, silence-start, target-start, save/error, and enter/exit feedback.
+
+Whisper New and Whisper Repeat also carry independent board-only optical cooldowns in the Native Guard descriptor. A brief return to the same light signature during cooldown is ignored even when both global sound listeners are disabled.
 
 Playback is allocation-free and nonblocking; no additional hardware is required.
 

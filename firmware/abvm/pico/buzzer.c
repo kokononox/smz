@@ -28,14 +28,25 @@ static const BuzzerTone whisper_notice[] = {{1397,110,45},{1760,190,0}};
 /* Lower answering phrase distinguishes a repeated person from a new one. */
 static const BuzzerTone whisper_repeat_notice[] = {{1175,100,35},{988,100,35},{1175,190,0}};
 
-/* Exact legacy physical-calibration feedback. */
-static const uint16_t calibration_notes[] = {262,294,330,349,392,440,494,523};
+/* Distinct 3–4 note identities for the eight light environments. The operator
+ * may assign any motif to any profile in Classroom Studio. */
+static const BuzzerTone light_calibration_motifs[8][4] = {
+    {{262,100,45},{392,100,45},{523,180,0},{0,0,0}},
+    {{659,110,40},{523,110,40},{392,220,0},{0,0,0}},
+    {{330,90,35},{415,90,35},{494,90,35},{659,190,0}},
+    {{294,160,70},{440,100,50},{294,230,0},{0,0,0}},
+    {{392,90,30},{494,90,30},{587,90,30},{784,190,0}},
+    {{880,85,30},{740,85,30},{880,85,30},{740,180,0}},
+    {{1047,80,25},{1319,80,25},{1568,80,25},{2093,180,0}},
+    {{1175,90,30},{988,90,30},{1175,90,30},{1568,190,0}},
+};
+static const uint8_t light_calibration_motif_counts[] = {3,3,4,3,4,4,4,4};
 static const BuzzerTone calibration_enter_prefix[] = {{523,100,0},{659,120,0},{784,180,0}};
 static const BuzzerTone calibration_exit[] = {{784,100,0},{659,120,0},{523,220,0}};
 static const BuzzerTone calibration_error[] = {{220,140,80},{220,260,0}};
 static const BuzzerTone calibration_success[] = {{880,160,60},{1175,220,60},{1568,360,0}};
 static const BuzzerTone calibration_complete[] = {{262,90,35},{294,90,35},{330,90,35},{349,90,35},{392,90,35},{440,90,0}};
-static BuzzerTone dynamic_tones[5];
+static BuzzerTone dynamic_tones[8];
 
 static const BuzzerPattern patterns[] = {
     [BUZZER_CUE_START] = {guard_start, ARRAY_COUNT(guard_start), 2u},
@@ -108,8 +119,13 @@ static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, 
 }
 static uint16_t selection_note(uint8_t selection, bool sound) {
     if (sound) return selection == 3u ? 1047u : selection == 2u ? 880u : 660u;
-    if (selection < 1u || selection > ARRAY_COUNT(calibration_notes)) selection = 1u;
-    return calibration_notes[selection - 1u];
+    if (selection < 1u || selection > ARRAY_COUNT(light_calibration_motifs)) selection = 1u;
+    return light_calibration_motifs[selection - 1u][0].hz;
+}
+static const BuzzerTone *light_calibration_motif(uint8_t cue,uint8_t *count) {
+    if(cue<1u||cue>ARRAY_COUNT(light_calibration_motifs))cue=1u;
+    if(count)*count=light_calibration_motif_counts[cue-1u];
+    return light_calibration_motifs[cue-1u];
 }
 
 void buzzer_init(void) {
@@ -140,11 +156,22 @@ void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
 }
 void buzzer_calibration_enter(uint8_t selection,bool sound,uint32_t now) {
     for(uint8_t i=0;i<ARRAY_COUNT(calibration_enter_prefix);++i) dynamic_tones[i]=calibration_enter_prefix[i];
-    dynamic_tones[3]=(BuzzerTone){selection_note(selection,sound),220u,0u};
-    begin(dynamic_tones,4u,5u,now);
+    if(sound) {
+        dynamic_tones[3]=(BuzzerTone){selection_note(selection,true),220u,0u};
+        begin(dynamic_tones,4u,5u,now);
+        return;
+    }
+    uint8_t count;const BuzzerTone *motif=light_calibration_motif(selection,&count);
+    for(uint8_t i=0;i<count;++i)dynamic_tones[ARRAY_COUNT(calibration_enter_prefix)+i]=motif[i];
+    begin(dynamic_tones,(uint8_t)(ARRAY_COUNT(calibration_enter_prefix)+count),5u,now);
 }
 void buzzer_calibration_position(uint8_t selection,bool sound,uint32_t now) {
-    dynamic_tones[0]=(BuzzerTone){selection_note(selection,sound),220u,0u}; begin(dynamic_tones,1u,5u,now);
+    if(sound) {
+        dynamic_tones[0]=(BuzzerTone){selection_note(selection,true),220u,0u};
+        begin(dynamic_tones,1u,5u,now);return;
+    }
+    uint8_t count;const BuzzerTone *motif=light_calibration_motif(selection,&count);
+    begin(motif,count,5u,now);
 }
 void buzzer_calibration_record_start(bool sound,uint32_t now) {
     dynamic_tones[0]=(BuzzerTone){sound?523u:660u,sound?90u:65u,0u}; begin(dynamic_tones,1u,5u,now);
@@ -153,9 +180,8 @@ void buzzer_calibration_sound_target(uint32_t now) {
     dynamic_tones[0]=(BuzzerTone){988u,120u,0u}; begin(dynamic_tones,1u,5u,now);
 }
 void buzzer_calibration_stage_complete(uint8_t stage,uint32_t now) {
-    uint16_t note=selection_note(stage,false);
-    dynamic_tones[0]=(BuzzerTone){note,110u,60u}; dynamic_tones[1]=(BuzzerTone){note,190u,0u};
-    begin(dynamic_tones,2u,5u,now);
+    uint8_t count;const BuzzerTone *motif=light_calibration_motif(stage,&count);
+    begin(motif,count,5u,now);
 }
 void buzzer_calibration_save_success(uint32_t now) { begin(calibration_success,ARRAY_COUNT(calibration_success),6u,now); }
 void buzzer_calibration_save_error(uint32_t now) { begin(calibration_error,ARRAY_COUNT(calibration_error),7u,now); }

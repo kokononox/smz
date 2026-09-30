@@ -501,13 +501,14 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     bool sound=strstr(event,"|SOUNDCAL|")!=NULL;
     bool error=!strncmp(event,"ERR|",4);
     uint8_t selection=event_u8(event,sound?"id=":"stage=",1u);
+    uint8_t cue=sound?selection:guard_runtime_calibration_cue(selection);
     if(error){buzzer_calibration_save_error(now);return;}
     if(strstr(event,"mode=exited")){buzzer_calibration_exit(now);if(sound)sound_cal_cue_active=false;else light_cal_cue_active=false;return;}
-    if(strstr(event,"mode=ready")){bool *seen=sound?&sound_cal_cue_active:&light_cal_cue_active;if(!*seen){*seen=true;buzzer_calibration_enter(selection,sound,now);}else buzzer_calibration_position(selection,sound,now);return;}
+    if(strstr(event,"mode=ready")){bool *seen=sound?&sound_cal_cue_active:&light_cal_cue_active;if(!*seen){*seen=true;buzzer_calibration_enter(cue,sound,now);}else buzzer_calibration_position(cue,sound,now);return;}
     if(strstr(event,"mode=started")||strstr(event,"mode=silence")){buzzer_calibration_record_start(sound,now);return;}
     if(sound&&strstr(event,"mode=sound")){buzzer_calibration_sound_target(now);return;}
-    if(!sound&&strstr(event,"mode=complete")){buzzer_calibration_stage_complete(selection,now);return;}
-    if(strstr(event,"mode=saved")){if(!sound&&selection==6u)buzzer_calibration_complete(now);else buzzer_calibration_save_success(now);}
+    if(!sound&&strstr(event,"mode=complete")){buzzer_calibration_stage_complete(cue,now);return;}
+    if(strstr(event,"mode=saved")){if(!sound&&selection==8u)buzzer_calibration_complete(now);else buzzer_calibration_save_success(now);}
 }
 static void service_light(uint32_t now) {
     light_sensor_service(&vm, now);

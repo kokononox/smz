@@ -31,7 +31,8 @@ RESOURCE = struct.Struct("<HHHHHHHHHHIIII")      # 36 bytes
 SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum ms
 LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, mode
 GUARD_HEADER = struct.Struct("<BBBBI")               # version/count/mode/reserved/timeout
-GUARD_PROFILE = struct.Struct("<BBHIIII")             # id/enabled/route/low/high/stable/hysteresis
+GUARD_PROFILE_V1 = struct.Struct("<BBHIIII")          # id/enabled/route/low/high/stable/hysteresis
+GUARD_PROFILE = struct.Struct("<BBHIIIII")            # id/cue/route/low/high/stable/hysteresis/cooldown
 CYCLE = struct.Struct("<BBBBIIHHI")                  # version/flags/limit/reserved/run range/routes/USB stable
 
 FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD, FLAG_HAS_CYCLE = 1, 2, 4, 8, 16, 32
@@ -91,7 +92,7 @@ ROUTE_POLICY_BY_NAME = {
     "CharacterDashboard": ROUTE_ABORT_AND_START,
     "EnteringGameLoading": ROUTE_ABORT_AND_START,
     "Game": ROUTE_ABORT_AND_RESTART,
-    "Targeted": ROUTE_ABORT_AND_START,
+    "Targeted": ROUTE_INTERRUPT_AND_RESUME,
     "Whisper": ROUTE_INTERRUPT_AND_RESUME,
     "WhisperRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
@@ -811,7 +812,7 @@ class Compiler:
             missing = sorted(required_routes - compiled_routes)
             raise AbvmError("Native Guard routes are missing: " + ",".join(map(str, missing)))
         packed = bytearray(GUARD_HEADER.pack(
-            1, len(expected),
+            2, len(expected),
             1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
             0, max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
         ranges = []
@@ -823,16 +824,22 @@ class Compiler:
             tolerance = float(item.get("luxTolerance", item.get("tolerance", 0)))
             hysteresis = float(item.get("hysteresisLux", item.get("hysteresis", 1)))
             stable = integer(item.get("stableDurationMs", item.get("stableMs", 750)))
-            if not all(value >= 0 for value in (center, tolerance, hysteresis, stable)):
+            cooldown = integer(item.get("lightCooldownMs", 0))
+            cue = integer(item.get("calibrationCue"), numeric_id)
+            if not all(value >= 0 for value in (center, tolerance, hysteresis, stable, cooldown)):
                 raise AbvmError("Native Guard profile has a negative value: " + profile_id)
             low = max(0, int(round((center - tolerance) * 10)))
             high = int(round((center + tolerance) * 10))
-            if high > 10_000_000 or stable > 3_600_000:
+            if high > 10_000_000 or stable > 3_600_000 or cooldown > 600_000:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
+            if cue not in range(1, 9):
+                raise AbvmError("Native Guard calibration cue is out of range: " + profile_id)
+            if numeric_id not in (7, 8) and cooldown:
+                raise AbvmError("Native Guard light cooldown is only valid for Whisper profiles")
             ranges.append((profile_id, low, high))
             packed.extend(GUARD_PROFILE.pack(
-                numeric_id, 1, ROUTE_IDS[route_name], low, high, stable,
-                int(round(hysteresis * 10))))
+                numeric_id, cue, ROUTE_IDS[route_name], low, high, stable,
+                int(round(hysteresis * 10)), cooldown))
         for i, (left_id, left_low, left_high) in enumerate(ranges):
             for right_id, right_low, right_high in ranges[i + 1:]:
                 if max(left_low, right_low) <= min(left_high, right_high):
@@ -1057,16 +1064,28 @@ class Verifier:
             if len(guard_constants) != 1:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
-            if len(raw) != GUARD_HEADER.size + 8 * GUARD_PROFILE.size:
-                raise AbvmError("invalid Native Guard descriptor size")
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            if version != 1 or count != 8 or mode not in (0, 1) or reserved or timeout < 250:
+            profile_struct = GUARD_PROFILE if version == 2 else GUARD_PROFILE_V1
+            if len(raw) != GUARD_HEADER.size + 8 * profile_struct.size:
+                raise AbvmError("invalid Native Guard descriptor size")
+            if version not in (1, 2) or count != 8 or mode not in (0, 1) or reserved or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
             ids = set()
             for index in range(count):
-                item = GUARD_PROFILE.unpack_from(raw, GUARD_HEADER.size + index * GUARD_PROFILE.size)
-                profile_id, enabled, route_id, low, high, stable, hysteresis = item
-                if profile_id not in range(1, 9) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
+                item = profile_struct.unpack_from(
+                    raw, GUARD_HEADER.size + index * profile_struct.size)
+                if version == 2:
+                    profile_id, cue, route_id, low, high, stable, hysteresis, cooldown = item
+                else:
+                    profile_id, enabled, route_id, low, high, stable, hysteresis = item
+                    cue, cooldown = profile_id, 0
+                    if enabled != 1:
+                        raise AbvmError("invalid Native Guard profile")
+                if profile_id not in range(1, 9) or profile_id in ids or \
+                        cue not in range(1, 9) or route_id not in ROUTE_IDS.values() or \
+                        low > high or stable > 3_600_000 or \
+                        hysteresis > 1_000_000 or cooldown > 600_000 or \
+                        (profile_id not in (7, 8) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
                 ids.add(profile_id)
             if ids != set(range(1, 9)):

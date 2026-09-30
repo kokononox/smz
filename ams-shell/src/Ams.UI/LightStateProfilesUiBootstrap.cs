@@ -7,6 +7,7 @@ using Ams.UI.Models;
 using Ams.UI.ViewModels;
 using WpfColor = System.Windows.Media.Color;
 using WpfColorConverter = System.Windows.Media.ColorConverter;
+using WpfComboBox = System.Windows.Controls.ComboBox;
 
 namespace Ams.UI;
 
@@ -101,6 +102,7 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(saveStatus);
         editor.Child = editorBody;
         section.Children.Add(editor);
+        section.Children.Add(CalibrationCueMenu(window, vm));
 
         var insertAt = Math.Max(0, body.Children.Count - 1);
         body.Children.Insert(insertAt, section);
@@ -125,6 +127,7 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text("بازه مؤثر", 11, "#AAB3C2"), 4);
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 5);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 6);
+        Add(row, Text("Cooldown نوری ms", 11, "#AAB3C2"), 7);
         return row;
     }
 
@@ -142,16 +145,92 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text($"{profile.LuxMin:0.#} تا {profile.LuxMax:0.#}", 12, "#D9DEE7"), 4);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
         Add(row, Editor(profile, nameof(profile.HysteresisLux)), 6);
+        Add(row, profile.Id is "whisper" or "whisper-repeat"
+            ? Editor(profile, nameof(profile.LightCooldownMs))
+            : Text("—", 12, "#777F8C"), 7);
         return row;
     }
 
     private static Grid ProfileGrid()
     {
-        var grid = new Grid { MinWidth = 760 };
+        var grid = new Grid { MinWidth = 900 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
-        for (var i = 0; i < 5; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < 6; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         return grid;
+    }
+
+    private sealed record CueOption(int Id, string Name);
+    private static readonly CueOption[] CueOptions =
+    [
+        new(1, "۱ · سه‌نت صعودی آرام"),
+        new(2, "۲ · سه‌نت نزولی"),
+        new(3, "۳ · چهارنُت روشن صعودی"),
+        new(4, "۴ · سه‌نت مکث‌دار"),
+        new(5, "۵ · چهارنُت ورود به بازی"),
+        new(6, "۶ · هشدار چهارنُت متناوب"),
+        new(7, "۷ · ویسپر جدید — درخشان"),
+        new(8, "۸ · ویسپر تکراری — پاسخ‌دهنده"),
+    ];
+
+    private static Border CalibrationCueMenu(MainWindow window, MainViewModel vm)
+    {
+        var body = new StackPanel();
+        body.Children.Add(Text("تخصیص صدای راهنمای کالیبراسیون", 15, "#F5F7FA", FontWeights.SemiBold));
+        body.Children.Add(Text(
+            "برای هر محیط یک ملودی ۳ تا ۵ نتی انتخاب کن. این ملودی روی خود Pico ذخیره و هنگام انتخاب همان بخش در کالیبراسیون پخش می‌شود.",
+            12, "#AAB3C2"));
+        foreach (var profile in vm.LightStateProfiles)
+        {
+            var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Add(row, Text(profile.Name, 12, "#D9DEE7"), 0);
+            var selector = new WpfComboBox
+            {
+                ItemsSource = CueOptions, DisplayMemberPath = nameof(CueOption.Name),
+                SelectedValuePath = nameof(CueOption.Id), MinWidth = 250, Margin = new Thickness(4),
+            };
+            selector.SetBinding(WpfComboBox.SelectedValueProperty, new Binding(nameof(profile.CalibrationCue))
+            {
+                Source = profile, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
+            });
+            Add(row, selector, 1);
+            var preview = ActionButton("پیش‌شنیدن", "#333740", "#F5F7FA");
+            preview.Margin = new Thickness(6, 3, 0, 3);
+            preview.Click += async (_, _) =>
+            {
+                try
+                {
+                    preview.IsEnabled = false;
+                    preview.Content = await vm.PreviewLightCalibrationCueAsync(profile.CalibrationCue);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(window, ex.Message, "پیش‌شنیدن صدای کالیبراسیون",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                finally
+                {
+                    preview.IsEnabled = true;
+                    preview.Content = "پیش‌شنیدن";
+                }
+            };
+            Add(row, preview, 2);
+            body.Children.Add(row);
+        }
+        var save = ActionButton("ذخیره تخصیص صداها", "#5E9FE8", "#10151C");
+        save.HorizontalAlignment = HorizontalAlignment.Right;
+        save.Margin = new Thickness(0, 8, 0, 0);
+        save.Click += (_, _) => vm.SaveLightStateProfiles();
+        body.Children.Add(save);
+        return new Border
+        {
+            Child = body, Background = Brush("#22262D"), BorderBrush = Brush("#343B46"),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14), Margin = new Thickness(4, 0, 4, 12),
+        };
     }
 
     private static TextBox Editor(LightStateProfile profile, string path)

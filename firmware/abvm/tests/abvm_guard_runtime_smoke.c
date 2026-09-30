@@ -2,6 +2,7 @@
 #include "guard_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now) {
     (void)lux_tenths; (void)age_ms; (void)now; return false;
@@ -33,6 +34,9 @@ int main(int argc, char **argv) {
     if (!require(abvm_init(&vm, image, (size_t)length), "image") ||
         !require(guard_runtime_init(&vm), "descriptor") ||
         !require(guard_runtime_available(), "available") ||
+        !require(guard_runtime_calibration_cue(1u)==8u &&
+                 guard_runtime_calibration_cue(8u)==1u,
+                 "custom calibration cue mapping") ||
         !require(guard_runtime_start(0u), "start")) return 1;
     if (!stable(&vm, 1000u, 0u, 1u, 1u)) return 1;
     if (!require(guard_runtime_pause() && guard_runtime_paused(), "pause") ||
@@ -94,6 +98,11 @@ int main(int argc, char **argv) {
     guard_runtime_observe(&vm,5000u,2200u);
     guard_runtime_observe(&vm,5000u,2300u);
     if (!stable(&vm, 6000u, 2500u, 9u, 5u)) return 1;
+    if (!require(vm.suspended.valid && vm.suspended.route_id==8u,
+                 "Targeted suspends the exact Game cursor for resume")) return 1;
+    /* Simulate Targeted END restoring the suspended Game context. */
+    vm.route_id=vm.suspended.route_id;
+    vm.suspended.valid=false;
     guard_runtime_observe(&vm, 5000u, 2700u);
     guard_runtime_observe(&vm, 5000u, 2800u);
     if (!require(guard_runtime_take_event(&event), "targeted return") ||
@@ -123,6 +132,25 @@ int main(int argc, char **argv) {
                  guard_runtime_active_profile()==2u &&
                  guard_runtime_stage()==2u,
                  "stable DC preempts Whisper and starts recovery")) return 1;
+    /*
+     * A completed optical Whisper cannot be re-armed by a quick light bounce.
+     * The per-profile board-only cooldown remains effective with sound off.
+     */
+    if (!require(guard_runtime_start(4000u), "restart Guard for cooldown") ||
+        !stable(&vm,5000u,4000u,8u,5u) ||
+        !stable(&vm,7000u,4200u,10u,5u)) return 1;
+    vm.route_id=8u;vm.suspended.valid=false;
+    guard_runtime_observe(&vm,5000u,4400u);
+    guard_runtime_observe(&vm,5000u,4500u);
+    (void)guard_runtime_take_event(&event);
+    guard_runtime_observe(&vm,7000u,4600u);
+    guard_runtime_observe(&vm,7000u,4700u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_DENIED &&
+                 event.reason &&
+                 !strcmp(event.reason,"light-whisper-cooldown") &&
+                 vm.route_id==8u,
+                 "light Whisper cooldown suppresses quick retrigger")) return 1;
     guard_runtime_stop();
     if (!require(!guard_runtime_running(), "stop")) return 1;
     free(image);
