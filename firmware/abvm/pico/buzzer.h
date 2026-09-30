@@ -19,6 +19,8 @@ void buzzer_init(void);
 void buzzer_service(uint32_t now);
 void buzzer_play(BuzzerCue cue, uint32_t now);
 void buzzer_play_tone(uint16_t hz, uint16_t duration_ms, uint32_t now);
+void buzzer_play_tone_ex(uint16_t hz, uint16_t duration_ms, uint8_t volume,
+                         uint8_t envelope, uint32_t now);
 void buzzer_guard_transition(uint8_t profile_id, uint32_t now);
 void buzzer_calibration_enter(uint8_t selection, bool sound, uint32_t now);
 void buzzer_calibration_position(uint8_t selection, bool sound, uint32_t now);

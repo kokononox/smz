@@ -155,7 +155,9 @@ public static class StepTextsFa
 
         // "path" — openFile / playAudio / runExe / playScript
         ["openFile:path"] = "مسیر فایل",
-        ["buzzer:preset"] = "نوع صدای بوق (short / double / warning / success / custom)",
+        ["buzzer:preset"] = "نوع صدا (کوتاه، دوتایی، اعلان، هشدار، موفقیت، خطا، صعودی، نزولی یا سفارشی)",
+        ["buzzer:volume"] = "شدت صدا (۱ تا ۱۰۰ درصد)",
+        ["buzzer:envelope"] = "لبه صدا (sharp = فوری · smooth = نرم · fade-in / fade-out)",
         ["buzzer:pattern"] = "الگوی سفارشی — فرکانس:مدت,مکث;... نمونه: 900:150,80;1200:250",
         ["playAudio:path"] = "فایل صوتی (wav / mp3)",
         ["playAudio:loop"] = "تکرار تا توقف دستی",

@@ -1,3 +1,14 @@
+## ABVM native R28 — expressive Buzzer step and live preview
+
+- Expanded Buzzer presets with notification, error, rising, and falling sounds.
+- Added per-step volume from 1–100% and four edge modes: sharp, smooth,
+  fade-in, and fade-out.
+- Added a preview button in the Buzzer editor. It plays the currently edited
+  pattern on the connected GP6 buzzer without saving or running the route.
+- Extended both Native ABVM and portable `BEEP` while preserving the legacy
+  two-field `BEEP|frequency,duration` command and old ABVM images.
+- Native envelopes are nonblocking and update PWM duty every 4 ms.
+
 ## ABVM native R27 — generation-safe cycle boundary
 
 At natural cycle expiry, the physical keyboard and mouse release reports still

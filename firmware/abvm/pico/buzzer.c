@@ -8,6 +8,7 @@
 #define BUZZER_PIN 6u
 #define BUZZER_DUTY_WRAP 3999u
 #define TRANSITION_UPDATE_MS 4u
+#define ENVELOPE_UPDATE_MS 4u
 #define ARRAY_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 
 typedef struct BuzzerTone { uint16_t hz, duration_ms, gap_ms; } BuzzerTone;
@@ -50,22 +51,56 @@ static uint slice;
 static uint32_t deadline, sweep_started, sweep_next_update;
 static uint16_t sweep_start_hz, sweep_end_hz, sweep_duration_ms;
 static bool active, gap_phase, sweep_active;
+static uint8_t tone_volume=100u, tone_envelope;
+static uint16_t current_duration_ms;
+static uint32_t tone_started, envelope_next_update;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static void tone_off(void) { pwm_set_gpio_level(BUZZER_PIN, 0u); }
-static void tone_on(uint16_t hz) {
+static void tone_on_level(uint16_t hz,uint8_t volume) {
     if (!hz) { tone_off(); return; }
     uint32_t clock = clock_get_hz(clk_sys);
     float divider = (float)clock / ((float)hz * (float)(BUZZER_DUTY_WRAP + 1u));
     if (divider < 1.0f) divider = 1.0f;
     if (divider > 255.0f) divider = 255.0f;
     pwm_set_clkdiv(slice, divider); pwm_set_wrap(slice, BUZZER_DUTY_WRAP);
-    pwm_set_gpio_level(BUZZER_PIN, (BUZZER_DUTY_WRAP + 1u) / 2u);
+    if(volume>100u)volume=100u;
+    pwm_set_gpio_level(BUZZER_PIN,
+        ((uint32_t)(BUZZER_DUTY_WRAP + 1u) * volume) / 200u);
 }
-static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, uint32_t now) {
+static void tone_on(uint16_t hz) { tone_on_level(hz,100u); }
+static uint8_t envelope_level(uint32_t now) {
+    if(tone_envelope==0u||current_duration_ms<12u)return tone_volume;
+    uint32_t elapsed=now-tone_started;
+    if(elapsed>current_duration_ms)elapsed=current_duration_ms;
+    uint32_t edge=current_duration_ms/3u;
+    if(edge>80u)edge=80u;
+    if(edge<4u)edge=4u;
+    uint32_t level=tone_volume;
+    if((tone_envelope==1u||tone_envelope==2u)&&elapsed<edge)
+        level=((uint32_t)tone_volume*elapsed)/edge;
+    if((tone_envelope==1u||tone_envelope==3u)&&
+       elapsed>=(uint32_t)current_duration_ms-edge)
+        level=((uint32_t)tone_volume*(current_duration_ms-elapsed))/edge;
+    return (uint8_t)level;
+}
+static void start_current_tone(uint32_t now) {
+    tone_started=now;current_duration_ms=tones[tone_index].duration_ms;
+    envelope_next_update=now+ENVELOPE_UPDATE_MS;
+    tone_on_level(tones[tone_index].hz,envelope_level(now));
+    deadline=now+current_duration_ms;
+}
+static void begin_styled(const BuzzerTone *next, uint8_t count,
+                         uint8_t next_priority,uint8_t volume,
+                         uint8_t envelope,uint32_t now) {
     if (!next || !count || (active && next_priority < priority)) return;
     tones=next; tone_count=count; tone_index=0u; priority=next_priority;
-    active=true; gap_phase=false; sweep_active=false; tone_on(tones[0].hz); deadline=now+tones[0].duration_ms;
+    tone_volume=volume?volume:100u;if(tone_volume>100u)tone_volume=100u;
+    tone_envelope=envelope<=3u?envelope:0u;
+    active=true;gap_phase=false;sweep_active=false;start_current_tone(now);
+}
+static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, uint32_t now) {
+    begin_styled(next,count,next_priority,100u,0u,now);
 }
 static uint16_t selection_note(uint8_t selection, bool sound) {
     if (sound) return selection == 2u ? 880u : 660u;
@@ -82,9 +117,13 @@ void buzzer_play(BuzzerCue cue,uint32_t now) {
     const BuzzerPattern *p=&patterns[cue]; begin(p->tones,p->count,p->priority,now);
 }
 void buzzer_play_tone(uint16_t hz,uint16_t duration_ms,uint32_t now) {
+    buzzer_play_tone_ex(hz,duration_ms,100u,0u,now);
+}
+void buzzer_play_tone_ex(uint16_t hz,uint16_t duration_ms,uint8_t volume,
+                         uint8_t envelope,uint32_t now) {
     if(hz<30u||hz>20000u||!duration_ms)return;
     dynamic_tones[0]=(BuzzerTone){hz,duration_ms,0u};
-    begin(dynamic_tones,1u,5u,now);
+    begin_styled(dynamic_tones,1u,5u,volume,envelope,now);
 }
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
     if(profile_id<1u||profile_id>6u)return;
@@ -132,10 +171,15 @@ void buzzer_service(uint32_t now) {
         }
         sweep_active=false;active=false;priority=0u;tone_off();return;
     }
+    if(!gap_phase&&tone_envelope&&reached(now,envelope_next_update)&&
+       !reached(now,deadline)){
+        tone_on_level(tones[tone_index].hz,envelope_level(now));
+        envelope_next_update=now+ENVELOPE_UPDATE_MS;
+    }
     if(!reached(now,deadline))return;
     if(!gap_phase){tone_off();uint16_t gap=tones[tone_index].gap_ms;if(gap){gap_phase=true;deadline=now+gap;return;}}
     gap_phase=false;if(++tone_index>=tone_count){active=false;priority=0u;tone_off();return;}
-    tone_on(tones[tone_index].hz);deadline=now+tones[tone_index].duration_ms;
+    start_current_tone(now);
 }
 void buzzer_silence(void){active=false;sweep_active=false;priority=0u;tone_off();}
 bool buzzer_active(void){return active;}

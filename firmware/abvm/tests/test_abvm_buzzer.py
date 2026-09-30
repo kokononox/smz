@@ -23,7 +23,7 @@ class AbvmBuzzerContractTests(unittest.TestCase):
     def test_native_buzzer_step_has_bounded_bytecode_and_actor(self):
         self.assertIn('"BEEP": OP_BEEP', self.compiler)
         self.assertIn('elif kind == "buzzer":', self.compiler)
-        self.assertIn("self.emit(OP_BEEP, a=frequency, b=duration)", self.compiler)
+        self.assertIn("self.emit(OP_BEEP, a=frequency, b=duration, c=tone_style)", self.compiler)
         self.assertIn("pwm_channels=1 if self.uses_pwm else 0", self.compiler)
         self.assertIn("event.opcode==ABVM_OP_BEEP", self.main)
         self.assertIn("service_buzzer_action(now)", self.main)
@@ -48,23 +48,26 @@ class AbvmBuzzerContractTests(unittest.TestCase):
              (700, 180), (700, 300)])
         self.assertEqual(image.resources.pwm_channels, 1)
 
-    def test_native_buzzer_presets_compile_and_verify(self):
+    def test_native_buzzer_volume_envelope_and_extra_presets(self):
         sys.path.insert(0, str(self.root / "tools"))
         import abvm
         source = {"pipelines": {"Game": [
-            {"Type": "buzzer", "Props": {"preset": "success"},
+            {"Type": "buzzer", "Props": {
+                "preset": "notification", "volume": 42, "envelope": "smooth"},
              "Children": [], "Delay": 0},
-            {"Type": "buzzer", "Props": {"preset": "warning"},
+            {"Type": "buzzer", "Props": {
+                "preset": "falling", "volume": 80, "envelope": "fade-out"},
              "Children": [], "Delay": 0},
         ]}}
         program = abvm.Compiler().compile_amsj(source, ("Game",))
         image = abvm.Verifier.verify(program.image)
-        beeps = [(ins.a, ins.b) for ins in image.instructions
+        beeps = [(ins.a, ins.b, ins.c) for ins in image.instructions
                  if ins.op == abvm.OP_BEEP]
         self.assertEqual(
             beeps,
-            [(900, 120), (1300, 220), (700, 180),
-             (700, 180), (700, 300)])
+            [(880, 110, 42 | (1 << 8)), (1175, 170, 42 | (1 << 8)),
+             (784, 90, 80 | (3 << 8)), (659, 90, 80 | (3 << 8)),
+             (523, 160, 80 | (3 << 8))])
         self.assertEqual(image.resources.pwm_channels, 1)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
@@ -91,6 +94,9 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("buzzer_guard_transition(guard_event.profile_id, now)", self.main)
         self.assertIn("start-at-current-state", self.main)
         self.assertIn("TRANSITION_UPDATE_MS 4u", self.buzzer)
+        self.assertIn("ENVELOPE_UPDATE_MS 4u", self.buzzer)
+        self.assertIn("buzzer_play_tone_ex", self.main)
+        self.assertIn("volume=%u|envelope=%u", self.main)
         self.assertIn("profile_id*110u", self.buzzer)
         self.assertIn("sweep_start_hz+220u", self.buzzer)
         self.assertIn("sweep_duration_ms=150u", self.buzzer)

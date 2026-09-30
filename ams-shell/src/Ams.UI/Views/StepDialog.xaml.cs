@@ -26,6 +26,7 @@ public partial class StepDialog : Window
     private readonly Func<Task<(int x, int y, int w, int h)?>>? _pickRegion;
     private readonly Func<Task<(int x, int y)?>>? _pickPoint;
     private readonly Func<Task<string?>>? _sampleMouse;
+    private readonly Func<IReadOnlyDictionary<string, object?>, Task<string>>? _previewBuzzer;
     private System.Windows.Controls.TextBlock? _sampleStatus;
     private Wpf.Ui.Controls.Button? _pointPickerButton;
 
@@ -36,7 +37,8 @@ public partial class StepDialog : Window
                       Func<Task<int?>>? calibrate = null, string? calibrateTargetKey = null,
                       Func<Task<(int x, int y, int w, int h)?>>? pickRegion = null, string? stepType = null,
                       Func<Task<string?>>? sampleMouse = null,
-                      Func<Task<(int x, int y)?>>? pickPoint = null)
+                      Func<Task<(int x, int y)?>>? pickPoint = null,
+                      Func<IReadOnlyDictionary<string, object?>, Task<string>>? previewBuzzer = null)
     {
         InitializeComponent();
         // v0.9.24 — Persian dialog chrome: translate the New:/Edit: prefix; action names stay English
@@ -50,6 +52,7 @@ public partial class StepDialog : Window
         _pickRegion = pickRegion;
         _pickPoint = pickPoint;
         _sampleMouse = sampleMouse;
+        _previewBuzzer = previewBuzzer;
         BuildForm(current);
         WireConditionalVisibility();   // v0.9.14 — hide fields ruled out by the current mode/toggle
     }
@@ -133,6 +136,19 @@ public partial class StepDialog : Window
             }
 
             FormPanel.Children.Add(c);
+
+            if (_stepType == "buzzer" && f.Key == "pattern" && _previewBuzzer is not null)
+            {
+                var preview = new Wpf.Ui.Controls.Button
+                {
+                    Content = "شنیدن صدای انتخاب‌شده روی بازر…",
+                    Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+                    Margin = new Thickness(0, 10, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                };
+                preview.Click += OnPreviewBuzzer;
+                FormPanel.Children.Add(preview);
+            }
 
             if (_stepType == "mouseMove" && f.Key == "moveMode" && _sampleMouse is not null)
                 AddMouseSampleControls(current);
@@ -402,6 +418,50 @@ public partial class StepDialog : Window
         return cb;
     }
 
+    private async void OnPreviewBuzzer(object sender, RoutedEventArgs e)
+    {
+        if (_previewBuzzer is null || sender is not Wpf.Ui.Controls.Button button) return;
+        button.IsEnabled = false;
+        string original = button.Content?.ToString() ?? "شنیدن";
+        button.Content = "در حال پخش…";
+        try
+        {
+            var values = ReadValues();
+            _ = StepDefinitions.BuildBuzzerCommands(values); // validate before touching the board
+            button.Content = await _previewBuzzer(values);
+            await Task.Delay(900);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(this, ex.Message, "پیش‌شنیدن Buzzer",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            button.Content = original;
+            button.IsEnabled = true;
+        }
+    }
+
+    private Dictionary<string, object?> ReadValues()
+    {
+        var vals = new Dictionary<string, object?>();
+        foreach (var f in _fields)
+        {
+            vals[f.Key] = f.Kind switch
+            {
+                FieldKind.Int => int.Parse(((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text),
+                FieldKind.Check => ((System.Windows.Controls.CheckBox)_controls[f.Key]).IsChecked == true,
+                FieldKind.Combo => (string?)((System.Windows.Controls.ComboBox)_controls[f.Key]).SelectedItem ?? "",
+                FieldKind.EditableCombo => ((System.Windows.Controls.ComboBox)_controls[f.Key]).Text.Trim(),
+                FieldKind.AudioDevice => (int)((System.Windows.Controls.ComboBoxItem)((System.Windows.Controls.ComboBox)_controls[f.Key]).SelectedItem).Tag!,
+                FieldKind.Float => ParseFloat(((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text),
+                _ => ((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text,
+            };
+        }
+        return vals;
+    }
+
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         foreach (var f in _fields)
@@ -422,19 +482,16 @@ public partial class StepDialog : Window
             }
         }
 
-        var vals = new Dictionary<string, object?>();
-        foreach (var f in _fields)
+        var vals = ReadValues();
+        if (_stepType == "buzzer")
         {
-            vals[f.Key] = f.Kind switch
+            try { _ = StepDefinitions.BuildBuzzerCommands(vals); }
+            catch (FormatException ex)
             {
-                FieldKind.Int => int.Parse(((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text),
-                FieldKind.Check => ((System.Windows.Controls.CheckBox)_controls[f.Key]).IsChecked == true,
-                FieldKind.Combo => (string?)((System.Windows.Controls.ComboBox)_controls[f.Key]).SelectedItem ?? "",
-                FieldKind.EditableCombo => ((System.Windows.Controls.ComboBox)_controls[f.Key]).Text.Trim(),
-                FieldKind.AudioDevice => (int)((System.Windows.Controls.ComboBoxItem)((System.Windows.Controls.ComboBox)_controls[f.Key]).SelectedItem).Tag!,   // v0.9.43
-                FieldKind.Float => ParseFloat(((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text),
-                _ => ((Wpf.Ui.Controls.TextBox)_controls[f.Key]).Text,
-            };
+                System.Windows.MessageBox.Show(this, ex.Message, "مقدار نامعتبر Buzzer",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
         }
         Values = vals;
         DialogResult = true;

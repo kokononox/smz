@@ -3663,6 +3663,7 @@ public partial class MainViewModel : ObservableObject
         Func<Task<(int x, int y, int w, int h)?>>? pickRegion = null;
         Func<Task<(int x, int y)?>>? pickPoint = null;
         Func<Task<string?>>? sampleMouse = null;
+        Func<IReadOnlyDictionary<string, object?>, Task<string>>? previewBuzzer = null;
 
         if (type == "waitForSound") { calibrate = CalibrateSoundThreshold; calibrateKey = "threshold"; }
         if (type == "waitForLight") { calibrate = CalibrateLightRange; calibrateKey = "luxCenter"; }   // v0.9.39 — BH1750 range centre
@@ -3670,10 +3671,11 @@ public partial class MainViewModel : ObservableObject
         if (type is "randomMousePosition" or "findImage") pickRegion = PickRegionOnScreen;
         if (type == "mouseMove") pickPoint = PickPointOnScreen;
         if (type is "mouseMove" or "randomMousePosition") sampleMouse = SampleHandMovementAsync;
+        if (type == "buzzer") previewBuzzer = PreviewBuzzerAsync;
 
 
 
-        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type, sampleMouse, pickPoint)
+        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type, sampleMouse, pickPoint, previewBuzzer)
 
         {
 
@@ -3683,6 +3685,31 @@ public partial class MainViewModel : ObservableObject
 
         return dlg.ShowDialog() == true ? dlg.Values : null;
 
+    }
+
+    private async Task<string> PreviewBuzzerAsync(IReadOnlyDictionary<string, object?> values)
+    {
+        if (Connection != ConnectionState.Connected || _bridge is null
+            || _bridge.State != BridgeState.Connected)
+            throw new InvalidOperationException("ابتدا برد را Connect کنید.");
+
+        foreach (string command in StepDefinitions.BuildBuzzerCommands(values))
+        {
+            if (command.StartsWith("DLY|", StringComparison.Ordinal))
+            {
+                if (int.TryParse(command[4..], out int delay) && delay > 0)
+                    await Task.Delay(delay);
+                continue;
+            }
+            int duration = 0;
+            var parts = command.Split('|', 2)[1].Split(',');
+            _ = int.TryParse(parts.ElementAtOrDefault(1), out duration);
+            string reply = await _bridge.SendAsync(command, Math.Max(3.0, duration / 1000.0 + 2.0));
+            if (!reply.StartsWith("OK|BEEP", StringComparison.Ordinal))
+                throw new InvalidOperationException("برد پیش‌شنیدن را نپذیرفت: " + reply);
+        }
+        Log("buzzer preview played");
+        return "پخش شد ✓";
     }
 
 

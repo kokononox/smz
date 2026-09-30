@@ -450,8 +450,12 @@ class Compiler:
         patterns = {
             "short": "1000:180",
             "double": "1000:140,100;1000:140",
+            "notification": "880:110,45;1175:170",
             "warning": "700:180,90;700:180,90;700:300",
             "success": "900:120,70;1300:220",
+            "error": "440:180,70;330:240",
+            "rising": "523:90,35;659:90,35;784:160",
+            "falling": "784:90,35;659:90,35;523:160",
         }
         if preset == "custom":
             pattern = str(p.get("pattern") or "900:150")
@@ -462,6 +466,14 @@ class Compiler:
         tones = [part.strip() for part in pattern.split(";") if part.strip()]
         if not tones:
             raise AbvmError("buzzer pattern is empty")
+        volume = integer(p.get("volume"), 100)
+        if not 1 <= volume <= 100:
+            raise AbvmError("buzzer volume must be 1..100 percent")
+        envelope_name = str(p.get("envelope") or "sharp").strip().lower()
+        envelopes = {"sharp": 0, "smooth": 1, "fade-in": 2, "fade-out": 3}
+        if envelope_name not in envelopes:
+            raise AbvmError("unknown buzzer envelope: " + envelope_name)
+        tone_style = volume | (envelopes[envelope_name] << 8)
         for tone in tones:
             try:
                 frequency_text, timing_text = tone.split(":", 1)
@@ -479,7 +491,7 @@ class Compiler:
             if not 1 <= duration <= 60000 or not 0 <= pause <= 60000:
                 raise AbvmError(
                     "buzzer duration must be 1..60000 ms and pause 0..60000 ms")
-            self.emit(OP_BEEP, a=frequency, b=duration)
+            self.emit(OP_BEEP, a=frequency, b=duration, c=tone_style)
             if pause:
                 self.emit(OP_DELAY, b=pause, c=pause)
         self.uses_pwm = True
@@ -946,10 +958,14 @@ class Verifier:
                     raise AbvmError("invalid Delay range")
                 if ins.op == OP_KEY and not 1 <= ins.flags <= 4:
                     raise AbvmError("invalid KEY width")
-                if ins.op == OP_BEEP and \
-                        (not 30 <= ins.a <= 20000 or not 1 <= ins.b <= 60000 or
-                         ins.flags or ins.c or ins.d):
-                    raise AbvmError("invalid BEEP operands")
+                if ins.op == OP_BEEP:
+                    volume, envelope = ins.c & 0xFF, (ins.c >> 8) & 0xFF
+                    style_ok = ins.c == 0 or (
+                        1 <= volume <= 100 and envelope <= 3 and ins.c < 0x10000)
+                    if (not 30 <= ins.a <= 20000 or
+                            not 1 <= ins.b <= 60000 or
+                            ins.flags or not style_ok or ins.d):
+                        raise AbvmError("invalid BEEP operands")
                 if ins.op == OP_LOOP_ENTER:
                     if ins.flags not in (0, 1):
                         raise AbvmError("invalid Loop mode")

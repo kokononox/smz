@@ -1125,12 +1125,24 @@ def _audible_loop(self):
 # Live Classroom Studio commands that execute entirely on the Pico must not
 # depend on an attached Pro Micro arm. SCREEN/SETRES is metadata; BEEP drives
 # the passive piezo on GP6 directly.
-def _live_host_beep(self, frequency, duration_ms):
+def _live_host_beep(self, frequency, duration_ms, volume=100, envelope="sharp"):
     tone = None
     try:
-        tone = runtime.pwmio.PWMOut(runtime.board.GP6, duty_cycle=32768,
+        tone = runtime.pwmio.PWMOut(runtime.board.GP6, duty_cycle=0,
             frequency=int(frequency), variable_frequency=True)
-        runtime.time.sleep(duration_ms / 1000)
+        total = duration_ms / 1000
+        edge = min(.08, total / 3)
+        target = int(32768 * volume / 100)
+        started = runtime.time.monotonic()
+        while True:
+            elapsed = runtime.time.monotonic() - started
+            if elapsed >= total: break
+            level = 1.0
+            if envelope in ("smooth", "fade-in") and elapsed < edge: level = elapsed / edge
+            if envelope in ("smooth", "fade-out") and elapsed > total - edge:
+                level = min(level, (total - elapsed) / edge)
+            tone.duty_cycle = max(0, min(32768, int(target * level)))
+            runtime.time.sleep(.004 if envelope != "sharp" else total)
     finally:
         if tone is not None:
             try: tone.duty_cycle = 0; tone.deinit()
@@ -1263,12 +1275,16 @@ def _live_host_poll(self):
                 reply = "OK|SETRES"
             elif line.startswith("BEEP|"):
                 fields = line.split("|", 1)[1].split(",")
-                if len(fields) != 2:
-                    raise ValueError("BEEP needs frequency,duration")
+                if len(fields) < 2 or len(fields) > 4:
+                    raise ValueError("BEEP needs frequency,duration[,volume,envelope]")
                 frequency, duration_ms = int(fields[0]), int(fields[1])
-                if not 30 <= frequency <= 20000 or not 0 <= duration_ms <= 60000:
+                volume = int(fields[2]) if len(fields) > 2 else 100
+                envelope = fields[3] if len(fields) > 3 else "sharp"
+                if (not 30 <= frequency <= 20000 or not 0 <= duration_ms <= 60000
+                        or not 1 <= volume <= 100
+                        or envelope not in ("sharp", "smooth", "fade-in", "fade-out")):
                     raise ValueError("BEEP range")
-                self._live_host_beep(frequency, duration_ms)
+                self._live_host_beep(frequency, duration_ms, volume, envelope)
                 reply = "OK|BEEP"
             else:
                 reply = "ERR|UNKNOWN|" + head

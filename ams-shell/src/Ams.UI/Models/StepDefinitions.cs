@@ -482,11 +482,15 @@ public static class StepDefinitions
             Label = "Buzzer Beep", ColorResourceKey = "StepFlowBrush", DefaultDelay = 0,
             Fields = new FieldDef[]
             {
-                new("preset", "Tone pattern", FieldKind.Combo, "short", new[] { "short", "double", "warning", "success", "custom" }),
+                new("preset", "Tone pattern", FieldKind.Combo, "short", new[]
+                    { "short", "double", "notification", "warning", "success", "error", "rising", "falling", "custom" }),
+                new("volume", "Volume (1–100%)", FieldKind.Int, "80"),
+                new("envelope", "Tone edge", FieldKind.Combo, "smooth",
+                    new[] { "sharp", "smooth", "fade-in", "fade-out" }),
                 new("pattern", "Custom sequence — freq:duration,pause;... (example 900:150,80;1200:250)", FieldKind.Text,
                     "900:150,80;1200:250", HideWhenKey: "preset", HideUnlessValue: "custom"),
             },
-            Summarize = s => "Buzzer · " + (PropEx.GetString(s.Props, "preset", "short") == "custom"
+            Summarize = s => $"Buzzer {PropEx.GetInt(s.Props, "volume", 100)}% · " + (PropEx.GetString(s.Props, "preset", "short") == "custom"
                 ? PropEx.GetString(s.Props, "pattern", "900:150")
                 : PropEx.GetString(s.Props, "preset", "short")),
             Commands = s => BuildBuzzerCommands(s.Props),
@@ -565,11 +569,20 @@ public static class StepDefinitions
         {
             "short" => "1000:180",
             "double" => "1000:140,100;1000:140",
+            "notification" => "880:110,45;1175:170",
             "warning" => "700:180,90;700:180,90;700:300",
             "success" => "900:120,70;1300:220",
+            "error" => "440:180,70;330:240",
+            "rising" => "523:90,35;659:90,35;784:160",
+            "falling" => "784:90,35;659:90,35;523:160",
             "custom" => PropEx.GetString(p, "pattern", "900:150"),
             _ => throw new FormatException("unknown buzzer preset '" + preset + "'"),
         };
+        int volume = PropEx.GetInt(p, "volume", 100);
+        if (volume is < 1 or > 100) throw new FormatException("buzzer volume must be 1..100 percent");
+        string envelope = PropEx.GetString(p, "envelope", "sharp").Trim().ToLowerInvariant();
+        if (envelope is not ("sharp" or "smooth" or "fade-in" or "fade-out"))
+            throw new FormatException("unknown buzzer envelope '" + envelope + "'");
         var commands = new List<string>();
         foreach (var raw in pattern.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -582,7 +595,9 @@ public static class StepDefinitions
             int pause = timing.Length == 2 ? int.Parse(timing[1]) : 0;
             if (freq is < 30 or > 20000) throw new FormatException("buzzer frequency must be 30..20000 Hz");
             if (duration <= 0 || pause < 0) throw new FormatException("buzzer duration must be positive and pause non-negative");
-            commands.Add($"BEEP|{freq},{duration}");
+            commands.Add(volume == 100 && envelope == "sharp"
+                ? $"BEEP|{freq},{duration}"
+                : $"BEEP|{freq},{duration},{volume},{envelope}");
             if (pause > 0) commands.Add($"DLY|{pause}");
         }
         if (commands.Count == 0) throw new FormatException("buzzer pattern is empty");

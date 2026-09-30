@@ -196,20 +196,32 @@ static void execute_command(char *line, uint32_t now) {
         }
     }
     else if (!strncmp(line, "BEEP|", 5)) {
-        char *middle=strchr(line+5,',');char *end=NULL;
-        unsigned long hz=strtoul(line+5,&end,10);
-        if(!middle||end!=middle)printf("ERR|ARG|BEEP\n");
-        else {
-            unsigned long duration=strtoul(middle+1,&end,10);
-            if(!end||*end||hz<30u||hz>20000u||!duration||duration>60000u)
-                printf("ERR|ARG|BEEP\n");
-            else if(ui_buzzer_reply_pending||buzzer_action_pending)
-                printf("ERR|BUSY|BEEP\n");
-            else {
-                buzzer_play_tone((uint16_t)hz,(uint16_t)duration,now);
-                ui_buzzer_reply_pending=true;
-                ui_buzzer_reply_deadline=now+(uint32_t)duration;
+        char *p=line+5,*end=NULL;unsigned long hz=strtoul(p,&end,10);
+        unsigned long duration=0u,volume=100u,envelope=0u;
+        bool valid=end&&*end==',';
+        if(valid){p=end+1;duration=strtoul(p,&end,10);}
+        if(valid&&end&&*end==','){
+            p=end+1;volume=strtoul(p,&end,10);
+            if(end&&*end==','){
+                p=end+1;
+                if(!strcmp(p,"sharp"))envelope=0u;
+                else if(!strcmp(p,"smooth"))envelope=1u;
+                else if(!strcmp(p,"fade-in"))envelope=2u;
+                else if(!strcmp(p,"fade-out"))envelope=3u;
+                else valid=false;
+                end=p+strlen(p);
             }
+        }
+        if(!valid||!end||*end||hz<30u||hz>20000u||!duration||
+           duration>60000u||!volume||volume>100u)
+            printf("ERR|ARG|BEEP\n");
+        else if(ui_buzzer_reply_pending||buzzer_action_pending)
+            printf("ERR|BUSY|BEEP\n");
+        else {
+            buzzer_play_tone_ex((uint16_t)hz,(uint16_t)duration,
+                                (uint8_t)volume,(uint8_t)envelope,now);
+            ui_buzzer_reply_pending=true;
+            ui_buzzer_reply_deadline=now+(uint32_t)duration;
         }
     }
     else if (!strcmp(line, "START") || !strcmp(line, "GUARD|ON")) start_control(now);
@@ -440,11 +452,16 @@ static void service_vm(uint32_t now) {
                     printf("ERR|BUZZER|busy|lane=%u\n",event.lane);
                     abvm_stop(&vm,now); break;
                 }
-                buzzer_play_tone(event.operand_a,(uint16_t)event.operand_b,now);
+                uint8_t volume=(uint8_t)(event.operand_c&0xffu);
+                uint8_t envelope=(uint8_t)((event.operand_c>>8)&0xffu);
+                if(!volume)volume=100u; /* ABI-1 images produced before volume support */
+                buzzer_play_tone_ex(event.operand_a,(uint16_t)event.operand_b,
+                                    volume,envelope,now);
                 buzzer_action_pending=true;buzzer_action_lane=event.lane;
                 buzzer_action_deadline=now+event.operand_b;
-                printf("BUZZER|accepted|lane=%u|hz=%u|duration=%lu\n",
-                       event.lane,event.operand_a,(unsigned long)event.operand_b);
+                printf("BUZZER|accepted|lane=%u|hz=%u|duration=%lu|volume=%u|envelope=%u\n",
+                       event.lane,event.operand_a,(unsigned long)event.operand_b,
+                       volume,envelope);
                 break;
             }
             if (mouse == ARM_MOUSE_ACCEPTED) { printf("ARM|mouse|accepted|lane=%u\n", event.lane); break; }
