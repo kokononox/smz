@@ -36,6 +36,12 @@ A typed `GUARD` constant embeds the six calibrated optical profiles exported by 
 
 Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART sound watch, nonblocking BH1750 Light Watch/calibration, global eight-profile Guard routing, HALT on every release boundary, GP3 Pause/Resume, GP4 Guard Start/Stop, independent Whisper New/Repeat interrupts, nonblocking original GP6 passive-buzzer presets, and fail-closed boot/transport behavior.
 
+Whisper New and Whisper Repeat are bounded, non-preemptible overlays. Guard
+ignores all optical scene changes—including a temporary return to Desktop—until
+the complete Whisper route finishes and the suspended route is restored. It
+then evaluates the latest sensor state normally. The rule applies regardless of
+whether the Whisper interrupt originated from light, sound, or manual control.
+
 ## Passive buzzer on GP6
 
 The native adapter preserves the original physical-feedback score on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the exact legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep, updated every 4 ms, so transition feedback cannot be confused with the restored calibration notes. Light calibration restores the six position notes (262/294/330/349/392/440 Hz), record-start, per-stage completion, rising save-success, low save-error, all-profile completion, and enter/exit melodies. Sound calibration restores ID 1/2 selection at 660/880 Hz, silence-start at 523 Hz, target-start at 988 Hz, plus the same save/error and enter/exit feedback.
