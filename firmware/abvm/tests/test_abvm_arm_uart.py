@@ -31,6 +31,9 @@ class AbvmArmUartContractTests(unittest.TestCase):
     def test_parallel_sound_and_mouse_use_bounded_backpressure(self):
         self.assertIn("deferred_mouse_pending", self.arm)
         self.assertIn("queue_deferred_mouse", self.arm)
+        self.assertNotIn("state != ARM_IDLE || completion_pending", self.arm)
+        self.assertIn("state == ARM_SOUND_CAL || completion_pending", self.arm)
+        self.assertIn("deferred_mouse_pending || halt_pending", self.arm)
         self.assertIn("halt_pending=true", self.arm)
         self.assertIn("state==ARM_IDLE&&halt_pending", self.arm)
         self.assertNotIn('queue_payload(command,now,ARM_MOVE)) return ARM_MOUSE_INVALID;\n    lane=', self.arm)

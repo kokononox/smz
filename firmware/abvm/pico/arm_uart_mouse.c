@@ -127,7 +127,14 @@ bool arm_uart_mouse_probe(uint32_t now) {
 }
 ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now) {
     if (!event || event->opcode != ABVM_OP_RMOUSE) return ARM_MOUSE_UNSUPPORTED;
-    if (!arm_ready || state != ARM_IDLE || completion_pending) return ARM_MOUSE_BUSY;
+    /* One mouse command may wait behind the in-flight UART frame.  This is
+     * required when the parallel sound lane is still arming ASND while the
+     * motion lane advances.  Keep the queue bounded to one command and never
+     * admit work during probe, calibration, halt, or fault handling. */
+    if (!arm_ready || state == ARM_FAULT || state == ARM_HALT ||
+        state == ARM_PROBE || state == ARM_SOUND_CAL || completion_pending ||
+        deferred_mouse_pending || halt_pending)
+        return ARM_MOUSE_BUSY;
     const uint8_t *payload; uint32_t size; int32_t w, h;
     if (!abvm_constant(vm,event->operand_a,ABVM_CONST_MOUSE,&payload,&size)) return ARM_MOUSE_INVALID;
     if (!json_int(payload,size,"w",&w) || !json_int(payload,size,"h",&h) ||
