@@ -21,6 +21,7 @@ namespace Ams.UI;
 public partial class MainWindow : Window
 {
     private bool _forceClose;
+    private bool _closeInProgress;
     private System.Windows.Point _dragStartPos;
     private bool _dragInProgress;
     private bool _scopeVeinEventsAttached;
@@ -493,12 +494,24 @@ public partial class MainWindow : Window
     {
         if (_forceClose) return;
         e.Cancel = true;
-        if (DataContext is MainViewModel vm)
+        if (_closeInProgress) return;
+
+        var vm = DataContext as MainViewModel;
+        if (vm is not null && !vm.ConfirmDiscard()) return;
+
+        // The first click owns shutdown. Hide immediately so Windows cannot send
+        // another close request (and its blocked-window beep) while HALT/BYE waits.
+        _closeInProgress = true;
+        Hide();
+        try
         {
-            if (!vm.ConfirmDiscard()) return;
-            await vm.ShutdownAsync();   // HALT + BYE before exit (§11.3)
+            if (vm is not null)
+                await vm.ShutdownAsync();   // HALT + BYE before exit (§11.3)
         }
-        _forceClose = true;
-        Close();
+        finally
+        {
+            _forceClose = true;
+            Close();
+        }
     }
 }
