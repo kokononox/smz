@@ -129,14 +129,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install ARM toolchain
+      - name: Restore ARM GNU Toolchain cache
+        id: arm-toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1
+          key: arm-gnu-toolchain-14.2.rel1-${{ runner.os }}-${{ runner.arch }}
+      - name: Download ARM GNU Toolchain 14.2
+        if: steps.arm-toolchain-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v arm-none-eabi-gcc >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build
-          fi
+          archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
+          install_dir="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1"
+          curl --fail --location \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
+            --output "$archive" \
+            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
+          mkdir -p "$install_dir"
+          tar -xJf "$archive" -C "$install_dir" --strip-components=1
+          test -x "$install_dir/bin/arm-none-eabi-gcc"
+      - name: Add and verify ARM toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain_bin="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1/bin"
+          echo "$toolchain_bin" >> "$GITHUB_PATH"
+          "$toolchain_bin/arm-none-eabi-gcc" --version
+          command -v ninja
       - name: Compile ABP and build UF2
         shell: bash
         env:
