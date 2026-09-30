@@ -36,6 +36,9 @@ static uint32_t ui_sound_calibration_deadline;
 static bool buzzer_action_pending;
 static uint8_t buzzer_action_lane;
 static uint32_t buzzer_action_deadline;
+static bool ui_sound_watch_pending;
+static bool ui_buzzer_reply_pending;
+static uint32_t ui_buzzer_reply_deadline;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
@@ -51,7 +54,8 @@ static void print_status(void) {
 }
 static void release_all_actors(uint32_t now) {
     hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
-    light_sensor_cancel_watch(now); buzzer_action_pending=false; buzzer_silence();
+    light_sensor_cancel_watch(now); buzzer_action_pending=false;
+    ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;buzzer_silence();
 }
 static void start_control(uint32_t now) {
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
@@ -69,7 +73,9 @@ static void start_control(uint32_t now) {
     else printf("ERR|CONTROL|start\n");
 }
 static void stop_control(uint32_t now) {
-    guard_runtime_stop(); abvm_stop(&vm, now); printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
+    guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
+    ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
+    printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
 }
 static void toggle_pause(uint32_t now) {
     if (guard_runtime_running()) {
@@ -147,6 +153,52 @@ static void execute_command(char *line, uint32_t now) {
         else {
             ui_sound_calibration_pending=true;
             ui_sound_calibration_deadline=now+(uint32_t)duration+2000u;
+        }
+    }
+    else if (!strncmp(line, "SETRES|", 7)) {
+        char *middle=strchr(line+7,',');char *end=NULL;
+        unsigned long width=strtoul(line+7,&end,10);
+        if(!middle||end!=middle)printf("ERR|ARG|SETRES\n");
+        else {
+            unsigned long height=strtoul(middle+1,&end,10);
+            if(!end||*end||!width||!height)printf("ERR|ARG|SETRES\n");
+            else printf("OK|SETRES\n");
+        }
+    }
+    else if (!strncmp(line, "WSND|", 5)) {
+        char *p=line+5,*end=NULL;unsigned long threshold=strtoul(p,&end,10);
+        if(!end||*end!=',')printf("ERR|ARG|WSND\n");
+        else {
+            p=end+1;unsigned long minimum=strtoul(p,&end,10);
+            if(!end||*end!=',')printf("ERR|ARG|WSND\n");
+            else {
+                p=end+1;unsigned long timeout=strtoul(p,&end,10);
+                if(!end||*end||!threshold||threshold>1023u||!minimum||
+                   minimum>65535u||!timeout||timeout>300000u)
+                    printf("ERR|ARG|WSND\n");
+                else if(ui_sound_watch_pending||
+                        !arm_uart_sound_test_start(now,(uint16_t)threshold,
+                                                  (uint16_t)minimum,(uint32_t)timeout))
+                    printf("ERR|BUSY|WSND\n");
+                else ui_sound_watch_pending=true;
+            }
+        }
+    }
+    else if (!strncmp(line, "BEEP|", 5)) {
+        char *middle=strchr(line+5,',');char *end=NULL;
+        unsigned long hz=strtoul(line+5,&end,10);
+        if(!middle||end!=middle)printf("ERR|ARG|BEEP\n");
+        else {
+            unsigned long duration=strtoul(middle+1,&end,10);
+            if(!end||*end||hz<30u||hz>20000u||!duration||duration>60000u)
+                printf("ERR|ARG|BEEP\n");
+            else if(ui_buzzer_reply_pending||buzzer_action_pending)
+                printf("ERR|BUSY|BEEP\n");
+            else {
+                buzzer_play_tone((uint16_t)hz,(uint16_t)duration,now);
+                ui_buzzer_reply_pending=true;
+                ui_buzzer_reply_deadline=now+(uint32_t)duration;
+            }
         }
     }
     else if (!strcmp(line, "START") || !strcmp(line, "GUARD|ON")) start_control(now);
@@ -246,11 +298,26 @@ static void service_mouse(uint32_t now) {
     }
     uint16_t profile, peak; bool detected;
     if (arm_uart_sound_take(&profile, &detected, &peak)) {
+        if(profile==0u&&ui_sound_watch_pending) {
+            ui_sound_watch_pending=false;
+            if(detected)printf("OK|WSND|DETECTED|peak=%u\n",peak);
+            else printf("ERR|TIMEOUT|WSND|max=%u\n",peak);
+            return;
+        }
         if (detected) {
             bool accepted = abvm_sound_detected(&vm, profile, now);
-            printf("%s|SOUND|profile=%u|peak=%u|source=arm\n", accepted ? "OK" : "MISS", profile, peak);
+            printf("%s|SOUND|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
+                   accepted ? "OK" : "MISS",profile,peak,
+                   arm_uart_sound_threshold(),arm_uart_sound_minimum(),
+                   arm_uart_sound_uses_calibration()?"saved":"project");
             if (accepted) buzzer_play(BUZZER_CUE_CATCH, now);
-        } else { printf("SOUND|timeout|profile=%u|peak=%u|source=arm\n", profile, peak); buzzer_play(BUZZER_CUE_TIMEOUT, now); }
+        } else {
+            printf("SOUND|timeout|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
+                   profile,peak,arm_uart_sound_threshold(),
+                   arm_uart_sound_minimum(),
+                   arm_uart_sound_uses_calibration()?"saved":"project");
+            buzzer_play(BUZZER_CUE_TIMEOUT, now);
+        }
     }
     if (arm_uart_mouse_faulted()) {
         if (!arm_fault_reported) {
@@ -262,6 +329,9 @@ static void service_mouse(uint32_t now) {
     }
 }
 static void service_buzzer_action(uint32_t now) {
+    if(ui_buzzer_reply_pending&&(int32_t)(now-ui_buzzer_reply_deadline)>=0) {
+        ui_buzzer_reply_pending=false;printf("OK|BEEP\n");
+    }
     if(!buzzer_action_pending||(int32_t)(now-buzzer_action_deadline)<0)return;
     buzzer_action_pending=false;
     if(!abvm_complete_action(&vm,buzzer_action_lane,now))
@@ -304,7 +374,11 @@ static void service_vm(uint32_t now) {
                 abvm_stop(&vm, now); break;
             }
             ArmSoundSubmit sound = arm_uart_sound_arm(&vm, &event, now);
-            if (sound == ARM_SOUND_ACCEPTED) printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|source=arm\n", event.lane, event.operand_a, (unsigned long)event.operand_b);
+            if (sound == ARM_SOUND_ACCEPTED)
+                printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|threshold=%u|min=%u|config=%s|source=arm\n",
+                       event.lane,event.operand_a,(unsigned long)event.operand_b,
+                       arm_uart_sound_threshold(),arm_uart_sound_minimum(),
+                       arm_uart_sound_uses_calibration()?"saved":"project");
             else { printf("ERR|ARM|sound-arm|lane=%u|profile=%u|reason=%u\n", event.lane, event.operand_a, sound); abvm_stop(&vm, now); }
             break;
         }
@@ -334,6 +408,6 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_buzzer_action(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
 }

@@ -317,7 +317,7 @@ public static class StepDefinitions
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
                 new("calibrationId", "Portable sound-step calibration ID", FieldKind.Combo, "1", new[] { "1", "2" }),
-                new("threshold", "Threshold (sensor units — use Calibrate, field default 90)", FieldKind.Int, "90"),
+                new("threshold", "Threshold (sensor units — use Calibrate; 0 = saved physical profile)", FieldKind.Int, "90"),
                 new("peakMin", "Peak range minimum (0 = calibrated threshold)", FieldKind.Int, "0"),
                 new("peakMax", "Peak range maximum", FieldKind.Int, "511"),
                 new("soundPriority", "Priority when ranges overlap", FieldKind.Int, "0"),

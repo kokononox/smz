@@ -1,3 +1,31 @@
+## ABVM native R24 — authoritative sound threshold and Catch response audit
+
+### Problem observed
+
+The Game Catch Wait For Sound armed correctly but repeatedly timed out at `peak=5`, so its child F keystroke never ran. Classroom calibration completed, yet Native export could still retain the old 76-unit detector threshold. Direct Classroom tests also disconnected at unsupported `SETRES` before reaching WSND.
+
+### Root cause
+
+The Native compiler selected legacy `peakMin` ahead of the Classroom-calibrated `threshold`, and the Pico ARM actor then unconditionally replaced the compiled value with any saved physical calibration. The F response bytecode itself was correct: profile-2 detection advances directly from WATCH to the F instruction, while timeout jumps past it.
+
+### Change
+
+- Made the Wait For Sound `threshold` field authoritative for Native ABVM; `peakMin` remains legacy classification metadata.
+- Threshold `0` now explicitly selects the saved physical profile. Nonzero project thresholds are no longer silently overwritten by flash calibration.
+- Added effective `threshold`, `min`, and `config=project|saved` to WATCH and SOUND diagnostics.
+- Added bounded Native direct-run compatibility for `SETRES`, asynchronous `WSND`, and nonblocking `BEEP`, so Classroom sensor tests no longer disconnect before execution.
+- Updated the Persian/English threshold labels to document the zero-value saved-calibration mode.
+
+### Validation
+
+- Compiled a profile-2 test where `threshold=8` and stale `peakMin=76`; the SOUND descriptor correctly contains 8.
+- Reference-VM regression proves a profile-2 hit executes child key F and a timeout skips it.
+- Added direct-run parser/actor contracts and reran all ABVM tests.
+
+### Next test
+
+In the real Catch step press Calibrate, confirm the threshold changes from 76, save, export and flash a new UF2. The hardware log must now show the effective threshold/config on WATCH; on a splash it should emit `OK|SOUND|profile=2` followed by `HID|keyboard|accepted` for F.
+
 ## ABVM native R23 — Native Buzzer step execution
 
 ### Problem observed

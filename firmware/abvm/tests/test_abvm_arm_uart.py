@@ -1,11 +1,13 @@
 import unittest
 from pathlib import Path
+import sys
 
 
 class AbvmArmUartContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pico = Path(__file__).resolve().parents[1] / "pico"
+        cls.root = Path(__file__).resolve().parents[3]
+        cls.pico = cls.root / "firmware" / "abvm" / "pico"
         cls.arm = (cls.pico / "arm_uart_mouse.c").read_text(encoding="utf-8")
         cls.main = (cls.pico / "main.c").read_text(encoding="utf-8")
         cls.calibration = (cls.pico / "calibration_runtime.c").read_text(encoding="utf-8")
@@ -56,6 +58,50 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("arm_uart_sound_calibration_take(&average,&peak)", self.main)
         self.assertIn('OK|SCAL|avg=%u|max=%u', self.main)
         self.assertIn('ERR|TIMEOUT|SCAL', self.main)
+
+    def test_classroom_threshold_controls_native_watch_and_hit_runs_f(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        source = {"pipelines": {"Game": [{
+            "Type": "waitForSound",
+            "Props": {
+                "calibrationId": 2, "threshold": 8, "peakMin": 76,
+                "minDurationMs": 20, "timeoutMinSec": 1,
+                "timeoutMaxSec": 1,
+            },
+            "Children": [{
+                "Type": "keystroke",
+                "Props": {"key": "F", "holdMin": 80, "holdMax": 180},
+                "Children": [], "Delay": 0,
+            }],
+            "Delay": 0,
+        }]}}
+        program = abvm.Compiler().compile_amsj(source, ("Game",))
+        image = abvm.Verifier.verify(program.image)
+        descriptors = [abvm.SOUND.unpack(payload)
+                       for kind, _, payload in image.constants
+                       if kind == abvm.CONST_SOUND]
+        self.assertEqual(descriptors, [(2, 8, 20)])
+        hit = abvm.ReferenceVm(program.image, detected_profiles=(2,)).run("Game")
+        miss = abvm.ReferenceVm(program.image).run("Game")
+        self.assertTrue(any(event[0] == "KEY" and event[1] == (70,)
+                            for event in hit))
+        self.assertFalse(any(event[0] == "KEY" for event in miss))
+
+    def test_saved_calibration_is_explicit_and_runtime_logs_effective_values(self):
+        self.assertIn("if (!sound_threshold)", self.arm)
+        self.assertNotIn(
+            "(void)calibration_store_sound_get(sound_profile",
+            self.arm)
+        self.assertIn("arm_uart_sound_uses_calibration", self.arm)
+        self.assertIn("threshold=%u|min=%u|config=%s|source=arm", self.main)
+
+    def test_native_direct_run_compatibility_is_nonblocking(self):
+        self.assertIn('!strncmp(line, "SETRES|", 7)', self.main)
+        self.assertIn('!strncmp(line, "WSND|", 5)', self.main)
+        self.assertIn("arm_uart_sound_test_start", self.main)
+        self.assertIn('!strncmp(line, "BEEP|", 5)', self.main)
+        self.assertIn("ui_buzzer_reply_pending", self.main)
 
 
 if __name__ == "__main__":

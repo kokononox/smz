@@ -585,10 +585,13 @@ class Compiler:
         lo, hi = ordered(lo, hi)
         if profile <= 0 or hi <= 0:
             raise AbvmError("Wait For Sound needs calibrationId and timeout")
-        threshold = max(1, integer(p.get("peakMin"),
-                                   integer(p.get("threshold"), 60)))
+        # `threshold` is the detector threshold edited by Classroom Calibrate.
+        # peakMin/peakMax are legacy classification metadata and must not
+        # silently override it. Zero explicitly selects saved physical
+        # calibration for this profile in the Pico actor.
+        threshold = integer(p.get("threshold"), 60)
         minimum = max(1, integer(p.get("minDurationMs"), 60))
-        if threshold > 1023 or minimum > 65_535:
+        if threshold < 0 or threshold > 1023 or minimum > 65_535:
             raise AbvmError("Wait For Sound threshold or duration is out of range")
         descriptor = SOUND.pack(profile, threshold, minimum)
         self.sound_profiles.add(profile)
@@ -976,7 +979,7 @@ class Verifier:
                         if len(raw) != SOUND.size:
                             raise AbvmError("invalid Sound descriptor size")
                         profile, threshold, minimum = SOUND.unpack(raw)
-                        if not profile or not 1 <= threshold <= 1023 or not minimum:
+                        if not profile or not 0 <= threshold <= 1023 or not minimum:
                             raise AbvmError("invalid Sound descriptor")
                         measured_profiles.add(profile)
                     elif ins.flags == 1 and ins.a:

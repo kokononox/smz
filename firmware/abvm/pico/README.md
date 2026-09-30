@@ -25,6 +25,13 @@ The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed 
 
 The same native BH1750 actor serves read-only `LUX?` telemetry and asynchronous `LCAL|ms` calibration. Calibration accumulates min/max/average in fixed state while USB, HID, ARM UART, buttons, and the VM continue to run. Pause/Stop/route boundaries cancel active watches; ARM sound is additionally cancelled through framed `HALT`.
 
+Classroom direct-run diagnostics retain bounded compatibility commands:
+`SETRES|w,h` is acknowledged as metadata because Native mouse movement is
+relative, `WSND|threshold,minMs,timeoutMs` uses the same asynchronous ARM ADC
+actor as ABVM, and `BEEP|hz,durationMs` uses the nonblocking GP6 PWM actor.
+For ABVM Wait For Sound, the step's `threshold` is authoritative; zero opts
+into the persisted physical calibration for that profile.
+
 A typed `GUARD` constant embeds the six calibrated optical profiles exported by Classroom Studio. The allocation-free global Guard applies unique-range classification, per-profile stability, hysteresis, sensor freshness, ordered Desktop → Login → Dashboard → Loading → Game progression, Targeted as a Game side-state, and the dedicated DC fallback route. GP4 or `GUARD|ON` starts Guard at the physical state currently visible; `GUARD|OFF`/`HALT` stops it. Missing/ambiguous light never invents a state, sensor timeout stops execution, and every accepted transition starts the matching verified ABVM route.
 
 Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART sound watch, nonblocking BH1750 Light Watch/calibration, global six-profile Guard routing, HALT on every release boundary, GP3 Pause/Resume, GP4 Guard Start/Stop, Whisper interrupts, nonblocking original GP6 passive-buzzer presets, and fail-closed boot/transport behavior.

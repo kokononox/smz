@@ -31,6 +31,7 @@ static char arm_version[24] = "unknown";
 static bool arm_ready;
 static bool sound_pending, sound_active, sound_event_pending, sound_event_detected;
 static uint16_t sound_profile, sound_threshold, sound_minimum, sound_peak;
+static bool sound_uses_calibration;
 static uint16_t calibration_average, calibration_peak;
 static bool calibration_result_pending;
 static uint32_t sound_deadline;
@@ -167,7 +168,12 @@ ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint
         return ARM_SOUND_INVALID;
     sound_profile=read_u16_le(payload); sound_threshold=read_u16_le(payload+2u);
     sound_minimum=(uint16_t)read_u32_le(payload+4u);
-    (void)calibration_store_sound_get(sound_profile,&sound_threshold,&sound_minimum);
+    sound_uses_calibration=false;
+    if (!sound_threshold) {
+        if (!calibration_store_sound_get(sound_profile,&sound_threshold,&sound_minimum))
+            return ARM_SOUND_INVALID;
+        sound_uses_calibration=true;
+    }
     if (!sound_profile||!sound_threshold||sound_threshold>1023u||!sound_minimum)
         return ARM_SOUND_INVALID;
     sound_deadline=now+(event->operand_b?event->operand_b:1u);
@@ -175,6 +181,23 @@ ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint
     if (state==ARM_IDLE&&!queue_sound(now)) return ARM_SOUND_INVALID;
     return ARM_SOUND_ACCEPTED;
 }
+bool arm_uart_sound_test_start(uint32_t now,uint16_t threshold,
+                               uint16_t minimum_ms,uint32_t timeout_ms) {
+    if (!arm_ready || state==ARM_FAULT || state==ARM_HALT ||
+        state==ARM_PROBE || state==ARM_SOUND_CAL || sound_pending ||
+        sound_active || !threshold || threshold>1023u || !minimum_ms ||
+        !timeout_ms) return false;
+    sound_profile=0u;sound_threshold=threshold;sound_minimum=minimum_ms;
+    sound_uses_calibration=false;sound_deadline=now+timeout_ms;
+    sound_pending=true;
+    if (state==ARM_IDLE&&!queue_sound(now)) {
+        sound_pending=false; return false;
+    }
+    return true;
+}
+uint16_t arm_uart_sound_threshold(void){return sound_threshold;}
+uint16_t arm_uart_sound_minimum(void){return sound_minimum;}
+bool arm_uart_sound_uses_calibration(void){return sound_uses_calibration;}
 bool arm_uart_sound_calibration_start(uint32_t now, uint16_t duration_ms) {
     if (!arm_ready || state!=ARM_IDLE || sound_pending || sound_active ||
         deferred_mouse_pending || halt_pending || duration_ms<10u || duration_ms>1000u) return false;

@@ -74,7 +74,7 @@ public static class StepTextsFa
         ["maxCount"] = "حداکثر استپ در هر دور (randomSubset)",
 
         // ── sound (waitForSound) ──
-        ["threshold"] = "آستانه شروع شنود (واحد سنسور — از Calibrate استفاده کن)",
+        ["threshold"] = "آستانه شروع شنود (از Calibrate استفاده کن؛ ۰ = کالیبراسیون فیزیکی ذخیره‌شده)",
         ["peakMin"] = "کف بازهٔ Peak (۰ = آستانهٔ کالیبره‌شده)",
         ["peakMax"] = "سقف بازهٔ Peak",
         ["soundPriority"] = "اولویت در بازه‌های هم‌پوشان (عدد بزرگ‌تر برنده است)",

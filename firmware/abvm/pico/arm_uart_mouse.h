@@ -22,8 +22,13 @@ void arm_uart_mouse_init(void);
 bool arm_uart_mouse_probe(uint32_t now);
 ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
+bool arm_uart_sound_test_start(uint32_t now, uint16_t threshold,
+                               uint16_t minimum_ms, uint32_t timeout_ms);
 bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane);
 bool arm_uart_sound_take(uint16_t *profile, bool *detected, uint16_t *peak);
+uint16_t arm_uart_sound_threshold(void);
+uint16_t arm_uart_sound_minimum(void);
+bool arm_uart_sound_uses_calibration(void);
 bool arm_uart_sound_calibration_start(uint32_t now, uint16_t duration_ms);
 bool arm_uart_sound_calibration_take(uint16_t *average, uint16_t *peak);
 void arm_uart_mouse_release_all(uint32_t now);

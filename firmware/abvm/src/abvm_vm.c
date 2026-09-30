@@ -354,7 +354,7 @@ static int verify_image(AbvmVm *vm) {
             } else if (ins.flags == 2u) {
                 if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
                                  &payload, &size) || size != 8u ||
-                    !read_u16(payload) || !read_u16(payload + 2u) ||
+                    !read_u16(payload) ||
                     read_u16(payload + 2u) > 1023u ||
                     !read_u32(payload + 4u) ||
                     read_u32(payload + 4u) > 65535u)
