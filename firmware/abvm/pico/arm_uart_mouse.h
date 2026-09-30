@@ -1,3 +1,4 @@
+
 #ifndef AMS_ABVM_ARM_UART_MOUSE_H
 #define AMS_ABVM_ARM_UART_MOUSE_H
 
@@ -30,6 +31,9 @@ ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, u
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 bool arm_uart_sound_test_start(uint32_t now, uint16_t threshold,
                                uint16_t minimum_ms, uint32_t timeout_ms);
+bool arm_uart_sound_restart(uint32_t now, uint16_t profile,
+                            uint16_t threshold, uint16_t minimum_ms,
+                            uint32_t timeout_ms);
 bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane);
 bool arm_uart_sound_take(uint16_t *profile, bool *detected, uint16_t *peak);
 uint16_t arm_uart_sound_threshold(void);

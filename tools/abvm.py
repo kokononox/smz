@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """PC-side ABP1 compiler, verifier, and deterministic reference VM."""
 from __future__ import annotations
@@ -320,11 +321,43 @@ class Compiler:
         for key, value in values.items():
             setattr(self.code[index], key, value)
 
+    def compile_global_whisper(self, source: dict[str, Any]) -> None:
+        """Persist the enabled game-wide Whisper classifier in the image.
+
+        The native sound actor still owns only one physical listener.  A scoped
+        Catch watch therefore supplies the samples, while Pico 1 compares each
+        detected peak with this descriptor and interrupts route 10 when the
+        Whisper range wins.  Keeping this descriptor first also lets firmware
+        discover it without changing ABI-1.
+        """
+        profiles = source.get("soundProfiles") or source.get("SoundProfiles") or []
+        if not isinstance(profiles, list):
+            raise AbvmError("soundProfiles must be a list")
+        for item in profiles:
+            if not isinstance(item, dict):
+                continue
+            profile = integer(item.get("Id", item.get("id")), 0)
+            enabled = bool(item.get("Enabled", item.get("enabled", False)))
+            response = item.get("ResponseTab", item.get("responseTab"))
+            is_whisper = response in (9, "9", "Whisper", "whisper")
+            if profile != 1 or not enabled or not is_whisper:
+                continue
+            threshold = integer(
+                item.get("PeakMin", item.get("peakMin")), 0)
+            minimum = max(1, integer(
+                item.get("MinDurationMs", item.get("minDurationMs")), 60))
+            if threshold < 0 or threshold > 1023 or minimum > 65_535:
+                raise AbvmError(
+                    "global Whisper threshold or duration is out of range")
+            self.pool.add(CONST_SOUND, SOUND.pack(profile, threshold, minimum))
+            return
+
     def compile_amsj(self, source: dict[str, Any],
                      route_names: Iterable[str] = ("Game", "Whisper")) -> Program:
         pipelines = source.get("pipelines") or source.get("Pipelines")
         if not isinstance(pipelines, dict):
             raise AbvmError("AMSJ pipelines object is missing")
+        self.compile_global_whisper(source)
         for name in route_names:
             nodes = pipelines.get(name)
             if nodes is None:
