@@ -177,7 +177,11 @@ public static class ModernAutoCycleFirmwareBundle
 
     private static void WriteLightProfiles(string stagingDir, IEnumerable<LightStateProfile> source)
     {
-        var profiles = LightStateProfileStore.Normalize(source).Where(p => p.Enabled).ToArray();
+        // The legacy CIRCUITPY bundle still owns its original six-profile schema.
+        // Ignore the native-only Whisper light profile instead of rejecting export.
+        var profiles = LightStateProfileStore.Normalize(source)
+            .Where(p => p.Enabled && RequiredLightProfileIds.Contains(p.Id, StringComparer.Ordinal))
+            .ToArray();
         var byId = profiles.ToDictionary(p => p.Id, StringComparer.Ordinal);
         if (profiles.Length != RequiredLightProfileIds.Length
             || RequiredLightProfileIds.Any(id => !byId.ContainsKey(id)))

@@ -13,7 +13,7 @@
 #define SOUND_TARGET_MS 30000u
 #define SOUND_MIN_SEPARATION 12u
 #define SOUND_MINIMUM_MS 20u
-#define LIGHT_PROFILE_COUNT 6u
+#define LIGHT_PROFILE_COUNT 7u
 #define LIGHT_FIT_GAP_TENTHS 3u
 #define LIGHT_FIT_MIN_TENTHS 5u
 
@@ -27,7 +27,7 @@ typedef struct CalibrationState {
 } CalibrationState;
 static CalibrationState cal;
 static void emit(const char *format,...){va_list a;va_start(a,format);vsnprintf(cal.event,sizeof(cal.event),format,a);va_end(a);cal.event_pending=true;}
-static void apply_saved_light(void){for(uint8_t id=1;id<=6u;++id){uint32_t lo,hi;if(calibration_store_light_get(id,&lo,&hi))guard_runtime_set_profile_range(id,lo,hi);}}
+static void apply_saved_light(void){for(uint8_t id=1;id<=7u;++id){uint32_t lo,hi;if(calibration_store_light_get(id,&lo,&hi))guard_runtime_set_profile_range(id,lo,hi);}}
 void calibration_runtime_init(const AbvmVm *vm){memset(&cal,0,sizeof(cal));calibration_store_init(vm);apply_saved_light();}
 bool calibration_runtime_active(void){return cal.mode!=CAL_MODE_NONE;}
 CalibrationMode calibration_runtime_mode(void){return cal.mode;}
@@ -36,7 +36,7 @@ static void enter_sound(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_SOUND
 static void exit_mode(void){CalibrationMode old=cal.mode;cal.mode=CAL_MODE_NONE;cal.phase=PHASE_READY;emit("EVT|%s|mode=exited|revision=%lu",old==CAL_MODE_LIGHT?"CAL":"SOUNDCAL",(unsigned long)calibration_store_revision());}
 bool calibration_runtime_blue_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_light();return true;}if(cal.mode==CAL_MODE_LIGHT){exit_mode();return true;}return false;}
 bool calibration_runtime_yellow_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_sound();return true;}if(cal.mode==CAL_MODE_SOUND){exit_mode();return true;}return false;}
-bool calibration_runtime_blue_short(uint32_t now){(void)now;if(cal.mode==CAL_MODE_LIGHT){if(cal.phase==PHASE_LIGHT_SAMPLE)return true;cal.profile=cal.profile>=6u?1u:(uint8_t)(cal.profile+1u);cal.phase=PHASE_READY;emit("EVT|CAL|mode=ready|kind=light|stage=%u|id=%s|seconds=5",cal.profile,guard_runtime_profile_name(cal.profile));return true;}if(cal.mode==CAL_MODE_SOUND){if(cal.phase==PHASE_SOUND_SILENCE||cal.phase==PHASE_SOUND_TARGET)return true;cal.profile=cal.profile==1u?2u:1u;cal.phase=PHASE_READY;emit("EVT|SOUNDCAL|mode=ready|id=%u|silence=3|sound=30",cal.profile);return true;}return false;}
+bool calibration_runtime_blue_short(uint32_t now){(void)now;if(cal.mode==CAL_MODE_LIGHT){if(cal.phase==PHASE_LIGHT_SAMPLE)return true;cal.profile=cal.profile>=7u?1u:(uint8_t)(cal.profile+1u);cal.phase=PHASE_READY;emit("EVT|CAL|mode=ready|kind=light|stage=%u|id=%s|seconds=5",cal.profile,guard_runtime_profile_name(cal.profile));return true;}if(cal.mode==CAL_MODE_SOUND){if(cal.phase==PHASE_SOUND_SILENCE||cal.phase==PHASE_SOUND_TARGET)return true;cal.profile=cal.profile==1u?2u:1u;cal.phase=PHASE_READY;emit("EVT|SOUNDCAL|mode=ready|id=%u|silence=3|sound=30",cal.profile);return true;}return false;}
 bool calibration_runtime_yellow_short(uint32_t now){
     if(cal.mode==CAL_MODE_LIGHT){
         if(cal.phase==PHASE_READY){if(!light_sensor_calibration_start(LIGHT_SAMPLE_MS,now)){emit("ERR|CAL|START|kind=light");return true;}cal.phase=PHASE_LIGHT_SAMPLE;emit("EVT|CAL|mode=started|kind=light|stage=%u|id=%s|seconds=5",cal.profile,guard_runtime_profile_name(cal.profile));return true;}

@@ -89,6 +89,29 @@ class AbvmArmUartContractTests(unittest.TestCase):
                             for event in hit))
         self.assertFalse(any(event[0] == "KEY" for event in miss))
 
+    def test_global_whisper_persists_peak_range_and_native_checks_upper_edge(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        source = {
+            "soundProfiles": [{
+                "Id": 1, "Enabled": True, "ResponseTab": "Whisper",
+                "PeakMin": 20, "PeakMax": 80, "MinDurationMs": 60,
+            }],
+            "pipelines": {"Game": [], "Whisper": []},
+        }
+        program = abvm.Compiler().compile_amsj(source, ("Game", "Whisper"))
+        image = abvm.Verifier.verify(program.image)
+        profile, threshold, packed = next(
+            abvm.SOUND.unpack(payload)
+            for kind, _, payload in image.constants
+            if kind == abvm.CONST_SOUND
+        )
+        self.assertEqual((profile, threshold), (1, 20))
+        self.assertEqual((packed & 0xffff, packed >> 16), (60, 80))
+        self.assertIn("peak<=whisper_maximum", self.main)
+        self.assertIn("BUZZER_CUE_WHISPER", self.main)
+        self.assertIn("source=sound", self.main)
+
     def test_saved_calibration_is_explicit_and_runtime_logs_effective_values(self):
         self.assertIn("if (!sound_threshold)", self.arm)
         self.assertNotIn(

@@ -345,12 +345,19 @@ class Compiler:
                 continue
             threshold = integer(
                 item.get("PeakMin", item.get("peakMin")), 0)
+            maximum = integer(
+                item.get("PeakMax", item.get("peakMax")), 1023)
             minimum = max(1, integer(
                 item.get("MinDurationMs", item.get("minDurationMs")), 60))
-            if threshold < 0 or threshold > 1023 or minimum > 65_535:
+            if (threshold < 0 or threshold > 1023 or maximum < threshold or
+                    maximum > 1023 or minimum > 65_535):
                 raise AbvmError(
-                    "global Whisper threshold or duration is out of range")
-            self.pool.add(CONST_SOUND, SOUND.pack(profile, threshold, minimum))
+                    "global Whisper range or duration is out of range")
+            # High 16 bits carry only the global Whisper upper edge.
+            # Ordinary WATCH descriptors keep them zero (ABI-1 compatible).
+            self.pool.add(
+                CONST_SOUND,
+                SOUND.pack(profile, threshold, minimum | (maximum << 16)))
             return
 
     def compile_amsj(self, source: dict[str, Any],
@@ -704,10 +711,11 @@ class Compiler:
             "entering-game-loading": (4, "EnteringGameLoading"),
             "game": (5, "Game"),
             "targeted": (6, "Targeted"),
+            "whisper": (7, "Whisper"),
         }
         profiles = guard.get("profiles")
         if not isinstance(profiles, list) or len(profiles) != len(expected):
-            raise AbvmError("Native Guard needs exactly six profiles")
+            raise AbvmError("Native Guard needs exactly seven profiles")
         by_id = {str(item.get("id") or ""): item for item in profiles
                  if isinstance(item, dict)}
         if set(by_id) != set(expected):
@@ -964,19 +972,19 @@ class Verifier:
             if len(guard_constants) != 1:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
-            if len(raw) != GUARD_HEADER.size + 6 * GUARD_PROFILE.size:
+            if len(raw) != GUARD_HEADER.size + 7 * GUARD_PROFILE.size:
                 raise AbvmError("invalid Native Guard descriptor size")
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            if version != 1 or count != 6 or mode not in (0, 1) or reserved or timeout < 250:
+            if version != 1 or count != 7 or mode not in (0, 1) or reserved or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
             ids = set()
             for index in range(count):
                 item = GUARD_PROFILE.unpack_from(raw, GUARD_HEADER.size + index * GUARD_PROFILE.size)
                 profile_id, enabled, route_id, low, high, stable, hysteresis = item
-                if profile_id not in range(1, 7) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
+                if profile_id not in range(1, 8) or profile_id in ids or enabled != 1 or                         route_id not in ROUTE_IDS.values() or low > high or                         stable > 3_600_000 or hysteresis > 1_000_000:
                     raise AbvmError("invalid Native Guard profile")
                 ids.add(profile_id)
-            if ids != set(range(1, 7)):
+            if ids != set(range(1, 8)):
                 raise AbvmError("Native Guard profile set mismatch")
             measured_flags |= FLAG_HAS_GUARD
         cycle_constants = [payload for kind, _, payload in image.constants

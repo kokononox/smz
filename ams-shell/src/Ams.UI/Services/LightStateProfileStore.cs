@@ -42,6 +42,11 @@ public static class LightStateProfileStore
         if (profiles is null) return LightStateDefaults.CreateInitialProfiles();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var valid = profiles.Where(p => p is not null && p.IsValid && seen.Add(p.Id)).ToList();
-        return valid.Count == 0 ? LightStateDefaults.CreateInitialProfiles() : valid;
+        if (valid.Count == 0) return LightStateDefaults.CreateInitialProfiles();
+        // Schema migration: preserve every calibrated value and append only
+        // newly introduced required profiles (for example light Whisper).
+        foreach (var fallback in LightStateDefaults.CreateInitialProfiles())
+            if (seen.Add(fallback.Id)) valid.Add(fallback);
+        return valid;
     }
 }

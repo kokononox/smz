@@ -23,9 +23,11 @@ static const BuzzerTone guard_resume[] = {{659,150,0},{784,150,0},{988,150,0},{7
 
 /* Original warning preset retained for Timeout/Error. */
 static const BuzzerTone preset_warning[] = {{700,180,90},{700,180,90},{700,300,0}};
+/* Distinct high two-note acknowledgement shared by sound/light Whisper. */
+static const BuzzerTone whisper_notice[] = {{1397,110,45},{1760,190,0}};
 
 /* Exact legacy physical-calibration feedback. */
-static const uint16_t calibration_notes[] = {262,294,330,349,392,440};
+static const uint16_t calibration_notes[] = {262,294,330,349,392,440,494};
 static const BuzzerTone calibration_enter_prefix[] = {{523,100,0},{659,120,0},{784,180,0}};
 static const BuzzerTone calibration_exit[] = {{784,100,0},{659,120,0},{523,220,0}};
 static const BuzzerTone calibration_error[] = {{220,140,80},{220,260,0}};
@@ -40,6 +42,7 @@ static const BuzzerPattern patterns[] = {
     [BUZZER_CUE_RESUME] = {guard_resume, ARRAY_COUNT(guard_resume), 3u},
     [BUZZER_CUE_TIMEOUT] = {preset_warning, ARRAY_COUNT(preset_warning), 4u},
     [BUZZER_CUE_ERROR] = {preset_warning, ARRAY_COUNT(preset_warning), 7u},
+    [BUZZER_CUE_WHISPER] = {whisper_notice, ARRAY_COUNT(whisper_notice), 5u},
     [BUZZER_CUE_CALIBRATION_OK] = {calibration_success, ARRAY_COUNT(calibration_success), 4u},
 };
 

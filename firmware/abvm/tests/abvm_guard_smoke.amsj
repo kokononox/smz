@@ -10,7 +10,8 @@
       {"id":"character-dashboard","enabled":true,"luxCenter":300,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
       {"id":"entering-game-loading","enabled":true,"luxCenter":400,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
       {"id":"game","enabled":true,"luxCenter":500,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
-      {"id":"targeted","enabled":true,"luxCenter":600,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2}
+      {"id":"targeted","enabled":true,"luxCenter":600,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
+      {"id":"whisper","enabled":true,"luxCenter":700,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2}
     ]
   },
   "nativeCycle": {
