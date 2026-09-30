@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 1u
+#define CAL_VERSION 2u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
 #define CAL_AREA_SIZE (2u * CAL_SLOT_SIZE)
 #define CAL_OFFSET_A (PICO_FLASH_SIZE_BYTES - CAL_AREA_SIZE)
@@ -18,8 +18,8 @@ typedef struct CalibrationPayload {
     uint8_t sound_mask;
     uint8_t cycle_armed;
     uint8_t cycle_count;
-    uint32_t light_low[6];
-    uint32_t light_high[6];
+    uint32_t light_low[7];
+    uint32_t light_high[7];
     uint16_t sound_threshold[2];
     uint16_t sound_minimum[2];
     uint16_t sound_silence[2];
@@ -83,26 +83,26 @@ static bool persist(void) {
     active_offset=target;return true;
 }
 bool calibration_store_light_get(uint8_t id,uint32_t *low,uint32_t *high){
-    if(id<1u||id>6u||!(current.payload.light_mask&(1u<<(id-1u)))||!low||!high)return false;
+    if(id<1u||id>7u||!(current.payload.light_mask&(1u<<(id-1u)))||!low||!high)return false;
     *low=current.payload.light_low[id-1u];*high=current.payload.light_high[id-1u];return true;
 }
 bool calibration_store_light_set(uint8_t id,uint32_t low,uint32_t high){
-    if(id<1u||id>6u||low>high||high>1000000u)return false;
-    uint32_t lows[6],highs[6];
+    if(id<1u||id>7u||low>high||high>1000000u)return false;
+    uint32_t lows[7],highs[7];
     memcpy(lows,current.payload.light_low,sizeof(lows));
     memcpy(highs,current.payload.light_high,sizeof(highs));
     lows[id-1u]=low;highs[id-1u]=high;
     return calibration_store_light_update((uint8_t)(1u<<(id-1u)),lows,highs);
 }
-bool calibration_store_light_update(uint8_t update_mask,const uint32_t lows[6],
-                                    const uint32_t highs[6]){
-    if(!update_mask||!lows||!highs||(update_mask&0xc0u))return false;
-    for(uint8_t i=0;i<6u;++i)
+bool calibration_store_light_update(uint8_t update_mask,const uint32_t lows[7],
+                                    const uint32_t highs[7]){
+    if(!update_mask||!lows||!highs||(update_mask&0x80u))return false;
+    for(uint8_t i=0;i<7u;++i)
         if((update_mask&(1u<<i))&&(lows[i]>highs[i]||highs[i]>1000000u))
             return false;
     CalibrationRecord before=current;
     uint32_t before_offset=active_offset;
-    for(uint8_t i=0;i<6u;++i)if(update_mask&(1u<<i)){
+    for(uint8_t i=0;i<7u;++i)if(update_mask&(1u<<i)){
         current.payload.light_low[i]=lows[i];
         current.payload.light_high[i]=highs[i];
     }

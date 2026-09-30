@@ -52,5 +52,14 @@
     "LuxTolerance": 1,
     "StableDurationMs": 750,
     "HysteresisLux": 1
+  },
+  {
+    "Id": "whisper",
+    "Name": "ویسپر",
+    "Enabled": true,
+    "LuxCenter": 55,
+    "LuxTolerance": 2,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
   }
 ]

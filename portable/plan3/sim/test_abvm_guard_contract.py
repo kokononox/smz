@@ -14,7 +14,7 @@ program = abvm.Compiler().compile_amsj(source, routes)
 image = abvm.Verifier.verify(program.image)
 assert image.flags & abvm.FLAG_HAS_GUARD
 guards = [payload for kind, _, payload in image.constants if kind == abvm.CONST_GUARD]
-assert len(guards) == 1 and len(guards[0]) == abvm.GUARD_HEADER.size + 6 * abvm.GUARD_PROFILE.size
+assert len(guards) == 1 and len(guards[0]) == abvm.GUARD_HEADER.size + 7 * abvm.GUARD_PROFILE.size
 assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 events = abvm.ReferenceVm(program.image).run("Game")
 assert not any(event[0] == "KEY" for event in events), "forward GOTO must skip X"

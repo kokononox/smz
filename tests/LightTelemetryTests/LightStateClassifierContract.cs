@@ -21,8 +21,8 @@ internal static class LightStateClassifierContract
         void Check(bool condition, string name) => checks.Add((condition, name));
 
         var profiles = LightStateDefaults.CreateInitialProfiles();
-        Check(profiles.Count == 6 && profiles.All(x => x.LuxTolerance == 2),
-            "six editable phase-four profiles default to plus/minus two Lux");
+        Check(profiles.Count == 7 && profiles.All(x => x.LuxTolerance == 2),
+            "seven editable Guard profiles default to plus/minus two Lux");
 
         var desktop = profiles.Single(x => x.Id == "desktop");
         Check(desktop.LuxMin == 0 && desktop.LuxMax == 2,

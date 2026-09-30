@@ -11,6 +11,7 @@ typedef enum BuzzerCue {
     BUZZER_CUE_RESUME,
     BUZZER_CUE_TIMEOUT,
     BUZZER_CUE_ERROR,
+    BUZZER_CUE_WHISPER,
     BUZZER_CUE_CALIBRATION_OK,
 } BuzzerCue;
 

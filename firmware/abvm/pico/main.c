@@ -55,6 +55,7 @@ static bool ui_buzzer_reply_pending;
 static uint32_t ui_buzzer_reply_deadline;
 static bool whisper_profile_enabled;
 static uint16_t whisper_threshold;
+static uint16_t whisper_maximum;
 static uint16_t whisper_minimum;
 static bool whisper_rearm_pending;
 static uint16_t whisper_rearm_profile;
@@ -85,12 +86,16 @@ static void load_whisper_profile(void) {
     if (!abvm_find_constant(&vm,ABVM_CONST_SOUND,&constant_id,&payload,&size) ||
         size!=8u || local_u16(payload)!=1u) return;
     whisper_threshold=local_u16(payload+2u);
-    whisper_minimum=(uint16_t)local_u32(payload+4u);
+    uint32_t packed=local_u32(payload+4u);
+    whisper_minimum=(uint16_t)(packed&0xffffu);
+    whisper_maximum=(uint16_t)(packed>>16);
+    if(!whisper_maximum)whisper_maximum=1023u; /* legacy image */
     if (!whisper_threshold &&
         !calibration_store_sound_get(1u,&whisper_threshold,&whisper_minimum))
         return;
-    whisper_profile_enabled=whisper_threshold>0u && whisper_threshold<=1023u &&
-                            whisper_minimum>0u;
+    whisper_profile_enabled=whisper_threshold>0u &&
+                            whisper_threshold<=whisper_maximum &&
+                            whisper_maximum<=1023u && whisper_minimum>0u;
 }
 static uint32_t sound_watch_remaining(uint16_t profile,uint32_t now) {
     for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {
@@ -213,7 +218,7 @@ static void service_buttons(uint32_t now) {
 }
 
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 6u : 0u);
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 7u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -385,7 +390,7 @@ static void execute_command(char *line, uint32_t now) {
     else if (!strcmp(line, "STOP") || !strcmp(line, "GUARD|OFF") ||
              !strcmp(line, "HALT") || !strcmp(line, "HALT|SILENT")) stop_control(now);
     else if (!strcmp(line, "CALSTATUS"))
-        printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 6u : 0u, calibration_runtime_mode());
+        printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 7u : 0u, calibration_runtime_mode());
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strncmp(line, "SOUND ", 6)) { uint16_t profile = (uint16_t)strtoul(line + 6, NULL, 10); printf("%s|SOUND|profile=%u\n", abvm_sound_detected(&vm, profile, now) ? "OK" : "MISS", profile); }
     else if (*line) printf("ERR|COMMAND|unknown=%s\n", line);
@@ -474,7 +479,9 @@ static void service_light(uint32_t now) {
         const char *profile = guard_runtime_profile_name(guard_event.profile_id);
         if (guard_event.type == GUARD_EVENT_ROUTE) {
             if (strcmp(guard_event.reason,"start-at-current-state")) {
-                buzzer_guard_transition(guard_event.profile_id, now);
+                if(guard_event.profile_id==7u)
+                    buzzer_play(BUZZER_CUE_WHISPER,now);
+                else buzzer_guard_transition(guard_event.profile_id, now);
                 printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
                        profile,guard_event.stage);
             }
@@ -527,15 +534,16 @@ static void service_mouse(uint32_t now) {
         if (detected) {
             uint32_t remaining=sound_watch_remaining(profile,now);
             if (whisper_profile_enabled && vm.route_id==GAME_ROUTE_ID &&
-                peak>=whisper_threshold && remaining &&
+                peak>=whisper_threshold && peak<=whisper_maximum && remaining &&
                 abvm_interrupt_route(&vm,WHISPER_ROUTE_ID,now)) {
                 whisper_rearm_pending=true;
                 whisper_rearm_profile=profile;
                 whisper_rearm_threshold=arm_uart_sound_threshold();
                 whisper_rearm_minimum=arm_uart_sound_minimum();
                 whisper_rearm_deadline=now+remaining;
-                printf("CONTROL|interrupt|route=Whisper|source=sound|profile=%u|peak=%u|threshold=%u\n",
-                       profile,peak,whisper_threshold);
+                buzzer_play(BUZZER_CUE_WHISPER,now);
+                printf("CONTROL|interrupt|route=Whisper|source=sound|profile=%u|peak=%u|range=%u-%u\n",
+                       profile,peak,whisper_threshold,whisper_maximum);
                 return;
             }
             bool accepted = abvm_sound_detected(&vm, profile, now);
