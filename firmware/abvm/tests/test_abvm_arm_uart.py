@@ -64,6 +64,15 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("human_moves_since_idle", self.arm)
         self.assertIn("human_path.correction_steps", self.arm)
         self.assertIn("target_x - human_virtual_x", self.arm)
+        self.assertIn("random_triangular_u32", self.arm)
+        self.assertIn("integer_log2_u32", self.arm)
+        self.assertIn("json_hand_signature", self.arm)
+        self.assertIn("human_last_speed", self.arm)
+        self.assertIn("human_last_curve", self.arm)
+        self.assertIn("human_last_side", self.arm)
+        self.assertIn("difficulty*42u", self.arm)
+        self.assertNotIn("registry", self.arm.lower())
+        self.assertNotIn("cursor sync", self.arm.lower())
         self.assertNotIn(
             'snprintf(command,sizeof(command),"MMOVE|%ld,%ld,rel,2",'
             '(long)dx,(long)dy)',

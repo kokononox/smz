@@ -69,6 +69,9 @@ static int32_t human_virtual_x = HUMAN_SCREEN_W / 2;
 static int32_t human_virtual_y = HUMAN_SCREEN_H / 2;
 static uint16_t human_moves_since_idle;
 static uint16_t human_next_idle;
+static uint32_t human_last_speed = 1050u;
+static int32_t human_last_curve = 30;
+static int32_t human_last_side = 1;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static uint32_t random_next(void) {
@@ -115,6 +118,47 @@ static uint32_t random_range_u32(uint32_t low, uint32_t high) {
     if (high <= low) return low;
     return low + random_next() % (high - low + 1u);
 }
+static uint32_t random_triangular_u32(uint32_t maximum) {
+    if (!maximum) return 0u;
+    return ((random_next() % (maximum + 1u)) +
+            (random_next() % (maximum + 1u))) / 2u;
+}
+static uint32_t integer_log2_u32(uint32_t value) {
+    uint32_t result = 0u;
+    while (value > 1u) { value >>= 1; ++result; }
+    return result;
+}
+static bool json_hand_signature(const uint8_t *data, uint32_t size,
+                                uint32_t *signature, uint16_t *tempo_ms) {
+    static const char marker[] = "\"handSample\":\"";
+    const uint32_t marker_size = (uint32_t)(sizeof(marker) - 1u);
+    for (uint32_t i = 0; i + marker_size < size; ++i) {
+        if (memcmp(data + i, marker, marker_size)) continue;
+        uint32_t p = i + marker_size, hash = 2166136261u;
+        uint32_t total_dt = 0u, samples = 0u;
+        uint8_t pipes = 0u;
+        while (p < size && data[p] != '"') {
+            uint8_t c = data[p++];
+            hash = (hash ^ c) * 16777619u;
+            if (c == '|') { ++pipes; continue; }
+            if (pipes < 3u || c < '0' || c > '9') continue;
+            uint32_t value = (uint32_t)(c - '0');
+            while (p < size && data[p] >= '0' && data[p] <= '9')
+                value = value * 10u + (uint32_t)(data[p++] - '0');
+            if (p < size && data[p] == ',') {
+                total_dt += value > 100u ? 100u : value;
+                ++samples;
+                while (p < size && data[p] != ';' && data[p] != '"') ++p;
+            }
+        }
+        if (!samples) return false;
+        *signature = hash;
+        uint32_t average = total_dt / samples;
+        *tempo_ms = (uint16_t)clamp_i32((int32_t)average, 2, 20);
+        return true;
+    }
+    return false;
+}
 static uint32_t isqrt_u32(uint32_t value) {
     uint32_t result = 0u;
     uint32_t bit = 1u << 30;
@@ -147,7 +191,10 @@ static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
     int32_t height = (int32_t)((distance *
         (uint32_t)(12 + clamp_i32(curve_pct, 0, 200) * 3)) / 1000u);
     if (height < 2 && distance > 20u) height = 2;
-    int32_t side = (random_next() & 1u) ? 1 : -1;
+    int32_t side;
+    if ((random_next() % 100u) < 68u) side = human_last_side;
+    else side = -human_last_side;
+    human_last_side = side;
     int32_t perpendicular_x = distance ?
         (int32_t)((-(int64_t)end_y * height * side) / distance) : 0;
     int32_t perpendicular_y = distance ?
@@ -185,8 +232,10 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         x < 0 || y < 0 || w <= 0 || h <= 0 ||
         x > HUMAN_SCREEN_W - w || y > HUMAN_SCREEN_H - h)
         return false;
-    int32_t target_x = x + (int32_t)random_range_u32(0u, (uint32_t)w - 1u);
-    int32_t target_y = y + (int32_t)random_range_u32(0u, (uint32_t)h - 1u);
+    /* Two uniform samples create a center-weighted triangular distribution:
+     * ordinary human aim lands away from hard region edges most of the time. */
+    int32_t target_x = x + (int32_t)random_triangular_u32((uint32_t)w - 1u);
+    int32_t target_y = y + (int32_t)random_triangular_u32((uint32_t)h - 1u);
     int32_t dx = target_x - human_virtual_x;
     int32_t dy = target_y - human_virtual_y;
     uint32_t distance = isqrt_u32((uint32_t)((int64_t)dx * dx +
@@ -200,8 +249,19 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (curve_max < curve_min) {
         int32_t swap = curve_min; curve_min = curve_max; curve_max = swap;
     }
-    int32_t curve = curve_min + (int32_t)random_range_u32(
+    int32_t sampled_curve = curve_min + (int32_t)random_range_u32(
         0u, (uint32_t)(curve_max - curve_min));
+    int32_t curve=(human_last_curve*2+sampled_curve)/3;
+    human_last_curve=curve;
+    uint32_t hand_signature=0u;uint16_t hand_tempo_ms=0u;
+    if(json_hand_signature(payload,size,&hand_signature,&hand_tempo_ms)) {
+        /* The recorded hand trace is consumed locally as a stable movement
+         * signature. It nudges curve/rhythm without storing or replaying a
+         * large point list, keeping the Native actor allocation-free. */
+        prng^=hand_signature+(uint32_t)human_moves_since_idle*0x9e3779b9u;
+        int32_t signed_bias=(int32_t)((hand_signature>>24)&15u)-7;
+        curve=clamp_i32(curve+signed_bias,curve_min,curve_max);
+    }
     int32_t move_min = clamp_i32(
         json_int_or(payload,size,"moveTimeMin",0), 0, 30000);
     int32_t move_max = clamp_i32(
@@ -213,8 +273,17 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (move_max > 0) duration = random_range_u32(
         (uint32_t)(move_min > 0 ? move_min : 1), (uint32_t)move_max);
     else {
-        uint32_t speed = random_range_u32(700u, 1600u);
+        uint32_t sampled_speed = random_range_u32(700u, 1600u);
+        uint32_t speed = (human_last_speed * 2u + sampled_speed) / 3u;
+        human_last_speed=speed;
         duration = distance * 1000u / speed;
+        /* Integer Fitts-style cost: small/far targets take longer to acquire,
+         * while large nearby regions stay fluid. */
+        uint32_t target_width=(uint32_t)(w<h?w:h);
+        if(target_width<12u)target_width=12u;
+        uint32_t difficulty=integer_log2_u32(
+            1u+(distance*64u)/target_width);
+        duration+=difficulty*42u;
     }
     duration = (uint32_t)clamp_i32((int32_t)duration, 120, 3000);
     uint16_t steps = (uint16_t)clamp_i32(
@@ -230,6 +299,9 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     human_path.target_y = target_y;
     human_path.step_delay_ms = (uint16_t)clamp_i32(
         (int32_t)(duration / steps), 2, 40);
+    if(hand_tempo_ms)
+        human_path.step_delay_ms=(uint16_t)clamp_i32(
+            (human_path.step_delay_ms*3+hand_tempo_ms)/4,2,40);
     int32_t before_min = clamp_i32(
         json_int_or(payload,size,"pauseBeforeMin",120), 0, 30000);
     int32_t before_max = clamp_i32(
