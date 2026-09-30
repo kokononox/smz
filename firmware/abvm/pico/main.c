@@ -1,3 +1,4 @@
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +41,60 @@ static uint32_t buzzer_action_deadline;
 static bool ui_sound_watch_pending;
 static bool ui_buzzer_reply_pending;
 static uint32_t ui_buzzer_reply_deadline;
+static bool whisper_profile_enabled;
+static uint16_t whisper_threshold;
+static uint16_t whisper_minimum;
+static bool whisper_rearm_pending;
+static uint16_t whisper_rearm_profile;
+static uint16_t whisper_rearm_threshold;
+static uint16_t whisper_rearm_minimum;
+static uint32_t whisper_rearm_deadline;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
+static uint16_t local_u16(const uint8_t *p) {
+    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+static uint32_t local_u32(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static void load_whisper_profile(void) {
+    const uint8_t *payload; uint32_t size; uint16_t constant_id;
+    whisper_profile_enabled=false;
+    if (!abvm_find_constant(&vm,ABVM_CONST_SOUND,&constant_id,&payload,&size) ||
+        size!=8u || local_u16(payload)!=1u) return;
+    whisper_threshold=local_u16(payload+2u);
+    whisper_minimum=(uint16_t)local_u32(payload+4u);
+    if (!whisper_threshold &&
+        !calibration_store_sound_get(1u,&whisper_threshold,&whisper_minimum))
+        return;
+    whisper_profile_enabled=whisper_threshold>0u && whisper_threshold<=1023u &&
+                            whisper_minimum>0u;
+}
+static uint32_t sound_watch_remaining(uint16_t profile,uint32_t now) {
+    for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {
+        const AbvmLane *lane=&vm.lanes[i];
+        if (lane->active && lane->blocked==ABVM_BLOCK_WATCH &&
+            lane->watch_kind==ABVM_CONST_SOUND &&
+            lane->watch_profile==profile) {
+            if ((int32_t)(lane->watch_deadline-now)<=0) return 0u;
+            return lane->watch_deadline-now;
+        }
+    }
+    return 0u;
+}
+static void service_whisper_rearm(uint32_t now) {
+    if (!whisper_rearm_pending) return;
+    if ((int32_t)(now-whisper_rearm_deadline)>=0) {
+        whisper_rearm_pending=false; return;
+    }
+    if (vm.status!=ABVM_STATUS_RUNNING || vm.route_id!=GAME_ROUTE_ID ||
+        arm_uart_sound_active()) return;
+    uint32_t remaining=whisper_rearm_deadline-now;
+    if (arm_uart_sound_restart(now,whisper_rearm_profile,
+                               whisper_rearm_threshold,
+                               whisper_rearm_minimum,remaining))
+        whisper_rearm_pending=false;
+}
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
     int length = vsnprintf(output, sizeof(output), format, args); va_end(args);
@@ -333,6 +387,19 @@ static void service_mouse(uint32_t now) {
             return;
         }
         if (detected) {
+            uint32_t remaining=sound_watch_remaining(profile,now);
+            if (whisper_profile_enabled && vm.route_id==GAME_ROUTE_ID &&
+                peak>=whisper_threshold && remaining &&
+                abvm_interrupt_route(&vm,WHISPER_ROUTE_ID,now)) {
+                whisper_rearm_pending=true;
+                whisper_rearm_profile=profile;
+                whisper_rearm_threshold=arm_uart_sound_threshold();
+                whisper_rearm_minimum=arm_uart_sound_minimum();
+                whisper_rearm_deadline=now+remaining;
+                printf("CONTROL|interrupt|route=Whisper|source=sound|profile=%u|peak=%u|threshold=%u\n",
+                       profile,peak,whisper_threshold);
+                return;
+            }
             bool accepted = abvm_sound_detected(&vm, profile, now);
             printf("%s|SOUND|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
                    accepted ? "OK" : "MISS",profile,peak,
@@ -346,6 +413,7 @@ static void service_mouse(uint32_t now) {
             buzzer_play(BUZZER_CUE_TIMEOUT, now);
         }
     }
+    service_whisper_rearm(now);
     if (arm_uart_mouse_faulted()) {
         if (!arm_fault_reported) {
             printf("ERR|ARM|detail=%s|version=%s\n", arm_uart_mouse_fault(), arm_uart_mouse_version());
@@ -518,6 +586,7 @@ int main(void) {
     if (program_verified) {
         calibration_runtime_init(&vm);
         (void)cycle_runtime_init(&vm,now_ms());
+        load_whisper_profile();
     }
     /* Do not expose a half-ready USB device while a large patched ABP image is
      * being hashed and structurally verified. Attach only after boot work. */

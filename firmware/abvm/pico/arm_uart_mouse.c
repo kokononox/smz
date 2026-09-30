@@ -1,3 +1,4 @@
+
 #include "arm_uart_mouse.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,6 +195,26 @@ bool arm_uart_sound_test_start(uint32_t now,uint16_t threshold,
     sound_uses_calibration=false;sound_deadline=now+timeout_ms;
     sound_pending=true;
     if (state==ARM_IDLE&&!queue_sound(now)) {
+        sound_pending=false; return false;
+    }
+    return true;
+}
+bool arm_uart_sound_restart(uint32_t now,uint16_t profile,
+                            uint16_t threshold,uint16_t minimum_ms,
+                            uint32_t timeout_ms) {
+    if (!arm_ready || state!=ARM_IDLE || sound_pending || sound_active ||
+        deferred_mouse_pending || halt_pending || !profile || !minimum_ms ||
+        !timeout_ms) return false;
+    sound_uses_calibration=false;
+    if (!threshold) {
+        if (!calibration_store_sound_get(profile,&threshold,&minimum_ms))
+            return false;
+        sound_uses_calibration=true;
+    }
+    if (!threshold || threshold>1023u) return false;
+    sound_profile=profile;sound_threshold=threshold;sound_minimum=minimum_ms;
+    sound_deadline=now+timeout_ms;sound_pending=true;
+    if (!queue_sound(now)) {
         sound_pending=false; return false;
     }
     return true;
