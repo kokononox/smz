@@ -5,6 +5,7 @@
 
 #include "abvm_vm.h"
 #include "hid_keyboard.h"
+#include "tusb.h"
 
 static unsigned press_reports;
 static unsigned release_reports;
@@ -13,6 +14,7 @@ static uint32_t pressed_at;
 static uint32_t minimum_hold = UINT32_MAX;
 static bool report_pressed;
 static bool repeated_press_without_release;
+static bool saw_keypad_4;
 
 bool tud_mounted(void) { return true; }
 bool tud_hid_ready(void) { return true; }
@@ -20,7 +22,10 @@ bool tud_hid_keyboard_report(uint8_t report_id, uint8_t modifiers,
                              const uint8_t keycodes[6]) {
     (void)report_id;
     bool pressed = modifiers != 0;
-    for (unsigned i = 0; i < 6; ++i) pressed = pressed || keycodes[i] != 0;
+    for (unsigned i = 0; i < 6; ++i) {
+        pressed = pressed || keycodes[i] != 0;
+        saw_keypad_4 = saw_keypad_4 || keycodes[i] == HID_KEY_KEYPAD_1 + 3u;
+    }
     if (pressed) {
         ++press_reports;
         if (report_pressed) repeated_press_without_release = true;
@@ -73,7 +78,8 @@ int main(int argc, char **argv) {
         else if (event.type == ABVM_EVENT_FAULT) return 6;
     }
     free(program);
-    if (!complete || press_reports < 17u || release_reports < press_reports ||
+    if (!complete || press_reports < 18u || release_reports < press_reports ||
+        !saw_keypad_4 ||
         repeated_press_without_release || minimum_hold < 20u) return 7;
     puts("ABVM native nonblocking Type actor smoke passed");
     return 0;

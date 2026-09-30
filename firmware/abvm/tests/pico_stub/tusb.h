@@ -38,6 +38,14 @@
 #define HID_KEY_ARROW_LEFT 80u
 #define HID_KEY_ARROW_DOWN 81u
 #define HID_KEY_ARROW_UP 82u
+#define HID_KEY_KEYPAD_DIVIDE 84u
+#define HID_KEY_KEYPAD_MULTIPLY 85u
+#define HID_KEY_KEYPAD_SUBTRACT 86u
+#define HID_KEY_KEYPAD_ADD 87u
+#define HID_KEY_KEYPAD_ENTER 88u
+#define HID_KEY_KEYPAD_1 89u
+#define HID_KEY_KEYPAD_0 98u
+#define HID_KEY_KEYPAD_DECIMAL 99u
 bool tud_mounted(void);
 bool tud_hid_ready(void);
 bool tud_hid_keyboard_report(uint8_t report_id, uint8_t modifiers, const uint8_t keycodes[6]);
