@@ -81,6 +81,11 @@ void buzzer_play(BuzzerCue cue,uint32_t now) {
     if ((unsigned)cue >= sizeof(patterns)/sizeof(patterns[0])) return;
     const BuzzerPattern *p=&patterns[cue]; begin(p->tones,p->count,p->priority,now);
 }
+void buzzer_play_tone(uint16_t hz,uint16_t duration_ms,uint32_t now) {
+    if(hz<30u||hz>20000u||!duration_ms)return;
+    dynamic_tones[0]=(BuzzerTone){hz,duration_ms,0u};
+    begin(dynamic_tones,1u,5u,now);
+}
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
     if(profile_id<1u||profile_id>6u)return;
     if(active&&priority>4u)return;

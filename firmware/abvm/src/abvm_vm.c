@@ -197,7 +197,7 @@ static int known_opcode(uint8_t opcode) {
     switch (opcode) {
         case ABVM_OP_END: case ABVM_OP_DELAY: case ABVM_OP_KEY:
         case ABVM_OP_KDOWN: case ABVM_OP_KUP: case ABVM_OP_TYPE:
-        case ABVM_OP_RMOUSE: case ABVM_OP_LOOP_ENTER:
+        case ABVM_OP_RMOUSE: case ABVM_OP_BEEP: case ABVM_OP_LOOP_ENTER:
         case ABVM_OP_LOOP_NEXT: case ABVM_OP_RPKG_ENTER:
         case ABVM_OP_ITEM_END: case ABVM_OP_SCOPE_BEGIN:
         case ABVM_OP_LANE_END: case ABVM_OP_WATCH: case ABVM_OP_JUMP:
@@ -253,7 +253,9 @@ static int verify_image(AbvmVm *vm) {
         vm->resources.max_actors > ABVM_LIMIT_ACTORS ||
         vm->resources.max_events > ABVM_LIMIT_EVENTS ||
         vm->resources.max_interrupts > ABVM_LIMIT_INTERRUPTS ||
-        vm->resources.sound_profiles > ABVM_LIMIT_SOUND_PROFILES)
+        vm->resources.sound_profiles > ABVM_LIMIT_SOUND_PROFILES ||
+        vm->resources.sound_listeners > ABVM_LIMIT_SOUND_LISTENERS ||
+        vm->resources.pwm_channels > ABVM_LIMIT_PWM_CHANNELS)
         return fail(vm, "resource certificate");
 
     uint32_t cursor = h->constant_offset;
@@ -282,6 +284,11 @@ static int verify_image(AbvmVm *vm) {
             (ins.opcode == ABVM_OP_SCOPE_BEGIN &&
              !constant_at(vm, ins.operand_a,ABVM_CONST_SCOPE,&payload,&size)))
             return fail(vm, "constant reference");
+        if (ins.opcode == ABVM_OP_BEEP &&
+            (ins.operand_a < 30u || ins.operand_a > 20000u ||
+             !ins.operand_b || ins.operand_b > 60000u ||
+             ins.flags || ins.operand_c || ins.operand_d))
+            return fail(vm, "buzzer operands");
         if ((ins.opcode == ABVM_OP_LOOP_ENTER ||
              ins.opcode == ABVM_OP_RPKG_ENTER ||
              ins.opcode == ABVM_OP_SCOPE_BEGIN ||
@@ -619,7 +626,7 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 lane->due = now + random_range(vm,ins.operand_b,ins.operand_c);
                 break;
             case ABVM_OP_KEY: case ABVM_OP_KDOWN: case ABVM_OP_KUP:
-            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE:
+            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE: case ABVM_OP_BEEP:
                 lane->pc++;
                 lane->blocked = ABVM_BLOCK_ACTION;
                 return event_of(vm,ABVM_EVENT_ACTION,lane_index,&ins,"action");

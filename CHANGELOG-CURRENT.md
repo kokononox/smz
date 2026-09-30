@@ -1,3 +1,30 @@
+## ABVM native R23 — Native Buzzer step execution
+
+### Problem observed
+
+A quick Wait For Sound sensor test with Success and Warning Buzzer branches could not export a Native UF2 and stopped with `unsupported ABVM step: buzzer`.
+
+### Root cause
+
+Classroom Studio exposed and serialized the GP6 Buzzer step, and the native firmware already owned a nonblocking PWM buzzer, but ABVM ABI 1 had no Buzzer instruction or runtime actor binding.
+
+### Change
+
+- Added the bounded `BEEP` ABVM opcode with 30–20000 Hz and 1–60000 ms validation.
+- Native compilation now expands short, double, warning, success, and custom Buzzer patterns into cooperative BEEP/DELAY instructions.
+- Added a single-channel GP6 PWM resource certificate and a nonblocking Pico Buzzer actor that resumes the originating VM lane after the tone duration.
+- Pause, Stop, route cancellation, USB loss, and release boundaries cancel an in-flight custom tone safely.
+
+### Validation
+
+- Added compile/verify coverage for Success and Warning patterns and PWM resource accounting.
+- Added firmware contracts for bounded bytecode dispatch, asynchronous lane completion, and the GP6 tone actor.
+- Full Pico SDK, Windows TestRunner, portable, and packaging gates run in CI.
+
+### Next test
+
+Export the Desktop Wait For Sound test with Success/Warning Buzzer branches, flash the new UF2, and verify a sound above the calibrated threshold selects Success while timeout selects Warning.
+
 ## ABVM native R22 — responsive Classroom sound calibration
 
 ### Problem observed

@@ -33,7 +33,7 @@ GUARD_PROFILE = struct.Struct("<BBHIIII")             # id/enabled/route/low/hig
 
 FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD = 1, 2, 4, 8, 16
 CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT, CONST_GUARD = range(1, 9)
-OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE = range(7)
+OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE, OP_BEEP = range(8)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
 
@@ -101,7 +101,7 @@ LEGACY_ROUTE_ALIASES = {"Restart": "Launch", "Dc": "LaunchRecovery"}
 OPCODES = {
     "END": OP_END, "DELAY": OP_DELAY, "KEY": OP_KEY,
     "KDOWN": OP_KDOWN, "KUP": OP_KUP, "TYPE": OP_TYPE,
-    "RMOUSE": OP_RMOUSE, "LOOP_ENTER": OP_LOOP_ENTER,
+    "RMOUSE": OP_RMOUSE, "BEEP": OP_BEEP, "LOOP_ENTER": OP_LOOP_ENTER,
     "LOOP_NEXT": OP_LOOP_NEXT, "RPKG_ENTER": OP_RPKG_ENTER,
     "ITEM_END": OP_ITEM_END, "SCOPE_BEGIN": OP_SCOPE_BEGIN,
     "LANE_END": OP_LANE_END, "WATCH": OP_WATCH, "JUMP": OP_JUMP,
@@ -300,6 +300,7 @@ class Compiler:
         self.routes: list[RouteInfo] = []
         self.max_frames, self.max_lanes, self.flags = 0, 1, 0
         self.sound_profiles: set[int] = set()
+        self.uses_pwm = False
         self.source_entries: dict[int, dict[str, Any]] = {}
         self.current_route = ""
         self.scope_depth = 0
@@ -427,6 +428,8 @@ class Compiler:
             self.emit(OP_TYPE, a=self.pool.obj(CONST_TYPE, spec))
         elif kind == "randomMousePosition":
             self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, p))
+        elif kind == "buzzer":
+            self.compile_buzzer(p)
         elif kind == "forLoop":
             self.compile_loop(node, depth, path)
         elif kind == "randomPackage":
@@ -439,6 +442,45 @@ class Compiler:
             self.compile_light_watch(node, depth, path)
         else:
             raise AbvmError("unsupported ABVM step: " + kind)
+
+    def compile_buzzer(self, p: dict[str, Any]) -> None:
+        preset = str(p.get("preset") or "short").strip().lower()
+        patterns = {
+            "short": "1000:180",
+            "double": "1000:140,100;1000:140",
+            "warning": "700:180,90;700:180,90;700:300",
+            "success": "900:120,70;1300:220",
+        }
+        if preset == "custom":
+            pattern = str(p.get("pattern") or "900:150")
+        elif preset in patterns:
+            pattern = patterns[preset]
+        else:
+            raise AbvmError("unknown buzzer preset: " + preset)
+        tones = [part.strip() for part in pattern.split(";") if part.strip()]
+        if not tones:
+            raise AbvmError("buzzer pattern is empty")
+        for tone in tones:
+            try:
+                frequency_text, timing_text = tone.split(":", 1)
+                timing = [part.strip() for part in timing_text.split(",")]
+                if len(timing) not in (1, 2):
+                    raise ValueError
+                frequency = int(frequency_text.strip())
+                duration = int(timing[0])
+                pause = int(timing[1]) if len(timing) == 2 else 0
+            except (TypeError, ValueError):
+                raise AbvmError(
+                    "buzzer pattern must be freq:duration,pause;... (Hz/ms)")
+            if not 30 <= frequency <= 20000:
+                raise AbvmError("buzzer frequency must be 30..20000 Hz")
+            if not 1 <= duration <= 60000 or not 0 <= pause <= 60000:
+                raise AbvmError(
+                    "buzzer duration must be 1..60000 ms and pause 0..60000 ms")
+            self.emit(OP_BEEP, a=frequency, b=duration)
+            if pause:
+                self.emit(OP_DELAY, b=pause, c=pause)
+        self.uses_pwm = True
 
     def compile_loop(self, node: dict[str, Any], depth: int,
                      path: tuple[int, ...]) -> None:
@@ -661,7 +703,7 @@ class Compiler:
                 ROUTE_INTERRUPT_AND_RESUME for route in self.routes)),
             sound_profiles=len(self.sound_profiles),
             sound_listeners=1 if self.sound_profiles else 0,
-            pwm_channels=0,
+            pwm_channels=1 if self.uses_pwm else 0,
             max_const_bytes=max(payload_sizes, default=0),
             max_type_bytes=max(type_sizes, default=0),
             max_mouse_bytes=max(mouse_sizes, default=0),
@@ -856,6 +898,10 @@ class Verifier:
                     raise AbvmError("invalid Delay range")
                 if ins.op == OP_KEY and not 1 <= ins.flags <= 4:
                     raise AbvmError("invalid KEY width")
+                if ins.op == OP_BEEP and \
+                        (not 30 <= ins.a <= 20000 or not 1 <= ins.b <= 60000 or
+                         ins.flags or ins.c or ins.d):
+                    raise AbvmError("invalid BEEP operands")
                 if ins.op == OP_LOOP_ENTER:
                     if ins.flags not in (0, 1):
                         raise AbvmError("invalid Loop mode")
@@ -954,7 +1000,7 @@ class Verifier:
                         raise AbvmError("jump target out of range")
                 elif ins.op not in {
                     OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP,
-                    OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END,
+                    OP_BEEP, OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END,
                 }:
                     raise AbvmError("unknown opcode: " + str(ins.op))
                 pc += 1
@@ -997,6 +1043,10 @@ class Verifier:
             raise AbvmError("resource sound-profile count mismatch")
         if resource.sound_listeners != int(bool(measured_profiles)):
             raise AbvmError("resource sound-listener count mismatch")
+        measured_pwm = int(any(
+            ins.op == OP_BEEP for ins in image.instructions))
+        if resource.pwm_channels != measured_pwm:
+            raise AbvmError("resource PWM-channel count mismatch")
         if resource.max_actors < measured_lanes:
             raise AbvmError("resource actor count is too small")
         if resource.max_interrupts != int(bool(measured_interrupts)):
@@ -1245,6 +1295,10 @@ class ReferenceVm:
             self.events.append(("RMOUSE", integer(value.get("w")), integer(value.get("h"))))
             lane.pc += 1
             lane.due = self.now + max(1, integer(value.get("moveTimeMin"), 1))
+        elif ins.op == OP_BEEP:
+            self.events.append(("BEEP", ins.a, ins.b))
+            lane.pc += 1
+            lane.due = self.now + ins.b
         elif ins.op == OP_LOOP_ENTER:
             lane.frames.append({
                 "kind": "loop", "body": lane.pc + 1,

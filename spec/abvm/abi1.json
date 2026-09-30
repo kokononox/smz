@@ -23,6 +23,7 @@
   },
   "magic": "ABP1",
   "opcodes": {
+    "BEEP": 7,
     "DELAY": 1,
     "END": 0,
     "ITEM_END": 13,

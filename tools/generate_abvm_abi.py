@@ -38,6 +38,8 @@ def generate() -> dict[Path, str]:
 #define ABVM_LIMIT_EVENTS {registry["limits"]["events"]}u
 #define ABVM_LIMIT_INTERRUPTS {registry["limits"]["interrupts"]}u
 #define ABVM_LIMIT_SOUND_PROFILES {registry["limits"]["soundProfiles"]}u
+#define ABVM_LIMIT_SOUND_LISTENERS {registry["limits"]["soundListeners"]}u
+#define ABVM_LIMIT_PWM_CHANNELS {registry["limits"]["pwmChannels"]}u
 #define ABVM_LIMIT_PACKAGE_ITEMS {registry["limits"]["packageItems"]}u
 
 typedef enum AbvmOpcode {{

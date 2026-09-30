@@ -16,6 +16,8 @@
 #define ABVM_LIMIT_EVENTS 4u
 #define ABVM_LIMIT_INTERRUPTS 1u
 #define ABVM_LIMIT_SOUND_PROFILES 8u
+#define ABVM_LIMIT_SOUND_LISTENERS 1u
+#define ABVM_LIMIT_PWM_CHANNELS 1u
 #define ABVM_LIMIT_PACKAGE_ITEMS 32u
 
 typedef enum AbvmOpcode {
@@ -26,6 +28,7 @@ typedef enum AbvmOpcode {
     ABVM_OP_KUP = 4,
     ABVM_OP_TYPE = 5,
     ABVM_OP_RMOUSE = 6,
+    ABVM_OP_BEEP = 7,
     ABVM_OP_LOOP_ENTER = 10,
     ABVM_OP_LOOP_NEXT = 11,
     ABVM_OP_RPKG_ENTER = 12,

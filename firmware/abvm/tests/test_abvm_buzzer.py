@@ -1,12 +1,16 @@
 import unittest
 from pathlib import Path
+import sys
+import sys
 
 
 class AbvmBuzzerContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pico = Path(__file__).resolve().parents[1] / "pico"
+        cls.root = Path(__file__).resolve().parents[3]
+        cls.pico = cls.root / "firmware" / "abvm" / "pico"
         cls.buzzer = (cls.pico / "buzzer.c").read_text(encoding="utf-8")
+        cls.compiler = (cls.root / "tools" / "abvm.py").read_text(encoding="utf-8")
         cls.main = (cls.pico / "main.c").read_text(encoding="utf-8")
         cls.cmake = (cls.pico / "CMakeLists.txt").read_text(encoding="utf-8")
 
@@ -15,6 +19,53 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("GPIO_FUNC_PWM", self.buzzer)
         self.assertIn("hardware_pwm", self.cmake)
         self.assertIn("buzzer=legacy-calibration-gp6", self.main)
+
+    def test_native_buzzer_step_has_bounded_bytecode_and_actor(self):
+        self.assertIn('"BEEP": OP_BEEP', self.compiler)
+        self.assertIn('elif kind == "buzzer":', self.compiler)
+        self.assertIn("self.emit(OP_BEEP, a=frequency, b=duration)", self.compiler)
+        self.assertIn("pwm_channels=1 if self.uses_pwm else 0", self.compiler)
+        self.assertIn("event.opcode==ABVM_OP_BEEP", self.main)
+        self.assertIn("service_buzzer_action(now)", self.main)
+        self.assertIn("buzzer_play_tone", self.buzzer)
+
+    def test_native_buzzer_presets_compile_and_verify(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        source = {"pipelines": {"Game": [
+            {"Type": "buzzer", "Props": {"preset": "success"},
+             "Children": [], "Delay": 0},
+            {"Type": "buzzer", "Props": {"preset": "warning"},
+             "Children": [], "Delay": 0},
+        ]}}
+        program = abvm.Compiler().compile_amsj(source, ("Game",))
+        image = abvm.Verifier.verify(program.image)
+        beeps = [(ins.a, ins.b) for ins in image.instructions
+                 if ins.op == abvm.OP_BEEP]
+        self.assertEqual(
+            beeps,
+            [(900, 120), (1300, 220), (700, 180),
+             (700, 180), (700, 300)])
+        self.assertEqual(image.resources.pwm_channels, 1)
+
+    def test_native_buzzer_presets_compile_and_verify(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        source = {"pipelines": {"Game": [
+            {"Type": "buzzer", "Props": {"preset": "success"},
+             "Children": [], "Delay": 0},
+            {"Type": "buzzer", "Props": {"preset": "warning"},
+             "Children": [], "Delay": 0},
+        ]}}
+        program = abvm.Compiler().compile_amsj(source, ("Game",))
+        image = abvm.Verifier.verify(program.image)
+        beeps = [(ins.a, ins.b) for ins in image.instructions
+                 if ins.op == abvm.OP_BEEP]
+        self.assertEqual(
+            beeps,
+            [(900, 120), (1300, 220), (700, 180),
+             (700, 180), (700, 300)])
+        self.assertEqual(image.resources.pwm_channels, 1)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
         self.assertIn("static const BuzzerPattern patterns[]", self.buzzer)

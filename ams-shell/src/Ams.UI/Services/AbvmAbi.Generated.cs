@@ -24,6 +24,7 @@ internal enum AbvmOpcode : byte
     KUP = 4,
     TYPE = 5,
     RMOUSE = 6,
+    BEEP = 7,
     LOOP_ENTER = 10,
     LOOP_NEXT = 11,
     RPKG_ENTER = 12,

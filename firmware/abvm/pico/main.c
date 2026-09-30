@@ -33,6 +33,9 @@ static size_t command_length;
 static bool arm_fault_reported;
 static bool ui_sound_calibration_pending;
 static uint32_t ui_sound_calibration_deadline;
+static bool buzzer_action_pending;
+static uint8_t buzzer_action_lane;
+static uint32_t buzzer_action_deadline;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
@@ -46,7 +49,10 @@ static int cdc_printf(const char *format, ...) {
 static void print_status(void) {
     printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), (unsigned long)vm.now);
 }
-static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); light_sensor_cancel_watch(now); }
+static void release_all_actors(uint32_t now) {
+    hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
+    light_sensor_cancel_watch(now); buzzer_action_pending=false; buzzer_silence();
+}
 static void start_control(uint32_t now) {
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
     if (!arm_uart_mouse_ready()) {
@@ -255,6 +261,12 @@ static void service_mouse(uint32_t now) {
         if (vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) abvm_stop(&vm, now);
     }
 }
+static void service_buzzer_action(uint32_t now) {
+    if(!buzzer_action_pending||(int32_t)(now-buzzer_action_deadline)<0)return;
+    buzzer_action_pending=false;
+    if(!abvm_complete_action(&vm,buzzer_action_lane,now))
+        printf("ERR|BUZZER|complete|lane=%u\n",buzzer_action_lane);
+}
 static void service_vm(uint32_t now) {
     if (arm_uart_mouse_releasing()) {
         return;
@@ -262,6 +274,18 @@ static void service_vm(uint32_t now) {
     AbvmEvent event = abvm_tick(&vm, now);
     switch (event.type) {
         case ABVM_EVENT_ACTION: { ArmMouseSubmit mouse = arm_uart_mouse_submit(&vm, &event, now);
+            if(event.opcode==ABVM_OP_BEEP) {
+                if(buzzer_action_pending) {
+                    printf("ERR|BUZZER|busy|lane=%u\n",event.lane);
+                    abvm_stop(&vm,now); break;
+                }
+                buzzer_play_tone(event.operand_a,(uint16_t)event.operand_b,now);
+                buzzer_action_pending=true;buzzer_action_lane=event.lane;
+                buzzer_action_deadline=now+event.operand_b;
+                printf("BUZZER|accepted|lane=%u|hz=%u|duration=%lu\n",
+                       event.lane,event.operand_a,(unsigned long)event.operand_b);
+                break;
+            }
             if (mouse == ARM_MOUSE_ACCEPTED) { printf("ARM|mouse|accepted|lane=%u\n", event.lane); break; }
             if (mouse != ARM_MOUSE_UNSUPPORTED) { printf("ERR|ARM|submit|lane=%u|reason=%u\n", event.lane, mouse); buzzer_play(BUZZER_CUE_ERROR, now); abvm_stop(&vm, now); break; }
             HidKeyboardSubmit result = hid_keyboard_submit(&vm, &event, now);
@@ -311,5 +335,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_buzzer_action(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
 }
