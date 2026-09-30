@@ -59,16 +59,22 @@ internal static class AutoCycleExportUiBootstrap
         };
         panel.Children.Add(AutoCycleUiKit.Title("پروفایل‌های صدای Game"));
         panel.Children.Add(AutoCycleUiKit.Helper(
-            "فقط Whisper شنوندهٔ سراسری Game است و بعد از واکنش همان Cursor را ادامه می‌دهد. " +
+            "Whisper New با ID 1 و Whisper Repeat با ID 3 شنونده‌های سراسری Game هستند و بعد از واکنش همان Cursor را ادامه می‌دهند. " +
             "صدای Catch داخل استپ صریح Wait For Sound تنظیم می‌شود."));
 
         var profiles = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var whisper = ProfileCard("ویسپر", nameof(MainViewModel.WhisperSoundEnabled),
+        profiles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var whisper = ProfileCard("Whisper New — ID 1", nameof(MainViewModel.WhisperSoundEnabled),
             nameof(MainViewModel.WhisperPeakMin), nameof(MainViewModel.WhisperPeakMax),
             nameof(MainViewModel.WhisperPriority), nameof(MainViewModel.WhisperCooldownMs));
+        var repeat = ProfileCard("Whisper Repeat — ID 3", nameof(MainViewModel.WhisperRepeatSoundEnabled),
+            nameof(MainViewModel.WhisperRepeatPeakMin), nameof(MainViewModel.WhisperRepeatPeakMax),
+            nameof(MainViewModel.WhisperRepeatPriority), nameof(MainViewModel.WhisperRepeatCooldownMs));
         Grid.SetColumn(whisper, 0);
+        Grid.SetColumn(repeat, 1);
         profiles.Children.Add(whisper);
+        profiles.Children.Add(repeat);
         panel.Children.Add(profiles);
         var summary = AutoCycleUiKit.Helper("");
         summary.Foreground = AutoCycleUiKit.Success;

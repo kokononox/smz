@@ -41,6 +41,32 @@ public partial class MainViewModel
         set => UpdateSoundProfile(1, x => x.CooldownMs = Math.Clamp(value, 0, 60000), nameof(WhisperCooldownMs));
     }
 
+    public bool WhisperRepeatSoundEnabled
+    {
+        get => SoundProfile(3).Enabled;
+        set => UpdateSoundProfile(3, x => x.Enabled = value, nameof(WhisperRepeatSoundEnabled));
+    }
+    public int WhisperRepeatPeakMin
+    {
+        get => SoundProfile(3).PeakMin;
+        set => UpdateSoundProfile(3, x => x.PeakMin = Math.Clamp(value, 0, 511), nameof(WhisperRepeatPeakMin));
+    }
+    public int WhisperRepeatPeakMax
+    {
+        get => SoundProfile(3).PeakMax;
+        set => UpdateSoundProfile(3, x => x.PeakMax = Math.Clamp(value, 1, 511), nameof(WhisperRepeatPeakMax));
+    }
+    public int WhisperRepeatPriority
+    {
+        get => SoundProfile(3).Priority;
+        set => UpdateSoundProfile(3, x => x.Priority = Math.Clamp(value, -100, 100), nameof(WhisperRepeatPriority));
+    }
+    public int WhisperRepeatCooldownMs
+    {
+        get => SoundProfile(3).CooldownMs;
+        set => UpdateSoundProfile(3, x => x.CooldownMs = Math.Clamp(value, 0, 60000), nameof(WhisperRepeatCooldownMs));
+    }
+
     public bool SplashSoundEnabled
     {
         get => SoundProfile(2).Enabled;
@@ -82,7 +108,8 @@ public partial class MainViewModel
         get
         {
             var enabled = _pipelineWorkspace.SoundProfiles.Where(x => x.Enabled).ToList();
-            var global = enabled.Where(x => x.ResponseTab == PipelineKind.Whisper).ToList();
+            var global = enabled.Where(x => x.ResponseTab is
+                (PipelineKind.Whisper or PipelineKind.WhisperRepeat)).ToList();
             return global.Count == 0
                 ? "شنوندهٔ سراسری محیط بازی خاموش است."
                 : string.Join(" · ", global.Select(x =>
@@ -95,7 +122,10 @@ public partial class MainViewModel
         foreach (var name in new[]
         {
             nameof(WhisperSoundEnabled), nameof(WhisperPeakMin), nameof(WhisperPeakMax),
-            nameof(WhisperPriority), nameof(WhisperCooldownMs), nameof(SplashSoundEnabled),
+            nameof(WhisperPriority), nameof(WhisperCooldownMs),
+            nameof(WhisperRepeatSoundEnabled), nameof(WhisperRepeatPeakMin),
+            nameof(WhisperRepeatPeakMax), nameof(WhisperRepeatPriority),
+            nameof(WhisperRepeatCooldownMs), nameof(SplashSoundEnabled),
             nameof(SplashPeakMin), nameof(SplashPeakMax), nameof(SplashPriority),
             nameof(SplashCooldownMs), nameof(SplashTimeoutMinSec),
             nameof(SplashTimeoutMaxSec), nameof(SoundProfileSummary),

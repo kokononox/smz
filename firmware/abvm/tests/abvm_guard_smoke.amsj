@@ -1,5 +1,5 @@
 {
-  "pipelineVersion": 6,
+  "pipelineVersion": 7,
   "nativeGuard": {
     "enabled": true,
     "sampleMode": "hires",
@@ -11,7 +11,8 @@
       {"id":"entering-game-loading","enabled":true,"luxCenter":400,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
       {"id":"game","enabled":true,"luxCenter":500,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
       {"id":"targeted","enabled":true,"luxCenter":600,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
-      {"id":"whisper","enabled":true,"luxCenter":700,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2}
+      {"id":"whisper","enabled":true,"luxCenter":700,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2},
+      {"id":"whisper-repeat","enabled":true,"luxCenter":800,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2}
     ]
   },
   "nativeCycle": {
@@ -37,6 +38,7 @@
       {"Type":"delay","Props":{"minMs":1,"maxMs":1},"Children":[],"Delay":0,"IsDisabled":false}
     ],
     "Targeted": [{"Type":"keystroke","Props":{"key":"E","holdMin":1,"holdMax":1},"Children":[],"Delay":0,"IsDisabled":false}],
-    "Whisper": [{"Type":"typeText","Props":{"text":"guard","hmin":1,"hmax":1},"Children":[],"Delay":0,"IsDisabled":false}]
+    "Whisper": [{"Type":"typeText","Props":{"text":"guard","hmin":1,"hmax":1},"Children":[],"Delay":0,"IsDisabled":false}],
+    "WhisperRepeat": [{"Type":"typeText","Props":{"text":"repeat","hmin":1,"hmax":1},"Children":[],"Delay":0,"IsDisabled":false}]
   }
 }

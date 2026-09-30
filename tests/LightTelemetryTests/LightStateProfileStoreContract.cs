@@ -30,24 +30,25 @@ internal static class LightStateProfileStoreContract
 
             File.WriteAllText(path, "{not-json");
             var recovered = LightStateProfileStore.Load(path);
-            Check(recovered.Count == 7 && recovered.Single(x => x.Id == "desktop").LuxCenter == 0,
-                "corrupt profile storage falls back to the seven safe defaults");
+            Check(recovered.Count == 8 && recovered.Single(x => x.Id == "desktop").LuxCenter == 0,
+                "corrupt profile storage falls back to the eight safe defaults");
 
             var duplicate = LightStateDefaults.CreateInitialProfiles();
             duplicate.Add(new LightStateProfile { Id = "game", Name = "duplicate", LuxCenter = 999 });
             duplicate.Add(new LightStateProfile { Id = "bad", Name = "bad", LuxCenter = -1 });
             var normalized = LightStateProfileStore.Normalize(duplicate);
-            Check(normalized.Count == 7 && normalized.Count(x => x.Id == "game") == 1,
+            Check(normalized.Count == 8 && normalized.Count(x => x.Id == "game") == 1,
                 "normalization removes invalid and duplicate profile IDs");
 
             var legacySix = LightStateDefaults.CreateInitialProfiles()
                 .Where(x => x.Id != "whisper").ToList();
             legacySix.Single(x => x.Id == "game").LuxCenter = 88.5;
             var migrated = LightStateProfileStore.Normalize(legacySix);
-            Check(migrated.Count == 7
+            Check(migrated.Count == 8
                   && migrated.Single(x => x.Id == "game").LuxCenter == 88.5
-                  && migrated.Single(x => x.Id == "whisper").LuxCenter == 55,
-                "six-profile storage preserves calibration and appends Whisper");
+                  && migrated.Single(x => x.Id == "whisper").LuxCenter == 55
+                  && migrated.Single(x => x.Id == "whisper-repeat").LuxCenter == 60,
+                "six-profile storage preserves calibration and appends both Whisper profiles");
         }
         finally
         {

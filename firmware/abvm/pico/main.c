@@ -24,6 +24,7 @@ extern size_t abvm_program_size(void);
 #define BUTTON_LONG_MS 3000u
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
+#define WHISPER_REPEAT_ROUTE_ID 12u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
@@ -53,15 +54,14 @@ static uint16_t ui_light_trigger_hold_min,ui_light_trigger_hold_max;
 static uint32_t ui_light_trigger_due,ui_light_trigger_lux;
 static bool ui_buzzer_reply_pending;
 static uint32_t ui_buzzer_reply_deadline;
-static bool whisper_profile_enabled;
-static uint16_t whisper_threshold;
-static uint16_t whisper_maximum;
-static uint16_t whisper_minimum;
-static bool whisper_rearm_pending;
-static uint16_t whisper_rearm_profile;
-static uint16_t whisper_rearm_threshold;
-static uint16_t whisper_rearm_minimum;
-static uint32_t whisper_rearm_deadline;
+typedef struct GlobalWhisperProfile {
+    bool enabled;
+    uint16_t id,route_id,threshold,maximum,minimum;
+    uint32_t cooldown_ms,next_allowed;
+} GlobalWhisperProfile;
+static GlobalWhisperProfile whisper_profiles[2];
+static bool global_sound_enabled;
+static uint16_t global_sound_threshold,global_sound_minimum;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static bool parse_csv_u32(const char *text,uint32_t *values,size_t count) {
     if(!text||!values||!count)return false;
@@ -81,46 +81,83 @@ static uint32_t local_u32(const uint8_t *p) {
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 static void load_whisper_profile(void) {
-    const uint8_t *payload; uint32_t size; uint16_t constant_id;
-    whisper_profile_enabled=false;
-    if (!abvm_find_constant(&vm,ABVM_CONST_SOUND,&constant_id,&payload,&size) ||
-        size!=8u || local_u16(payload)!=1u) return;
-    whisper_threshold=local_u16(payload+2u);
-    uint32_t packed=local_u32(payload+4u);
-    whisper_minimum=(uint16_t)(packed&0xffffu);
-    whisper_maximum=(uint16_t)(packed>>16);
-    if(!whisper_maximum)whisper_maximum=1023u; /* legacy image */
-    if (!whisper_threshold &&
-        !calibration_store_sound_get(1u,&whisper_threshold,&whisper_minimum))
-        return;
-    whisper_profile_enabled=whisper_threshold>0u &&
-                            whisper_threshold<=whisper_maximum &&
-                            whisper_maximum<=1023u && whisper_minimum>0u;
+    memset(whisper_profiles,0,sizeof(whisper_profiles));
+    global_sound_enabled=false;
+    global_sound_threshold=global_sound_minimum=0u;
+    uint32_t cursor=vm.header.constant_offset;
+    uint32_t end=cursor+vm.header.constant_size;
+    while(cursor<end) {
+        if(cursor+8u>end)return;
+        uint8_t kind=vm.image[cursor];
+        uint32_t size=local_u32(vm.image+cursor+4u);
+        cursor+=8u;
+        if(cursor+size>end)return;
+        const uint8_t *payload=vm.image+cursor;
+        if(kind==ABVM_CONST_SOUND&&size==8u) {
+            uint16_t id=local_u16(payload);
+            uint32_t packed=local_u32(payload+4u);
+            uint16_t detector=local_u16(payload+2u);
+            uint16_t detector_minimum=(uint16_t)(packed&0xffffu);
+            if(!detector)
+                (void)calibration_store_sound_get(
+                    id,&detector,&detector_minimum);
+            if(detector&&detector_minimum&&
+               (!global_sound_threshold||detector<global_sound_threshold))
+                global_sound_threshold=detector;
+            if(detector_minimum&&
+               (!global_sound_minimum||detector_minimum<global_sound_minimum))
+                global_sound_minimum=detector_minimum;
+            uint16_t maximum=(uint16_t)((packed>>16)&0x3ffu);
+            uint32_t cooldown_ms=((packed>>26)&0x3fu)*1000u;
+            GlobalWhisperProfile *target=id==1u?&whisper_profiles[0]:
+                                           id==3u?&whisper_profiles[1]:NULL;
+            /* Ordinary scoped WATCH descriptors leave the high word zero. */
+            if(target&&maximum) {
+                target->id=id;
+                target->route_id=id==3u?WHISPER_REPEAT_ROUTE_ID:WHISPER_ROUTE_ID;
+                target->threshold=local_u16(payload+2u);
+                target->minimum=(uint16_t)(packed&0xffffu);
+                target->maximum=maximum;
+                target->cooldown_ms=cooldown_ms;
+                if(!target->threshold)
+                    (void)calibration_store_sound_get(
+                        id,&target->threshold,&target->minimum);
+                target->enabled=target->threshold>0u &&
+                    target->threshold<=target->maximum &&
+                    target->maximum<=1023u&&target->minimum>0u;
+            }
+        }
+        cursor=(cursor+size+3u)&~3u;
+    }
+    global_sound_enabled=(whisper_profiles[0].enabled||
+                          whisper_profiles[1].enabled)&&
+                         global_sound_threshold&&global_sound_minimum;
 }
-static uint32_t sound_watch_remaining(uint16_t profile,uint32_t now) {
+static uint16_t active_sound_watch_profile(void) {
     for (uint8_t i=0;i<ABVM_MAX_LANES;++i) {
         const AbvmLane *lane=&vm.lanes[i];
         if (lane->active && lane->blocked==ABVM_BLOCK_WATCH &&
-            lane->watch_kind==ABVM_CONST_SOUND &&
-            lane->watch_profile==profile) {
-            if ((int32_t)(lane->watch_deadline-now)<=0) return 0u;
-            return lane->watch_deadline-now;
-        }
+            lane->watch_kind==ABVM_CONST_SOUND)
+            return lane->watch_profile;
     }
     return 0u;
 }
-static void service_whisper_rearm(uint32_t now) {
-    if (!whisper_rearm_pending) return;
-    if ((int32_t)(now-whisper_rearm_deadline)>=0) {
-        whisper_rearm_pending=false; return;
-    }
-    if (vm.status!=ABVM_STATUS_RUNNING || vm.route_id!=GAME_ROUTE_ID ||
-        arm_uart_sound_active()) return;
-    uint32_t remaining=whisper_rearm_deadline-now;
-    if (arm_uart_sound_restart(now,whisper_rearm_profile,
-                               whisper_rearm_threshold,
-                               whisper_rearm_minimum,remaining))
-        whisper_rearm_pending=false;
+static bool whisper_interrupt_allowed(void) {
+    return vm.status==ABVM_STATUS_RUNNING &&
+           vm.route_id!=WHISPER_ROUTE_ID &&
+           vm.route_id!=WHISPER_REPEAT_ROUTE_ID &&
+           !cycle_runtime_restart_critical();
+}
+static void service_global_sound_listener(uint32_t now) {
+    if(!global_sound_enabled||cycle_runtime_restart_critical()||
+       calibration_runtime_active()||ui_sound_watch_pending||
+       vm.status!=ABVM_STATUS_RUNNING||
+       vm.route_id==WHISPER_ROUTE_ID||
+       vm.route_id==WHISPER_REPEAT_ROUTE_ID||
+       arm_uart_sound_active()||arm_uart_mouse_releasing()||
+       !arm_uart_mouse_ready())return;
+    (void)arm_uart_sound_restart(now,1u,global_sound_threshold,
+                                 global_sound_minimum,30000u);
 }
 static int cdc_printf(const char *format, ...) {
     char output[256]; va_list args; va_start(args, format);
@@ -218,7 +255,7 @@ static void service_buttons(uint32_t now) {
 }
 
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 7u : 0u);
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 8u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -390,8 +427,9 @@ static void execute_command(char *line, uint32_t now) {
     else if (!strcmp(line, "STOP") || !strcmp(line, "GUARD|OFF") ||
              !strcmp(line, "HALT") || !strcmp(line, "HALT|SILENT")) stop_control(now);
     else if (!strcmp(line, "CALSTATUS"))
-        printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 7u : 0u, calibration_runtime_mode());
+        printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 8u : 0u, calibration_runtime_mode());
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }
+    else if (!strcmp(line, "WHISPER-REPEAT")) { if (abvm_interrupt_route(&vm, WHISPER_REPEAT_ROUTE_ID, now)) printf("CONTROL|interrupt|route=WhisperRepeat\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strncmp(line, "SOUND ", 6)) { uint16_t profile = (uint16_t)strtoul(line + 6, NULL, 10); printf("%s|SOUND|profile=%u\n", abvm_sound_detected(&vm, profile, now) ? "OK" : "MISS", profile); }
     else if (*line) printf("ERR|COMMAND|unknown=%s\n", line);
 }
@@ -481,6 +519,8 @@ static void service_light(uint32_t now) {
             if (strcmp(guard_event.reason,"start-at-current-state")) {
                 if(guard_event.profile_id==7u)
                     buzzer_play(BUZZER_CUE_WHISPER,now);
+                else if(guard_event.profile_id==8u)
+                    buzzer_play(BUZZER_CUE_WHISPER_REPEAT,now);
                 else buzzer_guard_transition(guard_event.profile_id, now);
                 printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
                        profile,guard_event.stage);
@@ -532,31 +572,45 @@ static void service_mouse(uint32_t now) {
             return;
         }
         if (detected) {
-            uint32_t remaining=sound_watch_remaining(profile,now);
-            if (whisper_profile_enabled && vm.route_id==GAME_ROUTE_ID &&
-                peak>=whisper_threshold && peak<=whisper_maximum && remaining &&
-                abvm_interrupt_route(&vm,WHISPER_ROUTE_ID,now)) {
-                whisper_rearm_pending=true;
-                whisper_rearm_profile=profile;
-                whisper_rearm_threshold=arm_uart_sound_threshold();
-                whisper_rearm_minimum=arm_uart_sound_minimum();
-                whisper_rearm_deadline=now+remaining;
-                buzzer_play(BUZZER_CUE_WHISPER,now);
-                printf("CONTROL|interrupt|route=Whisper|source=sound|profile=%u|peak=%u|range=%u-%u\n",
-                       profile,peak,whisper_threshold,whisper_maximum);
-                return;
+            GlobalWhisperProfile *selected=NULL;
+            for(uint8_t i=0;i<2u;++i)
+                if(whisper_profiles[i].enabled &&
+                   peak>=whisper_profiles[i].threshold &&
+                   peak<=whisper_profiles[i].maximum)
+                    selected=&whisper_profiles[i];
+            if (selected && whisper_interrupt_allowed()) {
+                if(selected->next_allowed &&
+                   (int32_t)(now-selected->next_allowed)<0) {
+                    printf("MISS|WHISPER|reason=cooldown|profile=%u|remaining=%lu\n",
+                           selected->id,
+                           (unsigned long)(selected->next_allowed-now));
+                    return;
+                }
+                if(abvm_interrupt_route(&vm,selected->route_id,now)) {
+                    selected->next_allowed=selected->cooldown_ms?
+                        now+selected->cooldown_ms:0u;
+                    buzzer_play(selected->id==3u?
+                        BUZZER_CUE_WHISPER_REPEAT:BUZZER_CUE_WHISPER,now);
+                    printf("CONTROL|interrupt|route=%s|source=sound|listener=%u|profile=%u|peak=%u|range=%u-%u\n",
+                           selected->id==3u?"WhisperRepeat":"Whisper",
+                           profile,selected->id,peak,
+                           selected->threshold,selected->maximum);
+                    return;
+                }
             }
-            bool accepted = abvm_sound_detected(&vm, profile, now);
+            uint16_t watch_profile=active_sound_watch_profile();
+            bool accepted = watch_profile &&
+                abvm_sound_detected(&vm, watch_profile, now);
             printf("%s|SOUND|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
-                   accepted ? "OK" : "MISS",profile,peak,
+                   accepted ? "OK" : "MISS",watch_profile,peak,
                    arm_uart_sound_threshold(),arm_uart_sound_minimum(),
                    arm_uart_sound_uses_calibration()?"saved":"project");
         } else {
-            printf("SOUND|timeout|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
+            printf("SOUND|timeout|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm-global\n",
                    profile,peak,arm_uart_sound_threshold(),
                    arm_uart_sound_minimum(),
                    arm_uart_sound_uses_calibration()?"saved":"project");
-            buzzer_play(BUZZER_CUE_TIMEOUT, now);
+            if(!global_sound_enabled)buzzer_play(BUZZER_CUE_TIMEOUT, now);
         }
     }
     if(ui_sound_trigger_pending&&(int32_t)(now-ui_sound_trigger_due)>=0){
@@ -574,7 +628,6 @@ static void service_mouse(uint32_t now) {
             printf("ERR|TRGSND|CLICK|reason=%u\n",result);
         }
     }
-    service_whisper_rearm(now);
     if (arm_uart_mouse_faulted()) {
         if (!arm_fault_reported) {
             printf("ERR|ARM|detail=%s|version=%s\n", arm_uart_mouse_fault(), arm_uart_mouse_version());
@@ -709,6 +762,16 @@ static void service_vm(uint32_t now) {
                 printf("ERR|LIGHT|arm|lane=%u|constant=%u|reason=%u\n", event.lane, event.constant_id, light);
                 abvm_stop(&vm, now); break;
             }
+            if(global_sound_enabled) {
+                const uint8_t *descriptor;uint32_t descriptor_size;
+                uint16_t profile=0u;
+                if(abvm_constant(&vm,event.constant_id,ABVM_CONST_SOUND,
+                                 &descriptor,&descriptor_size)&&descriptor_size==8u)
+                    profile=local_u16(descriptor);
+                printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|source=arm-global\n",
+                       event.lane,profile,(unsigned long)event.operand_b);
+                break;
+            }
             ArmSoundSubmit sound = arm_uart_sound_arm(&vm, &event, now);
             if (sound == ARM_SOUND_ACCEPTED)
                 printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|threshold=%u|min=%u|config=%s|source=arm\n",
@@ -758,6 +821,6 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); service_light(now); service_buzzer_action(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); service_light(now); service_buzzer_action(now); service_vm(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

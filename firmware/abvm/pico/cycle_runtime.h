@@ -42,6 +42,7 @@ typedef struct CycleEvent {
 bool cycle_runtime_init(const AbvmVm *vm, uint32_t now);
 bool cycle_runtime_available(void);
 bool cycle_runtime_waiting_for_usb(void);
+bool cycle_runtime_restart_critical(void);
 void cycle_runtime_manual_start(uint32_t now);
 void cycle_runtime_manual_stop(void);
 CycleAction cycle_runtime_service(uint32_t now, bool host_seen,

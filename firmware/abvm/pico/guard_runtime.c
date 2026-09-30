@@ -4,10 +4,13 @@
 #include "light_sensor.h"
 
 #define GUARD_VERSION 1u
-#define GUARD_PROFILE_COUNT 7u
+#define GUARD_PROFILE_COUNT 8u
 #define GUARD_DESCRIPTOR_SIZE (8u + GUARD_PROFILE_COUNT * 20u)
 #define GUARD_ROUTE_DC 5u
+#define GUARD_ROUTE_RESTART 2u
+#define GUARD_ROUTE_STARTUP 3u
 #define GUARD_ROUTE_WHISPER 10u
+#define GUARD_ROUTE_WHISPER_REPEAT 12u
 
 typedef struct GuardProfile {
     uint8_t id;
@@ -29,6 +32,7 @@ typedef struct GuardState {
     uint8_t stage;
     bool targeted_active;
     bool whisper_light_active;
+    uint16_t whisper_light_route;
     uint32_t sensor_timeout_ms;
     uint32_t candidate_since;
     uint32_t last_good_sample_at;
@@ -157,20 +161,30 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
                     "targeted-only-from-game");
         return;
     }
-    if (profile_id == 7u) {
-        if (vm->route_id == GUARD_ROUTE_WHISPER) {
+    if (profile_id == 7u || profile_id == 8u) {
+        uint16_t whisper_route=profile_id==8u?
+            GUARD_ROUTE_WHISPER_REPEAT:GUARD_ROUTE_WHISPER;
+        if (vm->route_id == GUARD_ROUTE_WHISPER ||
+            vm->route_id == GUARD_ROUTE_WHISPER_REPEAT) {
             emit(GUARD_EVENT_STATE, profile_id, 0u, 4u, lux,
                  "whisper-already-active");
-        } else if (guard.stage == 5u && !guard.targeted_active) {
-            if (!abvm_interrupt_route(vm, GUARD_ROUTE_WHISPER, now)) {
+        } else if (vm->route_id==GUARD_ROUTE_RESTART||
+                   vm->route_id==GUARD_ROUTE_STARTUP||
+                   vm->status!=ABVM_STATUS_RUNNING) {
+            emit(GUARD_EVENT_DENIED,profile_id,0u,4u,lux,
+                 "restart-cycle-has-priority");
+            guard.active=guard.candidate=guard.last_stable=0u;
+        } else {
+            if (!abvm_interrupt_route(vm, whisper_route, now)) {
                 fault(vm, now, "whisper-interrupt-failed");
                 return;
             }
             guard.whisper_light_active = true;
-            emit(GUARD_EVENT_ROUTE, profile_id, GUARD_ROUTE_WHISPER, 4u, lux,
-                 "game-to-whisper-light-interrupt");
-        } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
-                    "whisper-only-from-game");
+            guard.whisper_light_route=whisper_route;
+            emit(GUARD_EVENT_ROUTE, profile_id, whisper_route, 4u, lux,
+                 profile_id==8u?"game-to-whisper-repeat-light-interrupt":
+                                "game-to-whisper-new-light-interrupt");
+        }
     }
 }
 
@@ -196,13 +210,13 @@ bool guard_runtime_init(const AbvmVm *vm) {
         profile->high = read_u32_le(item + 8u);
         profile->stable_ms = read_u32_le(item + 12u);
         profile->hysteresis = read_u32_le(item + 16u);
-        if (item[1] != 1u || profile->id < 1u || profile->id > 7u ||
+        if (item[1] != 1u || profile->id < 1u || profile->id > 8u ||
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id)
             return false;
         seen |= (uint8_t)(1u << (profile->id - 1u));
     }
-    guard.available = seen == 0x7fu;
+    guard.available = seen == 0xffu;
     return guard.available;
 }
 bool guard_runtime_available(void) { return guard.available; }
@@ -213,6 +227,7 @@ bool guard_runtime_start(uint32_t now) {
     guard.active = guard.candidate = guard.last_stable = guard.stage = 0u;
     guard.targeted_active = false;
     guard.whisper_light_active = false;
+    guard.whisper_light_route = 0u;
     guard.candidate_since = now;
     guard.last_good_sample_at = now;
     guard.event_pending = false;
@@ -232,6 +247,7 @@ void guard_runtime_stop(void) {
     guard.active = guard.candidate = guard.last_stable = 0u;
     guard.targeted_active = false;
     guard.whisper_light_active = false;
+    guard.whisper_light_route = 0u;
 }
 bool guard_runtime_pause(void) {
     if (!guard.running || guard.paused) return false;
@@ -246,7 +262,7 @@ bool guard_runtime_resume(void) {
 void guard_runtime_service(AbvmVm *vm, uint32_t now) {
     if (!guard.running || guard.paused || !vm || vm->status == ABVM_STATUS_PAUSED) return;
     if (guard.whisper_light_active) {
-        if (vm->route_id == GUARD_ROUTE_WHISPER) return;
+        if (vm->route_id == guard.whisper_light_route) return;
         guard.whisper_light_active = false;
     }
     uint32_t lux, age;
@@ -260,7 +276,7 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
     if (guard.whisper_light_active) {
-        if (vm->route_id == GUARD_ROUTE_WHISPER) return;
+        if (vm->route_id == guard.whisper_light_route) return;
         guard.whisper_light_active = false;
     }
     GuardProfile *active = profile_by_id(guard.active);
@@ -309,9 +325,10 @@ uint8_t guard_runtime_stage(void) { return guard.stage; }
 const char *guard_runtime_profile_name(uint8_t profile_id) {
     static const char *names[] = {
         "unknown", "desktop", "login-or-dc", "character-dashboard",
-        "entering-game-loading", "game", "targeted", "whisper"
+        "entering-game-loading", "game", "targeted", "whisper-new",
+        "whisper-repeat"
     };
-    return profile_id <= 7u ? names[profile_id] : "invalid";
+    return profile_id <= 8u ? names[profile_id] : "invalid";
 }
 
 bool guard_runtime_get_profile_range(uint8_t profile_id,uint32_t *low_tenths,

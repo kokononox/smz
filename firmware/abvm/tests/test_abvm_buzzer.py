@@ -120,7 +120,7 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("{392,180,0},{330,160,0},{262,260,60},{196,260,0}", self.buzzer)
         self.assertIn("{523,180,100},{523,180,100},{523,340,0}", self.buzzer)
         self.assertIn("{659,150,0},{784,150,0},{988,150,0},{784,150,0},{988,300,0}", self.buzzer)
-        self.assertIn("{262,294,330,349,392,440,494}", self.buzzer)
+        self.assertIn("{262,294,330,349,392,440,494,523}", self.buzzer)
         self.assertIn("{880,160,60},{1175,220,60},{1568,360,0}", self.buzzer)
         self.assertIn("{220,140,80},{220,260,0}", self.buzzer)
         self.assertIn("{1397,110,45},{1760,190,0}", self.buzzer)

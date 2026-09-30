@@ -79,7 +79,7 @@ jobs:
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/light_sensor.c \
               firmware/abvm/tests/abvm_light_sensor_smoke.c -o /tmp/abvm-light-sensor-smoke
             /tmp/abvm-light-sensor-smoke /tmp/abvm-native-smoke.abp
-            python tools/abvm.py compile firmware/abvm/tests/abvm_guard_smoke.amsj /tmp/abvm-guard-smoke.abp --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted Whisper
+            python tools/abvm.py compile firmware/abvm/tests/abvm_guard_smoke.amsj /tmp/abvm-guard-smoke.abp --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted Whisper WhisperRepeat
             cc -std=c11 -Wall -Wextra -Werror \
               -Ifirmware/abvm/include -Ifirmware/abvm/pico \
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/guard_runtime.c \

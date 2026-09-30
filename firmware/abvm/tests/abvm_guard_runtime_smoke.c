@@ -45,18 +45,23 @@ int main(int argc, char **argv) {
         !stable(&vm, 5000u, 800u, 8u, 5u) ||
         !stable(&vm, 7000u, 1000u, 10u, 5u)) return 1;
     if (!require(vm.suspended.valid, "light Whisper interrupts Game")) return 1;
-    /* Simulate completion/resume before exercising the independent Targeted side state. */
+    /* Simulate completion/resume, then exercise the independent repeat-person Whisper. */
+    vm.route_id=6u;vm.suspended.valid=false;
+    guard_runtime_observe(&vm,5000u,1100u);
+    guard_runtime_observe(&vm,5000u,1200u);
+    if (!stable(&vm,8000u,1300u,12u,5u)) return 1;
+    if (!require(vm.suspended.valid, "repeat light Whisper interrupts any non-restart route")) return 1;
     vm.route_id=8u;vm.suspended.valid=false;
-    guard_runtime_observe(&vm,5000u,1150u);
-    guard_runtime_observe(&vm,5000u,1250u);
-    if (!stable(&vm, 6000u, 1400u, 9u, 5u)) return 1;
-    guard_runtime_observe(&vm, 5000u, 1600u);
-    guard_runtime_observe(&vm, 5000u, 1700u);
+    guard_runtime_observe(&vm,5000u,1500u);
+    guard_runtime_observe(&vm,5000u,1600u);
+    if (!stable(&vm, 6000u, 1800u, 9u, 5u)) return 1;
+    guard_runtime_observe(&vm, 5000u, 2000u);
+    guard_runtime_observe(&vm, 5000u, 2100u);
     GuardRuntimeEvent event;
     if (!require(guard_runtime_take_event(&event), "targeted return") ||
         !require(event.type == GUARD_EVENT_STATE && event.route_id == 0u,
                  "Game does not replay after Targeted")) return 1;
-    if (!stable(&vm, 2000u, 1800u, 5u, 2u)) return 1;
+    if (!stable(&vm, 2000u, 2200u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
     guard_runtime_stop();

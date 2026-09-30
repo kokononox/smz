@@ -320,9 +320,11 @@ public partial class MainViewModel : ObservableObject
 
         bool pico = s.Contains("pico", StringComparison.OrdinalIgnoreCase) || s.Contains("role=brain", StringComparison.OrdinalIgnoreCase);
 
+        bool armUsbReady = !s.Contains("arm-usb=", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("arm-usb=3", StringComparison.OrdinalIgnoreCase);
         bool arm = s.Contains("arm=promicro", StringComparison.OrdinalIgnoreCase)
             || s.Contains("arm=ok", StringComparison.OrdinalIgnoreCase)
-            || s.Contains("arm-ready=1", StringComparison.OrdinalIgnoreCase)
+            || (s.Contains("arm-ready=1", StringComparison.OrdinalIgnoreCase) && armUsbReady)
             || !pico;
 
         return (pico, arm);

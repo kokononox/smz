@@ -46,7 +46,8 @@ public static class NativeUf2Exporter
             var compilerSummary = await RunPythonAsync(compiler,
                 ["compile", source, program, "--routes",
                  "Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
-                 "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper"],
+                 "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",
+                 "Whisper", "WhisperRepeat"],
                 cancellationToken);
             if (!File.Exists(program) || new FileInfo(program).Length == 0)
                 throw new InvalidDataException("کامپایلر ABP فایل program.abp را نساخت.");

@@ -25,9 +25,11 @@ static const BuzzerTone guard_resume[] = {{659,150,0},{784,150,0},{988,150,0},{7
 static const BuzzerTone preset_warning[] = {{700,180,90},{700,180,90},{700,300,0}};
 /* Distinct high two-note acknowledgement shared by sound/light Whisper. */
 static const BuzzerTone whisper_notice[] = {{1397,110,45},{1760,190,0}};
+/* Lower answering phrase distinguishes a repeated person from a new one. */
+static const BuzzerTone whisper_repeat_notice[] = {{1175,100,35},{988,100,35},{1175,190,0}};
 
 /* Exact legacy physical-calibration feedback. */
-static const uint16_t calibration_notes[] = {262,294,330,349,392,440,494};
+static const uint16_t calibration_notes[] = {262,294,330,349,392,440,494,523};
 static const BuzzerTone calibration_enter_prefix[] = {{523,100,0},{659,120,0},{784,180,0}};
 static const BuzzerTone calibration_exit[] = {{784,100,0},{659,120,0},{523,220,0}};
 static const BuzzerTone calibration_error[] = {{220,140,80},{220,260,0}};
@@ -43,6 +45,7 @@ static const BuzzerPattern patterns[] = {
     [BUZZER_CUE_TIMEOUT] = {preset_warning, ARRAY_COUNT(preset_warning), 4u},
     [BUZZER_CUE_ERROR] = {preset_warning, ARRAY_COUNT(preset_warning), 7u},
     [BUZZER_CUE_WHISPER] = {whisper_notice, ARRAY_COUNT(whisper_notice), 5u},
+    [BUZZER_CUE_WHISPER_REPEAT] = {whisper_repeat_notice, ARRAY_COUNT(whisper_repeat_notice), 5u},
     [BUZZER_CUE_CALIBRATION_OK] = {calibration_success, ARRAY_COUNT(calibration_success), 4u},
 };
 
@@ -104,7 +107,7 @@ static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, 
     begin_styled(next,count,next_priority,100u,0u,now);
 }
 static uint16_t selection_note(uint8_t selection, bool sound) {
-    if (sound) return selection == 2u ? 880u : 660u;
+    if (sound) return selection == 3u ? 1047u : selection == 2u ? 880u : 660u;
     if (selection < 1u || selection > ARRAY_COUNT(calibration_notes)) selection = 1u;
     return calibration_notes[selection - 1u];
 }
