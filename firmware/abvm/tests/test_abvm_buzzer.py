@@ -1,3 +1,4 @@
+
 import unittest
 from pathlib import Path
 import sys
@@ -69,6 +70,45 @@ class AbvmBuzzerContractTests(unittest.TestCase):
              (784, 90, 80 | (3 << 8)), (659, 90, 80 | (3 << 8)),
              (523, 160, 80 | (3 << 8))])
         self.assertEqual(image.resources.pwm_channels, 1)
+
+    def test_wait_for_sound_feedback_runs_after_catch_response(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        source = {"pipelines": {"Game": [
+            {"Type": "waitForSound", "Props": {
+                "calibrationId": 2,
+                "threshold": 76,
+                "minDurationMs": 20,
+                "timeoutMinSec": 18,
+                "timeoutMaxSec": 22,
+                "armCuePreset": "custom",
+                "armCueVolume": 5,
+                "armCueEnvelope": "sharp",
+                "armCueTempo": 400,
+                "armCuePattern": "880:100,40",
+            }, "Children": [
+                {"Type": "keystroke", "Props": {
+                    "key": "F", "holdMin": 80, "holdMax": 180,
+                }, "Children": [], "Delay": 0},
+            ], "Delay": 0},
+        ]}}
+        program = abvm.Compiler().compile_amsj(source, ("Game",))
+        image = abvm.Verifier.verify(program.image)
+        watch = next(i for i, ins in enumerate(image.instructions)
+                     if ins.op == abvm.OP_WATCH)
+        catch = next(i for i, ins in enumerate(image.instructions)
+                     if ins.op == abvm.OP_KEY)
+        feedback = next(i for i, ins in enumerate(image.instructions)
+                        if ins.op == abvm.OP_BEEP)
+        self.assertLess(watch, catch)
+        self.assertLess(catch, feedback)
+        self.assertEqual(
+            (image.instructions[feedback].a,
+             image.instructions[feedback].b,
+             image.instructions[feedback].c),
+            (880, 25, 5),
+        )
+        self.assertEqual(image.instructions[watch].d, feedback + 1)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
         self.assertIn("static const BuzzerPattern patterns[]", self.buzzer)

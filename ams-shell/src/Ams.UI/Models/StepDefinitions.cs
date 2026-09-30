@@ -1,3 +1,4 @@
+
 using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -328,16 +329,16 @@ public static class StepDefinitions
                 new("timeoutMinSec", "Splash timeout minimum (seconds)", FieldKind.Int, "18"),
                 new("timeoutMaxSec", "Splash timeout maximum (seconds)", FieldKind.Int, "22"),
                 new("onTimeout", "On timeout", FieldKind.Combo, "global", new[] { "global", "stopWithAlarm", "stopQuiet", "continue" }),
-                new("armCuePreset", "Buzzer feedback when the sound watch arms", FieldKind.Combo, "off", new[]
+                new("armCuePreset", "Buzzer feedback after a successful Catch", FieldKind.Combo, "off", new[]
                     { "off", "short", "double", "notification", "warning", "success", "error", "rising", "falling", "custom" }),
-                new("armCueVolume", "Arm cue volume (1–100%)", FieldKind.Int, "60",
+                new("armCueVolume", "Catch feedback volume (1–100%)", FieldKind.Int, "60",
                     HideWhenKey: "armCuePreset", HideWhenValue: "off"),
-                new("armCueEnvelope", "Arm cue tone edge", FieldKind.Combo, "smooth",
+                new("armCueEnvelope", "Catch feedback tone edge", FieldKind.Combo, "smooth",
                     new[] { "sharp", "smooth", "fade-in", "fade-out" },
                     HideWhenKey: "armCuePreset", HideWhenValue: "off"),
-                new("armCueTempo", "Arm cue note speed (25–400%; 100 = normal)", FieldKind.Int, "100",
+                new("armCueTempo", "Catch feedback note speed (25–400%; 100 = normal)", FieldKind.Int, "100",
                     HideWhenKey: "armCuePreset", HideWhenValue: "off"),
-                new("armCuePattern", "Custom arm cue — freq:duration,pause;...", FieldKind.Text,
+                new("armCuePattern", "Custom Catch feedback — freq:duration,pause;...", FieldKind.Text,
                     "880:100,40;1175:150", HideWhenKey: "armCuePreset", HideUnlessValue: "custom"),
                 new("insertIfElse", "Insert If-Else (children = Then — heard · Else — not heard; §3.3.1)", FieldKind.Check, "false"),   // v0.9.31
                 new("armed", "Armed reaction: board clicks by itself on detection (TRGSND)", FieldKind.Check, "false", HideWhenKey: "insertIfElse", HideWhenValue: "true"),

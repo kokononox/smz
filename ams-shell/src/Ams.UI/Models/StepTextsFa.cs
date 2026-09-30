@@ -1,3 +1,4 @@
+
 using System.Collections.Generic;
 
 namespace Ams.UI.Models;
@@ -89,11 +90,11 @@ public static class StepTextsFa
         ["act"] = "دکمه‌ی کلیک مسلح",
         ["reactMin"] = "واکنش — حداقل (ms)",
         ["reactMax"] = "واکنش — حداکثر (ms)",
-        ["armCuePreset"] = "بازخورد بازر هنگام مسلح‌شدن شنود (خاموش یا الگوی انتخابی)",
-        ["armCueVolume"] = "بلندی صدای مسلح‌شدن (۱ تا ۱۰۰٪)",
-        ["armCueEnvelope"] = "لبهٔ صدای مسلح‌شدن",
-        ["armCueTempo"] = "سرعت اجرای نوت‌ها (۲۵ تا ۴۰۰٪؛ ۱۰۰ = عادی)",
-        ["armCuePattern"] = "نوت سفارشی مسلح‌شدن — فرکانس:مدت،مکث؛ ...",
+        ["armCuePreset"] = "بازخورد بازر بعد از Catch موفق (خاموش یا الگوی انتخابی)",
+        ["armCueVolume"] = "بلندی صدای بازخورد Catch (۱ تا ۱۰۰٪)",
+        ["armCueEnvelope"] = "لبهٔ صدای بازخورد Catch",
+        ["armCueTempo"] = "سرعت اجرای نوت بازخورد Catch (۲۵ تا ۴۰۰٪؛ ۱۰۰ = عادی)",
+        ["armCuePattern"] = "نوت سفارشی Catch — فرکانس:مدت،مکث؛ ...",
         ["tempo"] = "سرعت اجرای نوت‌ها (۲۵ تا ۴۰۰٪؛ ۱۰۰ = عادی)",
 
         // ── light (waitForLight — BH1750 / GY-302 / GY-30 on the Pico) — v0.9.39 ──
