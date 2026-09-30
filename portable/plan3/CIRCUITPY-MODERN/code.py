@@ -1122,32 +1122,6 @@ def _audible_loop(self):
         runtime.time.sleep(.01)
 
 
-# Live Classroom Studio commands that execute entirely on the Pico must not
-# depend on an attached Pro Micro arm. SCREEN/SETRES is metadata; BEEP drives
-# the passive piezo on GP6 directly.
-def _live_host_beep(self, frequency, duration_ms, volume=100, envelope="sharp"):
-    tone = None
-    try:
-        tone = runtime.pwmio.PWMOut(runtime.board.GP6, duty_cycle=0,
-            frequency=int(frequency), variable_frequency=True)
-        total = duration_ms / 1000
-        edge = min(.08, total / 3)
-        target = int(32768 * volume / 100)
-        started = runtime.time.monotonic()
-        while True:
-            elapsed = runtime.time.monotonic() - started
-            if elapsed >= total: break
-            level = 1.0
-            if envelope in ("smooth", "fade-in") and elapsed < edge: level = elapsed / edge
-            if envelope in ("smooth", "fade-out") and elapsed > total - edge:
-                level = min(level, (total - elapsed) / edge)
-            tone.duty_cycle = max(0, min(32768, int(target * level)))
-            runtime.time.sleep(.004 if envelope != "sharp" else total)
-    finally:
-        if tone is not None:
-            try: tone.duty_cycle = 0; tone.deinit()
-            except Exception: pass
-
 _CURSOR_PENDING = None
 _CURSOR_LAST_APPLIED = None
 _CURSOR_SYNC_READY = False
@@ -1284,7 +1258,7 @@ def _live_host_poll(self):
                         or not 1 <= volume <= 100
                         or envelope not in ("sharp", "smooth", "fade-in", "fade-out")):
                     raise ValueError("BEEP range")
-                self._live_host_beep(frequency, duration_ms, volume, envelope)
+                self.live_beep(frequency, duration_ms, volume, envelope)
                 reply = "OK|BEEP"
             else:
                 reply = "ERR|UNKNOWN|" + head
@@ -1298,7 +1272,6 @@ runtime.Combined.debug_event = _debug_event
 runtime.Combined.debug_get = _debug_get
 runtime.Combined.debug_clear = _debug_clear
 runtime.Combined.debug_emit = _debug_emit
-runtime.Combined._live_host_beep = _live_host_beep
 runtime.Combined.host_poll = _live_host_poll
 runtime.Combined._cal_beep = _cal_beep
 runtime.Combined.cal_position_tone = _cal_position_tone

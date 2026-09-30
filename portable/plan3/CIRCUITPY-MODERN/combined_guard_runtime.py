@@ -591,6 +591,20 @@ class Combined:
         self.bundle = load_guard_bundle("/"); self.guard = LightStateGuard.from_bundle("/"); self.routes = {}
         self.blue = Button(board.GP4); self.yellow = Button(board.GP3); self.usb = usb_cdc.data or usb_cdc.console; self.host = bytearray()
         self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.sample_next = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
+    def live_beep(self, frequency, duration_ms, volume=100, envelope="sharp"):
+        tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=int(frequency), variable_frequency=True)
+        try:
+            total=duration_ms/1000; edge=min(.08,total/3); target=int(32768*volume/100); started=time.monotonic()
+            while True:
+                elapsed=time.monotonic()-started
+                if elapsed>=total: break
+                level=1.0
+                if envelope in ("smooth","fade-in") and elapsed<edge: level=elapsed/edge
+                if envelope in ("smooth","fade-out") and elapsed>total-edge: level=min(level,(total-elapsed)/edge)
+                tone.duty_cycle=max(0,min(32768,int(target*level)))
+                time.sleep(.004 if envelope!="sharp" else total)
+        finally:
+            tone.duty_cycle=0; tone.deinit()
     def key(self, vk):
         # Convert Windows virtual-key values directly to USB HID usages.
         # Keep this branch-only mapping allocation-free on CircuitPython's small heap.
