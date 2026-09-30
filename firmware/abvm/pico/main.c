@@ -54,8 +54,14 @@ static void print_status(void) {
 }
 static void release_all_actors(uint32_t now) {
     hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
-    light_sensor_cancel_watch(now); buzzer_action_pending=false;
-    ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;buzzer_silence();
+    light_sensor_cancel_watch(now);
+    /* RELEASE_ALL is primarily an input/watch safety boundary.  Do not cut
+     * short Guard/calibration feedback that was started immediately before
+     * the VM emits its route-entry release.  Only a project/direct BEEP owns
+     * an action that must be cancelled at this boundary. */
+    if (buzzer_action_pending || ui_buzzer_reply_pending) buzzer_silence();
+    buzzer_action_pending=false;ui_sound_watch_pending=false;
+    ui_buzzer_reply_pending=false;
 }
 static void start_control(uint32_t now) {
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
@@ -265,8 +271,11 @@ static void service_light(uint32_t now) {
     if (guard_runtime_take_event(&guard_event)) {
         const char *profile = guard_runtime_profile_name(guard_event.profile_id);
         if (guard_event.type == GUARD_EVENT_ROUTE) {
-            if (strcmp(guard_event.reason,"start-at-current-state"))
+            if (strcmp(guard_event.reason,"start-at-current-state")) {
                 buzzer_guard_transition(guard_event.profile_id, now);
+                printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
+                       profile,guard_event.stage);
+            }
             printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
         } else if (guard_event.type == GUARD_EVENT_FAULT) {
             buzzer_play(BUZZER_CUE_ERROR, now);
@@ -389,8 +398,10 @@ static void service_vm(uint32_t now) {
         default: break;
     }
 }
-void tud_umount_cb(void) { release_all_actors(now_ms()); }
-void tud_suspend_cb(bool remote_wakeup_en) { (void)remote_wakeup_en; release_all_actors(now_ms()); }
+void tud_umount_cb(void) { release_all_actors(now_ms()); buzzer_silence(); }
+void tud_suspend_cb(bool remote_wakeup_en) {
+    (void)remote_wakeup_en; release_all_actors(now_ms()); buzzer_silence();
+}
 int main(void) {
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);

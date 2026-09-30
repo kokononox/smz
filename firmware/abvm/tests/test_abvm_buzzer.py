@@ -97,6 +97,26 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertNotIn("buzzer_play_stage(guard_event.stage, now)", self.main)
         self.assertIn("buzzer_service(now)", self.main)
 
+    def test_route_release_preserves_system_cues_but_cancels_owned_beeps(self):
+        release = self.main.split(
+            "static void release_all_actors(uint32_t now) {", 1
+        )[1].split("\n}", 1)[0]
+        self.assertIn(
+            "if (buzzer_action_pending || ui_buzzer_reply_pending) "
+            "buzzer_silence();",
+            release,
+        )
+        self.assertNotIn(
+            "ui_buzzer_reply_pending=false;buzzer_silence()", release
+        )
+        self.assertIn(
+            'printf("BUZZER|cue=transition|profile=%s|stage=%u\\n"',
+            self.main,
+        )
+        self.assertIn(
+            "release_all_actors(now_ms()); buzzer_silence();", self.main
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

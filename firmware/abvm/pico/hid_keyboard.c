@@ -6,7 +6,10 @@
 
 #define REPORT_ID_KEYBOARD 0u
 #define MAX_KEYS 6u
-#define TYPE_HOLD_MS 8u
+/* Keep each printable key down across more than one typical 60 Hz game/UI
+ * input frame.  Eight milliseconds was USB-valid but some login/game fields
+ * observed characters in apparent bursts or missed them entirely. */
+#define TYPE_HOLD_MS 24u
 
 typedef enum ActorPhase {
     ACTOR_IDLE = 0,

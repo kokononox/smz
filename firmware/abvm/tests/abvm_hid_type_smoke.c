@@ -8,6 +8,11 @@
 
 static unsigned press_reports;
 static unsigned release_reports;
+static uint32_t report_now;
+static uint32_t pressed_at;
+static uint32_t minimum_hold = UINT32_MAX;
+static bool report_pressed;
+static bool repeated_press_without_release;
 
 bool tud_mounted(void) { return true; }
 bool tud_hid_ready(void) { return true; }
@@ -16,7 +21,19 @@ bool tud_hid_keyboard_report(uint8_t report_id, uint8_t modifiers,
     (void)report_id;
     bool pressed = modifiers != 0;
     for (unsigned i = 0; i < 6; ++i) pressed = pressed || keycodes[i] != 0;
-    if (pressed) ++press_reports; else ++release_reports;
+    if (pressed) {
+        ++press_reports;
+        if (report_pressed) repeated_press_without_release = true;
+        report_pressed = true;
+        pressed_at = report_now;
+    } else {
+        ++release_reports;
+        if (report_pressed) {
+            uint32_t held = report_now - pressed_at;
+            if (held < minimum_hold) minimum_hold = held;
+        }
+        report_pressed = false;
+    }
     return true;
 }
 
@@ -44,6 +61,7 @@ int main(int argc, char **argv) {
     hid_keyboard_init();
     bool complete = false;
     for (uint32_t now = 0; now < 20000u && !complete; ++now) {
+        report_now = now;
         uint8_t lane;
         if (hid_keyboard_service(now, &lane) &&
             !abvm_complete_action(&vm, lane, now)) return 4;
@@ -55,7 +73,8 @@ int main(int argc, char **argv) {
         else if (event.type == ABVM_EVENT_FAULT) return 6;
     }
     free(program);
-    if (!complete || press_reports < 17u || release_reports < press_reports) return 7;
+    if (!complete || press_reports < 17u || release_reports < press_reports ||
+        repeated_press_without_release || minimum_hold < 20u) return 7;
     puts("ABVM native nonblocking Type actor smoke passed");
     return 0;
 }

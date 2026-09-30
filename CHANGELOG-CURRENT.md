@@ -1,3 +1,30 @@
+## ABVM native R25 — audible route cues and frame-safe text typing
+
+### Problem observed
+
+After the sound-threshold fix, Guard route changes no longer produced an audible buzzer cue, and Type Text could appear to arrive in bursts in a game/login field.
+
+### Root cause
+
+Guard started its transition sweep and the VM emitted its mandatory route-entry `RELEASE_ALL` in the same service cycle. The generic release helper silenced every buzzer pattern, so the transition tone was cancelled before it became audible. Type Text used an 8 ms press: valid for USB HID, but shorter than a typical 60 Hz game/UI input frame.
+
+### Change
+
+- Route-entry release now preserves independent Guard/calibration cues while still cancelling project/direct BEEP actions that own a suspended lane or reply.
+- USB unmount and suspend continue to silence the buzzer unconditionally.
+- Added a `BUZZER|cue=transition|profile=...|stage=...` diagnostic when a confirmed Guard transition schedules its cue.
+- Increased Type Text key hold from 8 ms to 24 ms while retaining the configured per-character humanized gap.
+
+### Validation
+
+- Added a release-boundary contract proving system cues survive while owned BEEP actions are cancelled.
+- Strengthened the native HID smoke test to require a release report between every press and at least a 20 ms key hold.
+- Audited the supplied UF2: it contains no BEEP instruction. Its Login/DC route deliberately returns to `label1`, and its password Type Text enables one synthetic typo every 7–12 eligible characters.
+
+### Next test
+
+Flash a newly exported UF2, start Guard, and confirm a later route transition emits both `BUZZER|cue=transition` and an audible short sweep. For clean password entry, set `typoEveryMin` and `typoEveryMax` to `0`; remove the final `gotoLabel label1` only if repeated login retries are not desired.
+
 ## ABVM native R24 — authoritative sound threshold and Catch response audit
 
 ### Problem observed
