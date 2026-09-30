@@ -24,5 +24,6 @@ bool hid_keyboard_take_live_reply(char *reply, size_t capacity);
 void hid_keyboard_release_all(void);
 void hid_keyboard_discard_completion(void);
 bool hid_keyboard_busy(void);
+bool hid_keyboard_locked(void);
 
 #endif

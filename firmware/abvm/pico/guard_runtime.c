@@ -33,6 +33,11 @@ typedef struct GuardState {
     bool targeted_active;
     bool whisper_light_active;
     uint16_t whisper_light_route;
+    bool input_locked;
+    bool whisper_pending;
+    uint8_t whisper_pending_profile;
+    uint16_t whisper_pending_route;
+    uint32_t whisper_pending_lux;
     uint32_t sensor_timeout_ms;
     uint32_t candidate_since;
     uint32_t last_good_sample_at;
@@ -98,6 +103,8 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
     if (!profile) { fault(vm, now, "profile-missing"); return; }
     if (profile_id == guard.last_stable) return;
     guard.last_stable = profile_id;
+    if(guard.whisper_pending&&profile_id!=guard.whisper_pending_profile)
+        guard.whisper_pending=false;
 
     if (!guard.stage && profile_id >= 1u && profile_id <= 5u) {
         guard.stage = profile_id;
@@ -174,6 +181,13 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             emit(GUARD_EVENT_DENIED,profile_id,0u,4u,lux,
                  "restart-cycle-has-priority");
             guard.active=guard.candidate=guard.last_stable=0u;
+        } else if(guard.input_locked) {
+            guard.whisper_pending=true;
+            guard.whisper_pending_profile=profile_id;
+            guard.whisper_pending_route=whisper_route;
+            guard.whisper_pending_lux=lux;
+            emit(GUARD_EVENT_STATE,profile_id,0u,4u,lux,
+                 "whisper-waiting-input-release");
         } else {
             if (!abvm_interrupt_route(vm, whisper_route, now)) {
                 fault(vm, now, "whisper-interrupt-failed");
@@ -228,6 +242,7 @@ bool guard_runtime_start(uint32_t now) {
     guard.targeted_active = false;
     guard.whisper_light_active = false;
     guard.whisper_light_route = 0u;
+    guard.whisper_pending=false;
     guard.candidate_since = now;
     guard.last_good_sample_at = now;
     guard.event_pending = false;
@@ -248,6 +263,7 @@ void guard_runtime_stop(void) {
     guard.targeted_active = false;
     guard.whisper_light_active = false;
     guard.whisper_light_route = 0u;
+    guard.whisper_pending=false;
 }
 bool guard_runtime_pause(void) {
     if (!guard.running || guard.paused) return false;
@@ -261,6 +277,28 @@ bool guard_runtime_resume(void) {
 }
 void guard_runtime_service(AbvmVm *vm, uint32_t now) {
     if (!guard.running || guard.paused || !vm || vm->status == ABVM_STATUS_PAUSED) return;
+    if(guard.whisper_pending) {
+        if(vm->route_id==GUARD_ROUTE_RESTART||
+           vm->route_id==GUARD_ROUTE_STARTUP||
+           vm->status!=ABVM_STATUS_RUNNING) {
+            guard.whisper_pending=false;
+            return;
+        }
+        if(guard.input_locked)return;
+        if(!abvm_interrupt_route(vm,guard.whisper_pending_route,now)) {
+            fault(vm,now,"whisper-deferred-interrupt-failed");
+            return;
+        }
+        guard.whisper_light_active=true;
+        guard.whisper_light_route=guard.whisper_pending_route;
+        emit(GUARD_EVENT_ROUTE,guard.whisper_pending_profile,
+             guard.whisper_pending_route,4u,guard.whisper_pending_lux,
+             guard.whisper_pending_profile==8u?
+             "deferred-whisper-repeat-after-input-release":
+             "deferred-whisper-new-after-input-release");
+        guard.whisper_pending=false;
+        return;
+    }
     if (guard.whisper_light_active) {
         if (vm->route_id == guard.whisper_light_route) return;
         guard.whisper_light_active = false;
@@ -273,6 +311,7 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
         fault(vm, now, "sensor-timeout");
     }
 }
+void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
     if (guard.whisper_light_active) {

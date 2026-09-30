@@ -116,6 +116,14 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("BUZZER_CUE_WHISPER_REPEAT", self.main)
         self.assertIn("WHISPER_REPEAT_ROUTE_ID", self.main)
         self.assertIn("reason=cooldown", self.main)
+        self.assertIn("reason=input-locked", self.main)
+        self.assertIn("service_pending_sound_whisper", self.main)
+        self.assertIn("cycle_runtime_restart_critical", self.main)
+        keyboard_h = (self.pico / "hid_keyboard.h").read_text(encoding="utf-8")
+        keyboard_c = (self.pico / "hid_keyboard.c").read_text(encoding="utf-8")
+        self.assertIn("hid_keyboard_locked", keyboard_h)
+        self.assertIn("actor.persistent_modifiers", keyboard_c)
+        self.assertIn("actor.persistent_keys", keyboard_c)
         self.assertIn("source=sound", self.main)
 
     def test_saved_calibration_is_explicit_and_runtime_logs_effective_values(self):

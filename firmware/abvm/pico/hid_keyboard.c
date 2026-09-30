@@ -485,3 +485,9 @@ void hid_keyboard_release_all(void) {
 void hid_keyboard_discard_completion(void){actor.completion_pending=false;}
 
 bool hid_keyboard_busy(void) { return actor.phase!=ACTOR_IDLE; }
+bool hid_keyboard_locked(void) {
+    if(actor.phase!=ACTOR_IDLE||actor.persistent_modifiers)return true;
+    for(uint8_t i=0;i<MAX_KEYS;++i)
+        if(actor.persistent_keys[i])return true;
+    return false;
+}
