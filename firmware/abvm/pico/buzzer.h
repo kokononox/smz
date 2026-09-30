@@ -19,9 +19,6 @@ void buzzer_init(void);
 void buzzer_service(uint32_t now);
 void buzzer_play(BuzzerCue cue, uint32_t now);
 void buzzer_play_stage(uint8_t stage, uint32_t now);
-/* One continuous, envelope-shaped glide. Equal endpoints produce a held tone. */
-void buzzer_play_smooth(uint16_t start_hz, uint16_t end_hz,
-                        uint16_t duration_ms, uint32_t now);
 void buzzer_silence(void);
 bool buzzer_active(void);
 

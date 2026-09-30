@@ -1,3 +1,29 @@
+## ABVM native R19 — restore original GP6 buzzer presets
+
+### Problem observed
+
+Hardware build 440 produced smooth sweep cues that did not match the established buzzer sounds used by the previous system.
+
+### Root cause
+
+The new native buzzer actor introduced newly designed glides instead of preserving the existing `short`, `double`, `warning`, and `success` frequency/duration contract.
+
+### Change
+
+- Removed the new sweep/fade note set.
+- Restored the exact original presets: short `1000:180`; double `1000:140,100;1000:140`; warning `700:180,90;700:180,90;700:300`; success `900:120,70;1300:220`.
+- Retained the nonblocking fixed-state actor, GP6 PWM output, priority handling, and existing S8050 wiring.
+
+### Validation
+
+- Added exact frequency, duration, and pause assertions for all four legacy presets.
+- The buzzer translation unit compiles with `-std=c11 -Wall -Wextra -Werror`.
+- Full Pico SDK and Windows gates run in CI.
+
+### Next test
+
+Flash the next UF2 and verify that Start/Catch/Calibration use the old success notes, Resume uses double, Stage/Pause/Stop use short, and Timeout/Error use warning.
+
 ## ABVM native R18 — bounded Sound/Mouse backpressure and GP6 buzzer
 
 ### Problem observed

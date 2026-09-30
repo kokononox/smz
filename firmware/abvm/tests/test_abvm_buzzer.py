@@ -14,15 +14,16 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("#define BUZZER_PIN 6u", self.buzzer)
         self.assertIn("GPIO_FUNC_PWM", self.buzzer)
         self.assertIn("hardware_pwm", self.cmake)
-        self.assertIn("buzzer=smooth-pwm-gp6", self.main)
+        self.assertIn("buzzer=legacy-presets-gp6", self.main)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
         self.assertIn("static const BuzzerPattern patterns[]", self.buzzer)
         self.assertIn("next_priority < priority", self.buzzer)
         self.assertIn("void buzzer_service(uint32_t now)", self.buzzer)
-        self.assertIn("BUZZER_UPDATE_MS 4u", self.buzzer)
-        self.assertIn("void buzzer_play_smooth", self.buzzer)
-        self.assertIn("render_segment(now)", self.buzzer)
+        self.assertIn("{1000,180,0}", self.buzzer)
+        self.assertIn("{1000,140,100},{1000,140,0}", self.buzzer)
+        self.assertIn("{700,180,90},{700,180,90},{700,300,0}", self.buzzer)
+        self.assertIn("{900,120,70},{1300,220,0}", self.buzzer)
         self.assertNotIn("sleep_ms", self.buzzer)
         self.assertNotIn("malloc", self.buzzer)
 
