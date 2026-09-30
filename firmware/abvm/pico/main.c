@@ -79,11 +79,6 @@ static void toggle_pause(uint32_t now) {
         if (abvm_pause(&vm, now)) printf("CONTROL|pause\n"); else printf("ERR|CONTROL|pause\n");
     } else printf("CONTROL|pause-ignored|state=%s\n", abvm_status_name(vm.status));
 }
-static void toggle_start_stop(uint32_t now) {
-    if (guard_runtime_running() || vm.status == ABVM_STATUS_RUNNING ||
-        vm.status == ABVM_STATUS_PAUSED) stop_control(now);
-    else start_control(now);
-}
 static ButtonEvent button_event(Button *button,uint32_t now) {
     bool raw=!gpio_get(button->pin);
     if(raw!=button->raw){button->raw=raw;button->changed_at=now;}
