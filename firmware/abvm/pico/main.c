@@ -230,6 +230,14 @@ static void execute_command(char *line, uint32_t now) {
             else printf("OK|SETRES\n");
         }
     }
+    else if (!strncmp(line, "MMOVE|", 6)) {
+        /* Live Classroom preview is intentionally write-only: bridge.py
+         * streams and paces the path, then synchronizes with PING. */
+        ArmMouseSubmit result=arm_uart_mouse_submit_live(line,now);
+        if(result!=ARM_MOUSE_ACCEPTED)
+            printf("ERR|MMOVE|reason=%u|arm-ready=%u|arm-usb=%u\n",
+                   result,arm_uart_mouse_ready(),arm_uart_host_usb_state());
+    }
     else if (!strncmp(line, "WSND|", 5)) {
         char *p=line+5,*end=NULL;unsigned long threshold=strtoul(p,&end,10);
         if(!end||*end!=',')printf("ERR|ARG|WSND\n");

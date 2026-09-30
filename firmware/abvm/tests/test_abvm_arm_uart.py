@@ -99,6 +99,11 @@ class AbvmArmUartContractTests(unittest.TestCase):
 
     def test_native_direct_run_compatibility_is_nonblocking(self):
         self.assertIn('!strncmp(line, "SETRES|", 7)', self.main)
+        self.assertIn('!strncmp(line, "MMOVE|", 6)', self.main)
+        self.assertIn("arm_uart_mouse_submit_live(line,now)", self.main)
+        self.assertIn("ARM_LIVE_LANE", self.arm)
+        self.assertIn("lane != ARM_LIVE_LANE", self.arm)
+        self.assertIn("deferred_lane = ARM_LIVE_LANE", self.arm)
         self.assertIn('!strncmp(line, "WSND|", 5)', self.main)
         self.assertIn("arm_uart_sound_test_start", self.main)
         self.assertIn('!strncmp(line, "BEEP|", 5)', self.main)

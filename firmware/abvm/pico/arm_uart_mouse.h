@@ -28,6 +28,7 @@ typedef enum ArmHostUsbState {
 void arm_uart_mouse_init(void);
 bool arm_uart_mouse_probe(uint32_t now);
 ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
+ArmMouseSubmit arm_uart_mouse_submit_live(const char *command, uint32_t now);
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 bool arm_uart_sound_test_start(uint32_t now, uint16_t threshold,
                                uint16_t minimum_ms, uint32_t timeout_ms);

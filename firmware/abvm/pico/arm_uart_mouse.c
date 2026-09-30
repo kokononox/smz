@@ -16,6 +16,7 @@
 #define ARM_FRAME_MAX 64u
 #define ARM_DELTA_LIMIT 700
 #define ARM_RETRY_MAX 2u
+#define ARM_LIVE_LANE 0xffu
 
 typedef enum ArmState { ARM_IDLE, ARM_PROBE, ARM_MOVE, ARM_SOUND_ARM, ARM_SOUND_CAL, ARM_HALT, ARM_FAULT } ArmState;
 static ArmState state;
@@ -163,6 +164,28 @@ ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, u
     deferred_lane=event->lane; deferred_mouse_pending=true;
     return ARM_MOUSE_ACCEPTED;
 }
+ArmMouseSubmit arm_uart_mouse_submit_live(const char *command, uint32_t now) {
+    if (!command || strncmp(command, "MMOVE|", 6u) ||
+        strlen(command) >= sizeof(deferred_mouse))
+        return ARM_MOUSE_INVALID;
+    if (!arm_ready || state == ARM_FAULT || state == ARM_HALT ||
+        state == ARM_PROBE || state == ARM_SOUND_CAL ||
+        completion_pending || halt_pending)
+        return ARM_MOUSE_BUSY;
+    if (state == ARM_IDLE) {
+        if (!queue_payload(command, now, ARM_MOVE)) return ARM_MOUSE_INVALID;
+        lane = ARM_LIVE_LANE;
+        return ARM_MOUSE_ACCEPTED;
+    }
+    if (state != ARM_MOVE) return ARM_MOUSE_BUSY;
+    /* Classroom Studio streams absolute path points faster than the arm's
+     * acknowledgement cadence. Keep one bounded pending point and coalesce it
+     * to the newest target instead of overflowing UART or blocking USB CDC. */
+    memcpy(deferred_mouse, command, strlen(command) + 1u);
+    deferred_lane = ARM_LIVE_LANE;
+    deferred_mouse_pending = true;
+    return ARM_MOUSE_ACCEPTED;
+}
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now) {
     if (!event || event->type != ABVM_EVENT_WATCH_ARMED || event->flags != 2u)
         return ARM_SOUND_UNSUPPORTED;
@@ -281,7 +304,10 @@ static void handle_line(uint32_t now) {
         calibration_result_pending=true;pending_payload[0]=0;state=ARM_IDLE;return;
     }
     if (state==ARM_MOVE&&!strcmp(rx,"OK|MMOVE")) {
-        completion_lane=lane; completion_pending=true; pending_payload[0]=0; state=ARM_IDLE; return;
+        if (lane != ARM_LIVE_LANE) {
+            completion_lane=lane; completion_pending=true;
+        }
+        pending_payload[0]=0; state=ARM_IDLE; return;
     }
     if (state==ARM_SOUND_ARM&&!strcmp(rx,"OK|ASND")) {
         pending_payload[0]=0; state=ARM_IDLE; sound_active=true; return;

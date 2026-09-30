@@ -2550,6 +2550,8 @@ class TestRunner
             "v0.9.44: a plain firmware-1.6 board lights only the Pro Micro arm LED");
         Assert(MainViewModel.ParseBoardPresence("OK|PONG|pico-light 0.9.44|role=brain|arm=missing") == (true, false),
             "v0.9.44: a brain without an arm lights only the Pico LED");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-ver=2.8.2-S4|role=brain") == (true, true),
+            "native ABVM identity lights both Pico and ready Pro Micro indicators");
         Assert(v44mw.Contains("PicoPresent") && v44mw.Contains("ArmPresent")
                && v44vm.Contains("ParseBoardPresence") && v44vm.Contains("SendAsync(\"PING\")"),
             "v0.9.44: the status bar has Pico / Pro Micro indicators fed by the post-connect PING");
