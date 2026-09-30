@@ -338,7 +338,6 @@ static void service_mouse(uint32_t now) {
                    accepted ? "OK" : "MISS",profile,peak,
                    arm_uart_sound_threshold(),arm_uart_sound_minimum(),
                    arm_uart_sound_uses_calibration()?"saved":"project");
-            if (accepted) buzzer_play(BUZZER_CUE_CATCH, now);
         } else {
             printf("SOUND|timeout|profile=%u|peak=%u|threshold=%u|min=%u|config=%s|source=arm\n",
                    profile,peak,arm_uart_sound_threshold(),

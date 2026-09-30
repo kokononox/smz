@@ -450,6 +450,7 @@ public static class PlanExporter
         private void EmitWaitForSound(StepNode n)
         {
             var p=n.Props;int t=PropEx.GetInt(p,"threshold",90),m=PropEx.GetInt(p,"minDurationMs",60),to=PropEx.GetInt(p,"timeoutMs",20000);
+            if(!EmitSoundArmCue(n))return;
             if(PropEx.GetString(p,"responseRoute","inline")=="splash")
             {
                 int lo=PropEx.GetInt(p,"timeoutMinSec",18),hi=PropEx.GetInt(p,"timeoutMaxSec",22);
@@ -465,6 +466,28 @@ public static class PlanExporter
             if(peakMin<0||peakMax<1||peakMax>511||peakMin>peakMax){Error(n,"sound Peak range must satisfy 0 <= Min <= Max <= 511");return;}
             if(priority is < -100 or > 100){Error(n,"sound priority must be between -100 and 100");return;}
             Emit(n,new[]{"WSNDP|"+id+","+SoundBinding(n,id,t,m)+","+t+","+m+","+to+","+peakMin+","+peakMax+","+priority},"WSNDP");
+        }
+        private bool EmitSoundArmCue(StepNode n)
+        {
+            IReadOnlyList<string> commands;
+            try { commands=StepDefinitions.BuildArmBuzzerCommands(n.Props); }
+            catch(FormatException ex){Error(n,ex.Message);return false;}
+            if(commands.Count==0)return true;
+            foreach(var command in commands)
+            {
+                if(command.StartsWith("BEEP|",StringComparison.Ordinal))
+                {
+                    Lines.Add(command);Count("BEEP");
+                }
+                else if(command.StartsWith("DLY|",StringComparison.Ordinal)
+                        && int.TryParse(command[4..],NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,out var pause))
+                {
+                    Lines.Add("DELAY|"+pause+","+pause);Count("DELAY");
+                }
+            }
+            Lines.Add("DELAY|120,120");Count("DELAY");
+            return true;
         }
         private void EmitSplashListener(StepNode n)
             => Emit(n,new[]{"WPROFILE|splash,18000,22000"},"WPROFILE");

@@ -137,7 +137,9 @@ public partial class StepDialog : Window
 
             FormPanel.Children.Add(c);
 
-            if (_stepType == "buzzer" && f.Key == "pattern" && _previewBuzzer is not null)
+            if (((_stepType == "buzzer" && f.Key == "pattern")
+                 || (_stepType == "waitForSound" && f.Key == "armCuePattern"))
+                && _previewBuzzer is not null)
             {
                 var preview = new Wpf.Ui.Controls.Button
                 {
@@ -427,7 +429,9 @@ public partial class StepDialog : Window
         try
         {
             var values = ReadValues();
-            _ = StepDefinitions.BuildBuzzerCommands(values); // validate before touching the board
+            _ = _stepType == "waitForSound"
+                ? StepDefinitions.BuildArmBuzzerCommands(values)
+                : StepDefinitions.BuildBuzzerCommands(values); // validate before touching the board
             button.Content = await _previewBuzzer(values);
             await Task.Delay(900);
         }

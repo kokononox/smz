@@ -469,6 +469,9 @@ class Compiler:
         volume = integer(p.get("volume"), 100)
         if not 1 <= volume <= 100:
             raise AbvmError("buzzer volume must be 1..100 percent")
+        tempo = integer(p.get("tempo"), 100)
+        if not 25 <= tempo <= 400:
+            raise AbvmError("buzzer note speed must be 25..400 percent")
         envelope_name = str(p.get("envelope") or "sharp").strip().lower()
         envelopes = {"sharp": 0, "smooth": 1, "fade-in": 2, "fade-out": 3}
         if envelope_name not in envelopes:
@@ -491,6 +494,9 @@ class Compiler:
             if not 1 <= duration <= 60000 or not 0 <= pause <= 60000:
                 raise AbvmError(
                     "buzzer duration must be 1..60000 ms and pause 0..60000 ms")
+            duration = max(1, (duration * 100 + tempo // 2) // tempo)
+            if pause:
+                pause = max(1, (pause * 100 + tempo // 2) // tempo)
             self.emit(OP_BEEP, a=frequency, b=duration, c=tone_style)
             if pause:
                 self.emit(OP_DELAY, b=pause, c=pause)
@@ -591,6 +597,19 @@ class Compiler:
     def compile_watch(self, node: dict[str, Any], depth: int,
                       path: tuple[int, ...]) -> None:
         p = props(node)
+        arm_preset = str(p.get("armCuePreset") or "off").strip().lower()
+        if arm_preset != "off":
+            self.compile_buzzer({
+                "preset": arm_preset,
+                "volume": integer(p.get("armCueVolume"), 60),
+                "envelope": str(p.get("armCueEnvelope") or "smooth"),
+                "tempo": integer(p.get("armCueTempo"), 100),
+                "pattern": str(p.get("armCuePattern") or
+                               "880:100,40;1175:150"),
+            })
+            # The sound detector arms only after the cue and its acoustic tail,
+            # so the GP6 feedback cannot satisfy its own Catch threshold.
+            self.emit(OP_DELAY, b=120, c=120)
         profile = integer(p.get("calibrationId"), 1)
         lo = integer(p.get("timeoutMinSec")) * 1000
         hi = integer(p.get("timeoutMaxSec")) * 1000

@@ -3672,6 +3672,7 @@ public partial class MainViewModel : ObservableObject
         if (type == "mouseMove") pickPoint = PickPointOnScreen;
         if (type is "mouseMove" or "randomMousePosition") sampleMouse = SampleHandMovementAsync;
         if (type == "buzzer") previewBuzzer = PreviewBuzzerAsync;
+        if (type == "waitForSound") previewBuzzer = PreviewArmBuzzerAsync;
 
 
 
@@ -3688,12 +3689,23 @@ public partial class MainViewModel : ObservableObject
     }
 
     private async Task<string> PreviewBuzzerAsync(IReadOnlyDictionary<string, object?> values)
+        => await PreviewBuzzerCommandsAsync(StepDefinitions.BuildBuzzerCommands(values));
+
+    private async Task<string> PreviewArmBuzzerAsync(IReadOnlyDictionary<string, object?> values)
+    {
+        var commands = StepDefinitions.BuildArmBuzzerCommands(values);
+        if (commands.Count == 0)
+            throw new InvalidOperationException("ابتدا صدای مسلح‌شدن را از حالت off خارج کنید.");
+        return await PreviewBuzzerCommandsAsync(commands);
+    }
+
+    private async Task<string> PreviewBuzzerCommandsAsync(IReadOnlyList<string> commands)
     {
         if (Connection != ConnectionState.Connected || _bridge is null
             || _bridge.State != BridgeState.Connected)
             throw new InvalidOperationException("ابتدا برد را Connect کنید.");
 
-        foreach (string command in StepDefinitions.BuildBuzzerCommands(values))
+        foreach (string command in commands)
         {
             if (command.StartsWith("DLY|", StringComparison.Ordinal))
             {

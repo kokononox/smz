@@ -21,9 +21,8 @@ static const BuzzerTone guard_stop[] = {{392,180,0},{330,160,0},{262,260,60},{19
 static const BuzzerTone guard_pause[] = {{523,180,100},{523,180,100},{523,340,0}};
 static const BuzzerTone guard_resume[] = {{659,150,0},{784,150,0},{988,150,0},{784,150,0},{988,300,0}};
 
-/* Original general Buzzer step presets retained for Catch/Timeout. */
+/* Original warning preset retained for Timeout/Error. */
 static const BuzzerTone preset_warning[] = {{700,180,90},{700,180,90},{700,300,0}};
-static const BuzzerTone preset_success[] = {{900,120,70},{1300,220,0}};
 
 /* Exact legacy physical-calibration feedback. */
 static const uint16_t calibration_notes[] = {262,294,330,349,392,440};
@@ -39,7 +38,6 @@ static const BuzzerPattern patterns[] = {
     [BUZZER_CUE_STOP] = {guard_stop, ARRAY_COUNT(guard_stop), 3u},
     [BUZZER_CUE_PAUSE] = {guard_pause, ARRAY_COUNT(guard_pause), 3u},
     [BUZZER_CUE_RESUME] = {guard_resume, ARRAY_COUNT(guard_resume), 3u},
-    [BUZZER_CUE_CATCH] = {preset_success, ARRAY_COUNT(preset_success), 5u},
     [BUZZER_CUE_TIMEOUT] = {preset_warning, ARRAY_COUNT(preset_warning), 4u},
     [BUZZER_CUE_ERROR] = {preset_warning, ARRAY_COUNT(preset_warning), 7u},
     [BUZZER_CUE_CALIBRATION_OK] = {calibration_success, ARRAY_COUNT(calibration_success), 4u},
