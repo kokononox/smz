@@ -1,4 +1,3 @@
-# Combined Phase 7 board-owned runtime. It validates the exported bundle before routing.
 import gc
 import json
 import math
@@ -532,12 +531,6 @@ class PlanContext:
         state = self._sound_watch
         if state is None or state.get("scope") != profile_id:
             return None
-        # Do not service the global callback from inside the scoped waiter.
-        # The Game scheduler reaches sleep_ms() on every cooperative deadline,
-        # and sleep_ms() is the single owner of callback polling.  Calling the
-        # callback here as well nests Game -> WPROFILE -> callback -> Game while
-        # several RPKG/LOOP generators are already live.  CircuitPython's small
-        # pystack can exhaust even though the heap still has tens of KB free.
         return state.get("scope_result")
     def end_profile_wait(self):
         state = self._sound_watch
