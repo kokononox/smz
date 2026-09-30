@@ -138,6 +138,7 @@ jobs:
           PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
         run: |
           set -euo pipefail
+          exec > >(tee "$RUNNER_TEMP/abvm-pico-build.log") 2>&1
           python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj "$RUNNER_TEMP/program.abp" --routes Game Whisper
           cmake -S firmware/abvm/pico -B "$RUNNER_TEMP/abvm-pico" -G Ninja \
             -DPICO_BOARD=pico \
@@ -145,6 +146,16 @@ jobs:
           cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
           test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
           arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
+      - name: Report Pico build failure tail
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.RUNNER_TEMP + '/abvm-pico-build.log';
+            const log = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '(no log)';
+            const tail = log.split('\n').slice(-120).join('\n');
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'<!-- abvm-pico-failure -->\n**ABVM Pico build failure tail**\n```\n'+tail+'\n```'});
       - name: Build and flatten 30 patchable identity templates
         shell: bash
         env:
