@@ -1,3 +1,4 @@
+
 {
   "pipelineVersion": 6,
   "pipelines": {
@@ -99,6 +100,11 @@
                 "Type": "waitForSound",
                 "Props": {
                   "calibrationId": 2,
+                  "armCuePreset": "custom",
+                  "armCueVolume": 5,
+                  "armCueEnvelope": "sharp",
+                  "armCueTempo": 400,
+                  "armCuePattern": "880:100,40",
                   "timeoutMinSec": 1,
                   "timeoutMaxSec": 1
                 },
