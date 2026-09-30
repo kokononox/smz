@@ -4453,9 +4453,8 @@ class TestRunner
                 "Build 72: cursor ACK noise is hidden and unsupported sound replies never become threshold 300");
             Assert(repairedVm.Contains("SCAL|1000", StringComparison.Ordinal)
                    && !repairedVm.Contains("SCAL|2000", StringComparison.Ordinal)
-                   && repairedVm.Contains("d.BeginInvoke((Action)(() => LogLines.Add(line)))", StringComparison.Ordinal)
-                   && !repairedVm.Contains("d.Invoke(() => LogLines.Add(line))", StringComparison.Ordinal),
-                "Build 120: Classroom sound calibration respects ARM's 1000 ms limit and serial logging cannot block reply parsing");
+                   && repairedVm.Contains("dispatcher.BeginInvoke((Action)(() => Log(\"bridge: \" + line)))", StringComparison.Ordinal),
+                "Build 120: Classroom sound calibration respects ARM's 1000 ms limit and the serial callback cannot block reply parsing");
             Assert(modernCode.Contains("elif line.startswith(\"SCAL|\"):")
                    && modernCode.Contains("elif line.startswith(\"WSND|\"):")
                    && modernCode.Contains("reply = self.arm.send(line, ms / 1000.0 + 3)")

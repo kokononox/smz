@@ -229,10 +229,7 @@ public partial class MainViewModel : ObservableObject
 
         var d = System.Windows.Application.Current?.Dispatcher;
 
-        if (d is not null && !d.CheckAccess())
-            // Never make the serial-reader thread wait on WPF. Reply parsing happens on that
-            // same reader; a synchronous Invoke here can deadlock a modal calibration dialog.
-            d.BeginInvoke((Action)(() => LogLines.Add(line)));
+        if (d is not null && !d.CheckAccess()) d.Invoke(() => LogLines.Add(line));
         else LogLines.Add(line);
 
     }
@@ -2453,7 +2450,13 @@ public partial class MainViewModel : ObservableObject
         // Build 72 — cursor origin sync runs four times per second. Successful ACKs are
         // transport housekeeping, not operator diagnostics; keep errors and all other lines.
         if (line.Contains("OK|CURSOR", StringComparison.Ordinal)) return;
-        Log("bridge: " + line);
+        // PythonBoardBridge raises LineReceived on the serial-reader thread before it parses
+        // and completes the pending reply. Never synchronously wait for WPF from this callback:
+        // a modal tool awaiting that reply would otherwise create a reader/UI deadlock.
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+            dispatcher.BeginInvoke((Action)(() => Log("bridge: " + line)));
+        else Log("bridge: " + line);
     }
 
     // Build 71 — transport state is authoritative. A sidecar/COM failure must not leave

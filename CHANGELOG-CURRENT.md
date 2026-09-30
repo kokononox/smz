@@ -11,12 +11,12 @@ Classroom requested `SCAL|2000`, while the ARM calibration protocol and native P
 ### Change
 
 - Request a protocol-valid one-second `SCAL|1000` sample with a bounded four-second command timeout.
-- Changed cross-thread log delivery from blocking `Dispatcher.Invoke` to queued `Dispatcher.BeginInvoke`, so serial reply parsing never waits for the UI thread.
+- Changed the serial `LineReceived` callback to queue its WPF log update with `Dispatcher.BeginInvoke`, so reply parsing never waits for the UI thread; other logging semantics stay unchanged.
 - Kept the restored legacy Guard and physical light/sound calibration note sets unchanged.
 
 ### Validation
 
-- Added source contracts that reject `SCAL|2000`, require `SCAL|1000`, and forbid blocking dispatcher invocation in the log path.
+- Added source contracts that reject `SCAL|2000`, require `SCAL|1000`, and require queued dispatcher delivery in the serial callback.
 - Existing native SCAL proxy, firmware, Windows, and packaging gates remain enabled in CI.
 
 ### Next test
