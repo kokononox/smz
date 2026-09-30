@@ -151,6 +151,40 @@ int main(int argc, char **argv) {
                  !strcmp(event.reason,"light-whisper-cooldown") &&
                  vm.route_id==8u,
                  "light Whisper cooldown suppresses quick retrigger")) return 1;
+    /*
+     * Post-restart Guard skips Desktop, then requires the complete ordered
+     * Login -> Dashboard -> Loading -> Game sequence. Each accepted stage
+     * re-arms the operator watchdog; Game disarms it.
+     */
+    if (!require(guard_runtime_start_after_restart(10000u),
+                 "post-restart Guard start") ||
+        !require(guard_runtime_stage()==1u &&
+                 guard_runtime_expected_profile()==2u &&
+                 guard_runtime_watchdog_timeout_ms()==60000u,
+                 "post-restart expects Login/DC")) return 1;
+    if (!stable(&vm,2000u,11000u,4u,2u) ||
+        !require(guard_runtime_expected_profile()==3u,"expect Dashboard") ||
+        !stable(&vm,3000u,11200u,6u,3u) ||
+        !require(guard_runtime_expected_profile()==4u,"expect Loading") ||
+        !stable(&vm,4000u,11400u,7u,4u) ||
+        !require(guard_runtime_expected_profile()==5u,"expect Game") ||
+        !stable(&vm,5000u,11600u,8u,5u) ||
+        !require(guard_runtime_expected_profile()==0u,
+                 "Game disarms stage watchdog")) return 1;
+    if (!require(guard_runtime_start_after_restart(20000u),
+                 "post-restart Watchdog start")) return 1;
+    guard_runtime_service(&vm,80000u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_WATCHDOG_TRIPPED &&
+                 guard_runtime_paused() &&
+                 guard_runtime_watchdog_tripped() &&
+                 guard_runtime_expected_profile()==2u,
+                 "missing Login pauses Guard for operator")) return 1;
+    if (!require(guard_runtime_resume() &&
+                 !guard_runtime_paused() &&
+                 !guard_runtime_watchdog_tripped(),
+                 "manual Resume acknowledges Watchdog without skipping stage"))
+        return 1;
     guard_runtime_stop();
     if (!require(!guard_runtime_running(), "stop")) return 1;
     free(image);

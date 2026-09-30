@@ -29,7 +29,7 @@ public sealed class LightStateProfile
         && double.IsFinite(LuxTolerance) && LuxTolerance >= 0
         && StableDurationMs >= 0
         && double.IsFinite(HysteresisLux) && HysteresisLux >= 0
-        && LightCooldownMs is >= 0 and <= 600000
+        && LightCooldownMs is >= 0 and <= 3600000
         && CalibrationCue is >= 0 and <= 8;
 }
 

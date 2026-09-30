@@ -24,12 +24,14 @@ internal static class LightStateProfileStoreContract
             edited.Single(x => x.Id == "game").LuxCenter = 27.25;
             edited.Single(x => x.Id == "game").CalibrationCue = 2;
             edited.Single(x => x.Id == "whisper").LightCooldownMs = 12500;
+            edited.Single(x => x.Id == "whisper-repeat").LightCooldownMs = 3600000;
             LightStateProfileStore.Save(edited, path);
             var loaded = LightStateProfileStore.Load(path);
             Check(loaded.Single(x => x.Id == "targeted").LuxTolerance == 3.5
                   && loaded.Single(x => x.Id == "game").LuxCenter == 27.25
                   && loaded.Single(x => x.Id == "game").CalibrationCue == 2
-                  && loaded.Single(x => x.Id == "whisper").LightCooldownMs == 12500,
+                  && loaded.Single(x => x.Id == "whisper").LightCooldownMs == 12500
+                  && loaded.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 3600000,
                 "profile store round-trips calibration cue and optical cooldown");
 
             File.WriteAllText(path, "{not-json");

@@ -20,6 +20,7 @@ typedef struct CycleState {
     bool auto_resume;
     bool down_seen;
     bool up_timing;
+    bool held;
     uint8_t phase;
     uint8_t max_restarts;
     uint8_t last_host_state;
@@ -30,6 +31,7 @@ typedef struct CycleState {
     uint32_t usb_stable_ms;
     uint32_t deadline;
     uint32_t up_since;
+    uint32_t held_remaining_ms;
     uint32_t prng;
     CycleEvent pending;
     bool event_pending;
@@ -68,6 +70,8 @@ static void arm_run(uint32_t now,bool resumed) {
     cycle.deadline=now+duration;
     cycle.down_seen=false;
     cycle.up_timing=false;
+    cycle.held=false;
+    cycle.held_remaining_ms=0u;
     emit(resumed?CYCLE_EVENT_RESUMED:CYCLE_EVENT_ARMED);
     cycle.pending.seconds=duration/1000u;
     cycle.pending.range_min_seconds=cycle.run_min_ms/1000u;
@@ -109,6 +113,20 @@ bool cycle_runtime_restart_critical(void){
     return cycle.phase==CYCLE_AFTER||cycle.phase==CYCLE_WAIT_USB||
            cycle.phase==CYCLE_STARTUP;
 }
+void cycle_runtime_hold(uint32_t now) {
+    if(!cycle.available||cycle.held)return;
+    cycle.held=true;
+    cycle.held_remaining_ms=cycle.phase==CYCLE_RUN&&!reached(now,cycle.deadline)?
+        cycle.deadline-now:0u;
+}
+void cycle_runtime_continue(uint32_t now) {
+    if(!cycle.available||!cycle.held)return;
+    if(cycle.phase==CYCLE_RUN)
+        cycle.deadline=now+cycle.held_remaining_ms;
+    cycle.held=false;
+    cycle.held_remaining_ms=0u;
+}
+bool cycle_runtime_held(void){return cycle.held;}
 void cycle_runtime_manual_start(uint32_t now) {
     if(!cycle.available)return;
     (void)calibration_store_cycle_reset();
@@ -118,11 +136,13 @@ void cycle_runtime_manual_stop(void) {
     if(!cycle.available)return;
     (void)calibration_store_cycle_reset();
     cycle.phase=CYCLE_IDLE;cycle.deadline=0u;cycle.up_timing=false;
+    cycle.held=false;cycle.held_remaining_ms=0u;
     emit(CYCLE_EVENT_CANCELLED);
 }
 CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
                                   ArmHostUsbState host_state) {
     if(!cycle.available)return CYCLE_ACTION_NONE;
+    if(cycle.held)return CYCLE_ACTION_NONE;
     if(cycle.phase==CYCLE_RUN&&reached(now,cycle.deadline)){
         cycle.deadline=0u;emit(CYCLE_EVENT_DEADLINE);
         return CYCLE_ACTION_EXPIRE;
@@ -197,3 +217,4 @@ bool cycle_runtime_take_event(CycleEvent *event) {
 }
 uint16_t cycle_runtime_after_route(void){return cycle.after_route;}
 uint16_t cycle_runtime_startup_route(void){return cycle.startup_route;}
+uint8_t cycle_runtime_count(void){return calibration_store_cycle_count();}

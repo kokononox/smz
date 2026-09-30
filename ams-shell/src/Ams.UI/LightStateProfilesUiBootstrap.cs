@@ -127,7 +127,7 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text("بازه مؤثر", 11, "#AAB3C2"), 4);
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 5);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 6);
-        Add(row, Text("Cooldown نوری ms", 11, "#AAB3C2"), 7);
+        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 7);
         return row;
     }
 

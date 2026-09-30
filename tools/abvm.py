@@ -811,10 +811,14 @@ class Compiler:
         if not required_routes.issubset(compiled_routes):
             missing = sorted(required_routes - compiled_routes)
             raise AbvmError("Native Guard routes are missing: " + ",".join(map(str, missing)))
+        watchdog_minutes = integer(guard.get("stageWatchdogMinutes"), 2)
+        if watchdog_minutes not in range(1, 61):
+            raise AbvmError("Native Guard stage watchdog must be 1..60 minutes")
         packed = bytearray(GUARD_HEADER.pack(
-            2, len(expected),
+            3, len(expected),
             1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
-            0, max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
+            watchdog_minutes,
+            max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
         ranges = []
         for profile_id, (numeric_id, route_name) in expected.items():
             item = by_id[profile_id]
@@ -830,7 +834,7 @@ class Compiler:
                 raise AbvmError("Native Guard profile has a negative value: " + profile_id)
             low = max(0, int(round((center - tolerance) * 10)))
             high = int(round((center + tolerance) * 10))
-            if high > 10_000_000 or stable > 3_600_000 or cooldown > 600_000:
+            if high > 10_000_000 or stable > 3_600_000 or cooldown > 3_600_000:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
             if cue not in range(1, 9):
                 raise AbvmError("Native Guard calibration cue is out of range: " + profile_id)
@@ -1065,16 +1069,18 @@ class Verifier:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            profile_struct = GUARD_PROFILE if version == 2 else GUARD_PROFILE_V1
+            profile_struct = GUARD_PROFILE if version in (2, 3) else GUARD_PROFILE_V1
             if len(raw) != GUARD_HEADER.size + 8 * profile_struct.size:
                 raise AbvmError("invalid Native Guard descriptor size")
-            if version not in (1, 2) or count != 8 or mode not in (0, 1) or reserved or timeout < 250:
+            if version not in (1, 2, 3) or count != 8 or mode not in (0, 1) or \
+                    (version < 3 and reserved) or \
+                    (version == 3 and reserved not in range(1, 61)) or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
             ids = set()
             for index in range(count):
                 item = profile_struct.unpack_from(
                     raw, GUARD_HEADER.size + index * profile_struct.size)
-                if version == 2:
+                if version in (2, 3):
                     profile_id, cue, route_id, low, high, stable, hysteresis, cooldown = item
                 else:
                     profile_id, enabled, route_id, low, high, stable, hysteresis = item
@@ -1084,7 +1090,7 @@ class Verifier:
                 if profile_id not in range(1, 9) or profile_id in ids or \
                         cue not in range(1, 9) or route_id not in ROUTE_IDS.values() or \
                         low > high or stable > 3_600_000 or \
-                        hysteresis > 1_000_000 or cooldown > 600_000 or \
+                        hysteresis > 1_000_000 or cooldown > 3_600_000 or \
                         (profile_id not in (7, 8) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
                 ids.add(profile_id)

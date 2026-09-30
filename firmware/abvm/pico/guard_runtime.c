@@ -5,6 +5,7 @@
 
 #define GUARD_VERSION_V1 1u
 #define GUARD_VERSION_V2 2u
+#define GUARD_VERSION_V3 3u
 #define GUARD_PROFILE_COUNT 8u
 #define GUARD_PROFILE_SIZE_V1 20u
 #define GUARD_PROFILE_SIZE_V2 24u
@@ -46,6 +47,11 @@ typedef struct GuardState {
     uint32_t sensor_timeout_ms;
     uint32_t candidate_since;
     uint32_t last_good_sample_at;
+    uint32_t watchdog_timeout_ms;
+    uint32_t stage_started_at;
+    uint32_t watchdog_deadline;
+    bool watchdog_enabled;
+    bool watchdog_tripped;
     GuardProfile profiles[GUARD_PROFILE_COUNT];
     GuardRuntimeEvent pending;
     bool event_pending;
@@ -62,6 +68,20 @@ static uint32_t read_u32_le(const uint8_t *p) {
 }
 static bool reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
+}
+static uint8_t expected_profile(void) {
+    return guard.watchdog_enabled&&guard.stage>=1u&&guard.stage<5u?
+        (uint8_t)(guard.stage+1u):0u;
+}
+static void watchdog_advance(uint32_t now) {
+    if(!guard.watchdog_enabled)return;
+    if(guard.stage>=5u) {
+        guard.watchdog_enabled=false;
+        guard.watchdog_deadline=0u;
+        return;
+    }
+    guard.stage_started_at=now;
+    guard.watchdog_deadline=now+guard.watchdog_timeout_ms;
 }
 static GuardProfile *profile_by_id(uint8_t id);
 static void arm_light_whisper_cooldown(uint8_t profile_id,uint32_t now) {
@@ -148,10 +168,12 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
     if (profile_id == 2u) {
         if (guard.targeted_active || guard.stage >= 3u) {
             guard.stage = 2u;
+            watchdog_advance(now);
             execute(vm, profile_id, GUARD_ROUTE_DC, 2u, lux, now,
                     "dc-fallback-to-stage-2");
         } else if (guard.stage == 1u) {
             guard.stage = 2u;
+            watchdog_advance(now);
             execute(vm, profile_id, profile->route_id, 1u, lux, now,
                     "stage-1-to-stage-2");
         } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
@@ -166,6 +188,7 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             return;
         }
         guard.stage = profile_id;
+        watchdog_advance(now);
         execute(vm, profile_id, profile->route_id, 0u, lux, now,
                 "ordered-stage");
         return;
@@ -180,6 +203,7 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
                  "game-reentry-after-unknown");
         } else if (guard.stage == 4u) {
             guard.stage = 5u;
+            watchdog_advance(now);
             execute(vm, profile_id, profile->route_id, 0u, lux, now,
                     "stage-4-to-stage-5");
         } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
@@ -244,13 +268,18 @@ bool guard_runtime_init(const AbvmVm *vm) {
                             &payload, &size)) return false;
     (void)constant_id;
     uint8_t version=payload[0];
-    uint32_t profile_size=version==GUARD_VERSION_V2?
+    uint32_t profile_size=(version==GUARD_VERSION_V2||version==GUARD_VERSION_V3)?
         GUARD_PROFILE_SIZE_V2:GUARD_PROFILE_SIZE_V1;
-    if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2) ||
+    if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2&&
+         version!=GUARD_VERSION_V3) ||
         size != 8u + GUARD_PROFILE_COUNT * profile_size ||
-        payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u || payload[3])
+        payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u ||
+        (version<GUARD_VERSION_V3&&payload[3]) ||
+        (version==GUARD_VERSION_V3&&(!payload[3]||payload[3]>60u)))
         return false;
     guard.sample_mode = payload[2];
+    guard.watchdog_timeout_ms=version==GUARD_VERSION_V3?
+        (uint32_t)payload[3]*60000u:0u;
     guard.sensor_timeout_ms = read_u32_le(payload + 4u);
     if (guard.sensor_timeout_ms < 250u) return false;
     uint8_t seen = 0u;
@@ -258,13 +287,13 @@ bool guard_runtime_init(const AbvmVm *vm) {
         const uint8_t *item = payload + 8u + (uint32_t)i * profile_size;
         GuardProfile *profile = &guard.profiles[i];
         profile->id = item[0];
-        profile->calibration_cue=version==GUARD_VERSION_V2?item[1]:item[0];
+        profile->calibration_cue=version>=GUARD_VERSION_V2?item[1]:item[0];
         profile->route_id = read_u16_le(item + 2u);
         profile->low = read_u32_le(item + 4u);
         profile->high = read_u32_le(item + 8u);
         profile->stable_ms = read_u32_le(item + 12u);
         profile->hysteresis = read_u32_le(item + 16u);
-        profile->cooldown_ms=version==GUARD_VERSION_V2?
+        profile->cooldown_ms=version>=GUARD_VERSION_V2?
             read_u32_le(item+20u):0u;
         profile->next_allowed=0u;
         if ((version==GUARD_VERSION_V1&&item[1]!=1u) ||
@@ -272,7 +301,7 @@ bool guard_runtime_init(const AbvmVm *vm) {
             profile->id < 1u || profile->id > 8u ||
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id ||
-            profile->cooldown_ms>600000u ||
+            profile->cooldown_ms>3600000u ||
             (profile->id!=7u&&profile->id!=8u&&profile->cooldown_ms))
             return false;
         seen |= (uint8_t)(1u << (profile->id - 1u));
@@ -293,6 +322,10 @@ bool guard_runtime_start(uint32_t now) {
     guard.candidate_since = now;
     guard.last_good_sample_at = now;
     guard.event_pending = false;
+    guard.watchdog_enabled=false;
+    guard.watchdog_tripped=false;
+    guard.watchdog_deadline=0u;
+    guard.stage_started_at=now;
     for(uint8_t i=0;i<GUARD_PROFILE_COUNT;++i)
         guard.profiles[i].next_allowed=0u;
     return true;
@@ -303,6 +336,11 @@ bool guard_runtime_start_after_restart(uint32_t now) {
      * ordered checkpoint so Desktop is intentionally skipped and the next
      * stable Login/DC profile advances stage 1 -> 2. */
     guard.stage = 1u;
+    if(guard.watchdog_timeout_ms) {
+        guard.watchdog_enabled=true;
+        guard.stage_started_at=now;
+        guard.watchdog_deadline=now+guard.watchdog_timeout_ms;
+    }
     return true;
 }
 void guard_runtime_stop(void) {
@@ -313,6 +351,9 @@ void guard_runtime_stop(void) {
     guard.whisper_light_active = false;
     guard.whisper_light_route = 0u;
     guard.whisper_pending=false;
+    guard.watchdog_enabled=false;
+    guard.watchdog_tripped=false;
+    guard.watchdog_deadline=0u;
 }
 bool guard_runtime_pause(void) {
     if (!guard.running || guard.paused) return false;
@@ -322,10 +363,29 @@ bool guard_runtime_pause(void) {
 bool guard_runtime_resume(void) {
     if (!guard.running || !guard.paused) return false;
     guard.paused = false;
+    if(guard.watchdog_tripped) {
+        guard.watchdog_tripped=false;
+        guard.stage_started_at=0u;
+        guard.watchdog_deadline=0u;
+        guard.candidate=0u;
+    }
     return true;
 }
 void guard_runtime_service(AbvmVm *vm, uint32_t now) {
     if (!guard.running || guard.paused || !vm || vm->status == ABVM_STATUS_PAUSED) return;
+    if(guard.watchdog_enabled) {
+        if(!guard.watchdog_deadline) {
+            guard.stage_started_at=now;
+            guard.watchdog_deadline=now+guard.watchdog_timeout_ms;
+        } else if(reached(now,guard.watchdog_deadline)) {
+            guard.paused=true;
+            guard.watchdog_tripped=true;
+            if(vm->status==ABVM_STATUS_RUNNING)(void)abvm_pause(vm,now);
+            emit(GUARD_EVENT_WATCHDOG_TRIPPED,expected_profile(),0u,0u,0u,
+                 "expected-stage-timeout");
+            return;
+        }
+    }
     if(guard.whisper_pending) {
         if(vm->route_id==GUARD_ROUTE_RESTART||
            vm->route_id==GUARD_ROUTE_STARTUP||
@@ -443,8 +503,16 @@ bool guard_runtime_take_event(GuardRuntimeEvent *event) {
 }
 bool guard_runtime_running(void) { return guard.running; }
 bool guard_runtime_paused(void) { return guard.paused; }
+bool guard_runtime_watchdog_tripped(void) { return guard.watchdog_tripped; }
 uint8_t guard_runtime_active_profile(void) { return guard.active; }
 uint8_t guard_runtime_stage(void) { return guard.stage; }
+uint8_t guard_runtime_expected_profile(void) { return expected_profile(); }
+uint32_t guard_runtime_stage_elapsed(uint32_t now) {
+    return guard.watchdog_enabled?now-guard.stage_started_at:0u;
+}
+uint32_t guard_runtime_watchdog_timeout_ms(void) {
+    return guard.watchdog_timeout_ms;
+}
 uint8_t guard_runtime_calibration_cue(uint8_t profile_id) {
     GuardProfile *profile=profile_by_id(profile_id);
     return profile?profile->calibration_cue:profile_id;

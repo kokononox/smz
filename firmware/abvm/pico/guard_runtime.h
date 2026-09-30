@@ -11,6 +11,7 @@ typedef enum GuardRuntimeEventType {
     GUARD_EVENT_ROUTE = 2,
     GUARD_EVENT_DENIED = 3,
     GUARD_EVENT_FAULT = 4,
+    GUARD_EVENT_WATCHDOG_TRIPPED = 5,
 } GuardRuntimeEventType;
 
 typedef struct GuardRuntimeEvent {
@@ -36,8 +37,12 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux_tenths, uint32_t now);
 bool guard_runtime_take_event(GuardRuntimeEvent *event);
 bool guard_runtime_running(void);
 bool guard_runtime_paused(void);
+bool guard_runtime_watchdog_tripped(void);
 uint8_t guard_runtime_active_profile(void);
 uint8_t guard_runtime_stage(void);
+uint8_t guard_runtime_expected_profile(void);
+uint32_t guard_runtime_stage_elapsed(uint32_t now);
+uint32_t guard_runtime_watchdog_timeout_ms(void);
 uint8_t guard_runtime_calibration_cue(uint8_t profile_id);
 const char *guard_runtime_profile_name(uint8_t profile_id);
 bool guard_runtime_get_profile_range(uint8_t profile_id, uint32_t *low_tenths,
