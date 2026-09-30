@@ -7,6 +7,7 @@ using Ams.UI.Models;
 using Ams.UI.ViewModels;
 using WpfColor = System.Windows.Media.Color;
 using WpfColorConverter = System.Windows.Media.ColorConverter;
+using WpfComboBox = System.Windows.Controls.ComboBox;
 
 namespace Ams.UI;
 
@@ -186,12 +187,12 @@ internal static class LightStateProfilesUiBootstrap
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             Add(row, Text(profile.Name, 12, "#D9DEE7"), 0);
-            var selector = new ComboBox
+            var selector = new WpfComboBox
             {
                 ItemsSource = CueOptions, DisplayMemberPath = nameof(CueOption.Name),
                 SelectedValuePath = nameof(CueOption.Id), MinWidth = 250, Margin = new Thickness(4),
             };
-            selector.SetBinding(ComboBox.SelectedValueProperty, new Binding(nameof(profile.CalibrationCue))
+            selector.SetBinding(WpfComboBox.SelectedValueProperty, new Binding(nameof(profile.CalibrationCue))
             {
                 Source = profile, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
             });
