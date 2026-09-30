@@ -120,6 +120,7 @@ int main(int argc, char **argv) {
     if (!require(guard_runtime_take_event(&event) &&
                  event.type==GUARD_EVENT_ROUTE &&
                  event.route_id==5u && vm.route_id==5u &&
+                 guard_runtime_active_profile()==2u &&
                  guard_runtime_stage()==2u,
                  "stable DC preempts Whisper and starts recovery")) return 1;
     guard_runtime_stop();
