@@ -14,16 +14,19 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("#define BUZZER_PIN 6u", self.buzzer)
         self.assertIn("GPIO_FUNC_PWM", self.buzzer)
         self.assertIn("hardware_pwm", self.cmake)
-        self.assertIn("buzzer=legacy-presets-gp6", self.main)
+        self.assertIn("buzzer=legacy-calibration-gp6", self.main)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
         self.assertIn("static const BuzzerPattern patterns[]", self.buzzer)
         self.assertIn("next_priority < priority", self.buzzer)
         self.assertIn("void buzzer_service(uint32_t now)", self.buzzer)
-        self.assertIn("{1000,180,0}", self.buzzer)
-        self.assertIn("{1000,140,100},{1000,140,0}", self.buzzer)
-        self.assertIn("{700,180,90},{700,180,90},{700,300,0}", self.buzzer)
-        self.assertIn("{900,120,70},{1300,220,0}", self.buzzer)
+        self.assertIn("{784,160,0},{988,160,0},{1175,200,80},{1175,280,0}", self.buzzer)
+        self.assertIn("{392,180,0},{330,160,0},{262,260,60},{196,260,0}", self.buzzer)
+        self.assertIn("{523,180,100},{523,180,100},{523,340,0}", self.buzzer)
+        self.assertIn("{659,150,0},{784,150,0},{988,150,0},{784,150,0},{988,300,0}", self.buzzer)
+        self.assertIn("{262,294,330,349,392,440}", self.buzzer)
+        self.assertIn("{880,160,60},{1175,220,60},{1568,360,0}", self.buzzer)
+        self.assertIn("{220,140,80},{220,260,0}", self.buzzer)
         self.assertNotIn("sleep_ms", self.buzzer)
         self.assertNotIn("malloc", self.buzzer)
 
@@ -33,7 +36,11 @@ class AbvmBuzzerContractTests(unittest.TestCase):
                     "BUZZER_CUE_CATCH", "BUZZER_CUE_TIMEOUT",
                     "BUZZER_CUE_ERROR"):
             self.assertIn(cue, self.main)
-        self.assertIn("buzzer_play_stage(guard_event.stage, now)", self.main)
+        self.assertIn("service_calibration_cue(calibration_event, now)", self.main)
+        self.assertIn("buzzer_guard_transition(guard_event.profile_id, now)", self.main)
+        self.assertIn("start-at-current-state", self.main)
+        self.assertIn("selection_note(profile_id,false),90u", self.buzzer)
+        self.assertNotIn("buzzer_play_stage(guard_event.stage, now)", self.main)
         self.assertIn("buzzer_service(now)", self.main)
 
 

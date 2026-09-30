@@ -112,7 +112,7 @@ static void service_buttons(uint32_t now) {
 }
 
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-presets-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 6u : 0u);
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 6u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -156,6 +156,24 @@ static void service_cdc(uint32_t now) {
     }
 }
 static void service_keyboard(uint32_t now) { uint8_t lane; if (hid_keyboard_service(now, &lane) && !abvm_complete_action(&vm, lane, now)) printf("ERR|HID|complete|lane=%u\n", lane); }
+static bool light_cal_cue_active, sound_cal_cue_active;
+static uint8_t event_u8(const char *event,const char *key,uint8_t fallback) {
+    const char *p=strstr(event,key); if(!p)return fallback;
+    unsigned long value=strtoul(p+strlen(key),NULL,10);
+    return value>255u?fallback:(uint8_t)value;
+}
+static void service_calibration_cue(const char *event,uint32_t now) {
+    bool sound=strstr(event,"|SOUNDCAL|")!=NULL;
+    bool error=!strncmp(event,"ERR|",4);
+    uint8_t selection=event_u8(event,sound?"id=":"stage=",1u);
+    if(error){buzzer_calibration_save_error(now);return;}
+    if(strstr(event,"mode=exited")){buzzer_calibration_exit(now);if(sound)sound_cal_cue_active=false;else light_cal_cue_active=false;return;}
+    if(strstr(event,"mode=ready")){bool *seen=sound?&sound_cal_cue_active:&light_cal_cue_active;if(!*seen){*seen=true;buzzer_calibration_enter(selection,sound,now);}else buzzer_calibration_position(selection,sound,now);return;}
+    if(strstr(event,"mode=started")||strstr(event,"mode=silence")){buzzer_calibration_record_start(sound,now);return;}
+    if(sound&&strstr(event,"mode=sound")){buzzer_calibration_sound_target(now);return;}
+    if(!sound&&strstr(event,"mode=complete")){buzzer_calibration_stage_complete(selection,now);return;}
+    if(strstr(event,"mode=saved")){if(!sound&&selection==6u)buzzer_calibration_complete(now);else buzzer_calibration_save_success(now);}
+}
 static void service_light(uint32_t now) {
     light_sensor_service(&vm, now);
     if (light_sensor_take_fault()) {
@@ -167,14 +185,15 @@ static void service_light(uint32_t now) {
     char calibration_event[192];
     if (calibration_runtime_take_event(calibration_event,sizeof(calibration_event))) {
         printf("%s\n",calibration_event);
-        buzzer_play(!strncmp(calibration_event,"OK|",3) ? BUZZER_CUE_CALIBRATION_OK : BUZZER_CUE_ERROR, now);
+        service_calibration_cue(calibration_event, now);
     }
     if (!light_sensor_calibration_active()&&!calibration_runtime_active()) guard_runtime_service(&vm, now);
     GuardRuntimeEvent guard_event;
     if (guard_runtime_take_event(&guard_event)) {
         const char *profile = guard_runtime_profile_name(guard_event.profile_id);
         if (guard_event.type == GUARD_EVENT_ROUTE) {
-            buzzer_play_stage(guard_event.stage, now);
+            if (strcmp(guard_event.reason,"start-at-current-state"))
+                buzzer_guard_transition(guard_event.profile_id, now);
             printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
         } else if (guard_event.type == GUARD_EVENT_FAULT) {
             buzzer_play(BUZZER_CUE_ERROR, now);
@@ -265,7 +284,7 @@ int main(void) {
     if (!program_verified) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
-    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-presets-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-original-presets-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
+    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
 }

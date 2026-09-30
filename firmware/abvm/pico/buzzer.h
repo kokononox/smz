@@ -18,7 +18,16 @@ typedef enum BuzzerCue {
 void buzzer_init(void);
 void buzzer_service(uint32_t now);
 void buzzer_play(BuzzerCue cue, uint32_t now);
-void buzzer_play_stage(uint8_t stage, uint32_t now);
+void buzzer_guard_transition(uint8_t profile_id, uint32_t now);
+void buzzer_calibration_enter(uint8_t selection, bool sound, uint32_t now);
+void buzzer_calibration_position(uint8_t selection, bool sound, uint32_t now);
+void buzzer_calibration_record_start(bool sound, uint32_t now);
+void buzzer_calibration_sound_target(uint32_t now);
+void buzzer_calibration_stage_complete(uint8_t stage, uint32_t now);
+void buzzer_calibration_save_success(uint32_t now);
+void buzzer_calibration_save_error(uint32_t now);
+void buzzer_calibration_complete(uint32_t now);
+void buzzer_calibration_exit(uint32_t now);
 void buzzer_silence(void);
 bool buzzer_active(void);
 

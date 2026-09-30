@@ -1,3 +1,32 @@
+## ABVM native R20 — restore legacy Guard and calibration score
+
+### Problem observed
+
+The restored generic Buzzer presets still did not match the richer audio feedback used by the previous Guard, light calibration, and two-profile sound calibration systems.
+
+### Root cause
+
+The generic `short/double/warning/success` step presets were not the same contract as the legacy physical-control score embedded in the prior combined runtime.
+
+### Change
+
+- Restored exact Guard Start, Stop, Pause, and Resume patterns.
+- Restored six light-calibration position notes, record-start, stage-complete, save-success, save-error, all-profile-complete, and enter/exit melodies.
+- Restored sound-calibration ID 1/2 notes, silence-start and target-start tones, plus shared completion/error feedback.
+- Added a short 90 ms profile-specific cue for confirmed Guard transitions after the initial state, reusing the six calibration notes.
+- The initial `start-at-current-state` transition stays silent because the Guard Start melody already confirms activation.
+- Kept the GP6/S8050 wiring and nonblocking fixed-state playback.
+
+### Validation
+
+- Regression contracts assert every legacy frequency, duration, and pause.
+- Calibration events are mapped to the exact prior cue points.
+- The buzzer translation unit compiles with strict C11 warnings as errors; full Pico and Windows gates run in CI.
+
+### Next test
+
+Verify Guard Start/Stop/Pause/Resume, cycle through all six light-calibration profiles, and run both sound-calibration IDs. The audible sequences should match the previous system while CDC heartbeats continue without interruption.
+
 ## ABVM native R19 — restore original GP6 buzzer presets
 
 ### Problem observed
