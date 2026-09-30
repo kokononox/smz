@@ -102,6 +102,26 @@ int main(int argc, char **argv) {
     if (!stable(&vm, 2000u, 2900u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
+    /*
+     * Disconnect is the only optical profile allowed to preempt Whisper.
+     * Start directly at Game, enter a non-light Whisper, then hold DC for its
+     * configured stability window.
+     */
+    if (!require(guard_runtime_start(3100u), "restart Guard for DC priority") ||
+        !stable(&vm,5000u,3100u,8u,5u) ||
+        !require(abvm_interrupt_route(&vm,10u,3250u),
+                 "Whisper before DC")) return 1;
+    guard_runtime_observe(&vm,2000u,3300u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_STATE &&
+                 vm.route_id==10u,
+                 "DC candidate respects stability during Whisper")) return 1;
+    guard_runtime_observe(&vm,2000u,3400u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_ROUTE &&
+                 event.route_id==5u && vm.route_id==5u &&
+                 guard_runtime_stage()==2u,
+                 "stable DC preempts Whisper and starts recovery")) return 1;
     guard_runtime_stop();
     if (!require(!guard_runtime_running(), "stop")) return 1;
     free(image);

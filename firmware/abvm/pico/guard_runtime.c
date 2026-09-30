@@ -77,6 +77,17 @@ static bool inside(const GuardProfile *profile, uint32_t lux, bool widened) {
     }
     return lux >= low && lux <= high;
 }
+static GuardProfile *unique_match(uint32_t lux, uint8_t *matches_out) {
+    GuardProfile *match = NULL;
+    uint8_t matches = 0u;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i)
+        if (inside(&guard.profiles[i], lux, false)) {
+            match = &guard.profiles[i];
+            ++matches;
+        }
+    if (matches_out) *matches_out = matches;
+    return matches == 1u ? match : NULL;
+}
 static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
                  uint8_t context, uint32_t lux, const char *reason) {
     guard.pending.type = type;
@@ -327,17 +338,43 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
 void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
-    if (whisper_route_active(vm)) return;
+    if (whisper_route_active(vm)) {
+        /*
+         * A stable Login/DC scene is the sole exception to Whisper's optical
+         * lock: recovery must replace the transient overlay immediately.
+         * Desktop and every other scene remain ignored until Whisper ends.
+         */
+        uint8_t whisper_matches = 0u;
+        GuardProfile *whisper_match = unique_match(lux, &whisper_matches);
+        if (whisper_matches != 1u || !whisper_match ||
+            whisper_match->id != 2u) {
+            if (guard.candidate == 2u) guard.candidate = 0u;
+            return;
+        }
+        if (guard.active == 2u) {
+            guard.candidate = 0u;
+            return;
+        }
+        if (guard.candidate != 2u) {
+            guard.candidate = 2u;
+            guard.candidate_since = now;
+            emit(GUARD_EVENT_STATE, 2u, 0u, 0u, lux,
+                 "dc-candidate-during-whisper");
+            return;
+        }
+        if (!reached(now, guard.candidate_since +
+                     whisper_match->stable_ms)) return;
+        guard.active = 2u;
+        guard.candidate = 0u;
+        transition(vm, 2u, lux, now);
+        return;
+    }
     if (guard.whisper_light_active) {
         guard.whisper_light_active = false;
     }
     GuardProfile *active = profile_by_id(guard.active);
-    GuardProfile *match = NULL;
     uint8_t matches = 0u;
-    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i)
-        if (inside(&guard.profiles[i], lux, false)) {
-            match = &guard.profiles[i]; ++matches;
-        }
+    GuardProfile *match = unique_match(lux, &matches);
     if (matches != 1u) {
         if (active && inside(active, lux, true)) {
             guard.candidate = 0u;

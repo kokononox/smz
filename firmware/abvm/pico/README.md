@@ -41,6 +41,8 @@ ignores all optical scene changes—including a temporary return to Desktop—un
 the complete Whisper route finishes and the suspended route is restored. It
 then evaluates the latest sensor state normally. The rule applies regardless of
 whether the Whisper interrupt originated from light, sound, or manual control.
+The sole exception is a stable Login/DC profile: disconnect recovery has
+priority, cancels the transient Whisper overlay, and starts the DC route.
 
 ## Passive buzzer on GP6
 
