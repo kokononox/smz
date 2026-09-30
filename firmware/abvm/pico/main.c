@@ -62,6 +62,8 @@ typedef struct GlobalWhisperProfile {
 static GlobalWhisperProfile whisper_profiles[2];
 static bool global_sound_enabled;
 static uint16_t global_sound_threshold,global_sound_minimum;
+static bool pending_sound_whisper;
+static uint16_t pending_sound_profile,pending_sound_listener,pending_sound_peak;
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static bool parse_csv_u32(const char *text,uint32_t *values,size_t count) {
     if(!text||!values||!count)return false;
@@ -148,8 +150,49 @@ static bool whisper_interrupt_allowed(void) {
            vm.route_id!=WHISPER_REPEAT_ROUTE_ID &&
            !cycle_runtime_restart_critical();
 }
+static bool input_lock_active(void) {
+    return hid_keyboard_locked()||arm_uart_mouse_busy();
+}
+static GlobalWhisperProfile *global_whisper_by_id(uint16_t id) {
+    for(uint8_t i=0;i<2u;++i)
+        if(whisper_profiles[i].id==id)return &whisper_profiles[i];
+    return NULL;
+}
+static bool start_sound_whisper(GlobalWhisperProfile *selected,
+                                uint16_t listener,uint16_t peak,
+                                uint32_t now) {
+    if(!selected||!whisper_interrupt_allowed())return false;
+    if(selected->next_allowed&&(int32_t)(now-selected->next_allowed)<0) {
+        printf("MISS|WHISPER|reason=cooldown|profile=%u|remaining=%lu\n",
+               selected->id,(unsigned long)(selected->next_allowed-now));
+        return true;
+    }
+    if(!abvm_interrupt_route(&vm,selected->route_id,now))return false;
+    selected->next_allowed=selected->cooldown_ms?
+        now+selected->cooldown_ms:0u;
+    buzzer_play(selected->id==3u?
+        BUZZER_CUE_WHISPER_REPEAT:BUZZER_CUE_WHISPER,now);
+    printf("CONTROL|interrupt|route=%s|source=sound|listener=%u|profile=%u|peak=%u|range=%u-%u\n",
+           selected->id==3u?"WhisperRepeat":"Whisper",
+           listener,selected->id,peak,selected->threshold,selected->maximum);
+    return true;
+}
+static void service_pending_sound_whisper(uint32_t now) {
+    if(!pending_sound_whisper)return;
+    if(cycle_runtime_restart_critical()) {
+        pending_sound_whisper=false;
+        return;
+    }
+    if(input_lock_active())return;
+    GlobalWhisperProfile *selected=
+        global_whisper_by_id(pending_sound_profile);
+    if(start_sound_whisper(selected,pending_sound_listener,
+                           pending_sound_peak,now))
+        pending_sound_whisper=false;
+}
 static void service_global_sound_listener(uint32_t now) {
-    if(!global_sound_enabled||cycle_runtime_restart_critical()||
+    if(!global_sound_enabled||pending_sound_whisper||
+       cycle_runtime_restart_critical()||
        calibration_runtime_active()||ui_sound_watch_pending||
        vm.status!=ABVM_STATUS_RUNNING||
        vm.route_id==WHISPER_ROUTE_ID||
@@ -202,6 +245,7 @@ static void start_control(uint32_t now) {
 }
 static void stop_control(uint32_t now) {
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
+    pending_sound_whisper=false;
     ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
     cycle_runtime_manual_stop();
     printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
@@ -579,24 +623,17 @@ static void service_mouse(uint32_t now) {
                    peak<=whisper_profiles[i].maximum)
                     selected=&whisper_profiles[i];
             if (selected && whisper_interrupt_allowed()) {
-                if(selected->next_allowed &&
-                   (int32_t)(now-selected->next_allowed)<0) {
-                    printf("MISS|WHISPER|reason=cooldown|profile=%u|remaining=%lu\n",
-                           selected->id,
-                           (unsigned long)(selected->next_allowed-now));
+                if(input_lock_active()) {
+                    pending_sound_whisper=true;
+                    pending_sound_profile=selected->id;
+                    pending_sound_listener=profile;
+                    pending_sound_peak=peak;
+                    printf("PENDING|WHISPER|reason=input-locked|profile=%u|peak=%u\n",
+                           selected->id,peak);
                     return;
                 }
-                if(abvm_interrupt_route(&vm,selected->route_id,now)) {
-                    selected->next_allowed=selected->cooldown_ms?
-                        now+selected->cooldown_ms:0u;
-                    buzzer_play(selected->id==3u?
-                        BUZZER_CUE_WHISPER_REPEAT:BUZZER_CUE_WHISPER,now);
-                    printf("CONTROL|interrupt|route=%s|source=sound|listener=%u|profile=%u|peak=%u|range=%u-%u\n",
-                           selected->id==3u?"WhisperRepeat":"Whisper",
-                           profile,selected->id,peak,
-                           selected->threshold,selected->maximum);
+                if(start_sound_whisper(selected,profile,peak,now))
                     return;
-                }
             }
             uint16_t watch_profile=active_sound_watch_profile();
             bool accepted = watch_profile &&
@@ -698,6 +735,7 @@ static void service_cycle(uint32_t now) {
     CycleAction action=cycle_runtime_service(now,true,host);
     service_cycle_events();
     if(action==CYCLE_ACTION_EXPIRE) {
+        pending_sound_whisper=false;
         guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
         /* The active Game route was intentionally aborted.  Its actors still
          * owe physical release reports, but their completion tokens belong to
@@ -822,5 +860,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); service_light(now); service_buzzer_action(now); service_vm(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_vm(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

@@ -49,19 +49,31 @@ int main(int argc, char **argv) {
     vm.route_id=6u;vm.suspended.valid=false;
     guard_runtime_observe(&vm,5000u,1100u);
     guard_runtime_observe(&vm,5000u,1200u);
-    if (!stable(&vm,8000u,1300u,12u,5u)) return 1;
+    guard_runtime_set_input_locked(true);
+    guard_runtime_observe(&vm,8000u,1300u);
+    guard_runtime_observe(&vm,8000u,1400u);
+    GuardRuntimeEvent locked_event;
+    if(!require(guard_runtime_take_event(&locked_event),"locked Whisper event")||
+       !require(locked_event.type==GUARD_EVENT_STATE&&vm.route_id==6u,
+                "Whisper waits while input is locked"))return 1;
+    guard_runtime_set_input_locked(false);
+    guard_runtime_service(&vm,1500u);
+    if(!require(guard_runtime_take_event(&locked_event),"released Whisper event")||
+       !require(locked_event.type==GUARD_EVENT_ROUTE&&
+                locked_event.route_id==12u&&vm.route_id==12u,
+                "Whisper interrupts only after input release"))return 1;
     if (!require(vm.suspended.valid, "repeat light Whisper interrupts any non-restart route")) return 1;
     vm.route_id=8u;vm.suspended.valid=false;
-    guard_runtime_observe(&vm,5000u,1500u);
     guard_runtime_observe(&vm,5000u,1600u);
-    if (!stable(&vm, 6000u, 1800u, 9u, 5u)) return 1;
-    guard_runtime_observe(&vm, 5000u, 2000u);
+    guard_runtime_observe(&vm,5000u,1700u);
+    if (!stable(&vm, 6000u, 1900u, 9u, 5u)) return 1;
     guard_runtime_observe(&vm, 5000u, 2100u);
+    guard_runtime_observe(&vm, 5000u, 2200u);
     GuardRuntimeEvent event;
     if (!require(guard_runtime_take_event(&event), "targeted return") ||
         !require(event.type == GUARD_EVENT_STATE && event.route_id == 0u,
                  "Game does not replay after Targeted")) return 1;
-    if (!stable(&vm, 2000u, 2200u, 5u, 2u)) return 1;
+    if (!stable(&vm, 2000u, 2300u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
     guard_runtime_stop();
