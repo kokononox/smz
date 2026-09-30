@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse, hashlib
 from pathlib import Path
-SLOT_MAGIC=b"AMSABVMSLOT1\0\0\0\0"; SLOT_VERSION=1; SLOT_HEADER_SIZE=64; DEFAULT_CAPACITY=128*1024
+SLOT_MAGIC=b"AMSABVMSLOT1\0\0\0\0"; SLOT_VERSION=1; SLOT_HEADER_SIZE=64; DEFAULT_CAPACITY=512*1024
 
 def _rows(data:bytes,width:int=12)->str:
     return "\n".join("        "+", ".join(f"0x{v:02x}" for v in data[i:i+width])+"," for i in range(0,len(data),width))
