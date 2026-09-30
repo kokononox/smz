@@ -16,7 +16,7 @@ Classroom requested `SCAL|2000`, while the ARM calibration protocol and native P
 
 ### Validation
 
-- Verified the Classroom request now matches the ARM/Pico 1000 ms protocol limit and that `LineReceived` queues rather than blocks before reply parsing.
+- Updated the existing SCAL source contract to require the ARM/Pico 1000 ms protocol limit and verified that `LineReceived` queues rather than blocks before reply parsing.
 - Existing native SCAL proxy, firmware, Windows, and packaging gates remain enabled in CI.
 
 ### Next test

@@ -1904,8 +1904,8 @@ class TestRunner
         Console.WriteLine("--- Step 32: v0.9.32 sound calibrate fallback ---");
 
         var v32vm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
-        Assert(v32vm.Contains("SCAL|2000"),
-            "v0.9.32: primary SCAL path kept");
+        Assert(v32vm.Contains("SCAL|1000") && !v32vm.Contains("SCAL|2000"),
+            "Build 120: primary SCAL path stays within the ARM 1000 ms protocol limit");
         Assert(v32vm.Contains("calibrate probe: WSND"),
             "v0.9.32: WSND binary-search fallback exists");
         Assert(v32vm.Contains("calibrate (WSND fallback): silence floor"),
