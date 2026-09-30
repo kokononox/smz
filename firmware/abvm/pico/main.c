@@ -406,6 +406,12 @@ static void service_cycle(uint32_t now) {
     service_cycle_events();
     if(action==CYCLE_ACTION_EXPIRE) {
         guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
+        /* The active Game route was intentionally aborted.  Its actors still
+         * owe physical release reports, but their completion tokens belong to
+         * the old VM generation and must never be applied to the new After
+         * route. */
+        hid_keyboard_discard_completion();
+        arm_uart_mouse_discard_completion();
         if(!cycle_runtime_begin_after(now)){service_cycle_events();return;}
         service_cycle_events();
         if(!abvm_start_route(&vm,cycle_runtime_after_route(),now)){
@@ -413,6 +419,8 @@ static void service_cycle(uint32_t now) {
         }
     } else if(action==CYCLE_ACTION_START_STARTUP) {
         release_all_actors(now);
+        hid_keyboard_discard_completion();
+        arm_uart_mouse_discard_completion();
         if(abvm_start_route(&vm,cycle_runtime_startup_route(),now)) {
             cycle_runtime_begin_startup();service_cycle_events();
         } else {

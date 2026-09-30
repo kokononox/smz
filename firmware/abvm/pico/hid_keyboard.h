@@ -17,6 +17,7 @@ void hid_keyboard_init(void);
 HidKeyboardSubmit hid_keyboard_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 bool hid_keyboard_service(uint32_t now, uint8_t *completed_lane);
 void hid_keyboard_release_all(void);
+void hid_keyboard_discard_completion(void);
 bool hid_keyboard_busy(void);
 
 #endif

@@ -38,6 +38,7 @@ bool arm_uart_sound_uses_calibration(void);
 bool arm_uart_sound_calibration_start(uint32_t now, uint16_t duration_ms);
 bool arm_uart_sound_calibration_take(uint16_t *average, uint16_t *peak);
 void arm_uart_mouse_release_all(uint32_t now);
+void arm_uart_mouse_discard_completion(void);
 bool arm_uart_mouse_busy(void);
 bool arm_uart_mouse_releasing(void);
 bool arm_uart_sound_active(void);

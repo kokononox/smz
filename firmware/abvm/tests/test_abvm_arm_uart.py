@@ -29,6 +29,7 @@ class AbvmArmUartContractTests(unittest.TestCase):
     def test_release_all_is_idempotent_while_halt_is_pending(self):
         self.assertIn("state==ARM_FAULT || state==ARM_HALT", self.arm)
         self.assertIn('state==ARM_IDLE&&!strcmp(rx,"OK|HALT")', self.arm)
+        self.assertIn("arm_uart_mouse_discard_completion", self.arm)
 
     def test_parallel_sound_and_mouse_use_bounded_backpressure(self):
         self.assertIn("deferred_mouse_pending", self.arm)

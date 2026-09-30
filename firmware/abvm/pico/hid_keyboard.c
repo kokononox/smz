@@ -350,5 +350,6 @@ void hid_keyboard_release_all(void) {
     if (actor.phase!=ACTOR_IDLE) { actor.completion_pending=true; actor.completion_lane=actor.lane; }
     memset(actor.persistent_keys,0,sizeof(actor.persistent_keys)); memset(actor.report_keys,0,sizeof(actor.report_keys)); actor.persistent_modifiers=0; actor.report_modifiers=0; actor.phase=ACTOR_IDLE; actor.release_pending=true;
 }
+void hid_keyboard_discard_completion(void){actor.completion_pending=false;}
 
 bool hid_keyboard_busy(void) { return actor.phase!=ACTOR_IDLE; }

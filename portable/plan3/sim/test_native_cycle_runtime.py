@@ -55,6 +55,7 @@ pico = root / "firmware/abvm/pico"
 cycle = (pico / "cycle_runtime.c").read_text(encoding="utf-8")
 main = (pico / "main.c").read_text(encoding="utf-8")
 arm = (pico / "arm_uart_mouse.c").read_text(encoding="utf-8")
+keyboard = (pico / "hid_keyboard.c").read_text(encoding="utf-8")
 store = (pico / "calibration_store.c").read_text(encoding="utf-8")
 guard = (pico / "guard_runtime.c").read_text(encoding="utf-8")
 
@@ -65,6 +66,10 @@ assert "EVT|CYCLE|deadline|action=after" in main
 assert "startup-complete|next=login-or-dc|desktop=skip" in main
 assert "EVT|HOSTUSB|DOWN" in arm and "EVT|HOSTUSB|SUSPEND" in arm
 assert "EVT|HOSTUSB|UP" in arm
+assert "hid_keyboard_discard_completion" in keyboard
+assert "arm_uart_mouse_discard_completion" in arm
+assert "hid_keyboard_discard_completion();" in main
+assert "arm_uart_mouse_discard_completion();" in main
 assert "cycle_armed" in store and "cycle_count" in store
 assert "guard_runtime_start_after_restart" in guard and "guard.stage = 1u" in guard
 

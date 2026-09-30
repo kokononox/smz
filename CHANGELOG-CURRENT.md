@@ -1,3 +1,11 @@
+## ABVM native R27 — generation-safe cycle boundary
+
+At natural cycle expiry, the physical keyboard and mouse release reports still
+run, but completion tokens belonging to the aborted Game VM generation are now
+discarded before the After route starts. This removes the observed
+`ERR|HID|complete|lane=0` boundary warning and prevents any stale actor
+completion from being applied to After or Startup.
+
 ## ABVM native R26 — approved persistent After/Startup cycle
 
 ### Source contract

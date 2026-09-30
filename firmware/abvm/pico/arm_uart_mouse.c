@@ -319,6 +319,7 @@ void arm_uart_mouse_release_all(uint32_t now) {
         if (!queue_payload("HALT",now,ARM_HALT)) set_fault("halt-frame");
     } else halt_pending=true;
 }
+void arm_uart_mouse_discard_completion(void){completion_pending=false;}
 bool arm_uart_mouse_busy(void) { return state!=ARM_IDLE||completion_pending; }
 bool arm_uart_mouse_releasing(void) { return state==ARM_HALT; }
 bool arm_uart_sound_active(void) { return sound_pending||sound_active||state==ARM_SOUND_ARM||state==ARM_SOUND_CAL; }
