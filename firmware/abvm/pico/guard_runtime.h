@@ -37,5 +37,6 @@ bool guard_runtime_paused(void);
 uint8_t guard_runtime_active_profile(void);
 uint8_t guard_runtime_stage(void);
 const char *guard_runtime_profile_name(uint8_t profile_id);
+bool guard_runtime_set_profile_range(uint8_t profile_id, uint32_t low_tenths, uint32_t high_tenths);
 
 #endif

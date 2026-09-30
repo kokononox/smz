@@ -10,19 +10,23 @@
 #include "hid_keyboard.h"
 #include "light_sensor.h"
 #include "guard_runtime.h"
+#include "calibration_runtime.h"
+#include "calibration_store.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
 #define BUTTON_PAUSE_PIN 3u
 #define BUTTON_START_STOP_PIN 4u
 #define BUTTON_DEBOUNCE_MS 30u
+#define BUTTON_LONG_MS 3000u
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
 
-typedef struct Button { uint pin; bool raw, stable; uint32_t changed_at; } Button;
+typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
+typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
 static AbvmVm vm;
-static Button pause_button = {BUTTON_PAUSE_PIN, false, false, 0};
-static Button start_button = {BUTTON_START_STOP_PIN, false, false, 0};
+static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
+static Button start_button = {.pin=BUTTON_START_STOP_PIN};
 static char command[96];
 static size_t command_length;
 static bool arm_fault_reported;
@@ -41,6 +45,7 @@ static void print_status(void) {
 }
 static void release_all_actors(uint32_t now) { hid_keyboard_release_all(); arm_uart_mouse_release_all(now); light_sensor_cancel_watch(now); }
 static void start_control(uint32_t now) {
+    if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
     if (!arm_uart_mouse_ready()) {
         printf("ERR|GUARD|ARM|ready=0|version=%s|detail=%s\n", arm_uart_mouse_version(), arm_uart_mouse_fault());
         return;
@@ -79,12 +84,37 @@ static void toggle_start_stop(uint32_t now) {
         vm.status == ABVM_STATUS_PAUSED) stop_control(now);
     else start_control(now);
 }
-static bool button_pressed(Button *button, uint32_t now) {
-    bool raw = !gpio_get(button->pin); if (raw != button->raw) { button->raw = raw; button->changed_at = now; }
-    if (raw != button->stable && (uint32_t)(now - button->changed_at) >= BUTTON_DEBOUNCE_MS) { button->stable = raw; return raw; }
-    return false;
+static ButtonEvent button_event(Button *button,uint32_t now) {
+    bool raw=!gpio_get(button->pin);
+    if(raw!=button->raw){button->raw=raw;button->changed_at=now;}
+    if(raw!=button->stable&&(uint32_t)(now-button->changed_at)>=BUTTON_DEBOUNCE_MS){
+        button->stable=raw;
+        if(raw){button->pressed_at=now;button->long_sent=false;button->consumed=false;return BUTTON_DOWN;}
+        if(button->consumed)return BUTTON_NONE;
+        return button->long_sent?BUTTON_NONE:BUTTON_SHORT;
+    }
+    if(button->stable&&!button->long_sent&&(uint32_t)(now-button->pressed_at)>=BUTTON_LONG_MS){
+        button->long_sent=true;return BUTTON_LONG;
+    }
+    return BUTTON_NONE;
 }
-static void service_buttons(uint32_t now) { if (button_pressed(&pause_button, now)) toggle_pause(now); if (button_pressed(&start_button, now)) toggle_start_stop(now); }
+static void service_buttons(uint32_t now) {
+    ButtonEvent yellow=button_event(&pause_button,now),blue=button_event(&start_button,now);
+    if(calibration_runtime_active()){
+        if(blue==BUTTON_SHORT)calibration_runtime_blue_short(now);
+        else if(blue==BUTTON_LONG)calibration_runtime_blue_long(now);
+        if(yellow==BUTTON_SHORT)calibration_runtime_yellow_short(now);
+        else if(yellow==BUTTON_LONG)calibration_runtime_yellow_long(now);
+        return;
+    }
+    bool running=guard_runtime_running()||vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED;
+    if(blue==BUTTON_DOWN&&running){stop_control(now);start_button.consumed=true;}
+    else if(blue==BUTTON_LONG&&!running){calibration_runtime_blue_long(now);start_button.consumed=true;}
+    else if(blue==BUTTON_SHORT&&!running)start_control(now);
+    if(yellow==BUTTON_LONG&&!running){calibration_runtime_yellow_long(now);pause_button.consumed=true;}
+    else if(yellow==BUTTON_SHORT)toggle_pause(now);
+}
+
 static void execute_command(char *line, uint32_t now) {
     if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-ver=%s|profiles=%u|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_mouse_version(), guard_runtime_available() ? 6u : 0u);
     else if (!strcmp(line, "STATUS")) print_status();
@@ -118,7 +148,7 @@ static void execute_command(char *line, uint32_t now) {
     else if (!strcmp(line, "STOP") || !strcmp(line, "GUARD|OFF") ||
              !strcmp(line, "HALT") || !strcmp(line, "HALT|SILENT")) stop_control(now);
     else if (!strcmp(line, "CALSTATUS"))
-        printf("OK|CALSTATUS|revision=native-abp|source=abp|count=%u|last_error=none\n", guard_runtime_available() ? 6u : 0u);
+        printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 6u : 0u, calibration_runtime_mode());
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strncmp(line, "SOUND ", 6)) { uint16_t profile = (uint16_t)strtoul(line + 6, NULL, 10); printf("%s|SOUND|profile=%u\n", abvm_sound_detected(&vm, profile, now) ? "OK" : "MISS", profile); }
     else if (*line) printf("ERR|COMMAND|unknown=%s\n", line);
@@ -136,7 +166,10 @@ static void service_light(uint32_t now) {
         printf("ERR|LIGHT|sensor-lost\n");
         guard_runtime_stop(); abvm_stop(&vm, now);
     }
-    if (!light_sensor_calibration_active()) guard_runtime_service(&vm, now);
+    calibration_runtime_service(now);
+    char calibration_event[192];
+    if (calibration_runtime_take_event(calibration_event,sizeof(calibration_event))) printf("%s\n",calibration_event);
+    if (!light_sensor_calibration_active()&&!calibration_runtime_active()) guard_runtime_service(&vm, now);
     GuardRuntimeEvent guard_event;
     if (guard_runtime_take_event(&guard_event)) {
         const char *profile = guard_runtime_profile_name(guard_event.profile_id);
@@ -148,7 +181,7 @@ static void service_light(uint32_t now) {
             printf("EVT|GUARD|state=%s|stage=%u|lux=%lu.%lu|reason=%s\n", profile, guard_event.stage, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
     }
     LightCalibrationResult result;
-    if (light_sensor_calibration_take(&result)) {
+    if (!calibration_runtime_active() && light_sensor_calibration_take(&result)) {
         if (result.valid)
             printf("OK|LCAL|min=%lu|max=%lu|avg=%lu|samples=%lu\n", (unsigned long)result.minimum_lux, (unsigned long)result.maximum_lux, (unsigned long)result.average_lux, (unsigned long)result.samples);
         else printf("ERR|NOSENSOR|LCAL\n");
@@ -217,6 +250,7 @@ int main(void) {
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     bool program_verified = abvm_init(&vm, program, program_size);
     bool guard_available = program_verified && guard_runtime_init(&vm);
+    if (program_verified) calibration_runtime_init(&vm);
     /* Do not expose a half-ready USB device while a large patched ABP image is
      * being hashed and structurally verified. Attach only after boot work. */
     tusb_init();
@@ -226,6 +260,6 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
-    printf("READY|keys=GP3-pause,GP4-guard-start-stop|arm=UART0-GP16-GP17-57600|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|cdc=PING,STATUS,LUX?,LCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_vm(now); sleep_ms(1); }
 }

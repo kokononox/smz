@@ -24,6 +24,8 @@ ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, u
 ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane);
 bool arm_uart_sound_take(uint16_t *profile, bool *detected, uint16_t *peak);
+bool arm_uart_sound_calibration_start(uint32_t now, uint16_t duration_ms);
+bool arm_uart_sound_calibration_take(uint16_t *average, uint16_t *peak);
 void arm_uart_mouse_release_all(uint32_t now);
 bool arm_uart_mouse_busy(void);
 bool arm_uart_mouse_releasing(void);
