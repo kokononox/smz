@@ -1,3 +1,17 @@
+## ABVM native R29 — single-stage light save and adaptive overlap fit
+
+- Each five-second Native light sample is now saved immediately; calibrating
+  the other five stages or pressing Yellow a second time is no longer required.
+- Ported the approved adaptive overlap policy: profile centers remain fixed,
+  the new candidate shrinks first, then only the conflicting neighbour, with a
+  0.3-lux integer-safe gap and a 0.5-lux minimum half-width.
+- Candidate and adjusted neighbours are committed in one dual-sector,
+  CRC-verified transaction while unrelated light, sound, and cycle values are
+  preserved.
+- `CAL|mode=saved` now reports whether fitting occurred and how many neighbours
+  changed. Irreconcilably close centers return `centers-too-close` without
+  changing flash or active Guard ranges.
+
 ## ABVM native R28 — expressive Buzzer step and live preview
 
 - Expanded Buzzer presets with notification, error, rising, and falling sounds.

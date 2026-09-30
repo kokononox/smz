@@ -88,8 +88,27 @@ bool calibration_store_light_get(uint8_t id,uint32_t *low,uint32_t *high){
 }
 bool calibration_store_light_set(uint8_t id,uint32_t low,uint32_t high){
     if(id<1u||id>6u||low>high||high>1000000u)return false;
-    uint8_t i=id-1u;current.payload.light_low[i]=low;current.payload.light_high[i]=high;
-    current.payload.light_mask|=(uint8_t)(1u<<i);return persist();
+    uint32_t lows[6],highs[6];
+    memcpy(lows,current.payload.light_low,sizeof(lows));
+    memcpy(highs,current.payload.light_high,sizeof(highs));
+    lows[id-1u]=low;highs[id-1u]=high;
+    return calibration_store_light_update((uint8_t)(1u<<(id-1u)),lows,highs);
+}
+bool calibration_store_light_update(uint8_t update_mask,const uint32_t lows[6],
+                                    const uint32_t highs[6]){
+    if(!update_mask||!lows||!highs||(update_mask&0xc0u))return false;
+    for(uint8_t i=0;i<6u;++i)
+        if((update_mask&(1u<<i))&&(lows[i]>highs[i]||highs[i]>1000000u))
+            return false;
+    CalibrationRecord before=current;
+    uint32_t before_offset=active_offset;
+    for(uint8_t i=0;i<6u;++i)if(update_mask&(1u<<i)){
+        current.payload.light_low[i]=lows[i];
+        current.payload.light_high[i]=highs[i];
+    }
+    current.payload.light_mask|=update_mask;
+    if(persist())return true;
+    current=before;active_offset=before_offset;return false;
 }
 bool calibration_store_sound_get(uint16_t id,uint16_t *threshold,uint16_t *minimum){
     if(id<1u||id>2u||!(current.payload.sound_mask&(1u<<(id-1u)))||!threshold||!minimum)return false;

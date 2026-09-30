@@ -286,6 +286,13 @@ const char *guard_runtime_profile_name(uint8_t profile_id) {
     return profile_id <= 6u ? names[profile_id] : "invalid";
 }
 
+bool guard_runtime_get_profile_range(uint8_t profile_id,uint32_t *low_tenths,
+                                     uint32_t *high_tenths) {
+    GuardProfile *profile=profile_by_id(profile_id);
+    if(!profile||!low_tenths||!high_tenths)return false;
+    *low_tenths=profile->low;*high_tenths=profile->high;return true;
+}
+
 bool guard_runtime_set_profile_range(uint8_t profile_id,uint32_t low_tenths,uint32_t high_tenths) {
     GuardProfile *profile=profile_by_id(profile_id);
     if(!profile||low_tenths>high_tenths||high_tenths>1000000u)return false;
