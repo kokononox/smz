@@ -41,6 +41,35 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("state==ARM_IDLE&&halt_pending", self.arm)
         self.assertNotIn('queue_payload(command,now,ARM_MOVE)) return ARM_MOUSE_INVALID;\n    lane=', self.arm)
 
+    def test_native_rmouse_preserves_human_motion_controls(self):
+        for key in (
+            "x", "y", "w", "h",
+            "curveMinPct", "curveMaxPct",
+            "moveTimeMin", "moveTimeMax",
+            "pauseBeforeMin", "pauseBeforeMax",
+            "pauseAfterMin", "pauseAfterMax",
+            "midPauseChance", "midPauseMin", "midPauseMax",
+            "idleEveryMin", "idleEveryMax",
+            "idlePauseMin", "idlePauseMax",
+            "overshootChance",
+        ):
+            self.assertIn(f'"{key}"', self.arm)
+        self.assertIn("HUMAN_PATH_BEFORE", self.arm)
+        self.assertIn("HUMAN_PATH_MOVE", self.arm)
+        self.assertIn("HUMAN_PATH_CORRECT", self.arm)
+        self.assertIn("HUMAN_PATH_AFTER", self.arm)
+        self.assertIn("q16_bezier", self.arm)
+        self.assertIn("smooth_q16", self.arm)
+        self.assertIn("human_path.mid_pause_ms", self.arm)
+        self.assertIn("human_moves_since_idle", self.arm)
+        self.assertIn("human_path.correction_steps", self.arm)
+        self.assertIn("target_x - human_virtual_x", self.arm)
+        self.assertNotIn(
+            'snprintf(command,sizeof(command),"MMOVE|%ld,%ld,rel,2",'
+            '(long)dx,(long)dy)',
+            self.arm,
+        )
+
     def test_physical_light_and_sound_calibration_are_persistent(self):
         self.assertIn("BUTTON_LONG_MS 3000u", self.main)
         self.assertIn("calibration_runtime_blue_long", self.main)
