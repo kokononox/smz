@@ -1,3 +1,30 @@
+## ABVM native R18 — bounded Sound/Mouse backpressure and GP6 buzzer
+
+### Problem observed
+
+On real hardware, Route 8 cast once and then stopped with `ERR|ARM|submit|lane=0|reason=2` immediately after the parallel sound watch armed.
+
+### Root cause
+
+The UART actor had a one-command deferred mouse queue, but an early `state != ARM_IDLE` guard rejected the exact Sound-arm/Mouse overlap that the queue was intended to serialize.
+
+### Change
+
+- Admit one bounded deferred mouse command behind an in-flight Move or Sound-arm frame while still rejecting Probe, calibration, Halt, fault, and queue overflow.
+- Add an allocation-free, nonblocking passive-piezo driver on GP6 using hardware PWM, continuous frequency sweeps, and attack/release envelopes.
+- Add prioritized smooth and patterned cues for Start/Stop, Pause/Resume, Guard stages 1–6, accepted Splash/catch, timeout, calibration success, and faults.
+- Keep the buzzer fail-independent: no delay or sleep is introduced into USB, HID, UART, sensor, or VM service paths.
+
+### Validation
+
+- Added a regression contract that rejects the old unreachable deferred-queue guard.
+- Added buzzer contracts for GP6, PWM, bounded priority preemption, and the absence of sleeping/blocking calls.
+- The buzzer translation unit compiles locally with `-std=c11 -Wall -Wextra -Werror`; full Pico SDK and Windows gates run in CI.
+
+### Next test
+
+Flash the next UF2, start Guard in Game, and allow at least three fishing casts. Each Splash should produce the catch cue and continue the loop without `ERR|ARM|submit|reason=2`; stage, Pause/Resume, timeout, and Stop cues should remain responsive while COM telemetry continues.
+
 ## ABVM phase 1 R5 — Pico SDK bring-up UF2
 
 - Added a Pico SDK target that embeds one verified `program.abp` directly in

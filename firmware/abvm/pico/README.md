@@ -27,7 +27,13 @@ The same native BH1750 actor serves read-only `LUX?` telemetry and asynchronous 
 
 A typed `GUARD` constant embeds the six calibrated optical profiles exported by Classroom Studio. The allocation-free global Guard applies unique-range classification, per-profile stability, hysteresis, sensor freshness, ordered Desktop → Login → Dashboard → Loading → Game progression, Targeted as a Game side-state, and the dedicated DC fallback route. GP4 or `GUARD|ON` starts Guard at the physical state currently visible; `GUARD|OFF`/`HALT` stops it. Missing/ambiguous light never invents a state, sensor timeout stops execution, and every accepted transition starts the matching verified ABVM route.
 
-Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART sound watch, nonblocking BH1750 Light Watch/calibration, global six-profile Guard routing, HALT on every release boundary, GP3 Pause/Resume, GP4 Guard Start/Stop, Whisper interrupts, and fail-closed boot/transport behavior.
+Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART sound watch, nonblocking BH1750 Light Watch/calibration, global six-profile Guard routing, HALT on every release boundary, GP3 Pause/Resume, GP4 Guard Start/Stop, Whisper interrupts, nonblocking GP6 passive-buzzer cues, and fail-closed boot/transport behavior.
+
+## Passive buzzer on GP6
+
+The adapter drives a passive piezo buzzer from GP6 with hardware PWM and a nonblocking bounded pattern sequencer. The driver supports fixed tones plus continuous frequency glides with a 4 ms update cadence and attack/release envelopes. Distinct cues cover Guard start/stop, Pause/Resume, stages 1–6, accepted Splash/catch, sound timeout, calibration success, and faults. This produces a smooth, continuous piezo sound rather than chopped note fragments. It is still a PWM waveform at GP6; a true analog sine requires an external low-pass/output stage. Higher-priority catch/fault cues preempt informational cues; no buzzer path sleeps or stalls USB, UART, HID, sensors, or the VM.
+
+For a small piezo element, connect signal through a current-limiting resistor to GP6 and the other lead to GND. For a magnetic buzzer or any module whose current can exceed the GPIO rating, use an NPN/MOSFET driver (and a flyback diode when applicable) with common ground; do not power it directly from GP6.
 
 ## Build one identity
 
