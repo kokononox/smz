@@ -20,6 +20,9 @@ public static class StepTextsFa
         ["title"] = "عنوان مجموعه (خالی = نام پیش‌فرض)",
         // ── shared human-mouse fields (mouseMove + findImage approach + randomMousePosition) ──
         ["human"] = "حرکت انسانی (مسیر WindMouse + مکث‌ها سمت اپ — خاموش = پرش فوری برد)",
+        ["motionIntent"] = "نوع حرکت (targetRegion = رفتن به ناحیه هدف · microTwitch = ریزحرکت · mediumTwitch = حرکت متوسط)",
+        ["twitchMinPx"] = "شعاع نسبی حرکت — حداقل (px)",
+        ["twitchMaxPx"] = "شعاع نسبی حرکت — حداکثر (px)",
         ["pauseBeforeMin"] = "مکث پیش از حرکت — حداقل (ms)",
         ["pauseBeforeMax"] = "مکث پیش از حرکت — حداکثر (ms)",
         ["pauseAfterMin"] = "مکث پس از رسیدن — حداقل (ms)",
