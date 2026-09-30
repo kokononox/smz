@@ -1,3 +1,28 @@
+## ABVM native R22 — responsive Classroom sound calibration
+
+### Problem observed
+
+Pressing Calibrate in the Wait For Sound dialog played the calibration-exit cue, then Classroom Studio became unresponsive until it was closed.
+
+### Root cause
+
+Classroom requested `SCAL|2000`, while the ARM calibration protocol and native Pico proxy accept at most 1000 ms, so the request was rejected and entered the slower legacy-probe path. In addition, the serial reader synchronously invoked the WPF dispatcher before parsing each reply, creating a reverse wait between the modal UI and the reply reader.
+
+### Change
+
+- Request a protocol-valid one-second `SCAL|1000` sample with a bounded four-second command timeout.
+- Changed cross-thread log delivery from blocking `Dispatcher.Invoke` to queued `Dispatcher.BeginInvoke`, so serial reply parsing never waits for the UI thread.
+- Kept the restored legacy Guard and physical light/sound calibration note sets unchanged.
+
+### Validation
+
+- Added source contracts that reject `SCAL|2000`, require `SCAL|1000`, and forbid blocking dispatcher invocation in the log path.
+- Existing native SCAL proxy, firmware, Windows, and packaging gates remain enabled in CI.
+
+### Next test
+
+Open Wait For Sound, press Calibrate once, and confirm the dialog stays responsive, returns a threshold in about one second, and the log shows `OK|SCAL|avg=…|max=…` without WSND fallback.
+
 ## ABVM native R21 — Classroom SCAL compatibility proxy
 
 ### Problem observed

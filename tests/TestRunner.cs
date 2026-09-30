@@ -4451,6 +4451,11 @@ class TestRunner
                    && repairedVm.Contains("ERR|UNKNOWN|WSND", StringComparison.Ordinal)
                    && repairedVm.Contains("ERR|TIMEOUT|WSND", StringComparison.Ordinal),
                 "Build 72: cursor ACK noise is hidden and unsupported sound replies never become threshold 300");
+            Assert(repairedVm.Contains("SCAL|1000", StringComparison.Ordinal)
+                   && !repairedVm.Contains("SCAL|2000", StringComparison.Ordinal)
+                   && repairedVm.Contains("d.BeginInvoke((Action)(() => LogLines.Add(line)))", StringComparison.Ordinal)
+                   && !repairedVm.Contains("d.Invoke(() => LogLines.Add(line))", StringComparison.Ordinal),
+                "Build 120: Classroom sound calibration respects ARM's 1000 ms limit and serial logging cannot block reply parsing");
             Assert(modernCode.Contains("elif line.startswith(\"SCAL|\"):")
                    && modernCode.Contains("elif line.startswith(\"WSND|\"):")
                    && modernCode.Contains("reply = self.arm.send(line, ms / 1000.0 + 3)")

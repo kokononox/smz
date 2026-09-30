@@ -229,8 +229,10 @@ public partial class MainViewModel : ObservableObject
 
         var d = System.Windows.Application.Current?.Dispatcher;
 
-        if (d is not null && !d.CheckAccess()) d.Invoke(() => LogLines.Add(line));
-
+        if (d is not null && !d.CheckAccess())
+            // Never make the serial-reader thread wait on WPF. Reply parsing happens on that
+            // same reader; a synchronous Invoke here can deadlock a modal calibration dialog.
+            d.BeginInvoke((Action)(() => LogLines.Add(line)));
         else LogLines.Add(line);
 
     }
@@ -2197,7 +2199,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
 
-    /// Calibrate button for waitForSound (§16.6.5): samples the sensor on A0 for 2s
+    /// Calibrate button for waitForSound (§16.6.5): samples the sensor on A0 for 1s
 
     /// in silence (SCAL) and suggests floor_max × 1.5 — the rule of §16.1/§17.7.
 
@@ -2230,7 +2232,7 @@ public partial class MainViewModel : ObservableObject
 
         {
 
-            var reply = await _bridge.SendAsync("SCAL|2000", 6.0);   // 2s silence window
+            var reply = await _bridge.SendAsync("SCAL|1000", 4.0);   // ARM protocol maximum is 1000 ms
 
             var m = Regex.Match(reply, @"max=(\d+)");
 
