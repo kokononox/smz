@@ -63,6 +63,11 @@ static GuardProfile *profile_by_id(uint8_t id) {
         if (guard.profiles[i].id == id) return &guard.profiles[i];
     return NULL;
 }
+static bool whisper_route_active(const AbvmVm *vm) {
+    return vm && vm->status == ABVM_STATUS_RUNNING &&
+           (vm->route_id == GUARD_ROUTE_WHISPER ||
+            vm->route_id == GUARD_ROUTE_WHISPER_REPEAT);
+}
 static bool inside(const GuardProfile *profile, uint32_t lux, bool widened) {
     uint32_t low = profile->low;
     uint32_t high = profile->high;
@@ -299,8 +304,16 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
         guard.whisper_pending=false;
         return;
     }
+    /*
+     * Whisper New/Repeat describe transient overlays, not a durable optical
+     * scene.  While either bounded interrupt is running, ignore every Guard
+     * sample (including an apparent Desktop return) and let every Whisper
+     * step finish.  This applies equally to light-, sound-, and manual-origin
+     * interrupts.  The current sensor state is evaluated again only after the
+     * VM restores the suspended route.
+     */
+    if (whisper_route_active(vm)) return;
     if (guard.whisper_light_active) {
-        if (vm->route_id == guard.whisper_light_route) return;
         guard.whisper_light_active = false;
     }
     uint32_t lux, age;
@@ -314,8 +327,8 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
 void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
+    if (whisper_route_active(vm)) return;
     if (guard.whisper_light_active) {
-        if (vm->route_id == guard.whisper_light_route) return;
         guard.whisper_light_active = false;
     }
     GuardProfile *active = profile_by_id(guard.active);
