@@ -1,3 +1,4 @@
+
 #include "abvm_vm.h"
 
 #include <string.h>
@@ -284,11 +285,17 @@ static int verify_image(AbvmVm *vm) {
             (ins.opcode == ABVM_OP_SCOPE_BEGIN &&
              !constant_at(vm, ins.operand_a,ABVM_CONST_SCOPE,&payload,&size)))
             return fail(vm, "constant reference");
-        if (ins.opcode == ABVM_OP_BEEP &&
-            (ins.operand_a < 30u || ins.operand_a > 20000u ||
-             !ins.operand_b || ins.operand_b > 60000u ||
-             ins.flags || ins.operand_c || ins.operand_d))
-            return fail(vm, "buzzer operands");
+        if (ins.opcode == ABVM_OP_BEEP) {
+            uint8_t volume = (uint8_t)(ins.operand_c & 0xffu);
+            uint8_t envelope = (uint8_t)((ins.operand_c >> 8) & 0xffu);
+            int style_ok = !ins.operand_c ||
+                (volume >= 1u && volume <= 100u && envelope <= 3u &&
+                 ins.operand_c < 0x10000u);
+            if (ins.operand_a < 30u || ins.operand_a > 20000u ||
+                !ins.operand_b || ins.operand_b > 60000u ||
+                ins.flags || !style_ok || ins.operand_d)
+                return fail(vm, "buzzer operands");
+        }
         if ((ins.opcode == ABVM_OP_LOOP_ENTER ||
              ins.opcode == ABVM_OP_RPKG_ENTER ||
              ins.opcode == ABVM_OP_SCOPE_BEGIN ||
