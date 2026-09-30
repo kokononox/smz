@@ -203,7 +203,7 @@ static void service_global_sound_listener(uint32_t now) {
                                  global_sound_minimum,30000u);
 }
 static int cdc_printf(const char *format, ...) {
-    char output[256]; va_list args; va_start(args, format);
+    char output[384]; va_list args; va_start(args, format);
     int length = vsnprintf(output, sizeof(output), format, args); va_end(args);
     if (length <= 0 || !tud_cdc_connected()) return length;
     size_t count = (size_t)length;
@@ -244,6 +244,7 @@ static void start_control(uint32_t now) {
     else printf("ERR|CONTROL|start\n");
 }
 static void stop_control(uint32_t now) {
+    buzzer_watchdog_alarm_stop();
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
     pending_sound_whisper=false;
     ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
@@ -253,12 +254,28 @@ static void stop_control(uint32_t now) {
 static void toggle_pause(uint32_t now) {
     if (guard_runtime_running()) {
         if (guard_runtime_paused()) {
+            bool watchdog=guard_runtime_watchdog_tripped();
             bool vm_ok = vm.status != ABVM_STATUS_PAUSED || abvm_resume(&vm, now);
-            if (guard_runtime_resume() && vm_ok) { printf("CONTROL|resume|guard=on\n"); buzzer_play(BUZZER_CUE_RESUME, now); }
+            if (guard_runtime_resume() && vm_ok) {
+                cycle_runtime_continue(now);
+                if(watchdog)buzzer_watchdog_alarm_stop();
+                printf("CONTROL|resume|guard=on|watchdog=%s|stage=%u|expected=%s|cycle=%u\n",
+                       watchdog?"acknowledged":"off",guard_runtime_stage(),
+                       guard_runtime_profile_name(guard_runtime_expected_profile()),
+                       cycle_runtime_count());
+                buzzer_play(BUZZER_CUE_RESUME, now);
+            }
             else printf("ERR|CONTROL|resume\n");
         } else {
             bool vm_ok = vm.status != ABVM_STATUS_RUNNING || abvm_pause(&vm, now);
-            if (guard_runtime_pause() && vm_ok) { printf("CONTROL|pause|guard=on\n"); buzzer_play(BUZZER_CUE_PAUSE, now); }
+            if (guard_runtime_pause() && vm_ok) {
+                cycle_runtime_hold(now);
+                printf("CONTROL|pause|guard=on|stage=%u|expected=%s|cycle=%u\n",
+                       guard_runtime_stage(),
+                       guard_runtime_profile_name(guard_runtime_expected_profile()),
+                       cycle_runtime_count());
+                buzzer_play(BUZZER_CUE_PAUSE, now);
+            }
             else printf("ERR|CONTROL|pause\n");
         }
     } else if (vm.status == ABVM_STATUS_PAUSED) {
@@ -560,7 +577,18 @@ static void service_light(uint32_t now) {
     GuardRuntimeEvent guard_event;
     if (guard_runtime_take_event(&guard_event)) {
         const char *profile = guard_runtime_profile_name(guard_event.profile_id);
-        if (guard_event.type == GUARD_EVENT_ROUTE) {
+        const char *expected=guard_runtime_profile_name(
+            guard_runtime_expected_profile());
+        uint32_t elapsed=guard_runtime_stage_elapsed(now);
+        uint32_t watchdog=guard_runtime_watchdog_timeout_ms();
+        if(guard_event.type==GUARD_EVENT_WATCHDOG_TRIPPED) {
+            release_all_actors(now);
+            cycle_runtime_hold(now);
+            buzzer_watchdog_alarm_start(now);
+            printf("ERR|GUARD|WATCHDOG|action=paused|stage=%u|expected=%s|elapsed-ms=%lu|timeout-ms=%lu|cycle=%u|resume=manual\n",
+                   guard_runtime_stage(),expected,(unsigned long)elapsed,
+                   (unsigned long)watchdog,cycle_runtime_count());
+        } else if (guard_event.type == GUARD_EVENT_ROUTE) {
             if (strcmp(guard_event.reason,"start-at-current-state")) {
                 if(guard_event.profile_id==7u)
                     buzzer_play(BUZZER_CUE_WHISPER,now);
@@ -570,14 +598,14 @@ static void service_light(uint32_t now) {
                 printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
                        profile,guard_event.stage);
             }
-            printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
+            printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason, expected, (unsigned long)elapsed, (unsigned long)watchdog, cycle_runtime_count());
         } else if (guard_event.type == GUARD_EVENT_FAULT) {
             buzzer_play(BUZZER_CUE_ERROR, now);
             cycle_runtime_fail(6u);
             printf("ERR|GUARD|%s\n", guard_event.reason);
         }
         else
-            printf("EVT|GUARD|state=%s|stage=%u|lux=%lu.%lu|reason=%s\n", profile, guard_event.stage, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
+            printf("EVT|GUARD|state=%s|stage=%u|lux=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n", profile, guard_event.stage, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason, expected, (unsigned long)elapsed, (unsigned long)watchdog, cycle_runtime_count());
     }
     LightCalibrationResult result;
     if (!calibration_runtime_active() && light_sensor_calibration_take(&result)) {
@@ -704,20 +732,21 @@ static void service_cycle_events(void) {
                        (unsigned long)event.range_max_seconds,event.count);
                 break;
             case CYCLE_EVENT_ARMED_AT_BOOT:
-                printf("EVT|CYCLE|armed-at-boot|count=%u\n",event.count);break;
+                printf("EVT|CYCLE|armed-at-boot|cycle=%u\n",event.count);break;
             case CYCLE_EVENT_DEADLINE:
-                printf("EVT|CYCLE|deadline|action=after\n");break;
+                printf("EVT|CYCLE|deadline|action=after|cycle=%u\n",event.count);break;
             case CYCLE_EVENT_AFTER_START:
-                printf("EVT|CYCLE|after-start|route=%u|count=%u\n",
+                printf("EVT|CYCLE|after-start|route=%u|cycle=%u\n",
                        event.route_id,event.count);break;
             case CYCLE_EVENT_AFTER_COMPLETE:
-                printf("EVT|CYCLE|after-complete|wait=usb-restart|down-seen=%u\n",
-                       event.down_seen);break;
+                printf("EVT|CYCLE|after-complete|wait=usb-restart|down-seen=%u|cycle=%u\n",
+                       event.down_seen,event.count);break;
             case CYCLE_EVENT_USB:
-                printf("EVT|CYCLE|usb|state=%s\n",
-                       cycle_host_name(event.host_state));break;
+                printf("EVT|CYCLE|usb|state=%s|cycle=%u\n",
+                       cycle_host_name(event.host_state),event.count);break;
             case CYCLE_EVENT_STARTUP_START:
-                printf("EVT|CYCLE|startup-start|route=%u\n",event.route_id);break;
+                printf("EVT|CYCLE|startup-start|route=%u|cycle=%u\n",
+                       event.route_id,event.count);break;
             case CYCLE_EVENT_CANCELLED:
                 printf("EVT|CYCLE|cancelled|reason=manual-stop\n");break;
             case CYCLE_EVENT_BLOCKED:
@@ -825,8 +854,15 @@ static void service_vm(uint32_t now) {
         case ABVM_EVENT_ROUTE_COMPLETE: {
             release_all_actors(now);printf("ROUTE|complete|route=%u\n",event.route_id);
             if(cycle_runtime_route_complete(event.route_id,now)) {
-                printf("EVT|CYCLE|startup-complete|next=login-or-dc|desktop=skip\n");
+                printf("EVT|CYCLE|startup-complete|next=login-or-dc|desktop=skip|cycle=%u\n",
+                       cycle_runtime_count());
                 if(!guard_runtime_start_after_restart(now))cycle_runtime_fail(3u);
+                else printf("EVT|GUARD|watchdog=armed|stage=%u|expected=%s|timeout-ms=%lu|cycle=%u\n",
+                            guard_runtime_stage(),
+                            guard_runtime_profile_name(
+                                guard_runtime_expected_profile()),
+                            (unsigned long)guard_runtime_watchdog_timeout_ms(),
+                            cycle_runtime_count());
                 service_cycle_events();
             } else service_cycle_events();
             break;

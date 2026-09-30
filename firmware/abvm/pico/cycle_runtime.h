@@ -43,6 +43,9 @@ bool cycle_runtime_init(const AbvmVm *vm, uint32_t now);
 bool cycle_runtime_available(void);
 bool cycle_runtime_waiting_for_usb(void);
 bool cycle_runtime_restart_critical(void);
+void cycle_runtime_hold(uint32_t now);
+void cycle_runtime_continue(uint32_t now);
+bool cycle_runtime_held(void);
 void cycle_runtime_manual_start(uint32_t now);
 void cycle_runtime_manual_stop(void);
 CycleAction cycle_runtime_service(uint32_t now, bool host_seen,
@@ -54,5 +57,6 @@ void cycle_runtime_fail(uint8_t stage);
 bool cycle_runtime_take_event(CycleEvent *event);
 uint16_t cycle_runtime_after_route(void);
 uint16_t cycle_runtime_startup_route(void);
+uint8_t cycle_runtime_count(void);
 
 #endif

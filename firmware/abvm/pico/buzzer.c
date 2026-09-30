@@ -65,7 +65,7 @@ static uint8_t tone_count, tone_index, priority;
 static uint slice;
 static uint32_t deadline, sweep_started, sweep_next_update;
 static uint16_t sweep_start_hz, sweep_end_hz, sweep_duration_ms;
-static bool active, gap_phase, sweep_active;
+static bool active, gap_phase, sweep_active, watchdog_alarm, watchdog_rising;
 static uint8_t tone_volume=100u, tone_envelope;
 static uint16_t current_duration_ms;
 static uint32_t tone_started, envelope_next_update;
@@ -154,6 +154,23 @@ void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
     priority=4u;active=true;gap_phase=false;sweep_active=true;
     tone_on(sweep_start_hz);deadline=now+sweep_duration_ms;
 }
+static void start_watchdog_sweep(uint32_t now) {
+    sweep_start_hz=watchdog_rising?620u:1380u;
+    sweep_end_hz=watchdog_rising?1380u:620u;
+    sweep_duration_ms=650u;sweep_started=now;sweep_next_update=now;
+    priority=8u;active=true;gap_phase=false;sweep_active=true;
+    tone_on(sweep_start_hz);deadline=now+sweep_duration_ms;
+}
+void buzzer_watchdog_alarm_start(uint32_t now) {
+    watchdog_alarm=true;watchdog_rising=true;start_watchdog_sweep(now);
+}
+void buzzer_watchdog_alarm_stop(void) {
+    watchdog_alarm=false;
+    if(active&&priority==8u) {
+        active=false;sweep_active=false;priority=0u;tone_off();
+    }
+}
+bool buzzer_watchdog_alarm_active(void){return watchdog_alarm;}
 void buzzer_calibration_enter(uint8_t selection,bool sound,uint32_t now) {
     for(uint8_t i=0;i<ARRAY_COUNT(calibration_enter_prefix);++i) dynamic_tones[i]=calibration_enter_prefix[i];
     if(sound) {
@@ -199,6 +216,11 @@ void buzzer_service(uint32_t now) {
             }
             return;
         }
+        if(watchdog_alarm) {
+            watchdog_rising=!watchdog_rising;
+            start_watchdog_sweep(now);
+            return;
+        }
         sweep_active=false;active=false;priority=0u;tone_off();return;
     }
     if(!gap_phase&&tone_envelope&&reached(now,envelope_next_update)&&
@@ -211,5 +233,5 @@ void buzzer_service(uint32_t now) {
     gap_phase=false;if(++tone_index>=tone_count){active=false;priority=0u;tone_off();return;}
     start_current_tone(now);
 }
-void buzzer_silence(void){active=false;sweep_active=false;priority=0u;tone_off();}
+void buzzer_silence(void){watchdog_alarm=false;active=false;sweep_active=false;priority=0u;tone_off();}
 bool buzzer_active(void){return active;}

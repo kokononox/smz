@@ -96,6 +96,7 @@ public static class NativeUf2Exporter
             ["enabled"] = true,
             ["sampleMode"] = "hires",
             ["sensorTimeoutMs"] = 1500,
+            ["stageWatchdogMinutes"] = 2,
             ["profiles"] = profiles,
         };
     }

@@ -59,6 +59,18 @@ int main(int argc,char **argv){
                 "resumed deadline"))return 1;
     cycle_runtime_manual_stop();
     if(!require(!marker_armed&&!marker_count,"manual reset"))return 1;
+    cycle_runtime_manual_start(5000u);drain();
+    cycle_runtime_hold(5500u);
+    if(!require(cycle_runtime_held(),"operator hold")||
+       !require(cycle_runtime_service(7000u,true,ARM_HOST_USB_UP)==
+                    CYCLE_ACTION_NONE,"held Cycle cannot expire"))return 1;
+    cycle_runtime_continue(7000u);
+    if(!require(!cycle_runtime_held(),"operator continue")||
+       !require(cycle_runtime_service(7499u,true,ARM_HOST_USB_UP)==
+                    CYCLE_ACTION_NONE,"remaining deadline preserved")||
+       !require(cycle_runtime_service(7500u,true,ARM_HOST_USB_UP)==
+                    CYCLE_ACTION_EXPIRE,"deadline resumes after hold"))return 1;
+    cycle_runtime_manual_stop();
 
     marker_armed=true;marker_count=1u;
     if(!require(cycle_runtime_init(&vm,0u),"boot descriptor"))return 1;

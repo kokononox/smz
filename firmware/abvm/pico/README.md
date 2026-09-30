@@ -48,7 +48,17 @@ priority, cancels the transient Whisper overlay, and starts the DC route.
 
 The native adapter preserves physical feedback on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep. Light calibration uses eight memorable 3–4 note motifs; Classroom Studio exposes a separate assignment menu so every environment can use any motif and preview it on the connected board. The selected cue IDs are stored in the Native Guard descriptor and require no PC helper at runtime. Sound calibration retains ID 1/2/3 selection, silence-start, target-start, save/error, and enter/exit feedback.
 
-Whisper New and Whisper Repeat also carry independent board-only optical cooldowns in the Native Guard descriptor. A brief return to the same light signature during cooldown is ignored even when both global sound listeners are disabled.
+Whisper New and Whisper Repeat also carry independent board-only optical cooldowns in the Native Guard descriptor. A brief return to the same light signature during cooldown is ignored even when both global sound listeners are disabled. Classroom Studio accepts up to 3,600,000 ms (60 minutes) per optical Whisper cooldown.
+
+After an automatic restart, a stage watchdog requires the ordered
+Login/DC → Character Dashboard → Entering Game Loading → Game sequence. If the
+expected stage is not seen within the configured window, Guard and the Cycle
+timer are held, all input actors are released, and GP6 emits a repeating
+ambulance-style siren. The board never skips a macro automatically. After the
+operator fixes the scene, a manual Resume silences the alarm, preserves the
+same expected stage, and re-arms the full watchdog window. Diagnostic events
+include the expected profile, stage elapsed time, watchdog timeout, and Cycle
+count.
 
 Playback is allocation-free and nonblocking; no additional hardware is required.
 

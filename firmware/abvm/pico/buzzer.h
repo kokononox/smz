@@ -32,6 +32,9 @@ void buzzer_calibration_save_success(uint32_t now);
 void buzzer_calibration_save_error(uint32_t now);
 void buzzer_calibration_complete(uint32_t now);
 void buzzer_calibration_exit(uint32_t now);
+void buzzer_watchdog_alarm_start(uint32_t now);
+void buzzer_watchdog_alarm_stop(void);
+bool buzzer_watchdog_alarm_active(void);
 void buzzer_silence(void);
 bool buzzer_active(void);
 
