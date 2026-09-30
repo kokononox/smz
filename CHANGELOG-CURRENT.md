@@ -13,7 +13,7 @@ The generic `short/double/warning/success` step presets were not the same contra
 - Restored exact Guard Start, Stop, Pause, and Resume patterns.
 - Restored six light-calibration position notes, record-start, stage-complete, save-success, save-error, all-profile-complete, and enter/exit melodies.
 - Restored sound-calibration ID 1/2 notes, silence-start and target-start tones, plus shared completion/error feedback.
-- Added a short 90 ms profile-specific cue for confirmed Guard transitions after the initial state, reusing the six calibration notes.
+- Added a distinct profile-dependent 150 ms rising sweep for confirmed Guard transitions after the initial state; only this transition cue uses the newer smooth style, while Guard controls and both calibration systems retain their exact legacy scores.
 - The initial `start-at-current-state` transition stays silent because the Guard Start melody already confirms activation.
 - Kept the GP6/S8050 wiring and nonblocking fixed-state playback.
 

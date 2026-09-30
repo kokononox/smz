@@ -31,7 +31,7 @@ Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KD
 
 ## Passive buzzer on GP6
 
-The native adapter preserves the original physical-feedback score on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the exact legacy multi-note patterns. Every confirmed transition after the initial state emits a short 90 ms profile note using the same six-note light-calibration scale. Light calibration restores the six position notes (262/294/330/349/392/440 Hz), record-start, per-stage completion, rising save-success, low save-error, all-profile completion, and enter/exit melodies. Sound calibration restores ID 1/2 selection at 660/880 Hz, silence-start at 523 Hz, target-start at 988 Hz, plus the same save/error and enter/exit feedback.
+The native adapter preserves the original physical-feedback score on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the exact legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep, updated every 4 ms, so transition feedback cannot be confused with the restored calibration notes. Light calibration restores the six position notes (262/294/330/349/392/440 Hz), record-start, per-stage completion, rising save-success, low save-error, all-profile completion, and enter/exit melodies. Sound calibration restores ID 1/2 selection at 660/880 Hz, silence-start at 523 Hz, target-start at 988 Hz, plus the same save/error and enter/exit feedback.
 
 Playback is allocation-free and nonblocking; no additional hardware is required.
 

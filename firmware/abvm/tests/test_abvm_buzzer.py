@@ -39,7 +39,10 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("service_calibration_cue(calibration_event, now)", self.main)
         self.assertIn("buzzer_guard_transition(guard_event.profile_id, now)", self.main)
         self.assertIn("start-at-current-state", self.main)
-        self.assertIn("selection_note(profile_id,false),90u", self.buzzer)
+        self.assertIn("TRANSITION_UPDATE_MS 4u", self.buzzer)
+        self.assertIn("profile_id*110u", self.buzzer)
+        self.assertIn("sweep_start_hz+220u", self.buzzer)
+        self.assertIn("sweep_duration_ms=150u", self.buzzer)
         self.assertNotIn("buzzer_play_stage(guard_event.stage, now)", self.main)
         self.assertIn("buzzer_service(now)", self.main)
 

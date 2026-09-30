@@ -7,6 +7,7 @@
 
 #define BUZZER_PIN 6u
 #define BUZZER_DUTY_WRAP 3999u
+#define TRANSITION_UPDATE_MS 4u
 #define ARRAY_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 
 typedef struct BuzzerTone { uint16_t hz, duration_ms, gap_ms; } BuzzerTone;
@@ -46,8 +47,9 @@ static const BuzzerPattern patterns[] = {
 static const BuzzerTone *tones;
 static uint8_t tone_count, tone_index, priority;
 static uint slice;
-static uint32_t deadline;
-static bool active, gap_phase;
+static uint32_t deadline, sweep_started, sweep_next_update;
+static uint16_t sweep_start_hz, sweep_end_hz, sweep_duration_ms;
+static bool active, gap_phase, sweep_active;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static void tone_off(void) { pwm_set_gpio_level(BUZZER_PIN, 0u); }
@@ -63,7 +65,7 @@ static void tone_on(uint16_t hz) {
 static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, uint32_t now) {
     if (!next || !count || (active && next_priority < priority)) return;
     tones=next; tone_count=count; tone_index=0u; priority=next_priority;
-    active=true; gap_phase=false; tone_on(tones[0].hz); deadline=now+tones[0].duration_ms;
+    active=true; gap_phase=false; sweep_active=false; tone_on(tones[0].hz); deadline=now+tones[0].duration_ms;
 }
 static uint16_t selection_note(uint8_t selection, bool sound) {
     if (sound) return selection == 2u ? 880u : 660u;
@@ -80,8 +82,13 @@ void buzzer_play(BuzzerCue cue,uint32_t now) {
     const BuzzerPattern *p=&patterns[cue]; begin(p->tones,p->count,p->priority,now);
 }
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
-    dynamic_tones[0]=(BuzzerTone){selection_note(profile_id,false),90u,0u};
-    begin(dynamic_tones,1u,4u,now);
+    if(profile_id<1u||profile_id>6u)return;
+    if(active&&priority>4u)return;
+    sweep_start_hz=(uint16_t)(440u+(uint16_t)profile_id*110u);
+    sweep_end_hz=(uint16_t)(sweep_start_hz+220u);
+    sweep_duration_ms=150u;sweep_started=now;sweep_next_update=now;
+    priority=4u;active=true;gap_phase=false;sweep_active=true;
+    tone_on(sweep_start_hz);deadline=now+sweep_duration_ms;
 }
 void buzzer_calibration_enter(uint8_t selection,bool sound,uint32_t now) {
     for(uint8_t i=0;i<ARRAY_COUNT(calibration_enter_prefix);++i) dynamic_tones[i]=calibration_enter_prefix[i];
@@ -107,10 +114,23 @@ void buzzer_calibration_save_error(uint32_t now) { begin(calibration_error,ARRAY
 void buzzer_calibration_complete(uint32_t now) { begin(calibration_complete,ARRAY_COUNT(calibration_complete),6u,now); }
 void buzzer_calibration_exit(uint32_t now) { begin(calibration_exit,ARRAY_COUNT(calibration_exit),6u,now); }
 void buzzer_service(uint32_t now) {
-    if(!active||!reached(now,deadline))return;
+    if(!active)return;
+    if(sweep_active){
+        if(!reached(now,deadline)){
+            if(reached(now,sweep_next_update)){
+                uint32_t elapsed=now-sweep_started;
+                uint16_t hz=(uint16_t)(sweep_start_hz+
+                    ((uint32_t)(sweep_end_hz-sweep_start_hz)*elapsed)/sweep_duration_ms);
+                tone_on(hz);sweep_next_update=now+TRANSITION_UPDATE_MS;
+            }
+            return;
+        }
+        sweep_active=false;active=false;priority=0u;tone_off();return;
+    }
+    if(!reached(now,deadline))return;
     if(!gap_phase){tone_off();uint16_t gap=tones[tone_index].gap_ms;if(gap){gap_phase=true;deadline=now+gap;return;}}
     gap_phase=false;if(++tone_index>=tone_count){active=false;priority=0u;tone_off();return;}
     tone_on(tones[tone_index].hz);deadline=now+tones[tone_index].duration_ms;
 }
-void buzzer_silence(void){active=false;priority=0u;tone_off();}
+void buzzer_silence(void){active=false;sweep_active=false;priority=0u;tone_off();}
 bool buzzer_active(void){return active;}
