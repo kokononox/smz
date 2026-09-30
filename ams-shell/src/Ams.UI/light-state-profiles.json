@@ -21,7 +21,7 @@
     "Id": "character-dashboard",
     "Name": "داشبورد انتخاب کرکترها",
     "Enabled": true,
-    "LuxCenter": 13.3,
+    "LuxCenter": 15.3,
     "LuxTolerance": 3,
     "StableDurationMs": 750,
     "HysteresisLux": 1
@@ -48,8 +48,8 @@
     "Id": "targeted",
     "Name": "تارگت شدن توسط افراد",
     "Enabled": true,
-    "LuxCenter": 20,
-    "LuxTolerance": 1,
+    "LuxCenter": 36.7,
+    "LuxTolerance": 0.5,
     "StableDurationMs": 750,
     "HysteresisLux": 1
   },
@@ -57,7 +57,16 @@
     "Id": "whisper",
     "Name": "ویسپر",
     "Enabled": true,
-    "LuxCenter": 55,
+    "LuxCenter": 9.2,
+    "LuxTolerance": 0.5,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1
+  },
+  {
+    "Id": "whisper-repeat",
+    "Name": "ویسپر افراد تکراری",
+    "Enabled": true,
+    "LuxCenter": 30,
     "LuxTolerance": 2,
     "StableDurationMs": 750,
     "HysteresisLux": 1
