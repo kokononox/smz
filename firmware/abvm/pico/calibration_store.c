@@ -16,7 +16,8 @@ typedef struct CalibrationPayload {
     uint8_t binding[32];
     uint8_t light_mask;
     uint8_t sound_mask;
-    uint8_t reserved[2];
+    uint8_t cycle_armed;
+    uint8_t cycle_count;
     uint32_t light_low[6];
     uint32_t light_high[6];
     uint16_t sound_threshold[2];
@@ -99,5 +100,29 @@ bool calibration_store_sound_set(uint16_t id,uint16_t threshold,uint16_t minimum
     uint8_t i=(uint8_t)(id-1u);current.payload.sound_threshold[i]=threshold;current.payload.sound_minimum[i]=minimum;
     current.payload.sound_silence[i]=silence;current.payload.sound_peak[i]=peak;
     current.payload.sound_mask|=(uint8_t)(1u<<i);return persist();
+}
+bool calibration_store_cycle_armed(void){return current.payload.cycle_armed==0xa5u;}
+uint8_t calibration_store_cycle_count(void){return current.payload.cycle_count;}
+bool calibration_store_cycle_arm_next(uint8_t maximum){
+    if(!maximum||current.payload.cycle_count>=maximum){
+        if(!current.payload.cycle_armed)return false;
+        current.payload.cycle_armed=0u;
+        (void)persist();
+        return false;
+    }
+    current.payload.cycle_armed=0xa5u;
+    ++current.payload.cycle_count;
+    return persist();
+}
+bool calibration_store_cycle_clear_armed(void){
+    if(!current.payload.cycle_armed)return true;
+    current.payload.cycle_armed=0u;
+    return persist();
+}
+bool calibration_store_cycle_reset(void){
+    if(!current.payload.cycle_armed&&!current.payload.cycle_count)return true;
+    current.payload.cycle_armed=0u;
+    current.payload.cycle_count=0u;
+    return persist();
 }
 uint32_t calibration_store_revision(void){return current.sequence;}

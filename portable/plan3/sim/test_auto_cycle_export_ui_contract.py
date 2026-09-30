@@ -43,6 +43,8 @@ assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter
 assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
 assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
+assert 'root["nativeCycle"] = BuildNativeCycle(settings)' in native_exporter
+assert '"runMinSeconds"' in native_exporter and '"maxRestarts"' in native_exporter
 assert "LightStateProfileStore.Load()" in native_exporter
 assert "PipelineWorkspaceSerializer.Serialize(workspace)" in native_exporter
 assert "abvm_uf2.py" in native_exporter and "File.Copy(patched, outputUf2, true)" in native_exporter

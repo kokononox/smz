@@ -13,6 +13,7 @@
 #include "calibration_runtime.h"
 #include "calibration_store.h"
 #include "buzzer.h"
+#include "cycle_runtime.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
@@ -50,7 +51,7 @@ static int cdc_printf(const char *format, ...) {
 }
 #define printf cdc_printf
 static void print_status(void) {
-    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), (unsigned long)vm.now);
+    printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|cycle=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), cycle_runtime_available(), (unsigned long)vm.now);
 }
 static void release_all_actors(uint32_t now) {
     hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
@@ -72,7 +73,10 @@ static void start_control(uint32_t now) {
     if (guard_runtime_available()) {
         if (!light_sensor_present()) { printf("ERR|GUARD|NOSENSOR\n"); return; }
         abvm_stop(&vm, now);
-        if (guard_runtime_start(now)) { printf("OK|GUARD|ON\n"); buzzer_play(BUZZER_CUE_START, now); }
+        if (guard_runtime_start(now)) {
+            cycle_runtime_manual_start(now);
+            printf("OK|GUARD|ON\n"); buzzer_play(BUZZER_CUE_START, now);
+        }
         else printf("ERR|GUARD|START\n");
     } else if (abvm_start_route(&vm, GAME_ROUTE_ID, now))
         printf("CONTROL|start|route=Game|guard=unavailable\n");
@@ -81,6 +85,7 @@ static void start_control(uint32_t now) {
 static void stop_control(uint32_t now) {
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
     ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
+    cycle_runtime_manual_stop();
     printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
 }
 static void toggle_pause(uint32_t now) {
@@ -258,6 +263,7 @@ static void service_light(uint32_t now) {
     if (light_sensor_take_fault()) {
         printf("ERR|LIGHT|sensor-lost\n");
         buzzer_play(BUZZER_CUE_ERROR, now);
+        cycle_runtime_fail(5u);
         guard_runtime_stop(); abvm_stop(&vm, now);
     }
     calibration_runtime_service(now);
@@ -279,6 +285,7 @@ static void service_light(uint32_t now) {
             printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason);
         } else if (guard_event.type == GUARD_EVENT_FAULT) {
             buzzer_play(BUZZER_CUE_ERROR, now);
+            cycle_runtime_fail(6u);
             printf("ERR|GUARD|%s\n", guard_event.reason);
         }
         else
@@ -332,6 +339,7 @@ static void service_mouse(uint32_t now) {
         if (!arm_fault_reported) {
             printf("ERR|ARM|detail=%s|version=%s\n", arm_uart_mouse_fault(), arm_uart_mouse_version());
             buzzer_play(BUZZER_CUE_ERROR, now);
+            cycle_runtime_fail(7u);
             arm_fault_reported = true;
         }
         if (vm.status != ABVM_STATUS_STOPPED && vm.status != ABVM_STATUS_FAULT) abvm_stop(&vm, now);
@@ -345,6 +353,72 @@ static void service_buzzer_action(uint32_t now) {
     buzzer_action_pending=false;
     if(!abvm_complete_action(&vm,buzzer_action_lane,now))
         printf("ERR|BUZZER|complete|lane=%u\n",buzzer_action_lane);
+}
+static const char *cycle_host_name(uint8_t state) {
+    if(state==ARM_HOST_USB_UP)return "UP";
+    if(state==ARM_HOST_USB_SUSPEND)return "SUSPEND";
+    if(state==ARM_HOST_USB_DOWN)return "DOWN";
+    return "UNKNOWN";
+}
+static void service_cycle_events(void) {
+    CycleEvent event;
+    while(cycle_runtime_take_event(&event)) {
+        switch(event.type) {
+            case CYCLE_EVENT_ARMED:
+            case CYCLE_EVENT_RESUMED:
+                printf("EVT|CYCLE|%s|seconds=%lu|range=%lu,%lu|count=%u\n",
+                       event.type==CYCLE_EVENT_RESUMED?"resumed":"armed",
+                       (unsigned long)event.seconds,
+                       (unsigned long)event.range_min_seconds,
+                       (unsigned long)event.range_max_seconds,event.count);
+                break;
+            case CYCLE_EVENT_ARMED_AT_BOOT:
+                printf("EVT|CYCLE|armed-at-boot|count=%u\n",event.count);break;
+            case CYCLE_EVENT_DEADLINE:
+                printf("EVT|CYCLE|deadline|action=after\n");break;
+            case CYCLE_EVENT_AFTER_START:
+                printf("EVT|CYCLE|after-start|route=%u|count=%u\n",
+                       event.route_id,event.count);break;
+            case CYCLE_EVENT_AFTER_COMPLETE:
+                printf("EVT|CYCLE|after-complete|wait=usb-restart|down-seen=%u\n",
+                       event.down_seen);break;
+            case CYCLE_EVENT_USB:
+                printf("EVT|CYCLE|usb|state=%s\n",
+                       cycle_host_name(event.host_state));break;
+            case CYCLE_EVENT_STARTUP_START:
+                printf("EVT|CYCLE|startup-start|route=%u\n",event.route_id);break;
+            case CYCLE_EVENT_CANCELLED:
+                printf("EVT|CYCLE|cancelled|reason=manual-stop\n");break;
+            case CYCLE_EVENT_BLOCKED:
+                printf("EVT|CYCLE|blocked|reason=marker-or-limit\n");break;
+            case CYCLE_EVENT_FAILED:
+                printf("EVT|CYCLE|failed\n");break;
+            default: break;
+        }
+    }
+}
+static void service_cycle(uint32_t now) {
+    service_cycle_events();
+    bool arm_seen=arm_uart_host_usb_seen();
+    ArmHostUsbState host=arm_seen?arm_uart_host_usb_state():
+        (tud_mounted()?ARM_HOST_USB_UP:ARM_HOST_USB_DOWN);
+    CycleAction action=cycle_runtime_service(now,true,host);
+    service_cycle_events();
+    if(action==CYCLE_ACTION_EXPIRE) {
+        guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
+        if(!cycle_runtime_begin_after(now)){service_cycle_events();return;}
+        service_cycle_events();
+        if(!abvm_start_route(&vm,cycle_runtime_after_route(),now)){
+            cycle_runtime_fail(1u);service_cycle_events();
+        }
+    } else if(action==CYCLE_ACTION_START_STARTUP) {
+        release_all_actors(now);
+        if(abvm_start_route(&vm,cycle_runtime_startup_route(),now)) {
+            cycle_runtime_begin_startup();service_cycle_events();
+        } else {
+            cycle_runtime_fail(2u);service_cycle_events();
+        }
+    }
 }
 static void service_vm(uint32_t now) {
     if (arm_uart_mouse_releasing()) {
@@ -393,8 +467,16 @@ static void service_vm(uint32_t now) {
         }
         case ABVM_EVENT_RELEASE_ALL: release_all_actors(now); printf("HID|release-all|queued\n"); break;
         case ABVM_EVENT_INTERRUPT_RESUME: printf("CONTROL|interrupt-resume|route=%u\n", vm.route_id); break;
-        case ABVM_EVENT_ROUTE_COMPLETE: release_all_actors(now); printf("ROUTE|complete|route=%u\n", event.route_id); break;
-        case ABVM_EVENT_FAULT: release_all_actors(now); buzzer_play(BUZZER_CUE_ERROR, now); printf("ERR|ABVM|%s\n", event.message ? event.message : "fault"); break;
+        case ABVM_EVENT_ROUTE_COMPLETE: {
+            release_all_actors(now);printf("ROUTE|complete|route=%u\n",event.route_id);
+            if(cycle_runtime_route_complete(event.route_id,now)) {
+                printf("EVT|CYCLE|startup-complete|next=login-or-dc|desktop=skip\n");
+                if(!guard_runtime_start_after_restart(now))cycle_runtime_fail(3u);
+                service_cycle_events();
+            } else service_cycle_events();
+            break;
+        }
+        case ABVM_EVENT_FAULT: cycle_runtime_fail(4u);release_all_actors(now); buzzer_play(BUZZER_CUE_ERROR, now); printf("ERR|ABVM|%s\n", event.message ? event.message : "fault"); break;
         default: break;
     }
 }
@@ -409,7 +491,10 @@ int main(void) {
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     bool program_verified = abvm_init(&vm, program, program_size);
     bool guard_available = program_verified && guard_runtime_init(&vm);
-    if (program_verified) calibration_runtime_init(&vm);
+    if (program_verified) {
+        calibration_runtime_init(&vm);
+        (void)cycle_runtime_init(&vm,now_ms());
+    }
     /* Do not expose a half-ready USB device while a large patched ABP image is
      * being hashed and structurally verified. Attach only after boot work. */
     tusb_init();
@@ -418,7 +503,7 @@ int main(void) {
     if (!program_verified) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
-    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available);
+    printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_light(now); service_buzzer_action(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); service_light(now); service_buzzer_action(now); service_vm(now); buzzer_service(now); sleep_ms(1); }
 }

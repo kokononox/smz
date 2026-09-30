@@ -30,9 +30,10 @@ SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum
 LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, mode
 GUARD_HEADER = struct.Struct("<BBBBI")               # version/count/mode/reserved/timeout
 GUARD_PROFILE = struct.Struct("<BBHIIII")             # id/enabled/route/low/high/stable/hysteresis
+CYCLE = struct.Struct("<BBBBIIHHI")                  # version/flags/limit/reserved/run range/routes/USB stable
 
-FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD = 1, 2, 4, 8, 16
-CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT, CONST_GUARD = range(1, 9)
+FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD, FLAG_HAS_CYCLE = 1, 2, 4, 8, 16, 32
+CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CONST_LIGHT, CONST_GUARD, CONST_CYCLE = range(1, 10)
 OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE, OP_BEEP = range(8)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
@@ -110,7 +111,7 @@ OPCODES = {
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
     "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
-    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD,
+    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD, "CYCLE": CONST_CYCLE,
 }
 
 
@@ -352,6 +353,7 @@ class Compiler:
         if not self.routes:
             raise AbvmError("none of the requested routes exist")
         self.compile_guard(source)
+        self.compile_cycle(source)
         return self.finish(source)
 
     def frame(self, depth: int) -> None:
@@ -680,6 +682,33 @@ class Compiler:
         self.pool.add(CONST_GUARD, bytes(packed))
         self.flags |= FLAG_HAS_GUARD
 
+    def compile_cycle(self, source: dict[str, Any]) -> None:
+        cycle = source.get("nativeCycle")
+        if not isinstance(cycle, dict) or not cycle.get("enabled", False):
+            return
+        compiled_routes = {route.route_id for route in self.routes}
+        after_route = ROUTE_IDS["Restart"]
+        startup_route = ROUTE_IDS["Startup"]
+        if not {after_route, startup_route}.issubset(compiled_routes):
+            raise AbvmError("Native Cycle needs Restart/After and Startup routes")
+        run_min = integer(cycle.get("runMinSeconds"), 110 * 60)
+        run_max = integer(cycle.get("runMaxSeconds"), 130 * 60)
+        if run_max < run_min:
+            run_min, run_max = run_max, run_min
+        max_restarts = integer(cycle.get("maxRestarts"), 5)
+        usb_stable = integer(cycle.get("usbStableMs"), 2000)
+        if run_min <= 0 or run_max > 7 * 24 * 60 * 60:
+            raise AbvmError("Native Cycle run range must be 1 second..7 days")
+        if not 1 <= max_restarts <= 32:
+            raise AbvmError("Native Cycle restart limit must be 1..32")
+        if not 250 <= usb_stable <= 300_000:
+            raise AbvmError("Native Cycle USB stable window must be 250..300000 ms")
+        self.pool.add(CONST_CYCLE, CYCLE.pack(
+            1, 1 if cycle.get("autoResume", True) else 0,
+            max_restarts, 0, run_min * 1000, run_max * 1000,
+            after_route, startup_route, usb_stable))
+        self.flags |= FLAG_HAS_CYCLE
+
     def finish(self, source: dict[str, Any]) -> Program:
         code = b"".join(ins.pack() for ins in self.code)
         constants = bytearray()
@@ -885,6 +914,22 @@ class Verifier:
             if ids != set(range(1, 7)):
                 raise AbvmError("Native Guard profile set mismatch")
             measured_flags |= FLAG_HAS_GUARD
+        cycle_constants = [payload for kind, _, payload in image.constants
+                           if kind == CONST_CYCLE]
+        if cycle_constants:
+            if len(cycle_constants) != 1:
+                raise AbvmError("multiple Native Cycle descriptors")
+            raw = cycle_constants[0]
+            if len(raw) != CYCLE.size:
+                raise AbvmError("invalid Native Cycle descriptor size")
+            version, flags, limit, reserved, run_min, run_max, after, startup, stable = CYCLE.unpack(raw)
+            compiled_routes = {route.route_id for route in image.routes}
+            if version != 1 or flags & ~1 or not 1 <= limit <= 32 or reserved or \
+                    not run_min or run_min > run_max or run_max > 7 * 24 * 60 * 60 * 1000 or \
+                    after not in compiled_routes or startup not in compiled_routes or \
+                    not 250 <= stable <= 300_000:
+                raise AbvmError("invalid Native Cycle descriptor")
+            measured_flags |= FLAG_HAS_CYCLE
 
         def walk(start: int, end: int, depth: int, watch_depth: int = 0,
                  scope_depth: int = 0) -> None:

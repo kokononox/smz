@@ -1,5 +1,6 @@
 {
   "constantKinds": {
+    "CYCLE": 9,
     "GUARD": 8,
     "LIGHT": 7,
     "MOUSE": 3,

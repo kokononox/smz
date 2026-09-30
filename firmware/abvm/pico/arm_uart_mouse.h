@@ -17,6 +17,12 @@ typedef enum ArmSoundSubmit {
     ARM_SOUND_BUSY = 2,
     ARM_SOUND_INVALID = 3,
 } ArmSoundSubmit;
+typedef enum ArmHostUsbState {
+    ARM_HOST_USB_UNKNOWN = 0,
+    ARM_HOST_USB_DOWN = 1,
+    ARM_HOST_USB_SUSPEND = 2,
+    ARM_HOST_USB_UP = 3,
+} ArmHostUsbState;
 
 void arm_uart_mouse_init(void);
 bool arm_uart_mouse_probe(uint32_t now);
@@ -39,4 +45,6 @@ bool arm_uart_mouse_faulted(void);
 const char *arm_uart_mouse_fault(void);
 bool arm_uart_mouse_ready(void);
 const char *arm_uart_mouse_version(void);
+bool arm_uart_host_usb_seen(void);
+ArmHostUsbState arm_uart_host_usb_state(void);
 #endif

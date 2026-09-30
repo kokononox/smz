@@ -38,7 +38,7 @@ public partial class MainViewModel
         {
             var workspace = CapturePipelineWorkspaceForExport();
             var result = await NativeUf2Exporter.ExportAsync(
-                templateDialog.FileName, outputDialog.FileName, workspace);
+                templateDialog.FileName, outputDialog.FileName, workspace, _settings);
             Log($"native UF2 export: {Path.GetFileName(outputDialog.FileName)}; "
                 + $"program={result.ProgramBytes} bytes; sha256={result.ProgramSha256}");
             if (!string.IsNullOrWhiteSpace(result.CompilerSummary))

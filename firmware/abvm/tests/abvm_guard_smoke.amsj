@@ -13,6 +13,14 @@
       {"id":"targeted","enabled":true,"luxCenter":600,"luxTolerance":5,"stableDurationMs":100,"hysteresisLux":2}
     ]
   },
+  "nativeCycle": {
+    "enabled": true,
+    "autoResume": true,
+    "runMinSeconds": 1,
+    "runMaxSeconds": 1,
+    "maxRestarts": 5,
+    "usbStableMs": 2000
+  },
   "pipelines": {
     "Desktop": [{"Type":"delay","Props":{"minMs":1,"maxMs":1},"Children":[],"Delay":0,"IsDisabled":false}],
     "Restart": [{"Type":"delay","Props":{"minMs":1,"maxMs":1},"Children":[],"Delay":0,"IsDisabled":false}],

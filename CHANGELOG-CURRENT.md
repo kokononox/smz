@@ -1,3 +1,42 @@
+## ABVM native R26 — approved persistent After/Startup cycle
+
+### Source contract
+
+Ported the hardware-approved `A-marker-usb-fused-v2` cycle to Native ABVM
+without changing the authored After or Startup pipelines.
+
+### Behavior
+
+- Native UF2 export embeds the configured wall-clock Restart range, a five-cycle
+  safety limit, the After/Restart route, the Startup route, and the two-second
+  USB-stability contract.
+- A manual Guard start clears stale restart authority and chooses one cycle
+  deadline. Pause does not extend it.
+- Natural expiry releases HID/watch actors, writes a program-bound persistent
+  marker, and executes the existing humanized After route.
+- Pro Micro `HOSTUSB DOWN/SUSPEND/UP` events are consumed on the private UART.
+  Pico USB mount state remains the fallback when no ARM lifecycle event exists.
+- Only an armed marker can start Startup after USB returns. Startup runs once,
+  clears the one-shot marker, resumes Guard at stage 1, skips Desktop, and waits
+  for Login/DC before starting a fresh deadline.
+- Manual stop/override and light, ARM, Guard, ABVM, or Startup failures clear
+  the marker. The marker counter blocks more than five automatic restarts.
+
+### Persistence and compatibility
+
+The marker reuses two reserved bytes in the existing dual-sector,
+CRC-protected, program-SHA-bound calibration record. Existing light and sound
+calibration layout and values are unchanged. Current `Launch` documents retain
+their established route-ID 2 alias for the authored After tab.
+
+### Validation
+
+- Added compiler/verifier coverage for the versioned Native Cycle descriptor.
+- Added a contract test for the approved After/Startup route aliases, NVM
+  authority, USB lifecycle, five-restart limit, and stage-1 resume.
+- Recompiled the current fishing project with all ten Native routes and the
+  cycle descriptor.
+
 ## ABVM native R25 — audible route cues and frame-safe text typing
 
 ### Problem observed

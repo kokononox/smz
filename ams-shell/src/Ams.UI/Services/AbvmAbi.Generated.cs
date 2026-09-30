@@ -45,6 +45,7 @@ internal enum AbvmConstantKind : byte
     SOUND = 6,
     LIGHT = 7,
     GUARD = 8,
+    CYCLE = 9,
 }
 
 internal enum AbvmScopePolicy : byte

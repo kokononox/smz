@@ -26,6 +26,7 @@ typedef struct GuardRuntimeEvent {
 bool guard_runtime_init(const AbvmVm *vm);
 bool guard_runtime_available(void);
 bool guard_runtime_start(uint32_t now);
+bool guard_runtime_start_after_restart(uint32_t now);
 void guard_runtime_stop(void);
 bool guard_runtime_pause(void);
 bool guard_runtime_resume(void);

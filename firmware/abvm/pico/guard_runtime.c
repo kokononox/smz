@@ -199,6 +199,14 @@ bool guard_runtime_start(uint32_t now) {
     guard.event_pending = false;
     return true;
 }
+bool guard_runtime_start_after_restart(uint32_t now) {
+    if (!guard_runtime_start(now)) return false;
+    /* Startup owns the post-reboot desktop phase.  Resume at the last safe
+     * ordered checkpoint so Desktop is intentionally skipped and the next
+     * stable Login/DC profile advances stage 1 -> 2. */
+    guard.stage = 1u;
+    return true;
+}
 void guard_runtime_stop(void) {
     guard.running = false;
     guard.paused = false;

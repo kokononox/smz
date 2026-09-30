@@ -35,6 +35,8 @@ static bool sound_uses_calibration;
 static uint16_t calibration_average, calibration_peak;
 static bool calibration_result_pending;
 static uint32_t sound_deadline;
+static bool host_usb_seen;
+static ArmHostUsbState host_usb_state;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static uint32_t random_next(void) {
@@ -119,6 +121,7 @@ void arm_uart_mouse_init(void) {
     uart_set_format(ARM_UART, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(ARM_UART, true); state = ARM_IDLE;
     arm_ready = false; fault_text[0] = 0; pending_payload[0] = 0;
+    host_usb_seen=false;host_usb_state=ARM_HOST_USB_UNKNOWN;
 }
 bool arm_uart_mouse_probe(uint32_t now) {
     if (state != ARM_IDLE) return false;
@@ -224,6 +227,15 @@ static bool queue_deferred_mouse(uint32_t now) {
 }
 static void handle_line(uint32_t now) {
     rx[rx_len]=0;
+    if (!strcmp(rx,"EVT|HOSTUSB|DOWN")) {
+        host_usb_seen=true;host_usb_state=ARM_HOST_USB_DOWN;return;
+    }
+    if (!strcmp(rx,"EVT|HOSTUSB|SUSPEND")) {
+        host_usb_seen=true;host_usb_state=ARM_HOST_USB_SUSPEND;return;
+    }
+    if (!strcmp(rx,"EVT|HOSTUSB|UP")) {
+        host_usb_seen=true;host_usb_state=ARM_HOST_USB_UP;return;
+    }
     if (!strncmp(rx,"EVT|ASND|DETECTED",17)) {
         sound_peak=parse_peak(rx); sound_event_detected=true;
         sound_event_pending=true; sound_active=false; return;
@@ -314,3 +326,5 @@ bool arm_uart_mouse_faulted(void) { return state==ARM_FAULT; }
 const char *arm_uart_mouse_fault(void) { return fault_text[0] ? fault_text : "none"; }
 bool arm_uart_mouse_ready(void) { return arm_ready && state != ARM_FAULT; }
 const char *arm_uart_mouse_version(void) { return arm_version; }
+bool arm_uart_host_usb_seen(void){return host_usb_seen;}
+ArmHostUsbState arm_uart_host_usb_state(void){return host_usb_state;}

@@ -103,6 +103,13 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn('!strncmp(line, "BEEP|", 5)', self.main)
         self.assertIn("ui_buzzer_reply_pending", self.main)
 
+    def test_private_arm_link_exposes_helper_free_host_usb_lifecycle(self):
+        self.assertIn('EVT|HOSTUSB|DOWN', self.arm)
+        self.assertIn('EVT|HOSTUSB|SUSPEND', self.arm)
+        self.assertIn('EVT|HOSTUSB|UP', self.arm)
+        self.assertIn("arm_uart_host_usb_seen", self.arm)
+        self.assertIn("arm_uart_host_usb_state", self.arm)
+
 
 if __name__ == "__main__":
     unittest.main()

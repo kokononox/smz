@@ -48,6 +48,7 @@ typedef enum AbvmConstantKind {
     ABVM_CONST_SOUND = 6,
     ABVM_CONST_LIGHT = 7,
     ABVM_CONST_GUARD = 8,
+    ABVM_CONST_CYCLE = 9,
 } AbvmConstantKind;
 
 typedef enum AbvmScopePolicy {

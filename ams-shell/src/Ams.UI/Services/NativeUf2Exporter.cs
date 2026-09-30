@@ -18,7 +18,8 @@ public static class NativeUf2Exporter
         string PatcherSummary);
 
     public static async Task<ExportResult> ExportAsync(string templateUf2, string outputUf2,
-        PipelineWorkspace workspace, CancellationToken cancellationToken = default)
+        PipelineWorkspace workspace, AppSettings settings,
+        CancellationToken cancellationToken = default)
     {
         if (!File.Exists(templateUf2))
             throw new FileNotFoundException("فایل UF2 پایه پیدا نشد.", templateUf2);
@@ -37,6 +38,7 @@ public static class NativeUf2Exporter
             var root = JsonNode.Parse(PipelineWorkspaceSerializer.Serialize(workspace))?.AsObject()
                 ?? throw new InvalidDataException("ساختار پروژه برای Native Guard معتبر نیست.");
             root["nativeGuard"] = BuildNativeGuard();
+            root["nativeCycle"] = BuildNativeCycle(settings);
             await File.WriteAllTextAsync(source, root.ToJsonString(
                 new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
                 new UTF8Encoding(false), cancellationToken);
@@ -88,6 +90,22 @@ public static class NativeUf2Exporter
             ["sampleMode"] = "hires",
             ["sensorTimeoutMs"] = 1500,
             ["profiles"] = profiles,
+        };
+    }
+
+    private static JsonObject BuildNativeCycle(AppSettings settings)
+    {
+        settings.NormalizeAutoCycleSettings();
+        var (restartMin, restartMax) = AppSettings.NormalizeMinuteRange(
+            settings.RestartMinMinutes, settings.RestartMaxMinutes, 110, 130);
+        return new JsonObject
+        {
+            ["enabled"] = true,
+            ["autoResume"] = settings.AutoResumeEnabled,
+            ["runMinSeconds"] = restartMin * 60,
+            ["runMaxSeconds"] = restartMax * 60,
+            ["maxRestarts"] = 5,
+            ["usbStableMs"] = 2000,
         };
     }
 
