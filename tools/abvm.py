@@ -318,6 +318,50 @@ class Compiler:
         self.scope_depth = 0
         self.labels: dict[str, int] = {}
         self.gotos: list[tuple[int, str]] = []
+        self.human_mouse_profile: dict[str, int] = {}
+
+    @staticmethod
+    def compact_human_mouse_profile(source: dict[str, Any]) -> dict[str, int]:
+        profile = source.get("humanMouseProfile") or {}
+        encoded = str(profile.get("EncodedSample") or
+                      profile.get("encodedSample") or "")
+        duration = integer(profile.get("DurationMs") or
+                           profile.get("durationMs"))
+        if not profile:
+            return {}
+        if duration < 30_000 or not encoded.startswith("v1|"):
+            raise AbvmError(
+                "Native Export needs a valid 30-second human mouse profile")
+        fields = encoded.split("|", 4)
+        if len(fields) != 5:
+            raise AbvmError("human mouse profile payload is malformed")
+        delays: list[int] = []
+        speeds: list[float] = []
+        for token in fields[4].split(";"):
+            try:
+                dt_text, dx_text, dy_text = token.split(",")
+                dt, dx, dy = int(dt_text), int(dx_text), int(dy_text)
+            except (ValueError, TypeError):
+                raise AbvmError("human mouse profile segment is malformed")
+            if not 1 <= dt <= 60_000 or abs(dx) > 8192 or abs(dy) > 8192:
+                raise AbvmError("human mouse profile segment is out of range")
+            if dx or dy:
+                delays.append(dt)
+                if dt >= 4:
+                    speeds.append(((dx * dx + dy * dy) ** .5) * 1000.0 / dt)
+        if len(delays) < 20 or len(speeds) < 5:
+            raise AbvmError("human mouse profile has too little movement")
+        delays.sort(); speeds.sort()
+        percentile = lambda values, p: values[(len(values) - 1) * p // 100]
+        signature = zlib.crc32(encoded.encode()) & 0xffff
+        return {
+            "handSignature": signature,
+            "handTempoMs": max(2, min(20, int(percentile(delays, 50)))),
+            "handSpeedMin": max(150, min(3000,
+                int(round(percentile(speeds, 20))))),
+            "handSpeedMax": max(150, min(3000,
+                int(round(percentile(speeds, 80))))),
+        }
 
     def emit(self, op: int, flags: int = 0, a: int = 0,
              b: int = 0, c: int = 0, d: int = 0) -> int:
@@ -393,6 +437,7 @@ class Compiler:
         pipelines = source.get("pipelines") or source.get("Pipelines")
         if not isinstance(pipelines, dict):
             raise AbvmError("AMSJ pipelines object is missing")
+        self.human_mouse_profile = self.compact_human_mouse_profile(source)
         self.compile_global_whisper(source)
         for name in route_names:
             nodes = pipelines.get(name)
@@ -498,7 +543,18 @@ class Compiler:
             spec["text"] = str(p.get("text") or "")
             self.emit(OP_TYPE, a=self.pool.obj(CONST_TYPE, spec))
         elif kind == "randomMousePosition":
-            self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, p))
+            spec = dict(p)
+            spec.update(self.human_mouse_profile)
+            intent = str(spec.get("motionIntent") or "targetRegion")
+            if intent in ("microTwitch", "mediumTwitch"):
+                defaults = (2, 12) if intent == "microTwitch" else (20, 80)
+                lo, hi = ordered(
+                    spec.get("twitchMinPx"), spec.get("twitchMaxPx"),
+                    defaults[0], defaults[1])
+                spec["relativeMode"] = 1
+                spec["relativeMin"] = max(1, lo)
+                spec["relativeMax"] = max(1, hi)
+            self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, spec))
         elif kind == "buzzer":
             self.compile_buzzer(p)
         elif kind == "forLoop":

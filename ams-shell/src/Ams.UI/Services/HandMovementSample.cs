@@ -9,6 +9,7 @@ namespace Ams.UI.Services;
 public static class HandMovementSample
 {
     public const int CaptureDurationMs = 10_000;
+    public const int ProfileCaptureDurationMs = 30_000;
     // 8 ms stays below the safe ~125-command/s UART replay budget while retaining
     // the small 1-5 px motion seen in the user's high-rate reference recordings.
     public const int CaptureIntervalMs = 8;
@@ -27,7 +28,12 @@ public static class HandMovementSample
 
     // The v1 payload is intentionally limited to cursor coordinates, relative deltas, and timing.
     public static async Task<Sample?> CaptureAsync(CancellationToken ct = default)
+        => await CaptureAsync(CaptureDurationMs, ct);
+
+    public static async Task<Sample?> CaptureAsync(int durationMs,
+        CancellationToken ct = default)
     {
+        durationMs = Math.Clamp(durationMs, 1_000, 60_000);
         // Task.Delay(8) otherwise resolves to about 15.6 ms on many Windows
         // systems. Scope the 1 ms multimedia timer request to this ten-second
         // capture only; the finally block also covers cancellation/errors.
@@ -39,12 +45,12 @@ public static class HandMovementSample
             var lastChangeMs = 0;
             var segments = new List<Segment>();
             var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < CaptureDurationMs)
+            while (sw.ElapsedMilliseconds < durationMs)
             {
                 ct.ThrowIfCancellationRequested();
                 await Task.Delay(CaptureIntervalMs, ct);
                 var now = System.Windows.Forms.Cursor.Position;
-                int elapsed = (int)Math.Min(CaptureDurationMs, sw.ElapsedMilliseconds);
+                int elapsed = (int)Math.Min(durationMs, sw.ElapsedMilliseconds);
                 int dx = now.X - previous.X, dy = now.Y - previous.Y;
                 if (dx != 0 || dy != 0)
                 {
@@ -54,9 +60,9 @@ public static class HandMovementSample
                 }
             }
             if (segments.Count == 0) return null;
-            int trailing = Math.Max(1, CaptureDurationMs - lastChangeMs);
+            int trailing = Math.Max(1, durationMs - lastChangeMs);
             segments.Add(new Segment(trailing, 0, 0));
-            return new Sample(CaptureDurationMs, start, previous, segments.ToArray());
+            return new Sample(durationMs, start, previous, segments.ToArray());
         }
         finally
         {
@@ -86,7 +92,7 @@ public static class HandMovementSample
                 || dt is < 1 or > 60_000 || Math.Abs(dx) > 8192 || Math.Abs(dy) > 8192) return false;
             segments.Add(new Segment(dt, dx, dy));
         }
-        if (segments.Count == 0 || segments.Count > 2000) return false;
+        if (segments.Count == 0 || segments.Count > 4096) return false;
         sample = new Sample(duration, start, end, segments);
         return true;
     }

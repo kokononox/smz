@@ -25,6 +25,10 @@ public static class NativeUf2Exporter
             throw new FileNotFoundException("فایل UF2 پایه پیدا نشد.", templateUf2);
         if (!string.Equals(Path.GetExtension(outputUf2), ".uf2", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("نام فایل خروجی باید پسوند .uf2 داشته باشد.");
+        if (!workspace.HumanMouseProfile.IsValid)
+            throw new InvalidDataException(
+                "Native Export به پروفایل سراسری دست نیاز دارد. ابتدا دکمهٔ "
+                + "«ساخت پروفایل دست — ۳۰ ثانیه» را اجرا و پروژه را ذخیره کن.");
 
         var compiler = FindTool("abvm.py");
         var patcher = FindTool("abvm_uf2.py");

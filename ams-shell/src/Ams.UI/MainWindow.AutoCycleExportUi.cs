@@ -44,11 +44,44 @@ internal static class AutoCycleExportUiBootstrap
         nativeButton.SetBinding(Button.CommandProperty,
             new Binding(nameof(MainViewModel.ExportNativeUf2Command)));
         panel.Children.Add(nativeButton);
-        if (panel.Parent is StackPanel cardBody && !cardBody.Children.OfType<FrameworkElement>()
-                .Any(x => Equals(x.Tag, "AutoCycle.SoundProfiles")))
-            cardBody.Children.Insert(Math.Max(2, cardBody.Children.Count - 1), BuildSoundProfiles(vm));
+        if (panel.Parent is StackPanel cardBody)
+        {
+            if (!cardBody.Children.OfType<FrameworkElement>()
+                    .Any(x => Equals(x.Tag, "AutoCycle.HumanMouseProfile")))
+                cardBody.Children.Insert(Math.Max(2, cardBody.Children.Count - 1),
+                    BuildHumanMouseProfile(vm));
+            if (!cardBody.Children.OfType<FrameworkElement>()
+                    .Any(x => Equals(x.Tag, "AutoCycle.SoundProfiles")))
+                cardBody.Children.Insert(Math.Max(2, cardBody.Children.Count - 1),
+                    BuildSoundProfiles(vm));
+        }
         AutoCycleUiKit.ReorderExportSteps(panel);
         AutoCycleUiKit.Reorder(body);
+    }
+
+    private static FrameworkElement BuildHumanMouseProfile(MainViewModel vm)
+    {
+        var panel = new StackPanel
+        {
+            Tag = "AutoCycle.HumanMouseProfile",
+            FlowDirection = FlowDirection.RightToLeft,
+            Margin = new Thickness(0, 8, 0, 8),
+        };
+        panel.Children.Add(AutoCycleUiKit.Title("پروفایل سراسری حرکت دست"));
+        panel.Children.Add(AutoCycleUiKit.Helper(
+            "یک بار ۳۰ ثانیه حرکت طبیعی ضبط می‌شود. Native Export سرعت، ریتم و "
+            + "امضای همان دست را روی تمام حرکات موس اعمال می‌کند؛ اجرای برد به "
+            + "Registry، Bridge یا برنامهٔ پس‌زمینه نیاز ندارد."));
+        var button = AutoCycleUiKit.Action("ساخت دوباره پروفایل دست — ۳۰ ثانیه", true);
+        button.SetBinding(Button.CommandProperty,
+            new Binding(nameof(MainViewModel.CaptureHumanMouseProfileCommand)));
+        panel.Children.Add(button);
+        var summary = AutoCycleUiKit.Helper("");
+        summary.Foreground = AutoCycleUiKit.Success;
+        summary.SetBinding(TextBlock.TextProperty,
+            new Binding(nameof(MainViewModel.HumanMouseProfileSummary)));
+        panel.Children.Add(summary);
+        return panel;
     }
     private static FrameworkElement BuildSoundProfiles(MainViewModel vm)
     {

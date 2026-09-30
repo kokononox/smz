@@ -38,7 +38,8 @@ assert "PostRestartLaunchEnabled" not in schedule_ui and "BuildRangeRow" not in 
 assert "ساخت و کپی کامل پروژهٔ فعلی به درایو Pico" in ui
 assert "ExportAutoCycleModernCommand" in ui and "ExportAutoCycleCompleteCommand" not in ui
 assert "ساخت Native UF2 پروژهٔ فعلی" in ui and "ExportNativeUf2Command" in ui
-assert ui.count("AutoCycleUiKit.Action(") == 2
+assert "پروفایل سراسری حرکت دست" in ui and "CaptureHumanMouseProfileCommand" in ui
+assert ui.count("AutoCycleUiKit.Action(") == 3
 assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter.ExportAsync(" in native_vm
 assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
 assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",' in native_exporter
