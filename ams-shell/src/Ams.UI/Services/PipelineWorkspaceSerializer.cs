@@ -12,6 +12,7 @@ public static class PipelineWorkspaceSerializer
         public int pipelineVersion { get; set; }
         public Dictionary<string, List<StepNode>> pipelines { get; set; } = new();
         public List<SoundWatchProfile> soundProfiles { get; set; } = new();
+        public HumanMouseProfile humanMouseProfile { get; set; } = new();
     }
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -23,6 +24,7 @@ public static class PipelineWorkspaceSerializer
         {
             pipelineVersion = PipelineWorkspace.FormatVersion,
             soundProfiles = workspace.SoundProfiles.Select(CloneSoundProfile).ToList(),
+            humanMouseProfile = workspace.HumanMouseProfile,
         };
         foreach (var tab in workspace.Tabs)
             envelope.pipelines[tab.Kind.ToString()] = tab.Steps.ToList();
@@ -40,10 +42,14 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
+        if (version >= 8 && root.TryGetProperty("humanMouseProfile", out var humanProfile)
+            && humanProfile.ValueKind == JsonValueKind.Object)
+            workspace.HumanMouseProfile =
+                humanProfile.Deserialize<HumanMouseProfile>() ?? new();
         foreach (var tab in workspace.Tabs) tab.Steps.Clear();
         var hasDc = false;
         foreach (var property in pipelines.EnumerateObject())

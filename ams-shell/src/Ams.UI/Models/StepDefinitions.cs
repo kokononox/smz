@@ -129,6 +129,10 @@ public static class StepDefinitions
             Label = "Random Mouse Position", ColorResourceKey = "StepMouseBrush", DefaultDelay = 55,
             Fields = new FieldDef[]
             {
+                new("motionIntent", "Motion intent", FieldKind.Combo, "targetRegion",
+                    new[] { "targetRegion", "microTwitch", "mediumTwitch" }),
+                new("twitchMinPx", "Relative twitch radius MIN (px)", FieldKind.Int, "2"),
+                new("twitchMaxPx", "Relative twitch radius MAX (px)", FieldKind.Int, "12"),
                 new("x", "Region X", FieldKind.Int, "1301"),
                 new("y", "Region Y", FieldKind.Int, "0"),
                 new("w", "Region width", FieldKind.Int, "378"),
@@ -153,10 +157,15 @@ public static class StepDefinitions
                 new("moveTimeMin", "Movement duration — min (ms) · 0/0 = use global speed range (Options)", FieldKind.Int, "0"),
                 new("moveTimeMax", "Movement duration — max (ms) · fresh random target per move; floor ≈ 1ms per micro-step", FieldKind.Int, "0"),
             },
-            Summarize = s => $"Random Mouse Position in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} {PropEx.GetInt(s.Props, "w", 100)}x{PropEx.GetInt(s.Props, "h", 100)}]" +
+            Summarize = s => PropEx.GetString(s.Props, "motionIntent", "targetRegion") switch
+            {
+                "microTwitch" => $"Human Micro Twitch · {PropEx.GetInt(s.Props, "twitchMinPx", 2)}–{PropEx.GetInt(s.Props, "twitchMaxPx", 12)} px",
+                "mediumTwitch" => $"Human Medium Twitch · {PropEx.GetInt(s.Props, "twitchMinPx", 20)}–{PropEx.GetInt(s.Props, "twitchMaxPx", 80)} px",
+                _ => $"Random Mouse Position in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} {PropEx.GetInt(s.Props, "w", 100)}x{PropEx.GetInt(s.Props, "h", 100)}]" +
                 (PropEx.GetInt(s.Props, "idlePauseMax", 3000) > 0
                     ? $" · break {PropEx.GetInt(s.Props, "idlePauseMin", 800)}–{PropEx.GetInt(s.Props, "idlePauseMax", 3000)}ms / {PropEx.GetInt(s.Props, "idleEveryMin", 5)}–{PropEx.GetInt(s.Props, "idleEveryMax", 12)} moves"
                     : ""),
+            },
             // v0.9.0 — WindMouse path + full pause manager: see HumanMouse / RunEngine / ScriptGenerator
         },
         ["keystroke"] = new StepDefinition

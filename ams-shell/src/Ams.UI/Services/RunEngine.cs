@@ -466,10 +466,29 @@ public sealed class RunEngine
                     //  • complete pause management: reaction / hesitation / settle pauses and a
                     //    long 0–5000 ms "distraction" break every N moves — all step fields
                     var cfg = HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax);
+                    var intent = PropEx.GetString(s.Props, "motionIntent", "targetRegion");
                     var (x, y, w, h) = (PropEx.GetInt(s.Props, "x"), PropEx.GetInt(s.Props, "y"),
                                         Math.Max(1, PropEx.GetInt(s.Props, "w", 100)), Math.Max(1, PropEx.GetInt(s.Props, "h", 100)));
                     int destX, destY;
-                    lock (_rngLock) { destX = x + Rng.Next(w); destY = y + Rng.Next(h); }   // v0.9.15 — parallel-safe
+                    if (intent is "microTwitch" or "mediumTwitch")
+                    {
+                        var current = System.Windows.Forms.Cursor.Position;
+                        var defaultMin = intent == "microTwitch" ? 2 : 20;
+                        var defaultMax = intent == "microTwitch" ? 12 : 80;
+                        var r0 = Math.Max(1, PropEx.GetInt(s.Props, "twitchMinPx", defaultMin));
+                        var r1 = Math.Max(r0, PropEx.GetInt(s.Props, "twitchMaxPx", defaultMax));
+                        lock (_rngLock)
+                        {
+                            var radius = Rng.Next(r0, r1 + 1);
+                            var angle = Rng.NextDouble() * Math.PI * 2;
+                            destX = current.X + (int)Math.Round(Math.Cos(angle) * radius);
+                            destY = current.Y + (int)Math.Round(Math.Sin(angle) * radius);
+                        }
+                    }
+                    else lock (_rngLock)
+                    {
+                        destX = x + Rng.Next(w); destY = y + Rng.Next(h);
+                    }   // v0.9.15 — parallel-safe
                     await HumanMoveToAsync(destX, destY, cfg, ct);
                     break;
                 }

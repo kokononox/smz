@@ -71,6 +71,11 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("human_last_curve", self.arm)
         self.assertIn("human_last_side", self.arm)
         self.assertIn("difficulty*42u", self.arm)
+        self.assertIn('"handSpeedMin"', self.arm)
+        self.assertIn('"handSpeedMax"', self.arm)
+        self.assertIn('"relativeMode"', self.arm)
+        self.assertIn('"relativeMin"', self.arm)
+        self.assertIn('"relativeMax"', self.arm)
         self.assertNotIn("registry", self.arm.lower())
         self.assertNotIn("cursor sync", self.arm.lower())
         self.assertNotIn(
@@ -78,6 +83,46 @@ class AbvmArmUartContractTests(unittest.TestCase):
             '(long)dx,(long)dy)',
             self.arm,
         )
+
+    def test_global_hand_profile_is_compacted_into_twitch_descriptor(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        segments = ";".join(f"8,{1 + (i % 3)},{i % 2}"
+                            for i in range(40))
+        source = {
+            "humanMouseProfile": {
+                "Version": 1,
+                "DurationMs": 30000,
+                "EncodedSample": f"v1|30000|0,0|80,20|{segments}",
+            },
+            "pipelines": {
+                "Game": [{
+                    "Type": "randomMousePosition",
+                    "Props": {
+                        "motionIntent": "microTwitch",
+                        "twitchMinPx": 3,
+                        "twitchMaxPx": 14,
+                        "x": 0, "y": 0, "w": 10, "h": 10,
+                    },
+                    "Children": [],
+                    "Delay": 0,
+                }],
+            },
+        }
+        image = abvm.Verifier.verify(
+            abvm.Compiler().compile_amsj(source, ("Game",)).image)
+        mouse = [
+            payload.decode()
+            for kind, _, payload in image.constants
+            if kind == abvm.CONST_MOUSE
+        ]
+        self.assertEqual(len(mouse), 1)
+        self.assertIn('"relativeMode":1', mouse[0])
+        self.assertIn('"relativeMin":3', mouse[0])
+        self.assertIn('"relativeMax":14', mouse[0])
+        self.assertIn('"handTempoMs":8', mouse[0])
+        self.assertIn('"handSpeedMin":', mouse[0])
+        self.assertIn('"handSpeedMax":', mouse[0])
 
     def test_physical_light_and_sound_calibration_are_persistent(self):
         self.assertIn("BUTTON_LONG_MS 3000u", self.main)

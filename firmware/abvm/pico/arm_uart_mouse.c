@@ -130,6 +130,15 @@ static uint32_t integer_log2_u32(uint32_t value) {
 }
 static bool json_hand_signature(const uint8_t *data, uint32_t size,
                                 uint32_t *signature, uint16_t *tempo_ms) {
+    int32_t compact_signature, compact_tempo;
+    if (json_int(data,size,"handSignature",&compact_signature) &&
+        json_int(data,size,"handTempoMs",&compact_tempo) &&
+        compact_signature>=0 && compact_signature<=65535 &&
+        compact_tempo>=2 && compact_tempo<=20) {
+        *signature=(uint32_t)compact_signature;
+        *tempo_ms=(uint16_t)compact_tempo;
+        return true;
+    }
     static const char marker[] = "\"handSample\":\"";
     const uint32_t marker_size = (uint32_t)(sizeof(marker) - 1u);
     for (uint32_t i = 0; i + marker_size < size; ++i) {
@@ -226,16 +235,43 @@ static bool human_path_command(char *command, size_t capacity) {
 }
 static bool human_path_begin(const uint8_t *payload, uint32_t size,
                              uint8_t path_lane, uint32_t now) {
-    int32_t x, y, w, h;
-    if (!json_int(payload,size,"x",&x) || !json_int(payload,size,"y",&y) ||
-        !json_int(payload,size,"w",&w) || !json_int(payload,size,"h",&h) ||
-        x < 0 || y < 0 || w <= 0 || h <= 0 ||
-        x > HUMAN_SCREEN_W - w || y > HUMAN_SCREEN_H - h)
-        return false;
-    /* Two uniform samples create a center-weighted triangular distribution:
-     * ordinary human aim lands away from hard region edges most of the time. */
-    int32_t target_x = x + (int32_t)random_triangular_u32((uint32_t)w - 1u);
-    int32_t target_y = y + (int32_t)random_triangular_u32((uint32_t)h - 1u);
+    int32_t x=0, y=0, w=0, h=0;
+    int32_t relative_mode=json_int_or(payload,size,"relativeMode",0);
+    int32_t target_x,target_y;
+    uint32_t target_width;
+    if(relative_mode==1) {
+        int32_t radius_min=clamp_i32(
+            json_int_or(payload,size,"relativeMin",2),1,700);
+        int32_t radius_max=clamp_i32(
+            json_int_or(payload,size,"relativeMax",12),1,700);
+        if(radius_max<radius_min){
+            int32_t swap=radius_min;radius_min=radius_max;radius_max=swap;
+        }
+        int32_t rx=0,ry=0;uint32_t radial=0u;
+        for(uint8_t attempt=0u;attempt<12u;++attempt){
+            rx=(int32_t)random_range_u32(0u,(uint32_t)(radius_max*2))-radius_max;
+            ry=(int32_t)random_range_u32(0u,(uint32_t)(radius_max*2))-radius_max;
+            radial=isqrt_u32((uint32_t)((int64_t)rx*rx+(int64_t)ry*ry));
+            if(radial>=(uint32_t)radius_min&&radial<=(uint32_t)radius_max)break;
+        }
+        if(radial<(uint32_t)radius_min||radial>(uint32_t)radius_max){
+            rx=radius_min;ry=0;
+        }
+        target_x=clamp_i32(human_virtual_x+rx,0,HUMAN_SCREEN_W-1);
+        target_y=clamp_i32(human_virtual_y+ry,0,HUMAN_SCREEN_H-1);
+        target_width=(uint32_t)(radius_max-radius_min+1);
+    } else {
+        if (!json_int(payload,size,"x",&x) || !json_int(payload,size,"y",&y) ||
+            !json_int(payload,size,"w",&w) || !json_int(payload,size,"h",&h) ||
+            x < 0 || y < 0 || w <= 0 || h <= 0 ||
+            x > HUMAN_SCREEN_W - w || y > HUMAN_SCREEN_H - h)
+            return false;
+        /* Two uniform samples create a center-weighted triangular distribution:
+         * ordinary human aim lands away from hard region edges most of the time. */
+        target_x=x+(int32_t)random_triangular_u32((uint32_t)w-1u);
+        target_y=y+(int32_t)random_triangular_u32((uint32_t)h-1u);
+        target_width=(uint32_t)(w<h?w:h);
+    }
     int32_t dx = target_x - human_virtual_x;
     int32_t dy = target_y - human_virtual_y;
     uint32_t distance = isqrt_u32((uint32_t)((int64_t)dx * dx +
@@ -259,7 +295,8 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
          * signature. It nudges curve/rhythm without storing or replaying a
          * large point list, keeping the Native actor allocation-free. */
         prng^=hand_signature+(uint32_t)human_moves_since_idle*0x9e3779b9u;
-        int32_t signed_bias=(int32_t)((hand_signature>>24)&15u)-7;
+        int32_t signed_bias=(int32_t)(
+            (hand_signature^(hand_signature>>16))&15u)-7;
         curve=clamp_i32(curve+signed_bias,curve_min,curve_max);
     }
     int32_t move_min = clamp_i32(
@@ -273,13 +310,21 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (move_max > 0) duration = random_range_u32(
         (uint32_t)(move_min > 0 ? move_min : 1), (uint32_t)move_max);
     else {
-        uint32_t sampled_speed = random_range_u32(700u, 1600u);
+        int32_t profile_speed_min=clamp_i32(
+            json_int_or(payload,size,"handSpeedMin",700),150,3000);
+        int32_t profile_speed_max=clamp_i32(
+            json_int_or(payload,size,"handSpeedMax",1600),150,3000);
+        if(profile_speed_max<profile_speed_min){
+            int32_t swap=profile_speed_min;profile_speed_min=profile_speed_max;
+            profile_speed_max=swap;
+        }
+        uint32_t sampled_speed = random_range_u32(
+            (uint32_t)profile_speed_min,(uint32_t)profile_speed_max);
         uint32_t speed = (human_last_speed * 2u + sampled_speed) / 3u;
         human_last_speed=speed;
         duration = distance * 1000u / speed;
         /* Integer Fitts-style cost: small/far targets take longer to acquire,
          * while large nearby regions stay fluid. */
-        uint32_t target_width=(uint32_t)(w<h?w:h);
         if(target_width<12u)target_width=12u;
         uint32_t difficulty=integer_log2_u32(
             1u+(distance*64u)/target_width);

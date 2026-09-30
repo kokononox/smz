@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using Ams.UI.Services;
 
 namespace Ams.UI.Models;
@@ -74,7 +75,8 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 7;
+    public const int FormatVersion = 8;
+    public HumanMouseProfile HumanMouseProfile { get; set; } = new();
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },
@@ -146,4 +148,17 @@ public sealed class PipelineWorkspace
         workspace.EnsureDcDefaults();
         return workspace;
     }
+}
+
+public sealed class HumanMouseProfile
+{
+    public int Version { get; set; } = 1;
+    public int DurationMs { get; set; }
+    public string EncodedSample { get; set; } = "";
+    public string CapturedAtUtc { get; set; } = "";
+
+    [JsonIgnore]
+    public bool IsValid => Version == 1 && DurationMs >= 30_000
+        && HandMovementSample.TryDecode(EncodedSample, out var sample)
+        && sample.DurationMs >= 30_000 && sample.Segments.Count >= 20;
 }
