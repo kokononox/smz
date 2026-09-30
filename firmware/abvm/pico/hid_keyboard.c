@@ -105,6 +105,12 @@ static bool vk_to_hid(uint8_t vk, uint8_t *modifier, uint8_t *keycode) {
         *keycode = (uint8_t)(HID_KEY_F1 + vk - 112u);
         return true;
     }
+    if (vk >= 96u && vk <= 105u) {
+        *keycode = vk == 96u
+            ? HID_KEY_KEYPAD_0
+            : (uint8_t)(HID_KEY_KEYPAD_1 + vk - 97u);
+        return true;
+    }
     switch (vk) {
         case 8: *keycode = HID_KEY_BACKSPACE; return true;
         case 9: *keycode = HID_KEY_TAB; return true;
@@ -116,6 +122,11 @@ static bool vk_to_hid(uint8_t vk, uint8_t *modifier, uint8_t *keycode) {
         case 39: *keycode = HID_KEY_ARROW_RIGHT; return true;
         case 40: *keycode = HID_KEY_ARROW_DOWN; return true;
         case 91: *modifier = KEYBOARD_MODIFIER_LEFTGUI; return true;
+        case 106: *keycode = HID_KEY_KEYPAD_MULTIPLY; return true;
+        case 107: *keycode = HID_KEY_KEYPAD_ADD; return true;
+        case 109: *keycode = HID_KEY_KEYPAD_SUBTRACT; return true;
+        case 110: *keycode = HID_KEY_KEYPAD_DECIMAL; return true;
+        case 111: *keycode = HID_KEY_KEYPAD_DIVIDE; return true;
         case 160: *modifier = KEYBOARD_MODIFIER_LEFTSHIFT; return true;
         case 162: *modifier = KEYBOARD_MODIFIER_LEFTCTRL; return true;
         case 164: *modifier = KEYBOARD_MODIFIER_LEFTALT; return true;

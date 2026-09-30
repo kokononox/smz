@@ -286,9 +286,17 @@ def vk(value: Any) -> int:
         "LEFT": 37, "UP": 38, "RIGHT": 39, "DOWN": 40,
         "SHIFT": 160, "CTRL": 162, "CONTROL": 162,
         "ALT": 164, "WIN": 91, "WINDOWS": 91,
+        "NUMPADMULTIPLY": 106, "MULTIPLY": 106,
+        "NUMPADADD": 107, "ADD": 107,
+        "NUMPADSUBTRACT": 109, "SUBTRACT": 109,
+        "NUMPADDECIMAL": 110, "DECIMAL": 110,
+        "NUMPADDIVIDE": 111, "DIVIDE": 111,
     }
     if text in aliases:
         return aliases[text]
+    if text.startswith("NUMPAD") and text[6:].isdigit() and \
+            0 <= int(text[6:]) <= 9:
+        return 96 + int(text[6:])
     if len(text) == 1 and text.isalnum():
         return ord(text)
     if text.startswith("F") and text[1:].isdigit() and 1 <= int(text[1:]) <= 12:
