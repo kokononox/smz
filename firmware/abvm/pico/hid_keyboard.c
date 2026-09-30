@@ -1,5 +1,7 @@
 #include "hid_keyboard.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "tusb.h"
@@ -10,6 +12,8 @@
  * input frame.  Eight milliseconds was USB-valid but some login/game fields
  * observed characters in apparent bursts or missed them entirely. */
 #define TYPE_HOLD_MS 24u
+#define LIVE_LANE 0xffu
+#define INTERNAL_LANE 0xfeu
 
 typedef enum ActorPhase {
     ACTOR_IDLE = 0,
@@ -47,6 +51,9 @@ typedef struct KeyboardActor {
     uint32_t think_min, think_max, typo_min, typo_max;
     uint16_t word_chance, think_chance;
     uint32_t eligible_since_typo, typo_due;
+    char live_text[72];
+    char live_ack[12];
+    bool live_reply_pending;
 } KeyboardActor;
 
 static KeyboardActor actor;
@@ -326,16 +333,121 @@ HidKeyboardSubmit hid_keyboard_submit(const AbvmVm *vm, const AbvmEvent *event, 
     uint32_t lo=event->operand_c,hi=event->operand_d<lo?lo:event->operand_d; actor.due=now+lo+(hi-lo)/2u; actor.phase=ACTOR_SEND_PRESS; return HID_KEYBOARD_ACCEPTED;
 }
 
+HidKeyboardSubmit hid_keyboard_submit_live(const char *command, uint32_t now) {
+    if (!command) return HID_KEYBOARD_INVALID;
+    if (actor.phase != ACTOR_IDLE) return HID_KEYBOARD_BUSY;
+    actor.lane=LIVE_LANE;
+    actor.live_reply_pending=false;
+    if (!strncmp(command,"KDOWN|",6u)||!strncmp(command,"KUP|",4u)) {
+        const char *value=command+(command[1]=='D'?6u:4u); char *end=NULL;
+        unsigned long vk=strtoul(value,&end,10);
+        if (!end||*end||vk>255u||
+            !apply_vk((uint8_t)vk,command[1]=='D'))
+            return HID_KEYBOARD_INVALID;
+        snprintf(actor.live_ack,sizeof(actor.live_ack),"OK|%s",command[1]=='D'?"KDOWN":"KUP");
+        actor.phase=ACTOR_SEND_PERSISTENT;
+        return HID_KEYBOARD_ACCEPTED;
+    }
+    if (!strncmp(command,"KCOMBO|",7u)) {
+        char spec[64]; size_t length=strlen(command+7u);
+        if (!length||length>=sizeof(spec)) return HID_KEYBOARD_INVALID;
+        memcpy(spec,command+7u,length+1u);
+        char *hold=strchr(spec,','); uint32_t lo=30u,hi=90u;
+        if(hold) {
+            *hold++=0;char *comma=strchr(hold,',');char *end=NULL;
+            if(!comma)return HID_KEYBOARD_INVALID;
+            *comma++=0;
+            lo=(uint32_t)strtoul(hold,&end,10);
+            if(!end||*end)return HID_KEYBOARD_INVALID;
+            hi=(uint32_t)strtoul(comma,&end,10);
+            if(!end||*end)return HID_KEYBOARD_INVALID;
+            if(hi<lo){uint32_t t=lo;lo=hi;hi=t;}
+        }
+        actor.report_modifiers=actor.persistent_modifiers;
+        memcpy(actor.report_keys,actor.persistent_keys,sizeof(actor.report_keys));
+        char *cursor=spec;
+        while(*cursor) {
+            char *plus=strchr(cursor,'+');if(plus)*plus=0;
+            char *end=NULL;unsigned long vk=strtoul(cursor,&end,10);
+            uint8_t modifier,key;
+            if(!end||*end||vk>255u||!vk_to_hid((uint8_t)vk,&modifier,&key))
+                return HID_KEYBOARD_INVALID;
+            actor.report_modifiers|=modifier;
+            if(!add_key(actor.report_keys,key))return HID_KEYBOARD_INVALID;
+            if(!plus)break;
+            cursor=plus+1;
+        }
+        snprintf(actor.live_ack,sizeof(actor.live_ack),"OK|KCOMBO");
+        actor.due=now+lo+(hi-lo)/2u;actor.phase=ACTOR_SEND_PRESS;
+        return HID_KEYBOARD_ACCEPTED;
+    }
+    if (!strncmp(command,"KTEXT|",6u)) {
+        const char *p=command+6u;char *end=NULL;
+        uint32_t lo=(uint32_t)strtoul(p,&end,10);
+        if(!end||*end!=',')return HID_KEYBOARD_INVALID;
+        p=end+1;uint32_t hi=(uint32_t)strtoul(p,&end,10);
+        if(!end||*end!=',')return HID_KEYBOARD_INVALID;
+        p=end+1;size_t length=strlen(p);
+        if(length>=sizeof(actor.live_text))return HID_KEYBOARD_INVALID;
+        memcpy(actor.live_text,p,length+1u);
+        for(size_t i=0;i<length;++i) {
+            uint8_t modifier,key;
+            if((uint8_t)actor.live_text[i]<0x20u||(uint8_t)actor.live_text[i]>0x7eu||
+               !ascii_to_hid((uint8_t)actor.live_text[i],&modifier,&key))
+                return HID_KEYBOARD_INVALID;
+        }
+        if(hi<lo){uint32_t t=lo;lo=hi;hi=t;}
+        actor.text_cursor=(const uint8_t *)actor.live_text;
+        actor.text_end=actor.text_cursor+length;
+        actor.hmin=lo;actor.hmax=hi;actor.wmin=actor.wmax=0u;
+        actor.pmin=actor.pmax=0u;actor.think_min=actor.think_max=0u;
+        actor.word_chance=actor.think_chance=0u;
+        actor.typo_min=actor.typo_max=actor.typo_due=0u;
+        actor.eligible_since_typo=0u;actor.type_pending_count=actor.type_pending_index=0u;
+        actor.rng=now^0xa5c31f27u;
+        snprintf(actor.live_ack,sizeof(actor.live_ack),"OK|KTEXT");
+        actor.phase=ACTOR_TYPE_PREPARE;
+        return HID_KEYBOARD_ACCEPTED;
+    }
+    return HID_KEYBOARD_UNSUPPORTED;
+}
+
+HidKeyboardSubmit hid_keyboard_submit_trigger(uint8_t vk, uint32_t hold_min,
+                                               uint32_t hold_max, uint32_t now) {
+    if(actor.phase!=ACTOR_IDLE)return HID_KEYBOARD_BUSY;
+    actor.report_modifiers=actor.persistent_modifiers;
+    memcpy(actor.report_keys,actor.persistent_keys,sizeof(actor.report_keys));
+    uint8_t modifier,key;
+    if(!vk_to_hid(vk,&modifier,&key))return HID_KEYBOARD_INVALID;
+    actor.report_modifiers|=modifier;
+    if(!add_key(actor.report_keys,key))return HID_KEYBOARD_INVALID;
+    if(hold_max<hold_min){uint32_t t=hold_min;hold_min=hold_max;hold_max=t;}
+    actor.lane=INTERNAL_LANE;
+    actor.due=now+hold_min+(hold_max-hold_min)/2u;
+    actor.phase=ACTOR_SEND_PRESS;
+    return HID_KEYBOARD_ACCEPTED;
+}
+
+static bool complete_action(uint8_t *completed_lane) {
+    if(actor.lane==INTERNAL_LANE)return false;
+    if(actor.lane==LIVE_LANE) {
+        actor.live_reply_pending=true;
+        return false;
+    }
+    *completed_lane=actor.lane;
+    return true;
+}
+
 bool hid_keyboard_service(uint32_t now, uint8_t *completed_lane) {
     if (actor.release_pending) { uint8_t empty[MAX_KEYS]={0}; if (send_report(0,empty)) actor.release_pending=false; }
     if (!actor.release_pending&&actor.completion_pending) { *completed_lane=actor.completion_lane; actor.completion_pending=false; return true; }
     switch (actor.phase) {
         case ACTOR_SEND_PRESS: if (send_report(actor.report_modifiers,actor.report_keys)) actor.phase=ACTOR_WAIT_HOLD; break;
         case ACTOR_WAIT_HOLD: if (deadline_reached(now,actor.due)) actor.phase=ACTOR_SEND_RESTORE; break;
-        case ACTOR_SEND_RESTORE: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; } break;
-        case ACTOR_SEND_PERSISTENT: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; } break;
+        case ACTOR_SEND_RESTORE: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { actor.phase=ACTOR_IDLE; return complete_action(completed_lane); } break;
+        case ACTOR_SEND_PERSISTENT: if (send_report(actor.persistent_modifiers,actor.persistent_keys)) { actor.phase=ACTOR_IDLE; return complete_action(completed_lane); } break;
         case ACTOR_TYPE_PREPARE:
-            if (!prepare_type_key()) { *completed_lane=actor.lane; actor.phase=ACTOR_IDLE; return true; }
+            if (!prepare_type_key()) { actor.phase=ACTOR_IDLE; return complete_action(completed_lane); }
             actor.phase=ACTOR_TYPE_SEND_PRESS; break;
         case ACTOR_TYPE_SEND_PRESS: if (send_report(actor.report_modifiers,actor.report_keys)) { actor.due=now+TYPE_HOLD_MS; actor.phase=ACTOR_TYPE_WAIT_HOLD; } break;
         case ACTOR_TYPE_WAIT_HOLD: if (deadline_reached(now,actor.due)) actor.phase=ACTOR_TYPE_SEND_RELEASE; break;
@@ -346,8 +458,17 @@ bool hid_keyboard_service(uint32_t now, uint8_t *completed_lane) {
     return false;
 }
 
+bool hid_keyboard_take_live_reply(char *reply, size_t capacity) {
+    if(!actor.live_reply_pending||!reply||!capacity)return false;
+    snprintf(reply,capacity,"%s",actor.live_ack);
+    actor.live_reply_pending=false;
+    return true;
+}
+
 void hid_keyboard_release_all(void) {
-    if (actor.phase!=ACTOR_IDLE) { actor.completion_pending=true; actor.completion_lane=actor.lane; }
+    if (actor.phase!=ACTOR_IDLE && actor.lane!=LIVE_LANE) {
+        actor.completion_pending=true; actor.completion_lane=actor.lane;
+    }
     memset(actor.persistent_keys,0,sizeof(actor.persistent_keys)); memset(actor.report_keys,0,sizeof(actor.report_keys)); actor.persistent_modifiers=0; actor.report_modifiers=0; actor.phase=ACTOR_IDLE; actor.release_pending=true;
 }
 void hid_keyboard_discard_completion(void){actor.completion_pending=false;}

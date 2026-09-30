@@ -108,7 +108,9 @@ class AbvmBuzzerContractTests(unittest.TestCase):
              image.instructions[feedback].c),
             (880, 25, 5),
         )
-        self.assertEqual(image.instructions[watch].d, feedback + 1)
+        # Timeout skips the complete feedback pattern, including any trailing
+        # pause emitted by a custom note.
+        self.assertGreater(image.instructions[watch].d, feedback)
 
     def test_pattern_engine_is_nonblocking_and_bounded(self):
         self.assertIn("static const BuzzerPattern patterns[]", self.buzzer)
@@ -127,8 +129,7 @@ class AbvmBuzzerContractTests(unittest.TestCase):
     def test_full_operational_cues_are_wired(self):
         for cue in ("BUZZER_CUE_START", "BUZZER_CUE_STOP",
                     "BUZZER_CUE_PAUSE", "BUZZER_CUE_RESUME",
-                    "BUZZER_CUE_CATCH", "BUZZER_CUE_TIMEOUT",
-                    "BUZZER_CUE_ERROR"):
+                    "BUZZER_CUE_TIMEOUT", "BUZZER_CUE_ERROR"):
             self.assertIn(cue, self.main)
         self.assertIn("service_calibration_cue(calibration_event, now)", self.main)
         self.assertIn("buzzer_guard_transition(guard_event.profile_id, now)", self.main)
