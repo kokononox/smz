@@ -33,6 +33,10 @@ LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, m
 GUARD_HEADER = struct.Struct("<BBBBI")               # version/count/mode/reserved/timeout
 GUARD_PROFILE_V1 = struct.Struct("<BBHIIII")          # id/enabled/route/low/high/stable/hysteresis
 GUARD_PROFILE = struct.Struct("<BBHIIIII")            # id/cue/route/low/high/stable/hysteresis/cooldown
+GUARD_CUE_META = struct.Struct("<BBBB")                # custom count/volume/envelope/reserved
+GUARD_CUE_TONE = struct.Struct("<HHH")                 # frequency/duration/gap
+GUARD_CUSTOM_TONES = 8
+BUZZER_SYSTEM_CUE_COUNT = 23
 CYCLE = struct.Struct("<BBBBIIHHI")                  # version/flags/limit/reserved/run range/routes/USB stable
 
 FLAG_HAS_TYPE, FLAG_HAS_SCOPE, FLAG_HAS_SOUND, FLAG_HAS_LIGHT, FLAG_HAS_GUARD, FLAG_HAS_CYCLE = 1, 2, 4, 8, 16, 32
@@ -814,8 +818,10 @@ class Compiler:
         watchdog_minutes = integer(guard.get("stageWatchdogMinutes"), 2)
         if watchdog_minutes not in range(1, 61):
             raise AbvmError("Native Guard stage watchdog must be 1..60 minutes")
+        buzzer_cues = guard.get("buzzerCues")
+        has_buzzer_cues = isinstance(buzzer_cues, list)
         packed = bytearray(GUARD_HEADER.pack(
-            3, len(expected),
+            5 if has_buzzer_cues else 4, len(expected),
             1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
             watchdog_minutes,
             max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
@@ -836,7 +842,7 @@ class Compiler:
             high = int(round((center + tolerance) * 10))
             if high > 10_000_000 or stable > 3_600_000 or cooldown > 3_600_000:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
-            if cue not in range(1, 9):
+            if cue not in range(0, 101):
                 raise AbvmError("Native Guard calibration cue is out of range: " + profile_id)
             if numeric_id not in (7, 8) and cooldown:
                 raise AbvmError("Native Guard light cooldown is only valid for Whisper profiles")
@@ -844,10 +850,84 @@ class Compiler:
             packed.extend(GUARD_PROFILE.pack(
                 numeric_id, cue, ROUTE_IDS[route_name], low, high, stable,
                 int(round(hysteresis * 10)), cooldown))
+            custom = []
+            volume = integer(item.get("calibrationCueVolume"), 100)
+            tempo = integer(item.get("calibrationCueTempo"), 100)
+            envelope_name = str(item.get("calibrationCueEnvelope") or "sharp").lower()
+            envelopes = {"sharp": 0, "smooth": 1, "fade-in": 2, "fade-out": 3}
+            if volume not in range(1, 101) or tempo not in range(25, 401) or envelope_name not in envelopes:
+                raise AbvmError("Native Guard calibration cue style is invalid: " + profile_id)
+            if cue == 0:
+                for token in str(item.get("calibrationCuePattern") or "").split(";"):
+                    token = token.strip()
+                    if not token:
+                        continue
+                    try:
+                        frequency_text, timing_text = token.split(":", 1)
+                        timing = [part.strip() for part in timing_text.split(",")]
+                        if len(timing) not in (1, 2):
+                            raise ValueError()
+                        frequency = int(frequency_text)
+                        duration = int(timing[0])
+                        gap = int(timing[1]) if len(timing) == 2 else 0
+                    except (ValueError, TypeError):
+                        raise AbvmError("Native Guard custom cue syntax is invalid: " + profile_id)
+                    if frequency not in range(30, 20001) or duration <= 0 or gap < 0:
+                        raise AbvmError("Native Guard custom cue note is out of range: " + profile_id)
+                    duration = max(1, round(duration * 100 / tempo))
+                    gap = max(1, round(gap * 100 / tempo)) if gap else 0
+                    if duration > 65535 or gap > 65535:
+                        raise AbvmError("Native Guard custom cue timing is too long: " + profile_id)
+                    custom.append((frequency, duration, gap))
+                if not custom or len(custom) > GUARD_CUSTOM_TONES:
+                    raise AbvmError("Native Guard custom cue needs 1..8 notes: " + profile_id)
+            packed.extend(GUARD_CUE_META.pack(
+                len(custom), volume, envelopes[envelope_name], 0))
+            for index in range(GUARD_CUSTOM_TONES):
+                packed.extend(GUARD_CUE_TONE.pack(*(custom[index] if index < len(custom) else (0, 0, 0))))
         for i, (left_id, left_low, left_high) in enumerate(ranges):
             for right_id, right_low, right_high in ranges[i + 1:]:
                 if max(left_low, right_low) <= min(left_high, right_high):
                     raise AbvmError(f"Native Guard profiles overlap: {left_id}/{right_id}")
+        if has_buzzer_cues:
+            by_cue_id = {integer(item.get("id"), 0): item for item in buzzer_cues
+                         if isinstance(item, dict)}
+            if set(by_cue_id) != set(range(1, BUZZER_SYSTEM_CUE_COUNT + 1)):
+                raise AbvmError("Native buzzer settings need exactly 23 unique system cues")
+            packed.extend(GUARD_CUE_META.pack(BUZZER_SYSTEM_CUE_COUNT, 0, 0, 0))
+            envelopes = {"sharp": 0, "smooth": 1, "fade-in": 2, "fade-out": 3}
+            for cue_id in range(1, BUZZER_SYSTEM_CUE_COUNT + 1):
+                item = by_cue_id[cue_id]
+                volume = integer(item.get("volume"), 100)
+                tempo = integer(item.get("tempo"), 100)
+                envelope_name = str(item.get("envelope") or "sharp").lower()
+                if volume not in range(1, 101) or tempo not in range(25, 401) or envelope_name not in envelopes:
+                    raise AbvmError(f"Native system buzzer style is invalid: {cue_id}")
+                notes = []
+                for token in str(item.get("pattern") or "").split(";"):
+                    token = token.strip()
+                    if not token:
+                        continue
+                    try:
+                        frequency_text, timing_text = token.split(":", 1)
+                        timing = [part.strip() for part in timing_text.split(",")]
+                        if len(timing) not in (1, 2):
+                            raise ValueError()
+                        frequency = int(frequency_text)
+                        duration = int(timing[0])
+                        gap = int(timing[1]) if len(timing) == 2 else 0
+                    except (ValueError, TypeError):
+                        raise AbvmError(f"Native system buzzer syntax is invalid: {cue_id}")
+                    duration = max(1, round(duration * 100 / tempo))
+                    gap = max(1, round(gap * 100 / tempo)) if gap else 0
+                    if frequency not in range(30, 20001) or duration not in range(1, 65536) or gap not in range(0, 65536):
+                        raise AbvmError(f"Native system buzzer note is out of range: {cue_id}")
+                    notes.append((frequency, duration, gap))
+                if not notes or len(notes) > GUARD_CUSTOM_TONES:
+                    raise AbvmError(f"Native system buzzer cue needs 1..8 notes: {cue_id}")
+                packed.extend(GUARD_CUE_META.pack(cue_id, len(notes), volume, envelopes[envelope_name]))
+                for index in range(GUARD_CUSTOM_TONES):
+                    packed.extend(GUARD_CUE_TONE.pack(*(notes[index] if index < len(notes) else (0, 0, 0))))
         self.pool.add(CONST_GUARD, bytes(packed))
         self.flags |= FLAG_HAS_GUARD
 
@@ -1069,18 +1149,21 @@ class Verifier:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            profile_struct = GUARD_PROFILE if version in (2, 3) else GUARD_PROFILE_V1
-            if len(raw) != GUARD_HEADER.size + 8 * profile_struct.size:
+            profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5) else GUARD_PROFILE_V1
+            profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5) else 0)
+            base_size = GUARD_HEADER.size + 8 * profile_size
+            expected_size = base_size + (GUARD_CUE_META.size + BUZZER_SYSTEM_CUE_COUNT * (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size) if version == 5 else 0)
+            if len(raw) != expected_size:
                 raise AbvmError("invalid Native Guard descriptor size")
-            if version not in (1, 2, 3) or count != 8 or mode not in (0, 1) or \
+            if version not in (1, 2, 3, 4, 5) or count != 8 or mode not in (0, 1) or \
                     (version < 3 and reserved) or \
-                    (version == 3 and reserved not in range(1, 61)) or timeout < 250:
+                    (version >= 3 and reserved not in range(1, 61)) or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
             ids = set()
             for index in range(count):
                 item = profile_struct.unpack_from(
-                    raw, GUARD_HEADER.size + index * profile_struct.size)
-                if version in (2, 3):
+                    raw, GUARD_HEADER.size + index * profile_size)
+                if version in (2, 3, 4, 5):
                     profile_id, cue, route_id, low, high, stable, hysteresis, cooldown = item
                 else:
                     profile_id, enabled, route_id, low, high, stable, hysteresis = item
@@ -1088,14 +1171,47 @@ class Verifier:
                     if enabled != 1:
                         raise AbvmError("invalid Native Guard profile")
                 if profile_id not in range(1, 9) or profile_id in ids or \
-                        cue not in range(1, 9) or route_id not in ROUTE_IDS.values() or \
+                        cue not in range(0 if version == 4 else 1, 101 if version == 4 else 9) or route_id not in ROUTE_IDS.values() or \
                         low > high or stable > 3_600_000 or \
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
                         (profile_id not in (7, 8) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
+                if version in (4, 5):
+                    custom_offset = GUARD_HEADER.size + index * profile_size + GUARD_PROFILE.size
+                    custom_count, volume, envelope, cue_reserved = GUARD_CUE_META.unpack_from(raw, custom_offset)
+                    if custom_count > GUARD_CUSTOM_TONES or volume not in range(1, 101) or envelope > 3 or cue_reserved:
+                        raise AbvmError("invalid Native Guard custom cue metadata")
+                    if (cue == 0) != (custom_count > 0):
+                        raise AbvmError("invalid Native Guard custom cue selection")
+                    for tone_index in range(custom_count):
+                        frequency, duration, gap = GUARD_CUE_TONE.unpack_from(
+                            raw, custom_offset + GUARD_CUE_META.size + tone_index * GUARD_CUE_TONE.size)
+                        if frequency not in range(30, 20001) or not duration:
+                            raise AbvmError("invalid Native Guard custom cue tone")
                 ids.add(profile_id)
             if ids != set(range(1, 9)):
                 raise AbvmError("Native Guard profile set mismatch")
+            if version == 5:
+                cue_count, r1, r2, r3 = GUARD_CUE_META.unpack_from(raw, base_size)
+                if cue_count != BUZZER_SYSTEM_CUE_COUNT or r1 or r2 or r3:
+                    raise AbvmError("invalid Native system buzzer header")
+                record_size = GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size
+                cue_ids = set()
+                for index in range(cue_count):
+                    offset = base_size + GUARD_CUE_META.size + index * record_size
+                    cue_id, note_count, volume, envelope = GUARD_CUE_META.unpack_from(raw, offset)
+                    if cue_id not in range(1, BUZZER_SYSTEM_CUE_COUNT + 1) or cue_id in cue_ids or \
+                            note_count not in range(1, GUARD_CUSTOM_TONES + 1) or \
+                            volume not in range(1, 101) or envelope > 3:
+                        raise AbvmError("invalid Native system buzzer cue")
+                    for tone_index in range(note_count):
+                        frequency, duration, gap = GUARD_CUE_TONE.unpack_from(
+                            raw, offset + GUARD_CUE_META.size + tone_index * GUARD_CUE_TONE.size)
+                        if frequency not in range(30, 20001) or not duration:
+                            raise AbvmError("invalid Native system buzzer tone")
+                    cue_ids.add(cue_id)
+                if cue_ids != set(range(1, BUZZER_SYSTEM_CUE_COUNT + 1)):
+                    raise AbvmError("Native system buzzer cue set mismatch")
             measured_flags |= FLAG_HAS_GUARD
         cycle_constants = [payload for kind, _, payload in image.constants
                            if kind == CONST_CYCLE]

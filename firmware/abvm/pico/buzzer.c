@@ -11,7 +11,6 @@
 #define ENVELOPE_UPDATE_MS 4u
 #define ARRAY_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 
-typedef struct BuzzerTone { uint16_t hz, duration_ms, gap_ms; } BuzzerTone;
 typedef struct BuzzerPattern { const BuzzerTone *tones; uint8_t count, priority; } BuzzerPattern;
 
 /* Exact legacy Guard patterns. A zero-frequency legacy delay is represented by
@@ -46,7 +45,23 @@ static const BuzzerTone calibration_exit[] = {{784,100,0},{659,120,0},{523,220,0
 static const BuzzerTone calibration_error[] = {{220,140,80},{220,260,0}};
 static const BuzzerTone calibration_success[] = {{880,160,60},{1175,220,60},{1568,360,0}};
 static const BuzzerTone calibration_complete[] = {{262,90,35},{294,90,35},{330,90,35},{349,90,35},{392,90,35},{440,90,0}};
-static BuzzerTone dynamic_tones[8];
+static const BuzzerTone calibration_record_light[] = {{660,65,0}};
+static const BuzzerTone calibration_record_sound[] = {{523,90,0}};
+static const BuzzerTone calibration_sound_target[] = {{988,120,0}};
+static const BuzzerTone transition_1[] = {{550,50,10},{660,50,10},{770,80,0}};
+static const BuzzerTone transition_2[] = {{660,50,10},{770,50,10},{880,80,0}};
+static const BuzzerTone transition_3[] = {{770,50,10},{880,50,10},{990,80,0}};
+static const BuzzerTone transition_4[] = {{880,50,10},{990,50,10},{1100,80,0}};
+static const BuzzerTone transition_5[] = {{990,50,10},{1100,50,10},{1210,80,0}};
+static const BuzzerTone transition_6[] = {{1100,50,10},{1210,50,10},{1320,80,0}};
+static const BuzzerTone watchdog_cycle[] = {{620,180,20},{1000,180,20},{1380,180,20},{1000,180,0}};
+static BuzzerTone dynamic_tones[16];
+static BuzzerTone generated_tones[4];
+static BuzzerTone calibration_custom[8];
+static uint8_t calibration_custom_count, calibration_custom_volume=100u, calibration_custom_envelope;
+static BuzzerTone system_cue_tones[23][8];
+static uint8_t system_cue_counts[23],system_cue_volumes[23],system_cue_envelopes[23];
+static bool watchdog_custom;
 
 static const BuzzerPattern patterns[] = {
     [BUZZER_CUE_START] = {guard_start, ARRAY_COUNT(guard_start), 2u},
@@ -117,15 +132,96 @@ static void begin_styled(const BuzzerTone *next, uint8_t count,
 static void begin(const BuzzerTone *next, uint8_t count, uint8_t next_priority, uint32_t now) {
     begin_styled(next,count,next_priority,100u,0u,now);
 }
+static bool begin_system(uint8_t cue_id,uint8_t cue_priority,uint32_t now){
+    if(cue_id<1u||cue_id>23u||!system_cue_counts[cue_id-1u])return false;
+    begin_styled(system_cue_tones[cue_id-1u],system_cue_counts[cue_id-1u],cue_priority,
+        system_cue_volumes[cue_id-1u],system_cue_envelopes[cue_id-1u],now);
+    return true;
+}
+static const uint16_t generated_notes[] = {
+    262,294,330,349,392,440,494,523,587,659,698,784,880,988,1047,1175,
+    1319,1397,1568,1760,1976,2093
+};
+static void generated_calibration_motif(uint8_t cue,uint8_t *count) {
+    uint8_t n=(uint8_t)(cue-32u),shape=(uint8_t)(n%8u);
+    uint8_t root=(uint8_t)((n*3u+n/8u)%15u);
+    static const int8_t offsets[8][4]={
+        {0,2,4,-1},{5,3,0,-1},{0,4,2,-1},{2,2,2,-1},
+        {0,3,6,3},{0,5,-1,-1},{0,2,5,-1},{3,5,7,-1}
+    };
+    static const uint16_t durations[8][4]={
+        {90,90,170,0},{90,90,180,0},{95,120,190,0},{70,70,150,0},
+        {80,90,80,180},{120,210,0,0},{75,75,190,0},{65,65,150,0}
+    };
+    static const uint16_t gaps[8][4]={
+        {30,30,0,0},{30,30,0,0},{35,45,0,0},{45,45,0,0},
+        {25,25,25,0},{55,0,0,0},{25,25,0,0},{20,20,0,0}
+    };
+    uint8_t total=0u;
+    for(uint8_t i=0;i<4u&&offsets[shape][i]>=0;++i){
+        uint8_t note=(uint8_t)(root+(uint8_t)offsets[shape][i]);
+        if(note>=ARRAY_COUNT(generated_notes))note=ARRAY_COUNT(generated_notes)-1u;
+        generated_tones[total++]=(BuzzerTone){generated_notes[note],durations[shape][i],gaps[shape][i]};
+    }
+    *count=total;
+}
+static const BuzzerTone *system_calibration_motif(uint8_t cue,uint8_t *count){
+    switch(cue){
+        case 9u:*count=ARRAY_COUNT(guard_start);return guard_start;
+        case 10u:*count=ARRAY_COUNT(guard_stop);return guard_stop;
+        case 11u:*count=ARRAY_COUNT(guard_pause);return guard_pause;
+        case 12u:*count=ARRAY_COUNT(guard_resume);return guard_resume;
+        case 13u:case 14u:*count=ARRAY_COUNT(preset_warning);return preset_warning;
+        case 15u:*count=ARRAY_COUNT(whisper_notice);return whisper_notice;
+        case 16u:*count=ARRAY_COUNT(whisper_repeat_notice);return whisper_repeat_notice;
+        case 17u:*count=ARRAY_COUNT(calibration_enter_prefix);return calibration_enter_prefix;
+        case 18u:*count=ARRAY_COUNT(calibration_exit);return calibration_exit;
+        case 19u:*count=ARRAY_COUNT(calibration_error);return calibration_error;
+        case 20u:*count=ARRAY_COUNT(calibration_success);return calibration_success;
+        case 21u:*count=ARRAY_COUNT(calibration_complete);return calibration_complete;
+        case 22u:*count=ARRAY_COUNT(calibration_record_light);return calibration_record_light;
+        case 23u:*count=ARRAY_COUNT(calibration_record_sound);return calibration_record_sound;
+        case 24u:*count=ARRAY_COUNT(calibration_sound_target);return calibration_sound_target;
+        case 25u:*count=ARRAY_COUNT(transition_1);return transition_1;
+        case 26u:*count=ARRAY_COUNT(transition_2);return transition_2;
+        case 27u:*count=ARRAY_COUNT(transition_3);return transition_3;
+        case 28u:*count=ARRAY_COUNT(transition_4);return transition_4;
+        case 29u:*count=ARRAY_COUNT(transition_5);return transition_5;
+        case 30u:*count=ARRAY_COUNT(transition_6);return transition_6;
+        case 31u:*count=ARRAY_COUNT(watchdog_cycle);return watchdog_cycle;
+        default:*count=0u;return NULL;
+    }
+}
 static uint16_t selection_note(uint8_t selection, bool sound) {
     if (sound) return selection == 3u ? 1047u : selection == 2u ? 880u : 660u;
-    if (selection < 1u || selection > ARRAY_COUNT(light_calibration_motifs)) selection = 1u;
+    if (selection < 1u || selection > 100u) selection = 1u;
+    if(selection>8u&&selection<=31u){uint8_t count;const BuzzerTone *motif=system_calibration_motif(selection,&count);return motif[0].hz;}
+    if(selection>31u){uint8_t count;generated_calibration_motif(selection,&count);return generated_tones[0].hz;}
     return light_calibration_motifs[selection - 1u][0].hz;
 }
 static const BuzzerTone *light_calibration_motif(uint8_t cue,uint8_t *count) {
-    if(cue<1u||cue>ARRAY_COUNT(light_calibration_motifs))cue=1u;
+    if(cue==0u&&calibration_custom_count){*count=calibration_custom_count;return calibration_custom;}
+    if(cue>8u&&cue<=31u)return system_calibration_motif(cue,count);
+    if(cue>31u&&cue<=100u){generated_calibration_motif(cue,count);return generated_tones;}
+    if(cue<1u||cue>8u)cue=1u;
     if(count)*count=light_calibration_motif_counts[cue-1u];
     return light_calibration_motifs[cue-1u];
+}
+void buzzer_set_calibration_custom(const BuzzerTone *custom,uint8_t count,
+                                   uint8_t volume,uint8_t envelope){
+    calibration_custom_count=count>8u?8u:count;
+    for(uint8_t i=0;i<calibration_custom_count;++i)calibration_custom[i]=custom[i];
+    calibration_custom_volume=volume?volume:100u;
+    calibration_custom_envelope=envelope<=3u?envelope:0u;
+}
+void buzzer_set_system_cue(uint8_t cue_id,const BuzzerTone *custom,uint8_t count,
+                           uint8_t volume,uint8_t envelope){
+    if(cue_id<1u||cue_id>23u)return;
+    uint8_t slot=(uint8_t)(cue_id-1u);
+    system_cue_counts[slot]=count>8u?8u:count;
+    for(uint8_t i=0;i<system_cue_counts[slot];++i)system_cue_tones[slot][i]=custom[i];
+    system_cue_volumes[slot]=volume?volume:100u;
+    system_cue_envelopes[slot]=envelope<=3u?envelope:0u;
 }
 
 void buzzer_init(void) {
@@ -134,7 +230,10 @@ void buzzer_init(void) {
 }
 void buzzer_play(BuzzerCue cue,uint32_t now) {
     if ((unsigned)cue >= sizeof(patterns)/sizeof(patterns[0])) return;
-    const BuzzerPattern *p=&patterns[cue]; begin(p->tones,p->count,p->priority,now);
+    static const uint8_t system_ids[]={1u,2u,3u,4u,5u,6u,7u,8u,12u};
+    const BuzzerPattern *p=&patterns[cue];
+    if(system_ids[cue]&&begin_system(system_ids[cue],p->priority,now))return;
+    begin(p->tones,p->count,p->priority,now);
 }
 void buzzer_play_tone(uint16_t hz,uint16_t duration_ms,uint32_t now) {
     buzzer_play_tone_ex(hz,duration_ms,100u,0u,now);
@@ -148,6 +247,7 @@ void buzzer_play_tone_ex(uint16_t hz,uint16_t duration_ms,uint8_t volume,
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
     if(profile_id<1u||profile_id>6u)return;
     if(active&&priority>4u)return;
+    if(begin_system((uint8_t)(16u+profile_id),4u,now))return;
     sweep_start_hz=(uint16_t)(440u+(uint16_t)profile_id*110u);
     sweep_end_hz=(uint16_t)(sweep_start_hz+220u);
     sweep_duration_ms=150u;sweep_started=now;sweep_next_update=now;
@@ -162,7 +262,9 @@ static void start_watchdog_sweep(uint32_t now) {
     tone_on(sweep_start_hz);deadline=now+sweep_duration_ms;
 }
 void buzzer_watchdog_alarm_start(uint32_t now) {
-    watchdog_alarm=true;watchdog_rising=true;start_watchdog_sweep(now);
+    watchdog_alarm=true;watchdog_rising=true;
+    watchdog_custom=begin_system(23u,8u,now);
+    if(!watchdog_custom)start_watchdog_sweep(now);
 }
 void buzzer_watchdog_alarm_stop(void) {
     watchdog_alarm=false;
@@ -172,15 +274,23 @@ void buzzer_watchdog_alarm_stop(void) {
 }
 bool buzzer_watchdog_alarm_active(void){return watchdog_alarm;}
 void buzzer_calibration_enter(uint8_t selection,bool sound,uint32_t now) {
-    for(uint8_t i=0;i<ARRAY_COUNT(calibration_enter_prefix);++i) dynamic_tones[i]=calibration_enter_prefix[i];
+    const BuzzerTone *prefix=calibration_enter_prefix;
+    uint8_t prefix_count=ARRAY_COUNT(calibration_enter_prefix),prefix_volume=100u,prefix_envelope=0u;
+    if(system_cue_counts[8]){
+        prefix=system_cue_tones[8];prefix_count=system_cue_counts[8];
+        prefix_volume=system_cue_volumes[8];prefix_envelope=system_cue_envelopes[8];
+    }
+    for(uint8_t i=0;i<prefix_count;++i)dynamic_tones[i]=prefix[i];
     if(sound) {
-        dynamic_tones[3]=(BuzzerTone){selection_note(selection,true),220u,0u};
-        begin(dynamic_tones,4u,5u,now);
+        dynamic_tones[prefix_count]=(BuzzerTone){selection_note(selection,true),220u,0u};
+        begin_styled(dynamic_tones,(uint8_t)(prefix_count+1u),5u,prefix_volume,prefix_envelope,now);
         return;
     }
     uint8_t count;const BuzzerTone *motif=light_calibration_motif(selection,&count);
-    for(uint8_t i=0;i<count;++i)dynamic_tones[ARRAY_COUNT(calibration_enter_prefix)+i]=motif[i];
-    begin(dynamic_tones,(uint8_t)(ARRAY_COUNT(calibration_enter_prefix)+count),5u,now);
+    for(uint8_t i=0;i<count;++i)dynamic_tones[prefix_count+i]=motif[i];
+    if(selection==0u)begin_styled(dynamic_tones,(uint8_t)(prefix_count+count),5u,
+        calibration_custom_volume,calibration_custom_envelope,now);
+    else begin_styled(dynamic_tones,(uint8_t)(prefix_count+count),5u,prefix_volume,prefix_envelope,now);
 }
 void buzzer_calibration_position(uint8_t selection,bool sound,uint32_t now) {
     if(sound) {
@@ -188,22 +298,25 @@ void buzzer_calibration_position(uint8_t selection,bool sound,uint32_t now) {
         begin(dynamic_tones,1u,5u,now);return;
     }
     uint8_t count;const BuzzerTone *motif=light_calibration_motif(selection,&count);
-    begin(motif,count,5u,now);
+    if(selection==0u)begin_styled(motif,count,5u,calibration_custom_volume,calibration_custom_envelope,now);
+    else begin(motif,count,5u,now);
 }
 void buzzer_calibration_record_start(bool sound,uint32_t now) {
+    if(begin_system(sound?15u:14u,5u,now))return;
     dynamic_tones[0]=(BuzzerTone){sound?523u:660u,sound?90u:65u,0u}; begin(dynamic_tones,1u,5u,now);
 }
 void buzzer_calibration_sound_target(uint32_t now) {
+    if(begin_system(16u,5u,now))return;
     dynamic_tones[0]=(BuzzerTone){988u,120u,0u}; begin(dynamic_tones,1u,5u,now);
 }
 void buzzer_calibration_stage_complete(uint8_t stage,uint32_t now) {
     uint8_t count;const BuzzerTone *motif=light_calibration_motif(stage,&count);
     begin(motif,count,5u,now);
 }
-void buzzer_calibration_save_success(uint32_t now) { begin(calibration_success,ARRAY_COUNT(calibration_success),6u,now); }
-void buzzer_calibration_save_error(uint32_t now) { begin(calibration_error,ARRAY_COUNT(calibration_error),7u,now); }
-void buzzer_calibration_complete(uint32_t now) { begin(calibration_complete,ARRAY_COUNT(calibration_complete),6u,now); }
-void buzzer_calibration_exit(uint32_t now) { begin(calibration_exit,ARRAY_COUNT(calibration_exit),6u,now); }
+void buzzer_calibration_save_success(uint32_t now) { if(!begin_system(12u,6u,now))begin(calibration_success,ARRAY_COUNT(calibration_success),6u,now); }
+void buzzer_calibration_save_error(uint32_t now) { if(!begin_system(11u,7u,now))begin(calibration_error,ARRAY_COUNT(calibration_error),7u,now); }
+void buzzer_calibration_complete(uint32_t now) { if(!begin_system(13u,6u,now))begin(calibration_complete,ARRAY_COUNT(calibration_complete),6u,now); }
+void buzzer_calibration_exit(uint32_t now) { if(!begin_system(10u,6u,now))begin(calibration_exit,ARRAY_COUNT(calibration_exit),6u,now); }
 void buzzer_service(uint32_t now) {
     if(!active)return;
     if(sweep_active){
@@ -216,7 +329,7 @@ void buzzer_service(uint32_t now) {
             }
             return;
         }
-        if(watchdog_alarm) {
+        if(watchdog_alarm&&!watchdog_custom) {
             watchdog_rising=!watchdog_rising;
             start_watchdog_sweep(now);
             return;
@@ -230,7 +343,10 @@ void buzzer_service(uint32_t now) {
     }
     if(!reached(now,deadline))return;
     if(!gap_phase){tone_off();uint16_t gap=tones[tone_index].gap_ms;if(gap){gap_phase=true;deadline=now+gap;return;}}
-    gap_phase=false;if(++tone_index>=tone_count){active=false;priority=0u;tone_off();return;}
+    gap_phase=false;if(++tone_index>=tone_count){
+        if(watchdog_alarm&&watchdog_custom){begin_system(23u,8u,now);return;}
+        active=false;priority=0u;tone_off();return;
+    }
     start_current_tone(now);
 }
 void buzzer_silence(void){watchdog_alarm=false;active=false;sweep_active=false;priority=0u;tone_off();}

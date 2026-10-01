@@ -519,6 +519,14 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     bool error=!strncmp(event,"ERR|",4);
     uint8_t selection=event_u8(event,sound?"id=":"stage=",1u);
     uint8_t cue=sound?selection:guard_runtime_calibration_cue(selection);
+    if(!sound&&cue==0u){
+        uint16_t hz[8],duration[8],gap[8];uint8_t count=0u,volume=100u,envelope=0u;
+        BuzzerTone custom[8];
+        if(guard_runtime_calibration_pattern(selection,hz,duration,gap,&count,&volume,&envelope)){
+            for(uint8_t i=0;i<count;++i)custom[i]=(BuzzerTone){hz[i],duration[i],gap[i]};
+            buzzer_set_calibration_custom(custom,count,volume,envelope);
+        }
+    }
     if(error){buzzer_calibration_save_error(now);return;}
     if(strstr(event,"mode=exited")){buzzer_calibration_exit(now);if(sound)sound_cal_cue_active=false;else light_cal_cue_active=false;return;}
     if(strstr(event,"mode=ready")){bool *seen=sound?&sound_cal_cue_active:&light_cal_cue_active;if(!*seen){*seen=true;buzzer_calibration_enter(cue,sound,now);}else buzzer_calibration_position(cue,sound,now);return;}
@@ -875,6 +883,15 @@ void tud_umount_cb(void) { release_all_actors(now_ms()); buzzer_silence(); }
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en; release_all_actors(now_ms()); buzzer_silence();
 }
+static void configure_buzzer_cues(void){
+    for(uint8_t cue_id=1u;cue_id<=23u;++cue_id){
+        uint16_t hz[8],duration[8],gap[8];uint8_t count=0u,volume=100u,envelope=0u;
+        BuzzerTone tones[8];
+        if(!guard_runtime_buzzer_cue(cue_id,hz,duration,gap,&count,&volume,&envelope))continue;
+        for(uint8_t i=0;i<count;++i)tones[i]=(BuzzerTone){hz[i],duration[i],gap[i]};
+        buzzer_set_system_cue(cue_id,tones,count,volume,envelope);
+    }
+}
 int main(void) {
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
@@ -882,6 +899,7 @@ int main(void) {
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     bool program_verified = abvm_init(&vm, program, program_size);
     bool guard_available = program_verified && guard_runtime_init(&vm);
+    if(guard_available)configure_buzzer_cues();
     if (program_verified) {
         calibration_runtime_init(&vm);
         (void)cycle_runtime_init(&vm,now_ms());

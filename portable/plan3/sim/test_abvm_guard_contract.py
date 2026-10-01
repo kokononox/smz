@@ -15,11 +15,31 @@ program = abvm.Compiler().compile_amsj(source, routes)
 image = abvm.Verifier.verify(program.image)
 assert image.flags & abvm.FLAG_HAS_GUARD
 guards = [payload for kind, _, payload in image.constants if kind == abvm.CONST_GUARD]
-assert len(guards) == 1 and len(guards[0]) == abvm.GUARD_HEADER.size + 8 * abvm.GUARD_PROFILE.size
+assert len(guards) == 1 and guards[0][0] == 4
+v4_profile_size = (abvm.GUARD_PROFILE.size + abvm.GUARD_CUE_META.size
+                   + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size)
+assert len(guards[0]) == abvm.GUARD_HEADER.size + 8 * v4_profile_size
 assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12}
 events = abvm.ReferenceVm(program.image).run("Game")
 assert not any(event[0] == "KEY" for event in events), "forward GOTO must skip X"
 assert any(event[0] == "DELAY" for event in events)
+
+# Guard v5 appends all formerly hard-coded buzzer cues.  Every record remains
+# bounded to eight notes and is verified as part of the ABP image.
+with_buzzer = json.loads(json.dumps(source))
+with_buzzer["nativeGuard"]["buzzerCues"] = [
+    {"id": cue_id, "pattern": "440:100,30;880:180", "volume": 80,
+     "envelope": "smooth", "tempo": 100}
+    for cue_id in range(1, abvm.BUZZER_SYSTEM_CUE_COUNT + 1)
+]
+buzzer_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(with_buzzer, routes).image)
+buzzer_guard = next(payload for kind, _, payload in buzzer_image.constants
+                    if kind == abvm.CONST_GUARD)
+assert buzzer_guard[0] == 5
+assert len(buzzer_guard) == (abvm.GUARD_HEADER.size + 8 * v4_profile_size
+    + abvm.GUARD_CUE_META.size
+    + abvm.BUZZER_SYSTEM_CUE_COUNT
+      * (abvm.GUARD_CUE_META.size + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size))
 
 # Build 119 projects use the legacy UI names Launch and LaunchRecovery.
 # Native export requests their canonical Restart and Dc names.  The compiler

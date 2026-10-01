@@ -90,7 +90,24 @@ public static class NativeUf2Exporter
                 ["hysteresisLux"] = profile.HysteresisLux,
                 ["lightCooldownMs"] = profile.LightCooldownMs,
                 ["calibrationCue"] = profile.CalibrationCue,
+                ["calibrationCuePattern"] = profile.CalibrationCuePattern,
+                ["calibrationCueVolume"] = profile.CalibrationCueVolume,
+                ["calibrationCueEnvelope"] = profile.CalibrationCueEnvelope,
+                ["calibrationCueTempo"] = profile.CalibrationCueTempo,
             });
+        var buzzerCues = new JsonArray();
+        foreach (var cue in BuzzerSystemCueStore.Load())
+        {
+            var preset = CalibrationCueCatalog.Get(Math.Max(1, cue.CalibrationCue));
+            buzzerCues.Add(new JsonObject
+            {
+                ["id"] = cue.NumericId,
+                ["pattern"] = cue.CalibrationCue == 0 ? cue.CalibrationCuePattern : preset.Pattern,
+                ["volume"] = cue.CalibrationCue == 0 ? cue.CalibrationCueVolume : preset.Volume,
+                ["envelope"] = cue.CalibrationCue == 0 ? cue.CalibrationCueEnvelope : preset.Envelope,
+                ["tempo"] = cue.CalibrationCue == 0 ? cue.CalibrationCueTempo : preset.Tempo,
+            });
+        }
         return new JsonObject
         {
             ["enabled"] = true,
@@ -98,6 +115,7 @@ public static class NativeUf2Exporter
             ["sensorTimeoutMs"] = 1500,
             ["stageWatchdogMinutes"] = 2,
             ["profiles"] = profiles,
+            ["buzzerCues"] = buzzerCues,
         };
     }
 

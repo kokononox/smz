@@ -44,6 +44,12 @@ uint8_t guard_runtime_expected_profile(void);
 uint32_t guard_runtime_stage_elapsed(uint32_t now);
 uint32_t guard_runtime_watchdog_timeout_ms(void);
 uint8_t guard_runtime_calibration_cue(uint8_t profile_id);
+bool guard_runtime_calibration_pattern(uint8_t profile_id, uint16_t hz[8],
+    uint16_t duration_ms[8], uint16_t gap_ms[8], uint8_t *count,
+    uint8_t *volume, uint8_t *envelope);
+bool guard_runtime_buzzer_cue(uint8_t cue_id, uint16_t hz[8],
+    uint16_t duration_ms[8], uint16_t gap_ms[8], uint8_t *count,
+    uint8_t *volume, uint8_t *envelope);
 const char *guard_runtime_profile_name(uint8_t profile_id);
 bool guard_runtime_get_profile_range(uint8_t profile_id, uint32_t *low_tenths,
                                      uint32_t *high_tenths);

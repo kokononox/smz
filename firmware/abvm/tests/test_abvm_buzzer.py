@@ -120,7 +120,15 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("{392,180,0},{330,160,0},{262,260,60},{196,260,0}", self.buzzer)
         self.assertIn("{523,180,100},{523,180,100},{523,340,0}", self.buzzer)
         self.assertIn("{659,150,0},{784,150,0},{988,150,0},{784,150,0},{988,300,0}", self.buzzer)
-        self.assertIn("{262,294,330,349,392,440,494,523}", self.buzzer)
+        self.assertIn("static const uint16_t generated_notes[]", self.buzzer)
+        self.assertIn("262,294,330,349,392,440,494,523", self.buzzer)
+        self.assertIn("cue>31u&&cue<=100u", self.buzzer)
+        self.assertIn("system_calibration_motif", self.buzzer)
+        for cue in ("guard_start", "guard_stop", "guard_pause", "guard_resume",
+                    "preset_warning", "whisper_notice", "calibration_enter_prefix",
+                    "watchdog_cycle"):
+            self.assertIn("return " + cue, self.buzzer)
+        self.assertIn("buzzer_set_calibration_custom", self.buzzer)
         self.assertIn("{880,160,60},{1175,220,60},{1568,360,0}", self.buzzer)
         self.assertIn("{220,140,80},{220,260,0}", self.buzzer)
         self.assertIn("{1397,110,45},{1760,190,0}", self.buzzer)
@@ -145,6 +153,10 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("sweep_duration_ms=150u", self.buzzer)
         self.assertNotIn("buzzer_play_stage(guard_event.stage, now)", self.main)
         self.assertIn("buzzer_service(now)", self.main)
+        self.assertIn("configure_buzzer_cues", self.main)
+        self.assertIn("guard_runtime_buzzer_cue", self.main)
+        self.assertIn("buzzer_set_system_cue", self.main)
+        self.assertIn("begin_system(23u,8u,now)", self.buzzer)
 
     def test_route_release_preserves_system_cues_but_cancels_owned_beeps(self):
         release = self.main.split(

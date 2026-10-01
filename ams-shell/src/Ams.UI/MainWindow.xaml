@@ -726,7 +726,7 @@
         <Border Grid.Row="3"
                 Background="{StaticResource BgPanelBrush}"
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
-                Padding="12,4">
+                Padding="12,4,12,7" MinHeight="42">
             <!-- Reserve the right column first: long COM/firmware text may clip or scroll,
                  but Run/Pause/Resume/Stop must always remain visible. -->
             <Grid>
@@ -735,7 +735,8 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto"
-                              VerticalScrollBarVisibility="Disabled">
+                              VerticalScrollBarVisibility="Disabled"
+                              Padding="0,0,0,3" MinHeight="30">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Ellipse Width="10" Height="10" VerticalAlignment="Center"
                              Fill="{Binding Connection, Converter={StaticResource ConnectionBrush}}" />
