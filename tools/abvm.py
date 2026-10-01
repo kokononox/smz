@@ -857,8 +857,12 @@ class Compiler:
             envelopes = {"sharp": 0, "smooth": 1, "fade-in": 2, "fade-out": 3}
             if volume not in range(1, 101) or tempo not in range(25, 401) or envelope_name not in envelopes:
                 raise AbvmError("Native Guard calibration cue style is invalid: " + profile_id)
-            if cue == 0:
-                for token in str(item.get("calibrationCuePattern") or "").split(";"):
+            pattern_text = str(item.get("calibrationCuePattern") or "")
+            # Classroom Studio resolves presets to their concrete pattern.
+            # Persist that pattern even when cue keeps its preset ID so tempo
+            # can be compiled once and playback stays fully board-local.
+            if cue == 0 or pattern_text.strip():
+                for token in pattern_text.split(";"):
                     token = token.strip()
                     if not token:
                         continue
@@ -1171,7 +1175,7 @@ class Verifier:
                     if enabled != 1:
                         raise AbvmError("invalid Native Guard profile")
                 if profile_id not in range(1, 9) or profile_id in ids or \
-                        cue not in range(0 if version == 4 else 1, 101 if version == 4 else 9) or route_id not in ROUTE_IDS.values() or \
+                        cue not in range(0 if version >= 4 else 1, 101 if version >= 4 else 9) or route_id not in ROUTE_IDS.values() or \
                         low > high or stable > 3_600_000 or \
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
                         (profile_id not in (7, 8) and cooldown):
@@ -1181,7 +1185,7 @@ class Verifier:
                     custom_count, volume, envelope, cue_reserved = GUARD_CUE_META.unpack_from(raw, custom_offset)
                     if custom_count > GUARD_CUSTOM_TONES or volume not in range(1, 101) or envelope > 3 or cue_reserved:
                         raise AbvmError("invalid Native Guard custom cue metadata")
-                    if (cue == 0) != (custom_count > 0):
+                    if cue == 0 and custom_count == 0:
                         raise AbvmError("invalid Native Guard custom cue selection")
                     for tone_index in range(custom_count):
                         frequency, duration, gap = GUARD_CUE_TONE.unpack_from(

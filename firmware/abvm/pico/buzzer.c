@@ -200,7 +200,9 @@ static uint16_t selection_note(uint8_t selection, bool sound) {
     return light_calibration_motifs[selection - 1u][0].hz;
 }
 static const BuzzerTone *light_calibration_motif(uint8_t cue,uint8_t *count) {
-    if(cue==0u&&calibration_custom_count){*count=calibration_custom_count;return calibration_custom;}
+    /* A resolved preset is stored as a local sequence too, allowing its
+     * tempo to be compiled without losing the preset ID used by the UI. */
+    if(calibration_custom_count){*count=calibration_custom_count;return calibration_custom;}
     if(cue>8u&&cue<=31u)return system_calibration_motif(cue,count);
     if(cue>31u&&cue<=100u){generated_calibration_motif(cue,count);return generated_tones;}
     if(cue<1u||cue>8u)cue=1u;
@@ -243,6 +245,16 @@ void buzzer_play_tone_ex(uint16_t hz,uint16_t duration_ms,uint8_t volume,
     if(hz<30u||hz>20000u||!duration_ms)return;
     dynamic_tones[0]=(BuzzerTone){hz,duration_ms,0u};
     begin_styled(dynamic_tones,1u,5u,volume,envelope,now);
+}
+void buzzer_play_sequence(const BuzzerTone *sequence,uint8_t count,uint8_t volume,
+                          uint8_t envelope,uint32_t now){
+    if(!sequence||!count||count>8u)return;
+    for(uint8_t i=0;i<count;++i)dynamic_tones[i]=sequence[i];
+    begin_styled(dynamic_tones,count,5u,volume,envelope,now);
+}
+void buzzer_set_calibration_style(uint8_t volume,uint8_t envelope){
+    calibration_custom_volume=volume?volume:100u;
+    calibration_custom_envelope=envelope<=3u?envelope:0u;
 }
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
     if(profile_id<1u||profile_id>6u)return;
@@ -290,7 +302,8 @@ void buzzer_calibration_enter(uint8_t selection,bool sound,uint32_t now) {
     for(uint8_t i=0;i<count;++i)dynamic_tones[prefix_count+i]=motif[i];
     if(selection==0u)begin_styled(dynamic_tones,(uint8_t)(prefix_count+count),5u,
         calibration_custom_volume,calibration_custom_envelope,now);
-    else begin_styled(dynamic_tones,(uint8_t)(prefix_count+count),5u,prefix_volume,prefix_envelope,now);
+    else begin_styled(dynamic_tones,(uint8_t)(prefix_count+count),5u,
+        calibration_custom_volume,calibration_custom_envelope,now);
 }
 void buzzer_calibration_position(uint8_t selection,bool sound,uint32_t now) {
     if(sound) {
@@ -299,7 +312,7 @@ void buzzer_calibration_position(uint8_t selection,bool sound,uint32_t now) {
     }
     uint8_t count;const BuzzerTone *motif=light_calibration_motif(selection,&count);
     if(selection==0u)begin_styled(motif,count,5u,calibration_custom_volume,calibration_custom_envelope,now);
-    else begin(motif,count,5u,now);
+    else begin_styled(motif,count,5u,calibration_custom_volume,calibration_custom_envelope,now);
 }
 void buzzer_calibration_record_start(bool sound,uint32_t now) {
     if(begin_system(sound?15u:14u,5u,now))return;
@@ -311,7 +324,7 @@ void buzzer_calibration_sound_target(uint32_t now) {
 }
 void buzzer_calibration_stage_complete(uint8_t stage,uint32_t now) {
     uint8_t count;const BuzzerTone *motif=light_calibration_motif(stage,&count);
-    begin(motif,count,5u,now);
+    begin_styled(motif,count,5u,calibration_custom_volume,calibration_custom_envelope,now);
 }
 void buzzer_calibration_save_success(uint32_t now) { if(!begin_system(12u,6u,now))begin(calibration_success,ARRAY_COUNT(calibration_success),6u,now); }
 void buzzer_calibration_save_error(uint32_t now) { if(!begin_system(11u,7u,now))begin(calibration_error,ARRAY_COUNT(calibration_error),7u,now); }

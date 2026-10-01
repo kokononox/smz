@@ -66,6 +66,26 @@ internal static class LightStateProfileStoreContract
                   && migrated.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 10000
                   && migrated.All(x => x.CalibrationCue is >= 1 and <= 8),
                 "legacy storage gains safe Whisper cooldowns and distinct calibration motifs");
+
+            var build517Profile = new LightStateProfile
+            {
+                Id = "game", Name = "محیط بازی", LuxCenter = 26,
+                CalibrationCue = 5,
+                CalibrationCuePattern = "900:120,45;1200:200",
+                CalibrationCueVolume = 100,
+                CalibrationCueEnvelope = "sharp",
+                CalibrationCueTempo = 100,
+                CalibrationCueStyleVersion = 0,
+            };
+            var migratedStyle = LightStateProfileStore.Normalize([build517Profile])
+                .Single(x => x.Id == "game");
+            var oldDefault = CalibrationCueCatalog.Get(5);
+            Check(migratedStyle.CalibrationCuePattern == oldDefault.Pattern
+                  && migratedStyle.CalibrationCueVolume == oldDefault.Volume
+                  && migratedStyle.CalibrationCueEnvelope == oldDefault.Envelope
+                  && migratedStyle.CalibrationCueTempo == oldDefault.Tempo
+                  && migratedStyle.CalibrationCueStyleVersion == 1,
+                "Build 517 profiles materialize the selected legacy preset as their editable defaults");
         }
         finally
         {

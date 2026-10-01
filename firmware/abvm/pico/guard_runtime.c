@@ -660,6 +660,13 @@ bool guard_runtime_calibration_pattern(uint8_t profile_id,uint16_t hz[8],
     *count=profile->custom_count;*volume=profile->custom_volume;*envelope=profile->custom_envelope;
     return true;
 }
+bool guard_runtime_calibration_style(uint8_t profile_id,uint8_t *volume,
+                                     uint8_t *envelope){
+    GuardProfile *profile=profile_by_id(profile_id);
+    if(!profile)return false;
+    *volume=profile->custom_volume;*envelope=profile->custom_envelope;
+    return true;
+}
 bool guard_runtime_buzzer_cue(uint8_t cue_id,uint16_t hz[8],
     uint16_t duration_ms[8],uint16_t gap_ms[8],uint8_t *count,
     uint8_t *volume,uint8_t *envelope){

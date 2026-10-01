@@ -156,9 +156,11 @@ public partial class MainViewModel
         {
             ["preset"] = "custom",
             ["pattern"] = profile.CalibrationCue == 0 ? profile.CalibrationCuePattern : definition.Pattern,
-            ["volume"] = profile.CalibrationCue == 0 ? profile.CalibrationCueVolume : definition.Volume,
-            ["envelope"] = profile.CalibrationCue == 0 ? profile.CalibrationCueEnvelope : definition.Envelope,
-            ["tempo"] = profile.CalibrationCue == 0 ? profile.CalibrationCueTempo : definition.Tempo,
+            // Preset chooses notes only. Style and playback rate belong to this
+            // assignment and remain editable for both preset and custom motifs.
+            ["volume"] = profile.CalibrationCueVolume,
+            ["envelope"] = profile.CalibrationCueEnvelope,
+            ["tempo"] = profile.CalibrationCueTempo,
         };
         return await PreviewBuzzerCommandsAsync(StepDefinitions.BuildBuzzerCommands(values));
     }
@@ -173,6 +175,7 @@ public partial class MainViewModel
             CalibrationCueVolume = definition.Volume,
             CalibrationCueEnvelope = definition.Envelope,
             CalibrationCueTempo = definition.Tempo,
+            CalibrationCueStyleVersion = 1,
         });
     }
 }

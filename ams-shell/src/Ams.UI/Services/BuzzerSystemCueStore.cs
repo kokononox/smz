@@ -17,6 +17,7 @@ public static class BuzzerSystemCueStore
             if (!File.Exists(path)) return BuzzerSystemCueDefaults.Create();
             var loaded = JsonSerializer.Deserialize<List<BuzzerSystemCueProfile>>(File.ReadAllText(path), Options);
             if (loaded is null) return BuzzerSystemCueDefaults.Create();
+            foreach (var cue in loaded) LightStateProfileStore.MigrateCueStyle(cue);
             var defaults = BuzzerSystemCueDefaults.Create();
             var byId = loaded.Where(x => x.NumericId is >= 1 and <= 23 && x.IsValid)
                 .GroupBy(x => x.NumericId).ToDictionary(x => x.Key, x => x.First());
