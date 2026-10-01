@@ -5,6 +5,8 @@ using System.Windows.Media;
 using Ams.UI.Models;
 using Ams.UI.ViewModels;
 using WpfComboBox = System.Windows.Controls.ComboBox;
+using WpfBrushes = System.Windows.Media.Brushes;
+using WpfColor = System.Windows.Media.Color;
 
 namespace Ams.UI.Views;
 
@@ -21,7 +23,7 @@ public sealed class CalibrationCueEditorDialog : Window
     private readonly TextBox _volume = new() { Width = 80 };
     private readonly TextBox _tempo = new() { Width = 80 };
     private readonly WpfComboBox _envelope = new() { Width = 140, ItemsSource = new[] { "sharp", "smooth", "fade-in", "fade-out" } };
-    private readonly TextBlock _status = new() { Foreground = Brushes.LightGray, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _status = new() { Foreground = WpfBrushes.LightGray, TextWrapping = TextWrapping.Wrap };
     private List<Choice> _choices = [];
 
     public CalibrationCueEditorDialog(Window owner, MainViewModel vm, LightStateProfile source)
@@ -35,8 +37,8 @@ public sealed class CalibrationCueEditorDialog : Window
         MinWidth = 620;
         MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(30, 34, 40));
-        Foreground = Brushes.WhiteSmoke;
+        Background = new SolidColorBrush(WpfColor.FromRgb(30, 34, 40));
+        Foreground = WpfBrushes.WhiteSmoke;
 
         var root = new Grid { Margin = new Thickness(18) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -202,6 +204,6 @@ public sealed class CalibrationCueEditorDialog : Window
     }
 
     private static TextBlock Heading(string text) => new() { Text = text, FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
-    private static TextBlock Label(string text) => new() { Text = text, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gainsboro };
-    private static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(170, 179, 194)), Margin = new Thickness(0, 4, 0, 8) };
+    private static TextBlock Label(string text) => new() { Text = text, VerticalAlignment = VerticalAlignment.Center, Foreground = WpfBrushes.Gainsboro };
+    private static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(WpfColor.FromRgb(170, 179, 194)), Margin = new Thickness(0, 4, 0, 8) };
 }
