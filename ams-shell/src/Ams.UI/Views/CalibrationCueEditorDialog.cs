@@ -4,6 +4,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Ams.UI.Models;
 using Ams.UI.ViewModels;
+using WpfComboBox = System.Windows.Controls.ComboBox;
 
 namespace Ams.UI.Views;
 
@@ -14,12 +15,12 @@ public sealed class CalibrationCueEditorDialog : Window
 
     private readonly MainViewModel _vm;
     private readonly LightStateProfile _source;
-    private readonly ComboBox _preset = new() { MinWidth = 430, IsTextSearchEnabled = true };
+    private readonly WpfComboBox _preset = new() { MinWidth = 430, IsTextSearchEnabled = true };
     private readonly TextBox _search = new() { MinWidth = 250 };
     private readonly TextBox _pattern = new() { AcceptsReturn = true, MinHeight = 76, TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _volume = new() { Width = 80 };
     private readonly TextBox _tempo = new() { Width = 80 };
-    private readonly ComboBox _envelope = new() { Width = 140, ItemsSource = new[] { "sharp", "smooth", "fade-in", "fade-out" } };
+    private readonly WpfComboBox _envelope = new() { Width = 140, ItemsSource = new[] { "sharp", "smooth", "fade-in", "fade-out" } };
     private readonly TextBlock _status = new() { Foreground = Brushes.LightGray, TextWrapping = TextWrapping.Wrap };
     private List<Choice> _choices = [];
 
