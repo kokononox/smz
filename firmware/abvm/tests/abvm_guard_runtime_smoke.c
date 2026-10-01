@@ -4,8 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+static bool latest_ready;
+static uint32_t latest_lux;
 bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now) {
-    (void)lux_tenths; (void)age_ms; (void)now; return false;
+    (void)now;
+    if(!latest_ready)return false;
+    latest_ready=false;*lux_tenths=latest_lux;*age_ms=0u;return true;
 }
 static int require(int condition, const char *message) {
     if (!condition) fprintf(stderr, "ABVM Guard smoke failure: %s\n", message);
@@ -185,6 +189,61 @@ int main(int argc, char **argv) {
                  !guard_runtime_watchdog_tripped(),
                  "manual Resume acknowledges Watchdog without skipping stage"))
         return 1;
+    /*
+     * A Whisper that resumes the fishing Game may reveal Targeted light
+     * instead of Game light. Keep the exact Game cursor running for one
+     * minute; returning to Game cancels the grace without route 9.
+     */
+    if(!require(guard_runtime_start(100000u),"post-Whisper grace Guard")||
+       !stable(&vm,5000u,100000u,8u,5u)||
+       !require(abvm_interrupt_route(&vm,10u,100200u),"Whisper interrupt"))
+        return 1;
+    guard_runtime_service(&vm,100250u);
+    vm.route_id=8u;vm.status=ABVM_STATUS_RUNNING;vm.suspended.valid=false;
+    guard_runtime_service(&vm,100300u);
+    guard_runtime_observe(&vm,6000u,100400u);
+    guard_runtime_observe(&vm,6000u,100500u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&
+                event.reason&&!strcmp(event.reason,
+                    "post-whisper-targeted-grace-start")&&
+                vm.route_id==8u&&!guard_runtime_paused(),
+                "Targeted starts one-minute fishing grace"))return 1;
+    guard_runtime_observe(&vm,5000u,101000u);
+    guard_runtime_observe(&vm,5000u,101100u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&vm.route_id==8u&&
+                !guard_runtime_paused(),
+                "Game return cancels post-Whisper grace"))return 1;
+
+    /* Persistent Targeted reaches exactly 60 seconds and trips the same
+     * fail-safe operator Watchdog instead of starting route 9. */
+    if(!require(abvm_interrupt_route(&vm,10u,102000u),
+                "second Whisper interrupt"))return 1;
+    guard_runtime_service(&vm,102050u);
+    vm.route_id=8u;vm.status=ABVM_STATUS_RUNNING;vm.suspended.valid=false;
+    latest_lux=6000u;latest_ready=true;
+    guard_runtime_service(&vm,102100u);
+    guard_runtime_observe(&vm,6000u,102200u);
+    guard_runtime_observe(&vm,6000u,102300u);
+    (void)guard_runtime_take_event(&event);
+    guard_runtime_observe(&vm,6000u,162199u);
+    if(!require(!guard_runtime_paused()&&vm.route_id==8u,
+                "fishing continues before 60-second boundary"))return 1;
+    guard_runtime_observe(&vm,6000u,162200u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_WATCHDOG_TRIPPED&&
+                event.reason&&!strcmp(event.reason,
+                    "post-whisper-targeted-timeout")&&
+                guard_runtime_paused()&&
+                guard_runtime_watchdog_tripped()&&
+                guard_runtime_expected_profile()==5u&&
+                guard_runtime_watchdog_timeout_ms()==60000u,
+                "persistent Targeted trips operator Watchdog"))return 1;
+    if(!require(abvm_resume(&vm,162300u)&&guard_runtime_resume()&&
+                !guard_runtime_paused()&&
+                guard_runtime_expected_profile()==5u,
+                "manual Resume keeps waiting for Game"))return 1;
     guard_runtime_stop();
     if (!require(!guard_runtime_running(), "stop")) return 1;
     free(image);

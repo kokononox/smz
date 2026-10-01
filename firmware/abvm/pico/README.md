@@ -60,6 +60,15 @@ same expected stage, and re-arms the full watchdog window. Diagnostic events
 include the expected profile, stage elapsed time, watchdog timeout, and Cycle
 count.
 
+When a completed Whisper interrupt restores the fishing Game cursor but the
+light sensor sees Targeted instead of Game, Guard grants a special continuous
+60-second grace. Route 9 is not started during this window, so the fishing loop
+continues from its exact suspended cursor. A stable Game signature cancels the
+grace immediately. If Targeted remains stable for the full minute, the same
+operator watchdog pauses Guard/VM/Cycle, releases input, and starts the
+ambulance alarm. Stable Login/DC retains immediate priority and never waits for
+this grace.
+
 Playback is allocation-free and nonblocking; no additional hardware is required.
 
 ## Build one identity
