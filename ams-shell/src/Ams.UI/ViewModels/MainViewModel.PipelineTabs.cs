@@ -13,6 +13,10 @@ public partial class MainViewModel
     private bool _pipelineInitialized;
     private bool _pipelineLoadInProgress;
     private bool _pipelineSyncAttached;
+    // UI-only accordion memory.  The script tree is cloned when tabs change, so
+    // StepNode references cannot be used across tabs.  Stable index paths keep
+    // each tab's open/closed state for the lifetime of the editor session.
+    private readonly Dictionary<PipelineKind, HashSet<string>> _collapsedPathsByTab = new();
 
     // Splash is a legacy storage route only. Catch actions now live visibly
     // under the explicit Wait For Sound step in Game.
@@ -31,6 +35,9 @@ public partial class MainViewModel
         CopyTree(Steps, main.Steps);
         _activePipelineTab = main;
         AttachPipelineStepSync();
+        _collapsed.Clear();
+        RestoreCollapsedPathsOrApplyDefault();
+        Renumber();
         OnPropertyChanged(nameof(PipelineTabs));
         OnPropertyChanged(nameof(ActivePipelineTab));
         OnPropertyChanged(nameof(ActivePipelineTitle));
@@ -44,6 +51,7 @@ public partial class MainViewModel
     {
         if (tab is null || ReferenceEquals(tab, _activePipelineTab) || IsRunning) return;
         InitializePipelineTabs();
+        CaptureCollapsedPaths();
         CaptureActivePipeline();
         _activePipelineTab = tab;
         LoadActivePipeline();
@@ -94,6 +102,7 @@ public partial class MainViewModel
             SelectedNodes = new();
             SelectedNode = null;
             _collapsed.Clear();
+            RestoreCollapsedPathsOrApplyDefault();
             _undo.Clear();
             _redo.Clear();
             Renumber();
@@ -101,6 +110,49 @@ public partial class MainViewModel
         finally
         {
             _pipelineLoadInProgress = false;
+        }
+    }
+
+    private void CaptureCollapsedPaths()
+    {
+        if (_activePipelineTab is null) return;
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        Walk(Steps, "", (node, path) =>
+        {
+            if (_collapsed.Contains(node)) paths.Add(path);
+        });
+        _collapsedPathsByTab[_activePipelineTab.Kind] = paths;
+    }
+
+    private void RestoreCollapsedPathsOrApplyDefault()
+    {
+        if (_activePipelineTab is null) return;
+        var hasMemory = _collapsedPathsByTab.TryGetValue(_activePipelineTab.Kind, out var paths);
+        Walk(Steps, "", (node, path) =>
+        {
+            // Closed is the normal first-visit state.  Afterwards the exact
+            // per-tab state is restored until the application is closed.
+            if ((hasMemory && paths!.Contains(path)) || (!hasMemory && IsAccordionContainer(node)))
+                _collapsed.Add(node);
+        });
+    }
+
+    private static bool IsAccordionContainer(StepNode node)
+        => node.Children.Count > 0
+           || node.Type is "forLoop" or "randomPackage" or "parallelGroup"
+           || (node.Type is "findImage" or "waitForSound" or "waitForLight"
+               && PropEx.GetBool(node.Props, "insertIfElse"));
+
+    private static void Walk(IEnumerable<StepNode> nodes, string prefix,
+        Action<StepNode, string> visitor)
+    {
+        var index = 0;
+        foreach (var node in nodes)
+        {
+            var path = string.IsNullOrEmpty(prefix) ? index.ToString() : prefix + "." + index;
+            visitor(node, path);
+            Walk(node.Children, path, visitor);
+            index++;
         }
     }
 
@@ -121,6 +173,7 @@ public partial class MainViewModel
         if (!ConfirmDiscard()) return;
         InitializePipelineTabs();
         _pipelineWorkspace = new PipelineWorkspace();
+        _collapsedPathsByTab.Clear();
         _pipelineWorkspace.EnsureDcDefaults();
         _activePipelineTab = _pipelineWorkspace[PipelineKind.Main];
         _currentFile = null;
@@ -153,6 +206,7 @@ public partial class MainViewModel
             {
                 _pipelineWorkspace = PipelineWorkspace.FromLegacy(DocumentService.Load(dialog.FileName), targetKind);
             }
+            _collapsedPathsByTab.Clear();
             _activePipelineTab = _pipelineWorkspace[targetKind];
             _currentFile = dialog.FileName;
             _dirty = false;

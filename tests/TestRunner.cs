@@ -3393,10 +3393,32 @@ class TestRunner
 
             var lightProfilesUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.LightProfiles.cs"));
             var mainVmUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
-            Assert(lightProfilesUi.Contains("commands.Add($\"BEEP|{hz},{duration}\")")
-                   && !lightProfilesUi.Contains("BEEP|{hz},{duration},100,0")
+            var cueCatalog = V27ReadSrc(Path.Combine("Models", "CalibrationCueCatalog.cs"));
+            var cueEditor = V27ReadSrc(Path.Combine("Views", "CalibrationCueEditorDialog.cs"));
+            Assert(lightProfilesUi.Contains("StepDefinitions.BuildBuzzerCommands(values)")
+                   && cueCatalog.Contains("id <= 100")
+                   && cueCatalog.Contains("Legacy defaults")
+                   && cueEditor.Contains("حداکثر ۸ نوت")
+                   && lightProfilesUi.Contains("BuzzerSystemCues")
+                   && lightProfilesUi.Contains("SaveBuzzerSystemCues")
                    && mainVmUi.Contains("(فرمان: {command})"),
-                "calibration cue preview uses native-compatible BEEP arguments and reports rejected commands");
+                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and reuses native BEEP validation");
+            var nativeBuzzerExport = V27ReadSrc(Path.Combine("Services", "NativeUf2Exporter.cs"));
+            var systemCueStore = V27ReadSrc(Path.Combine("Services", "BuzzerSystemCueStore.cs"));
+            Assert(nativeBuzzerExport.Contains("[\"buzzerCues\"] = buzzerCues")
+                   && systemCueStore.Contains("normalized.Count != 23")
+                   && cueCatalog.Contains("دکمه فیزیکی شروع")
+                   && cueCatalog.Contains("آژیر آمبولانسی"),
+                "all formerly hard-coded physical, runtime, calibration and watchdog cues are editable and exported");
+
+            var tabsVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.PipelineTabs.cs"));
+            Assert(tabsVm.Contains("_collapsedPathsByTab")
+                   && tabsVm.Contains("RestoreCollapsedPathsOrApplyDefault")
+                   && tabsVm.Contains("IsAccordionContainer(node)"),
+                "accordion scopes start closed and retain per-tab session state");
+            Assert(mwx55.Contains("Padding=\"12,4,12,7\" MinHeight=\"42\"")
+                   && mwx55.Contains("Padding=\"0,0,0,3\" MinHeight=\"30\""),
+                "status footer reserves vertical space for its horizontal scrollbar");
 
             // settings hosted inside the main window
             var od55 = V27ReadSrc(Path.Combine("Views", "OptionsDialog.xaml.cs"));

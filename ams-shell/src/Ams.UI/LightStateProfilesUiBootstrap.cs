@@ -5,6 +5,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Ams.UI.Models;
 using Ams.UI.ViewModels;
+using Ams.UI.Views;
 using WpfColor = System.Windows.Media.Color;
 using WpfColorConverter = System.Windows.Media.ColorConverter;
 using WpfComboBox = System.Windows.Controls.ComboBox;
@@ -163,14 +164,8 @@ internal static class LightStateProfilesUiBootstrap
     private sealed record CueOption(int Id, string Name);
     private static readonly CueOption[] CueOptions =
     [
-        new(1, "۱ · سه‌نت صعودی آرام"),
-        new(2, "۲ · سه‌نت نزولی"),
-        new(3, "۳ · چهارنُت روشن صعودی"),
-        new(4, "۴ · سه‌نت مکث‌دار"),
-        new(5, "۵ · چهارنُت ورود به بازی"),
-        new(6, "۶ · هشدار چهارنُت متناوب"),
-        new(7, "۷ · ویسپر جدید — درخشان"),
-        new(8, "۸ · ویسپر تکراری — پاسخ‌دهنده"),
+        new(0, "۰۰۰ · سفارشی"),
+        .. CalibrationCueCatalog.All.Select(x => new CueOption(x.Id, x.DisplayName)),
     ];
 
     private static Border CalibrationCueMenu(MainWindow window, MainViewModel vm)
@@ -178,59 +173,87 @@ internal static class LightStateProfilesUiBootstrap
         var body = new StackPanel();
         body.Children.Add(Text("تخصیص صدای راهنمای کالیبراسیون", 15, "#F5F7FA", FontWeights.SemiBold));
         body.Children.Add(Text(
-            "برای هر محیط یک ملودی ۳ تا ۵ نتی انتخاب کن. این ملودی روی خود Pico ذخیره و هنگام انتخاب همان بخش در کالیبراسیون پخش می‌شود.",
+            "برای هر محیط از ۱۰۰ ملودی آماده انتخاب کن یا با «ویرایش حرفه‌ای» نوت، مدت، مکث، حجم، سرعت و لبهٔ صدای سفارشی بساز. همه صداهای قبلی—۸ صدای محیطی، Start/Stop/Pause/Resume، هشدار و خطا، Whisper، گذار محیط، آژیر Watchdog و چرخه کامل کالیبراسیون—در ابتدای فهرست حفظ شده‌اند.",
             12, "#AAB3C2"));
         foreach (var profile in vm.LightStateProfiles)
         {
-            var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Add(row, Text(profile.Name, 12, "#D9DEE7"), 0);
-            var selector = new WpfComboBox
-            {
-                ItemsSource = CueOptions, DisplayMemberPath = nameof(CueOption.Name),
-                SelectedValuePath = nameof(CueOption.Id), MinWidth = 250, Margin = new Thickness(4),
-            };
-            selector.SetBinding(WpfComboBox.SelectedValueProperty, new Binding(nameof(profile.CalibrationCue))
-            {
-                Source = profile, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
-            });
-            Add(row, selector, 1);
-            var preview = ActionButton("پیش‌شنیدن", "#333740", "#F5F7FA");
-            preview.Margin = new Thickness(6, 3, 0, 3);
-            preview.Click += async (_, _) =>
-            {
-                try
-                {
-                    preview.IsEnabled = false;
-                    preview.Content = await vm.PreviewLightCalibrationCueAsync(profile.CalibrationCue);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(window, ex.Message, "پیش‌شنیدن صدای کالیبراسیون",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                finally
-                {
-                    preview.IsEnabled = true;
-                    preview.Content = "پیش‌شنیدن";
-                }
-            };
-            Add(row, preview, 2);
-            body.Children.Add(row);
+            body.Children.Add(CueRow(window, vm, profile));
         }
-        var save = ActionButton("ذخیره تخصیص صداها", "#5E9FE8", "#10151C");
+        var save = ActionButton("ذخیره صدای محیط‌های نوری", "#5E9FE8", "#10151C");
         save.HorizontalAlignment = HorizontalAlignment.Right;
         save.Margin = new Thickness(0, 8, 0, 0);
         save.Click += (_, _) => vm.SaveLightStateProfiles();
         body.Children.Add(save);
+
+        body.Children.Add(Text("شخصی‌سازی همه صداهای سیستمی", 15, "#F5F7FA", FontWeights.SemiBold));
+        body.Children.Add(Text(
+            "این فهرست منبع تمام صداهایی است که قبلاً داخل Firmware هاردکد بودند؛ شامل دکمه‌های فیزیکی، خطاها، Whisper، گذارها، Watchdog و تمام مراحل کالیبراسیون.",
+            12, "#AAB3C2"));
+        foreach (var cue in vm.BuzzerSystemCues)
+            body.Children.Add(CueRow(window, vm, cue));
+        var saveSystem = ActionButton("ذخیره همه صداهای سیستمی", "#5E9FE8", "#10151C");
+        saveSystem.HorizontalAlignment = HorizontalAlignment.Right;
+        saveSystem.Margin = new Thickness(0, 8, 0, 0);
+        saveSystem.Click += (_, _) => vm.SaveBuzzerSystemCues();
+        body.Children.Add(saveSystem);
         return new Border
         {
             Child = body, Background = Brush("#22262D"), BorderBrush = Brush("#343B46"),
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14), Margin = new Thickness(4, 0, 4, 12),
         };
+    }
+
+    private static Grid CueRow(MainWindow window, MainViewModel vm, LightStateProfile profile)
+    {
+        var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Add(row, Text(profile.Name, 12, "#D9DEE7"), 0);
+        var selector = new WpfComboBox
+        {
+            ItemsSource = CueOptions, DisplayMemberPath = nameof(CueOption.Name),
+            SelectedValuePath = nameof(CueOption.Id), MinWidth = 330, Margin = new Thickness(4),
+            IsTextSearchEnabled = true,
+        };
+        selector.SetBinding(WpfComboBox.SelectedValueProperty, new Binding(nameof(profile.CalibrationCue))
+        {
+            Source = profile, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
+        });
+        Add(row, selector, 1);
+        var preview = ActionButton("پیش‌شنیدن", "#333740", "#F5F7FA");
+        preview.Margin = new Thickness(6, 3, 0, 3);
+        preview.Click += async (_, _) =>
+        {
+            try
+            {
+                preview.IsEnabled = false;
+                preview.Content = await vm.PreviewLightCalibrationCueAsync(profile);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(window, ex.Message, "پیش‌شنیدن صدای بازر",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                preview.IsEnabled = true;
+                preview.Content = "پیش‌شنیدن";
+            }
+        };
+        Add(row, preview, 2);
+        var edit = ActionButton("ویرایش حرفه‌ای…", "#3D6B55", "#F5F7FA");
+        edit.Margin = new Thickness(6, 3, 0, 3);
+        edit.Click += (_, _) =>
+        {
+            var dialog = new CalibrationCueEditorDialog(window, vm, profile);
+            if (dialog.ShowDialog() != true) return;
+            selector.SelectedValue = profile.CalibrationCue;
+        };
+        Add(row, edit, 3);
+        return row;
     }
 
     private static TextBox Editor(LightStateProfile profile, string path)

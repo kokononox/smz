@@ -52,8 +52,16 @@ public static class LightStateProfileStore
         foreach (var profile in valid)
         {
             if (!defaults.TryGetValue(profile.Id, out var fallback)) continue;
-            if (profile.CalibrationCue is < 1 or > 8)
+            if (profile.CalibrationCue is < 0 or > 100)
                 profile.CalibrationCue = fallback.CalibrationCue;
+            if (string.IsNullOrWhiteSpace(profile.CalibrationCuePattern))
+                profile.CalibrationCuePattern = fallback.CalibrationCuePattern;
+            if (profile.CalibrationCueVolume is < 1 or > 100)
+                profile.CalibrationCueVolume = 100;
+            if (profile.CalibrationCueTempo is < 25 or > 400)
+                profile.CalibrationCueTempo = 100;
+            if (profile.CalibrationCueEnvelope is not ("sharp" or "smooth" or "fade-in" or "fade-out"))
+                profile.CalibrationCueEnvelope = "sharp";
             // Existing profile files predate optical cooldown. A zero value on
             // either transient Whisper profile is migrated to the safe default.
             if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)

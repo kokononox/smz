@@ -6,9 +6,14 @@
 #define GUARD_VERSION_V1 1u
 #define GUARD_VERSION_V2 2u
 #define GUARD_VERSION_V3 3u
+#define GUARD_VERSION_V4 4u
+#define GUARD_VERSION_V5 5u
 #define GUARD_PROFILE_COUNT 8u
 #define GUARD_PROFILE_SIZE_V1 20u
 #define GUARD_PROFILE_SIZE_V2 24u
+#define GUARD_PROFILE_SIZE_V4 76u
+#define GUARD_BUZZER_CUE_COUNT 23u
+#define GUARD_BUZZER_CUE_SIZE 52u
 #define GUARD_ROUTE_DC 5u
 #define GUARD_ROUTE_RESTART 2u
 #define GUARD_ROUTE_STARTUP 3u
@@ -27,7 +32,13 @@ typedef struct GuardProfile {
     uint32_t hysteresis;
     uint32_t cooldown_ms;
     uint32_t next_allowed;
+    uint8_t custom_count,custom_volume,custom_envelope;
+    uint16_t custom_hz[8],custom_duration_ms[8],custom_gap_ms[8];
 } GuardProfile;
+typedef struct GuardBuzzerCue {
+    uint8_t count,volume,envelope;
+    uint16_t hz[8],duration_ms[8],gap_ms[8];
+} GuardBuzzerCue;
 
 typedef struct GuardState {
     bool available;
@@ -60,6 +71,7 @@ typedef struct GuardState {
     uint8_t watchdog_expected_override;
     uint32_t post_whisper_targeted_since;
     GuardProfile profiles[GUARD_PROFILE_COUNT];
+    GuardBuzzerCue buzzer_cues[GUARD_BUZZER_CUE_COUNT];
     GuardRuntimeEvent pending;
     bool event_pending;
 } GuardState;
@@ -302,17 +314,20 @@ bool guard_runtime_init(const AbvmVm *vm) {
                             &payload, &size)) return false;
     (void)constant_id;
     uint8_t version=payload[0];
-    uint32_t profile_size=(version==GUARD_VERSION_V2||version==GUARD_VERSION_V3)?
-        GUARD_PROFILE_SIZE_V2:GUARD_PROFILE_SIZE_V1;
+    uint32_t profile_size=(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5)?GUARD_PROFILE_SIZE_V4:
+        ((version==GUARD_VERSION_V2||version==GUARD_VERSION_V3)?GUARD_PROFILE_SIZE_V2:GUARD_PROFILE_SIZE_V1);
+    uint32_t base_size=8u+GUARD_PROFILE_COUNT*profile_size;
+    uint32_t expected_size=base_size+(version==GUARD_VERSION_V5?
+        4u+GUARD_BUZZER_CUE_COUNT*GUARD_BUZZER_CUE_SIZE:0u);
     if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2&&
-         version!=GUARD_VERSION_V3) ||
-        size != 8u + GUARD_PROFILE_COUNT * profile_size ||
+         version!=GUARD_VERSION_V3&&version!=GUARD_VERSION_V4&&version!=GUARD_VERSION_V5) ||
+        size != expected_size ||
         payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u ||
         (version<GUARD_VERSION_V3&&payload[3]) ||
-        (version==GUARD_VERSION_V3&&(!payload[3]||payload[3]>60u)))
+        (version>=GUARD_VERSION_V3&&(!payload[3]||payload[3]>60u)))
         return false;
     guard.sample_mode = payload[2];
-    guard.watchdog_timeout_ms=version==GUARD_VERSION_V3?
+    guard.watchdog_timeout_ms=version>=GUARD_VERSION_V3?
         (uint32_t)payload[3]*60000u:0u;
     guard.sensor_timeout_ms = read_u32_le(payload + 4u);
     if (guard.sensor_timeout_ms < 250u) return false;
@@ -330,8 +345,26 @@ bool guard_runtime_init(const AbvmVm *vm) {
         profile->cooldown_ms=version>=GUARD_VERSION_V2?
             read_u32_le(item+20u):0u;
         profile->next_allowed=0u;
+        profile->custom_count=0u;profile->custom_volume=100u;profile->custom_envelope=0u;
+        if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5){
+            profile->custom_count=item[24];profile->custom_volume=item[25];
+            profile->custom_envelope=item[26];
+            if(profile->custom_count>8u||!profile->custom_volume||profile->custom_volume>100u||
+               profile->custom_envelope>3u||item[27])return false;
+            for(uint8_t tone=0;tone<8u;++tone){
+                const uint8_t *raw=item+28u+(uint32_t)tone*6u;
+                profile->custom_hz[tone]=(uint16_t)(raw[0]|((uint16_t)raw[1]<<8));
+                profile->custom_duration_ms[tone]=(uint16_t)(raw[2]|((uint16_t)raw[3]<<8));
+                profile->custom_gap_ms[tone]=(uint16_t)(raw[4]|((uint16_t)raw[5]<<8));
+                if(tone<profile->custom_count&&
+                   (profile->custom_hz[tone]<30u||profile->custom_hz[tone]>20000u||
+                    !profile->custom_duration_ms[tone]))return false;
+            }
+        }
         if ((version==GUARD_VERSION_V1&&item[1]!=1u) ||
-            profile->calibration_cue<1u||profile->calibration_cue>8u ||
+            profile->calibration_cue>100u ||
+            (version<GUARD_VERSION_V4&&profile->calibration_cue<1u) ||
+            (version>=GUARD_VERSION_V4&&((profile->calibration_cue==0u)!=(profile->custom_count>0u))) ||
             profile->id < 1u || profile->id > 8u ||
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id ||
@@ -339,6 +372,30 @@ bool guard_runtime_init(const AbvmVm *vm) {
             (profile->id!=7u&&profile->id!=8u&&profile->cooldown_ms))
             return false;
         seen |= (uint8_t)(1u << (profile->id - 1u));
+    }
+    memset(guard.buzzer_cues,0,sizeof(guard.buzzer_cues));
+    if(version==GUARD_VERSION_V5){
+        const uint8_t *header=payload+base_size;
+        if(header[0]!=GUARD_BUZZER_CUE_COUNT||header[1]||header[2]||header[3])return false;
+        uint32_t cue_seen=0u;
+        for(uint8_t index=0;index<GUARD_BUZZER_CUE_COUNT;++index){
+            const uint8_t *item=header+4u+(uint32_t)index*GUARD_BUZZER_CUE_SIZE;
+            uint8_t id=item[0];
+            if(id<1u||id>GUARD_BUZZER_CUE_COUNT||(cue_seen&(1u<<(id-1u)))||
+               item[1]<1u||item[1]>8u||!item[2]||item[2]>100u||item[3]>3u)return false;
+            GuardBuzzerCue *cue=&guard.buzzer_cues[id-1u];
+            cue->count=item[1];cue->volume=item[2];cue->envelope=item[3];
+            for(uint8_t tone=0;tone<8u;++tone){
+                const uint8_t *raw=item+4u+(uint32_t)tone*6u;
+                cue->hz[tone]=(uint16_t)(raw[0]|((uint16_t)raw[1]<<8));
+                cue->duration_ms[tone]=(uint16_t)(raw[2]|((uint16_t)raw[3]<<8));
+                cue->gap_ms[tone]=(uint16_t)(raw[4]|((uint16_t)raw[5]<<8));
+                if(tone<cue->count&&(cue->hz[tone]<30u||cue->hz[tone]>20000u||
+                   !cue->duration_ms[tone]))return false;
+            }
+            cue_seen|=1u<<(id-1u);
+        }
+        if(cue_seen!=0x007fffffu)return false;
     }
     guard.available = seen == 0xffu;
     return guard.available;
@@ -590,6 +647,30 @@ uint32_t guard_runtime_watchdog_timeout_ms(void) {
 uint8_t guard_runtime_calibration_cue(uint8_t profile_id) {
     GuardProfile *profile=profile_by_id(profile_id);
     return profile?profile->calibration_cue:profile_id;
+}
+bool guard_runtime_calibration_pattern(uint8_t profile_id,uint16_t hz[8],
+    uint16_t duration_ms[8],uint16_t gap_ms[8],uint8_t *count,
+    uint8_t *volume,uint8_t *envelope){
+    GuardProfile *profile=profile_by_id(profile_id);
+    if(!profile||!profile->custom_count)return false;
+    for(uint8_t i=0;i<profile->custom_count;++i){
+        hz[i]=profile->custom_hz[i];duration_ms[i]=profile->custom_duration_ms[i];
+        gap_ms[i]=profile->custom_gap_ms[i];
+    }
+    *count=profile->custom_count;*volume=profile->custom_volume;*envelope=profile->custom_envelope;
+    return true;
+}
+bool guard_runtime_buzzer_cue(uint8_t cue_id,uint16_t hz[8],
+    uint16_t duration_ms[8],uint16_t gap_ms[8],uint8_t *count,
+    uint8_t *volume,uint8_t *envelope){
+    if(cue_id<1u||cue_id>GUARD_BUZZER_CUE_COUNT)return false;
+    GuardBuzzerCue *cue=&guard.buzzer_cues[cue_id-1u];
+    if(!cue->count)return false;
+    for(uint8_t i=0;i<cue->count;++i){
+        hz[i]=cue->hz[i];duration_ms[i]=cue->duration_ms[i];gap_ms[i]=cue->gap_ms[i];
+    }
+    *count=cue->count;*volume=cue->volume;*envelope=cue->envelope;
+    return true;
 }
 const char *guard_runtime_profile_name(uint8_t profile_id) {
     static const char *names[] = {
