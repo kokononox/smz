@@ -15,11 +15,27 @@ program = abvm.Compiler().compile_amsj(source, routes)
 image = abvm.Verifier.verify(program.image)
 assert image.flags & abvm.FLAG_HAS_GUARD
 guards = [payload for kind, _, payload in image.constants if kind == abvm.CONST_GUARD]
-assert len(guards) == 1 and guards[0][0] == 4
+assert len(guards) == 1 and guards[0][0] == 5
 v4_profile_size = (abvm.GUARD_PROFILE.size + abvm.GUARD_CUE_META.size
                    + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size)
-assert len(guards[0]) == abvm.GUARD_HEADER.size + 8 * v4_profile_size
+v5_size = (abvm.GUARD_HEADER.size + 8 * v4_profile_size
+    + abvm.GUARD_CUE_META.size
+    + abvm.BUZZER_SYSTEM_CUE_COUNT
+      * (abvm.GUARD_CUE_META.size + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size))
+assert len(guards[0]) == v5_size
 assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12}
+
+# The same profiles without system buzzer records remain a valid v4 compiler
+# contract when their calibration cues use preset IDs without resolved notes.
+legacy_v4 = json.loads(json.dumps(source))
+legacy_v4["nativeGuard"].pop("buzzerCues")
+for profile in legacy_v4["nativeGuard"]["profiles"]:
+    profile.pop("calibrationCuePattern", None)
+legacy_v4_guard = next(payload for kind, _, payload in
+    abvm.Verifier.verify(abvm.Compiler().compile_amsj(legacy_v4, routes).image).constants
+    if kind == abvm.CONST_GUARD)
+assert legacy_v4_guard[0] == 4
+assert len(legacy_v4_guard) == abvm.GUARD_HEADER.size + 8 * v4_profile_size
 events = abvm.ReferenceVm(program.image).run("Game")
 assert not any(event[0] == "KEY" for event in events), "forward GOTO must skip X"
 assert any(event[0] == "DELAY" for event in events)
@@ -36,10 +52,7 @@ buzzer_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(with_buzzer, ro
 buzzer_guard = next(payload for kind, _, payload in buzzer_image.constants
                     if kind == abvm.CONST_GUARD)
 assert buzzer_guard[0] == 5
-assert len(buzzer_guard) == (abvm.GUARD_HEADER.size + 8 * v4_profile_size
-    + abvm.GUARD_CUE_META.size
-    + abvm.BUZZER_SYSTEM_CUE_COUNT
-      * (abvm.GUARD_CUE_META.size + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size))
+assert len(buzzer_guard) == v5_size
 
 # A selected preset may carry per-assignment speed/style.  Its concrete
 # pattern is compiled into the Guard record so the board schedules it locally.
