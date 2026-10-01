@@ -3399,10 +3399,13 @@ class TestRunner
                    && cueCatalog.Contains("id <= 100")
                    && cueCatalog.Contains("Legacy defaults")
                    && cueEditor.Contains("حداکثر ۸ نوت")
+                   && cueEditor.Contains("Minimum = 0.25, Maximum = 4.0")
+                   && cueEditor.Contains("سرعت پخش")
                    && lightProfilesUi.Contains("BuzzerSystemCues")
                    && lightProfilesUi.Contains("SaveBuzzerSystemCues")
-                   && mainVmUi.Contains("(فرمان: {command})"),
-                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and reuses native BEEP validation");
+                   && mainVmUi.Contains("BuildBuzzerSequenceCommand(commands)")
+                   && mainVmUi.Contains("OK|BEEPSEQ"),
+                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and previews one board-local sequence");
             var nativeBuzzerExport = V27ReadSrc(Path.Combine("Services", "NativeUf2Exporter.cs"));
             var systemCueStore = V27ReadSrc(Path.Combine("Services", "BuzzerSystemCueStore.cs"));
             Assert(nativeBuzzerExport.Contains("[\"buzzerCues\"] = buzzerCues")
@@ -3602,6 +3605,11 @@ class TestRunner
                && buzDef.Fields.Any(f => f.Key == "volume")
                && buzDef.Fields.Any(f => f.Key == "envelope"),
             "custom buzzer: presets expose volume and smooth envelope on every tone");
+        var buzSequence = StepDefinitions.BuildBuzzerSequenceCommand(
+            StepDefinitions.BuildBuzzerCommands(buzStyled));
+        Assert(buzSequence.Command == "BEEPSEQ|42,smooth|880,110,45;1175,170,0"
+               && buzSequence.TotalDurationMs == 325,
+            "custom buzzer: preview packs all notes into one jitter-free board command");
         bool badBuzzer = false;
         try { StepDefinitions.BuildBuzzerCommands(new Dictionary<string, object?> { ["preset"]="custom", ["pattern"]="25000:10" }); }
         catch (FormatException) { badBuzzer = true; }
