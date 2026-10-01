@@ -3710,21 +3710,12 @@ public partial class MainViewModel : ObservableObject
             || _bridge.State != BridgeState.Connected)
             throw new InvalidOperationException("ابتدا برد را Connect کنید.");
 
-        foreach (string command in commands)
-        {
-            if (command.StartsWith("DLY|", StringComparison.Ordinal))
-            {
-                if (int.TryParse(command[4..], out int delay) && delay > 0)
-                    await Task.Delay(delay);
-                continue;
-            }
-            int duration = 0;
-            var parts = command.Split('|', 2)[1].Split(',');
-            _ = int.TryParse(parts.ElementAtOrDefault(1), out duration);
-            string reply = await _bridge.SendAsync(command, Math.Max(3.0, duration / 1000.0 + 2.0));
-            if (!reply.StartsWith("OK|BEEP", StringComparison.Ordinal))
-                throw new InvalidOperationException($"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {command})");
-        }
+        var sequence = StepDefinitions.BuildBuzzerSequenceCommand(commands);
+        string reply = await _bridge.SendAsync(sequence.Command,
+            Math.Max(3.0, sequence.TotalDurationMs / 1000.0 + 2.0));
+        if (!reply.StartsWith("OK|BEEPSEQ", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {sequence.Command})");
         Log("buzzer preview played");
         return "پخش شد ✓";
     }

@@ -26,6 +26,7 @@ public class LightStateProfile
     public int CalibrationCueVolume { get; set; } = 100;
     public string CalibrationCueEnvelope { get; set; } = "sharp";
     public int CalibrationCueTempo { get; set; } = 100;
+    public int CalibrationCueStyleVersion { get; set; }
 
     [JsonIgnore] public double LuxMin => Math.Max(0, LuxCenter - LuxTolerance);
     [JsonIgnore] public double LuxMax => LuxCenter + LuxTolerance;
@@ -86,6 +87,7 @@ public static class BuzzerSystemCueDefaults
             NumericId = numericId, Id = id, Name = name, CalibrationCue = catalogId,
             CalibrationCuePattern = preset.Pattern, CalibrationCueVolume = preset.Volume,
             CalibrationCueEnvelope = preset.Envelope, CalibrationCueTempo = preset.Tempo,
+            CalibrationCueStyleVersion = 1,
         };
     }
 }
@@ -106,15 +108,24 @@ public static class LightStateDefaults
     };
 
     private static LightStateProfile Profile(string id, string name, double center, int cue,
-        int lightCooldownMs = 0) => new()
+        int lightCooldownMs = 0)
     {
-        Id = id,
-        Name = name,
-        LuxCenter = center,
-        LuxTolerance = 2,
-        StableDurationMs = 750,
-        HysteresisLux = 1,
-        LightCooldownMs = lightCooldownMs,
-        CalibrationCue = cue,
-    };
+        var preset = CalibrationCueCatalog.Get(cue);
+        return new LightStateProfile
+        {
+            Id = id,
+            Name = name,
+            LuxCenter = center,
+            LuxTolerance = 2,
+            StableDurationMs = 750,
+            HysteresisLux = 1,
+            LightCooldownMs = lightCooldownMs,
+            CalibrationCue = cue,
+            CalibrationCuePattern = preset.Pattern,
+            CalibrationCueVolume = preset.Volume,
+            CalibrationCueEnvelope = preset.Envelope,
+            CalibrationCueTempo = preset.Tempo,
+            CalibrationCueStyleVersion = 1,
+        };
+    }
 }

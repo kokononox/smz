@@ -103,9 +103,9 @@ public static class NativeUf2Exporter
             {
                 ["id"] = cue.NumericId,
                 ["pattern"] = cue.CalibrationCue == 0 ? cue.CalibrationCuePattern : preset.Pattern,
-                ["volume"] = cue.CalibrationCue == 0 ? cue.CalibrationCueVolume : preset.Volume,
-                ["envelope"] = cue.CalibrationCue == 0 ? cue.CalibrationCueEnvelope : preset.Envelope,
-                ["tempo"] = cue.CalibrationCue == 0 ? cue.CalibrationCueTempo : preset.Tempo,
+                ["volume"] = cue.CalibrationCueVolume,
+                ["envelope"] = cue.CalibrationCueEnvelope,
+                ["tempo"] = cue.CalibrationCueTempo,
             });
         }
         return new JsonObject

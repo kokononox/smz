@@ -21,7 +21,12 @@ public sealed class CalibrationCueEditorDialog : Window
     private readonly TextBox _search = new() { MinWidth = 250 };
     private readonly TextBox _pattern = new() { AcceptsReturn = true, MinHeight = 76, TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _volume = new() { Width = 80 };
-    private readonly TextBox _tempo = new() { Width = 80 };
+    private readonly Slider _speed = new()
+    {
+        Width = 180, Minimum = 0.25, Maximum = 4.0,
+        TickFrequency = 0.05, IsSnapToTickEnabled = true,
+    };
+    private readonly TextBlock _speedValue = new() { MinWidth = 56, VerticalAlignment = VerticalAlignment.Center };
     private readonly WpfComboBox _envelope = new() { Width = 140, ItemsSource = new[] { "sharp", "smooth", "fade-in", "fade-out" } };
     private readonly TextBlock _status = new() { Foreground = WpfBrushes.LightGray, TextWrapping = TextWrapping.Wrap };
     private List<Choice> _choices = [];
@@ -70,11 +75,13 @@ public sealed class CalibrationCueEditorDialog : Window
         styleRow.Children.Add(Label("لبه صدا"));
         _envelope.Margin = new Thickness(6, 0, 18, 0);
         styleRow.Children.Add(_envelope);
-        styleRow.Children.Add(Label("سرعت ۲۵–۴۰۰٪"));
-        _tempo.Margin = new Thickness(6, 0, 0, 0);
-        styleRow.Children.Add(_tempo);
+        styleRow.Children.Add(Label("سرعت پخش"));
+        _speed.Margin = new Thickness(6, 0, 6, 0);
+        _speed.ValueChanged += (_, _) => _speedValue.Text = $"{_speed.Value:0.00}×";
+        styleRow.Children.Add(_speed);
+        styleRow.Children.Add(_speedValue);
         form.Children.Add(styleRow);
-        form.Children.Add(Note("بازه مجاز هر نوت: ۳۰ تا ۲۰٬۰۰۰ هرتز. مکث اختیاری است؛ حداکثر ۸ نوت برای ذخیره داخل UF2."));
+        form.Children.Add(Note("سرعت پخش یک ضریب زمانی واحد است: ۲× یعنی مدت همه نوت‌ها و مکث‌ها نصف می‌شود؛ Pitch تغییر نمی‌کند. بازه هر نوت ۳۰ تا ۲۰٬۰۰۰ هرتز و حداکثر ۸ نوت است."));
 
         var preview = new Button { Content = "🔊 پیش‌شنیدن روی Pico", Padding = new Thickness(12, 7, 12, 7), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 8) };
         preview.Click += async (_, _) => await Preview(preview);
@@ -100,7 +107,7 @@ public sealed class CalibrationCueEditorDialog : Window
             ? source.CalibrationCuePattern
             : CalibrationCueCatalog.Get(source.CalibrationCue).Pattern;
         _volume.Text = source.CalibrationCueVolume.ToString();
-        _tempo.Text = source.CalibrationCueTempo.ToString();
+        _speed.Value = Math.Clamp(source.CalibrationCueTempo / 100.0, 0.25, 4.0);
         _envelope.SelectedItem = source.CalibrationCueEnvelope;
         UpdateCustomState();
     }
@@ -129,7 +136,7 @@ public sealed class CalibrationCueEditorDialog : Window
             var cue = CalibrationCueCatalog.Get(id);
             _pattern.Text = cue.Pattern;
             _volume.Text = cue.Volume.ToString();
-            _tempo.Text = cue.Tempo.ToString();
+            _speed.Value = cue.Tempo / 100.0;
             _envelope.SelectedItem = cue.Envelope;
         }
         UpdateCustomState();
@@ -139,9 +146,9 @@ public sealed class CalibrationCueEditorDialog : Window
     {
         var custom = _preset.SelectedValue is 0;
         _pattern.IsReadOnly = !custom;
-        _volume.IsReadOnly = !custom;
-        _tempo.IsReadOnly = !custom;
-        _envelope.IsEnabled = custom;
+        _volume.IsReadOnly = false;
+        _speed.IsEnabled = true;
+        _envelope.IsEnabled = true;
     }
 
     private LightStateProfile ReadCandidate()
@@ -149,8 +156,7 @@ public sealed class CalibrationCueEditorDialog : Window
         if (_preset.SelectedValue is not int id) throw new FormatException("یک الگو انتخاب کنید.");
         if (!int.TryParse(_volume.Text, out var volume) || volume is < 1 or > 100)
             throw new FormatException("حجم صدا باید بین ۱ تا ۱۰۰ باشد.");
-        if (!int.TryParse(_tempo.Text, out var tempo) || tempo is < 25 or > 400)
-            throw new FormatException("سرعت نوت باید بین ۲۵ تا ۴۰۰ باشد.");
+        var tempo = (int)Math.Round(_speed.Value * 100.0, MidpointRounding.AwayFromZero);
         var candidate = new LightStateProfile
         {
             Id = _source.Id, Name = _source.Name, Enabled = _source.Enabled,
@@ -159,6 +165,7 @@ public sealed class CalibrationCueEditorDialog : Window
             LightCooldownMs = _source.LightCooldownMs, CalibrationCue = id,
             CalibrationCuePattern = _pattern.Text.Trim(), CalibrationCueVolume = volume,
             CalibrationCueTempo = tempo, CalibrationCueEnvelope = _envelope.SelectedItem?.ToString() ?? "sharp",
+            CalibrationCueStyleVersion = 1,
         };
         // Reuse the production parser/range validator.
         _ = StepDefinitions.BuildBuzzerCommands(new Dictionary<string, object?>

@@ -31,7 +31,7 @@ typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG }
 static AbvmVm vm;
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
-static char command[96];
+static char command[256];
 static size_t command_length;
 static bool arm_fault_reported;
 static bool ui_sound_calibration_pending;
@@ -53,6 +53,7 @@ static uint8_t ui_light_trigger_key;
 static uint16_t ui_light_trigger_hold_min,ui_light_trigger_hold_max;
 static uint32_t ui_light_trigger_due,ui_light_trigger_lux;
 static bool ui_buzzer_reply_pending;
+static bool ui_buzzer_sequence_reply;
 static uint32_t ui_buzzer_reply_deadline;
 typedef struct GlobalWhisperProfile {
     bool enabled;
@@ -223,7 +224,7 @@ static void release_all_actors(uint32_t now) {
      * an action that must be cancelled at this boundary. */
     if (buzzer_action_pending || ui_buzzer_reply_pending) buzzer_silence();
     buzzer_action_pending=false;ui_sound_watch_pending=false;
-    ui_buzzer_reply_pending=false;
+    ui_buzzer_reply_pending=false;ui_buzzer_sequence_reply=false;
 }
 static void start_control(uint32_t now) {
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
@@ -248,6 +249,7 @@ static void stop_control(uint32_t now) {
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
     pending_sound_whisper=false;
     ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
+    ui_buzzer_sequence_reply=false;
     cycle_runtime_manual_stop();
     printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
 }
@@ -443,6 +445,49 @@ static void execute_command(char *line, uint32_t now) {
             }
         }
     }
+    else if (!strncmp(line, "BEEPSEQ|", 8)) {
+        bool valid=true;uint8_t volume=100u,envelope=0u,count=0u;
+        uint32_t total=0u;BuzzerTone sequence[8];
+        char *style=line+8,*notes=strchr(style,'|');
+        if(!notes)valid=false;
+        if(valid){
+            *notes++='\0';char *comma=strchr(style,',');
+            if(!comma)valid=false;
+            else {
+                *comma++='\0';char *end=NULL;unsigned long parsed=strtoul(style,&end,10);
+                if(!end||*end||!parsed||parsed>100u)valid=false;
+                else volume=(uint8_t)parsed;
+                if(!strcmp(comma,"sharp"))envelope=0u;
+                else if(!strcmp(comma,"smooth"))envelope=1u;
+                else if(!strcmp(comma,"fade-in"))envelope=2u;
+                else if(!strcmp(comma,"fade-out"))envelope=3u;
+                else valid=false;
+            }
+        }
+        while(valid&&notes&&*notes){
+            if(count>=8u){valid=false;break;}
+            char *semi=strchr(notes,';');if(semi)*semi='\0';
+            char *p=notes,*end=NULL;unsigned long hz=strtoul(p,&end,10);
+            if(!end||*end!=','){valid=false;break;}
+            p=end+1;unsigned long duration=strtoul(p,&end,10);
+            if(!end||*end!=','){valid=false;break;}
+            p=end+1;unsigned long gap=strtoul(p,&end,10);
+            if(!end||*end||hz<30u||hz>20000u||!duration||duration>60000u||gap>60000u){
+                valid=false;break;
+            }
+            if(total+duration+gap>180000u){valid=false;break;}
+            sequence[count++]=(BuzzerTone){(uint16_t)hz,(uint16_t)duration,(uint16_t)gap};
+            total+=(uint32_t)(duration+gap);
+            notes=semi?semi+1:NULL;
+        }
+        if(!valid||!count)printf("ERR|ARG|BEEPSEQ\n");
+        else if(ui_buzzer_reply_pending||buzzer_action_pending)printf("ERR|BUSY|BEEPSEQ\n");
+        else {
+            buzzer_play_sequence(sequence,count,volume,envelope,now);
+            ui_buzzer_reply_pending=true;ui_buzzer_sequence_reply=true;
+            ui_buzzer_reply_deadline=now+total;
+        }
+    }
     else if (!strncmp(line, "BEEP|", 5)) {
         char *p=line+5,*end=NULL;unsigned long hz=strtoul(p,&end,10);
         unsigned long duration=0u,volume=100u,envelope=0u;
@@ -468,7 +513,7 @@ static void execute_command(char *line, uint32_t now) {
         else {
             buzzer_play_tone_ex((uint16_t)hz,(uint16_t)duration,
                                 (uint8_t)volume,(uint8_t)envelope,now);
-            ui_buzzer_reply_pending=true;
+            ui_buzzer_reply_pending=true;ui_buzzer_sequence_reply=false;
             ui_buzzer_reply_deadline=now+(uint32_t)duration;
         }
     }
@@ -519,13 +564,18 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     bool error=!strncmp(event,"ERR|",4);
     uint8_t selection=event_u8(event,sound?"id=":"stage=",1u);
     uint8_t cue=sound?selection:guard_runtime_calibration_cue(selection);
-    if(!sound&&cue==0u){
+    if(!sound){
+        uint8_t volume=100u,envelope=0u;
+        if(guard_runtime_calibration_style(selection,&volume,&envelope))
+            buzzer_set_calibration_style(volume,envelope);
+    }
+    if(!sound){
         uint16_t hz[8],duration[8],gap[8];uint8_t count=0u,volume=100u,envelope=0u;
         BuzzerTone custom[8];
         if(guard_runtime_calibration_pattern(selection,hz,duration,gap,&count,&volume,&envelope)){
             for(uint8_t i=0;i<count;++i)custom[i]=(BuzzerTone){hz[i],duration[i],gap[i]};
             buzzer_set_calibration_custom(custom,count,volume,envelope);
-        }
+        } else buzzer_set_calibration_custom(NULL,0u,volume,envelope);
     }
     if(error){buzzer_calibration_save_error(now);return;}
     if(strstr(event,"mode=exited")){buzzer_calibration_exit(now);if(sound)sound_cal_cue_active=false;else light_cal_cue_active=false;return;}
@@ -714,7 +764,9 @@ static void service_mouse(uint32_t now) {
 }
 static void service_buzzer_action(uint32_t now) {
     if(ui_buzzer_reply_pending&&(int32_t)(now-ui_buzzer_reply_deadline)>=0) {
-        ui_buzzer_reply_pending=false;printf("OK|BEEP\n");
+        ui_buzzer_reply_pending=false;
+        printf("%s\n",ui_buzzer_sequence_reply?"OK|BEEPSEQ":"OK|BEEP");
+        ui_buzzer_sequence_reply=false;
     }
     if(!buzzer_action_pending||(int32_t)(now-buzzer_action_deadline)<0)return;
     buzzer_action_pending=false;
@@ -914,6 +966,6 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_vm(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

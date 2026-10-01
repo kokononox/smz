@@ -631,6 +631,44 @@ public static class StepDefinitions
         return commands;
     }
 
+    /// <summary>
+    /// Packs a validated BEEP/DLY list into one board-owned sequence.  The
+    /// board schedules every note locally, removing USB round-trip jitter
+    /// between notes during preview.
+    /// </summary>
+    public static (string Command, int TotalDurationMs) BuildBuzzerSequenceCommand(
+        IReadOnlyList<string> commands)
+    {
+        var notes = new List<(int Hz, int Duration, int Gap)>();
+        var volume = 100;
+        var envelope = "sharp";
+        foreach (var command in commands)
+        {
+            if (command.StartsWith("DLY|", StringComparison.Ordinal))
+            {
+                if (notes.Count == 0 || !int.TryParse(command[4..], out var gap) || gap < 0)
+                    throw new FormatException("invalid buzzer sequence gap");
+                var last = notes[^1];
+                notes[^1] = (last.Hz, last.Duration, gap);
+                continue;
+            }
+            if (!command.StartsWith("BEEP|", StringComparison.Ordinal))
+                throw new FormatException("invalid buzzer sequence command");
+            var parts = command[5..].Split(',', StringSplitOptions.TrimEntries);
+            if (parts.Length is < 2 or > 4
+                || !int.TryParse(parts[0], out var hz)
+                || !int.TryParse(parts[1], out var duration))
+                throw new FormatException("invalid buzzer sequence tone");
+            if (parts.Length >= 3 && !int.TryParse(parts[2], out volume))
+                throw new FormatException("invalid buzzer sequence volume");
+            if (parts.Length == 4) envelope = parts[3];
+            notes.Add((hz, duration, 0));
+        }
+        if (notes.Count is < 1 or > 8) throw new FormatException("buzzer sequence needs 1..8 notes");
+        var body = string.Join(";", notes.Select(x => $"{x.Hz},{x.Duration},{x.Gap}"));
+        return ($"BEEPSEQ|{volume},{envelope}|{body}", notes.Sum(x => x.Duration + x.Gap));
+    }
+
     public static IReadOnlyList<string> BuildArmBuzzerCommands(IReadOnlyDictionary<string, object?> p)
     {
         string preset = PropEx.GetString(p, "armCuePreset", "off");

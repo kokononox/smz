@@ -40,6 +40,8 @@ public static class LightStateProfileStore
     public static List<LightStateProfile> Normalize(IEnumerable<LightStateProfile>? profiles)
     {
         if (profiles is null) return LightStateDefaults.CreateInitialProfiles();
+        foreach (var profile in profiles.Where(x => x is not null))
+            MigrateCueStyle(profile);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var valid = profiles.Where(p => p is not null && p.IsValid && seen.Add(p.Id)).ToList();
         if (valid.Count == 0) return LightStateDefaults.CreateInitialProfiles();
@@ -54,6 +56,7 @@ public static class LightStateProfileStore
             if (!defaults.TryGetValue(profile.Id, out var fallback)) continue;
             if (profile.CalibrationCue is < 0 or > 100)
                 profile.CalibrationCue = fallback.CalibrationCue;
+            MigrateCueStyle(profile);
             if (string.IsNullOrWhiteSpace(profile.CalibrationCuePattern))
                 profile.CalibrationCuePattern = fallback.CalibrationCuePattern;
             if (profile.CalibrationCueVolume is < 1 or > 100)
@@ -68,5 +71,20 @@ public static class LightStateProfileStore
                 profile.LightCooldownMs = fallback.LightCooldownMs;
         }
         return valid;
+    }
+
+    internal static void MigrateCueStyle(LightStateProfile profile)
+    {
+        if (profile.CalibrationCueStyleVersion > 0) return;
+        if (profile.CalibrationCue < 0) return;
+        if (profile.CalibrationCue > 0)
+        {
+            var preset = CalibrationCueCatalog.Get(profile.CalibrationCue);
+            profile.CalibrationCuePattern = preset.Pattern;
+            profile.CalibrationCueVolume = preset.Volume;
+            profile.CalibrationCueEnvelope = preset.Envelope;
+            profile.CalibrationCueTempo = preset.Tempo;
+        }
+        profile.CalibrationCueStyleVersion = 1;
     }
 }

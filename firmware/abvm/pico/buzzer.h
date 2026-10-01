@@ -24,6 +24,9 @@ void buzzer_play(BuzzerCue cue, uint32_t now);
 void buzzer_play_tone(uint16_t hz, uint16_t duration_ms, uint32_t now);
 void buzzer_play_tone_ex(uint16_t hz, uint16_t duration_ms, uint8_t volume,
                          uint8_t envelope, uint32_t now);
+void buzzer_play_sequence(const BuzzerTone *tones, uint8_t count, uint8_t volume,
+                          uint8_t envelope, uint32_t now);
+void buzzer_set_calibration_style(uint8_t volume, uint8_t envelope);
 void buzzer_guard_transition(uint8_t profile_id, uint32_t now);
 void buzzer_set_calibration_custom(const BuzzerTone *tones, uint8_t count,
                                    uint8_t volume, uint8_t envelope);

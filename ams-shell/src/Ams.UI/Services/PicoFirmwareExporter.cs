@@ -965,7 +965,22 @@ public static class PicoFirmwareExporter
             try:
         
         
-                notes = [tuple(int(x) for x in part.split(",")) for part in line.split("|", 1)[1].split(";")]
+                fields = line.split("|", 2)
+
+
+                if len(fields) != 3:
+
+
+                    return "ERR|ARG|BEEPSEQ"
+
+
+                style = fields[1].split(",", 1)
+
+
+                volume = max(1, min(100, int(style[0])))
+
+
+                notes = [tuple(int(x) for x in part.split(",")) for part in fields[2].split(";")]
         
         
                 tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=notes[0][0], variable_frequency=True)
@@ -974,7 +989,7 @@ public static class PicoFirmwareExporter
                 for freq, duration, pause in notes:
         
         
-                    tone.frequency = freq; tone.duty_cycle = 32768
+                    tone.frequency = freq; tone.duty_cycle = int(32768 * volume / 100)
         
         
                     time.sleep(duration / 1000.0)

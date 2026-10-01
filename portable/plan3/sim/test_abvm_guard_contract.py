@@ -41,6 +41,23 @@ assert len(buzzer_guard) == (abvm.GUARD_HEADER.size + 8 * v4_profile_size
     + abvm.BUZZER_SYSTEM_CUE_COUNT
       * (abvm.GUARD_CUE_META.size + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size))
 
+# A selected preset may carry per-assignment speed/style.  Its concrete
+# pattern is compiled into the Guard record so the board schedules it locally.
+styled_preset = json.loads(json.dumps(source))
+styled_preset["nativeGuard"]["profiles"][0].update({
+    "calibrationCuePattern": "440:100,40;880:200",
+    "calibrationCueVolume": 42,
+    "calibrationCueEnvelope": "smooth",
+    "calibrationCueTempo": 200,
+})
+styled_guard = next(payload for kind, _, payload in
+    abvm.Verifier.verify(abvm.Compiler().compile_amsj(styled_preset, routes).image).constants
+    if kind == abvm.CONST_GUARD)
+meta_at = abvm.GUARD_HEADER.size + abvm.GUARD_PROFILE.size
+tone_at = meta_at + abvm.GUARD_CUE_META.size
+assert abvm.GUARD_CUE_META.unpack_from(styled_guard, meta_at)[:3] == (2, 42, 1)
+assert abvm.GUARD_CUE_TONE.unpack_from(styled_guard, tone_at) == (440, 50, 20)
+
 # Build 119 projects use the legacy UI names Launch and LaunchRecovery.
 # Native export requests their canonical Restart and Dc names.  The compiler
 # must migrate both aliases without requiring users to edit working projects.
