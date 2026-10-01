@@ -3723,7 +3723,7 @@ public partial class MainViewModel : ObservableObject
             _ = int.TryParse(parts.ElementAtOrDefault(1), out duration);
             string reply = await _bridge.SendAsync(command, Math.Max(3.0, duration / 1000.0 + 2.0));
             if (!reply.StartsWith("OK|BEEP", StringComparison.Ordinal))
-                throw new InvalidOperationException("برد پیش‌شنیدن را نپذیرفت: " + reply);
+                throw new InvalidOperationException($"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {command})");
         }
         Log("buzzer preview played");
         return "پخش شد ✓";

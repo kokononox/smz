@@ -150,7 +150,10 @@ public partial class MainViewModel
         var commands = new List<string>();
         foreach (var (hz, duration, gap) in motif)
         {
-            commands.Add($"BEEP|{hz},{duration},100,0");
+            // Use the portable two-field form. Native ABVM and CircuitPython both
+            // default it to 100% + sharp; the old numeric envelope "0" is rejected
+            // by the native parser, which expects sharp/smooth/fade-in/fade-out.
+            commands.Add($"BEEP|{hz},{duration}");
             if (gap > 0) commands.Add($"DLY|{gap}");
         }
         return await PreviewBuzzerCommandsAsync(commands);
