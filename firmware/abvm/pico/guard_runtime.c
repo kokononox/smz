@@ -364,7 +364,10 @@ bool guard_runtime_init(const AbvmVm *vm) {
         if ((version==GUARD_VERSION_V1&&item[1]!=1u) ||
             profile->calibration_cue>100u ||
             (version<GUARD_VERSION_V4&&profile->calibration_cue<1u) ||
-            (version>=GUARD_VERSION_V4&&((profile->calibration_cue==0u)!=(profile->custom_count>0u))) ||
+            (version==GUARD_VERSION_V4&&
+             ((profile->calibration_cue==0u)!=(profile->custom_count>0u))) ||
+            (version==GUARD_VERSION_V5&&profile->calibration_cue==0u&&
+             !profile->custom_count) ||
             profile->id < 1u || profile->id > 8u ||
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id ||
