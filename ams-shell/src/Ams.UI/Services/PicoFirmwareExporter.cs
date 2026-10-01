@@ -1021,7 +1021,7 @@ public static class PicoFirmwareExporter
             if line == "LUX?":
                 return read_lux_telemetry()
             if line == "PING":
-                return "OK|PONG|pico-light __VERSION__|role=brain+keyboard+light|arm=promicro|framing=%d|baud=%d|lagmax=%d|dropped=%d|cksum=%d|noframe=%d|sentjumps=%d|partial=%d" % (1 if ARM_FRAMING else 0, ARM_BAUD, ARM_LAG_MAX, _moves_dropped, _cksum_errors, _noframe_errors, _sent_jumps, _partial_writes)
+                return "OK|PONG|pico-light __VERSION__|role=brain+keyboard+light|arm=promicro|beepseq=1|framing=%d|baud=%d|lagmax=%d|dropped=%d|cksum=%d|noframe=%d|sentjumps=%d|partial=%d" % (1 if ARM_FRAMING else 0, ARM_BAUD, ARM_LAG_MAX, _moves_dropped, _cksum_errors, _noframe_errors, _sent_jumps, _partial_writes)
             if line.startswith("LCAL|"):
                 if sensor is None:
                     return "ERR|NOSENSOR|LCAL"

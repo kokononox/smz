@@ -3404,8 +3404,10 @@ class TestRunner
                    && lightProfilesUi.Contains("BuzzerSystemCues")
                    && lightProfilesUi.Contains("SaveBuzzerSystemCues")
                    && mainVmUi.Contains("BuildBuzzerSequenceCommand(commands)")
-                   && mainVmUi.Contains("OK|BEEPSEQ"),
-                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and previews one board-local sequence");
+                   && mainVmUi.Contains("OK|BEEPSEQ")
+                   && mainVmUi.Contains("beepseq=1")
+                   && mainVmUi.Contains("legacy firmware compatibility"),
+                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and capability-gates board-local preview");
             var nativeBuzzerExport = V27ReadSrc(Path.Combine("Services", "NativeUf2Exporter.cs"));
             var systemCueStore = V27ReadSrc(Path.Combine("Services", "BuzzerSystemCueStore.cs"));
             Assert(nativeBuzzerExport.Contains("[\"buzzerCues\"] = buzzerCues")

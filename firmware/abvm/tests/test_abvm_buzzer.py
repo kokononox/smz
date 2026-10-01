@@ -20,6 +20,7 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("GPIO_FUNC_PWM", self.buzzer)
         self.assertIn("hardware_pwm", self.cmake)
         self.assertIn("buzzer=legacy-calibration-gp6", self.main)
+        self.assertIn("beepseq=1", self.main)
 
     def test_native_buzzer_step_has_bounded_bytecode_and_actor(self):
         self.assertIn('"BEEP": OP_BEEP', self.compiler)

@@ -3710,14 +3710,41 @@ public partial class MainViewModel : ObservableObject
             || _bridge.State != BridgeState.Connected)
             throw new InvalidOperationException("ابتدا برد را Connect کنید.");
 
-        var sequence = StepDefinitions.BuildBuzzerSequenceCommand(commands);
-        string reply = await _bridge.SendAsync(sequence.Command,
-            Math.Max(3.0, sequence.TotalDurationMs / 1000.0 + 2.0));
-        if (!reply.StartsWith("OK|BEEPSEQ", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {sequence.Command})");
-        Log("buzzer preview played");
-        return "پخش شد ✓";
+        bool sequenceCapable = _bridge.FirmwareVersion?
+            .Contains("beepseq=1", StringComparison.OrdinalIgnoreCase) == true;
+        if (sequenceCapable)
+        {
+            var sequence = StepDefinitions.BuildBuzzerSequenceCommand(commands);
+            string reply = await _bridge.SendAsync(sequence.Command,
+                Math.Max(3.0, sequence.TotalDurationMs / 1000.0 + 2.0));
+            if (!reply.StartsWith("OK|BEEPSEQ", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {sequence.Command})");
+            Log("buzzer preview played (board-local sequence)");
+            return "پخش شد ✓";
+        }
+
+        // Compatibility path for already-flashed firmware from Build 517 and
+        // earlier. Never probe BEEPSEQ blindly: old native CDC parsers can
+        // discard the longer line without replying, which makes the bridge
+        // time out and disconnect. A newly flashed firmware advertises
+        // beepseq=1 and takes the jitter-free path above.
+        foreach (var command in commands)
+        {
+            if (command.StartsWith("DLY|", StringComparison.Ordinal))
+            {
+                if (!int.TryParse(command[4..], out var delayMs) || delayMs < 0)
+                    throw new FormatException("invalid buzzer preview delay");
+                await Task.Delay(delayMs);
+                continue;
+            }
+            string reply = await _bridge.SendAsync(command, 65);
+            if (!reply.StartsWith("OK|BEEP", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {command})");
+        }
+        Log("buzzer preview played (legacy firmware compatibility)");
+        return "پخش شد ✓ · برای حذف مکث‌ها، Firmware جدید را روی Pico بریزید";
     }
 
 
