@@ -14,6 +14,8 @@
 #define GUARD_ROUTE_STARTUP 3u
 #define GUARD_ROUTE_WHISPER 10u
 #define GUARD_ROUTE_WHISPER_REPEAT 12u
+#define GUARD_ROUTE_GAME 8u
+#define POST_WHISPER_TARGET_GRACE_MS 60000u
 
 typedef struct GuardProfile {
     uint8_t id;
@@ -52,6 +54,11 @@ typedef struct GuardState {
     uint32_t watchdog_deadline;
     bool watchdog_enabled;
     bool watchdog_tripped;
+    bool whisper_was_active;
+    bool post_whisper_waiting_game;
+    bool post_whisper_targeted_grace;
+    uint8_t watchdog_expected_override;
+    uint32_t post_whisper_targeted_since;
     GuardProfile profiles[GUARD_PROFILE_COUNT];
     GuardRuntimeEvent pending;
     bool event_pending;
@@ -69,9 +76,27 @@ static uint32_t read_u32_le(const uint8_t *p) {
 static bool reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
 }
+static void emit(uint8_t type,uint8_t profile_id,uint16_t route_id,
+                 uint8_t context,uint32_t lux,const char *reason);
 static uint8_t expected_profile(void) {
+    if(guard.watchdog_expected_override)
+        return guard.watchdog_expected_override;
     return guard.watchdog_enabled&&guard.stage>=1u&&guard.stage<5u?
         (uint8_t)(guard.stage+1u):0u;
+}
+static void clear_post_whisper_grace(void) {
+    guard.post_whisper_waiting_game=false;
+    guard.post_whisper_targeted_grace=false;
+    guard.post_whisper_targeted_since=0u;
+    guard.watchdog_expected_override=0u;
+}
+static void trip_operator_watchdog(AbvmVm *vm,uint32_t now,
+                                   uint8_t expected,const char *reason) {
+    guard.paused=true;
+    guard.watchdog_tripped=true;
+    guard.watchdog_expected_override=expected;
+    if(vm->status==ABVM_STATUS_RUNNING)(void)abvm_pause(vm,now);
+    emit(GUARD_EVENT_WATCHDOG_TRIPPED,expected,0u,0u,0u,reason);
 }
 static void watchdog_advance(uint32_t now) {
     if(!guard.watchdog_enabled)return;
@@ -166,6 +191,8 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
         return;
     }
     if (profile_id == 2u) {
+        clear_post_whisper_grace();
+        guard.whisper_was_active=false;
         if (guard.targeted_active || guard.stage >= 3u) {
             guard.stage = 2u;
             watchdog_advance(now);
@@ -194,6 +221,7 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
         return;
     }
     if (profile_id == 5u) {
+        clear_post_whisper_grace();
         if (guard.targeted_active) {
             guard.targeted_active = false;
             emit(GUARD_EVENT_STATE, profile_id, 0u, 3u, lux,
@@ -211,7 +239,13 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
         return;
     }
     if (profile_id == 6u) {
-        if (guard.stage == 5u && !guard.targeted_active) {
+        if(guard.stage==5u&&guard.post_whisper_waiting_game) {
+            guard.post_whisper_targeted_grace=true;
+            guard.post_whisper_targeted_since=now;
+            guard.watchdog_expected_override=5u;
+            emit(GUARD_EVENT_STATE,profile_id,0u,3u,lux,
+                 "post-whisper-targeted-grace-start");
+        } else if (guard.stage == 5u && !guard.targeted_active) {
             if (!abvm_interrupt_route(vm, profile->route_id, now)) {
                 fault(vm, now, "targeted-interrupt-failed");
                 return;
@@ -325,6 +359,8 @@ bool guard_runtime_start(uint32_t now) {
     guard.watchdog_enabled=false;
     guard.watchdog_tripped=false;
     guard.watchdog_deadline=0u;
+    guard.whisper_was_active=false;
+    clear_post_whisper_grace();
     guard.stage_started_at=now;
     for(uint8_t i=0;i<GUARD_PROFILE_COUNT;++i)
         guard.profiles[i].next_allowed=0u;
@@ -354,6 +390,8 @@ void guard_runtime_stop(void) {
     guard.watchdog_enabled=false;
     guard.watchdog_tripped=false;
     guard.watchdog_deadline=0u;
+    guard.whisper_was_active=false;
+    clear_post_whisper_grace();
 }
 bool guard_runtime_pause(void) {
     if (!guard.running || guard.paused) return false;
@@ -368,6 +406,12 @@ bool guard_runtime_resume(void) {
         guard.stage_started_at=0u;
         guard.watchdog_deadline=0u;
         guard.candidate=0u;
+        if(guard.watchdog_expected_override==5u) {
+            guard.post_whisper_waiting_game=true;
+            guard.post_whisper_targeted_grace=false;
+            guard.post_whisper_targeted_since=0u;
+            guard.active=guard.last_stable=0u;
+        }
     }
     return true;
 }
@@ -378,11 +422,8 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
             guard.stage_started_at=now;
             guard.watchdog_deadline=now+guard.watchdog_timeout_ms;
         } else if(reached(now,guard.watchdog_deadline)) {
-            guard.paused=true;
-            guard.watchdog_tripped=true;
-            if(vm->status==ABVM_STATUS_RUNNING)(void)abvm_pause(vm,now);
-            emit(GUARD_EVENT_WATCHDOG_TRIPPED,expected_profile(),0u,0u,0u,
-                 "expected-stage-timeout");
+            trip_operator_watchdog(vm,now,expected_profile(),
+                                   "expected-stage-timeout");
             return;
         }
     }
@@ -417,7 +458,17 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
      * interrupts.  The current sensor state is evaluated again only after the
      * VM restores the suspended route.
      */
-    if (whisper_route_active(vm)) return;
+    if (whisper_route_active(vm)) {
+        guard.whisper_was_active=true;
+        return;
+    }
+    if(guard.whisper_was_active) {
+        guard.whisper_was_active=false;
+        if(vm->status==ABVM_STATUS_RUNNING&&vm->route_id==GUARD_ROUTE_GAME) {
+            guard.post_whisper_waiting_game=true;
+            guard.watchdog_expected_override=5u;
+        }
+    }
     if (guard.whisper_light_active) {
         guard.whisper_light_active = false;
     }
@@ -433,6 +484,7 @@ void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
     if (whisper_route_active(vm)) {
+        guard.whisper_was_active=true;
         /*
          * A stable Login/DC scene is the sole exception to Whisper's optical
          * lock: recovery must replace the transient overlay immediately.
@@ -470,6 +522,11 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     uint8_t matches = 0u;
     GuardProfile *match = unique_match(lux, &matches);
     if (matches != 1u) {
+        if(guard.post_whisper_targeted_grace) {
+            guard.post_whisper_targeted_grace=false;
+            guard.post_whisper_targeted_since=0u;
+            guard.post_whisper_waiting_game=true;
+        }
         if (active && inside(active, lux, true)) {
             guard.candidate = 0u;
             return;
@@ -479,6 +536,18 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
         if (changed) emit(GUARD_EVENT_STATE, 0u, 0u, 0u, lux,
                           matches ? "ambiguous" : "unknown");
         return;
+    }
+    if(guard.post_whisper_targeted_grace) {
+        if(match->id==6u) {
+            if(reached(now,guard.post_whisper_targeted_since+
+                      POST_WHISPER_TARGET_GRACE_MS))
+                trip_operator_watchdog(vm,now,5u,
+                                       "post-whisper-targeted-timeout");
+            return;
+        }
+        guard.post_whisper_targeted_grace=false;
+        guard.post_whisper_targeted_since=0u;
+        guard.post_whisper_waiting_game=true;
     }
     if (guard.active == match->id) {
         guard.candidate = 0u;
@@ -508,9 +577,14 @@ uint8_t guard_runtime_active_profile(void) { return guard.active; }
 uint8_t guard_runtime_stage(void) { return guard.stage; }
 uint8_t guard_runtime_expected_profile(void) { return expected_profile(); }
 uint32_t guard_runtime_stage_elapsed(uint32_t now) {
+    if(guard.watchdog_expected_override==5u&&
+       guard.post_whisper_targeted_since)
+        return now-guard.post_whisper_targeted_since;
     return guard.watchdog_enabled?now-guard.stage_started_at:0u;
 }
 uint32_t guard_runtime_watchdog_timeout_ms(void) {
+    if(guard.watchdog_expected_override==5u)
+        return POST_WHISPER_TARGET_GRACE_MS;
     return guard.watchdog_timeout_ms;
 }
 uint8_t guard_runtime_calibration_cue(uint8_t profile_id) {

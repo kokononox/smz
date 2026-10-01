@@ -585,8 +585,8 @@ static void service_light(uint32_t now) {
             release_all_actors(now);
             cycle_runtime_hold(now);
             buzzer_watchdog_alarm_start(now);
-            printf("ERR|GUARD|WATCHDOG|action=paused|stage=%u|expected=%s|elapsed-ms=%lu|timeout-ms=%lu|cycle=%u|resume=manual\n",
-                   guard_runtime_stage(),expected,(unsigned long)elapsed,
+            printf("ERR|GUARD|WATCHDOG|action=paused|reason=%s|stage=%u|expected=%s|elapsed-ms=%lu|timeout-ms=%lu|cycle=%u|resume=manual\n",
+                   guard_event.reason,guard_runtime_stage(),expected,(unsigned long)elapsed,
                    (unsigned long)watchdog,cycle_runtime_count());
         } else if (guard_event.type == GUARD_EVENT_ROUTE) {
             if (strcmp(guard_event.reason,"start-at-current-state")) {
