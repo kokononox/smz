@@ -3392,9 +3392,10 @@ class TestRunner
                 "responsive shell: Play Options is bounded, step panes scroll, and run controls stay reserved");
 
             var lightProfilesUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.LightProfiles.cs"));
+            var mainVmUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(lightProfilesUi.Contains("commands.Add($\"BEEP|{hz},{duration}\")")
                    && !lightProfilesUi.Contains("BEEP|{hz},{duration},100,0")
-                   && mwc55.Contains("(فرمان: {command})"),
+                   && mainVmUi.Contains("(فرمان: {command})"),
                 "calibration cue preview uses native-compatible BEEP arguments and reports rejected commands");
 
             // settings hosted inside the main window
