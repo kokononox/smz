@@ -490,6 +490,17 @@ public partial class MainWindow : Window
         PlayOptToggleText.Text = show ? "▾ Play Options" : "▸ Play Options";
     }
 
+    // Keep Play Options useful without letting its generated AutoCycle cards hide the
+    // pipeline tabs and step list on a short monitor. Its viewport gets at most 45% of
+    // the live workspace (with sensible absolute limits); the remainder belongs to steps.
+    private void StepsWorkspace_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        const double minExpandedHeight = 150;
+        const double maxExpandedHeight = 420;
+        var responsiveHeight = Math.Clamp(e.NewSize.Height * 0.45, minExpandedHeight, maxExpandedHeight);
+        PlayOptionsPanel.MaxHeight = responsiveHeight;
+    }
+
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
         if (_forceClose) return;

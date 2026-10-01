@@ -3382,6 +3382,15 @@ class TestRunner
                    && mwc55.Contains("ToolTipService.SetIsEnabled(_openRailHost, true)"),
                 "v0.9.55: the hover hint drops below the icon and switches off while its submenu is open");
 
+            Assert(mwx55.Contains("x:Name=\"StepsWorkspace\"")
+                   && mwx55.Contains("SizeChanged=\"StepsWorkspace_SizeChanged\"")
+                   && mwx55.Contains("x:Name=\"PlayOptionsScroll\"")
+                   && mwx55.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Auto\"")
+                   && mwx55.Contains("<ColumnDefinition Width=\"Auto\" />")
+                   && mwc55.Contains("e.NewSize.Height * 0.45")
+                   && mwc55.Contains("PlayOptionsPanel.MaxHeight = responsiveHeight"),
+                "responsive shell: Play Options is bounded, step panes scroll, and run controls stay reserved");
+
             // settings hosted inside the main window
             var od55 = V27ReadSrc(Path.Combine("Views", "OptionsDialog.xaml.cs"));
             var odx55 = V27ReadSrc(Path.Combine("Views", "OptionsDialog.xaml"));
