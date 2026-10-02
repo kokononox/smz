@@ -299,6 +299,7 @@ _GUARD_RESUME_PATTERN = ((659, 150), (784, 150), (988, 150), (784, 150), (988, 3
 _CAL_ENTER_PATTERN = ((523, 100), (659, 120), (784, 180))
 _CAL_EXIT_PATTERN = ((784, 100), (659, 120), (523, 220))
 _CAL_SAVE_ERROR_PATTERN = ((220, 140), (0, 80), (220, 260))
+_CAL_OVERLAP_ADJUSTED_PATTERN = ((740,80),(0,35),(988,80),(0,35),(740,80),(0,45),(1319,240))
 def _sound_module():
     gc.collect(); return sys.modules.get("sound_step_calibration") or __import__("sound_step_calibration")
 
@@ -349,6 +350,8 @@ def _cal_save_success_tone(self):
     self._cal_beep(1175, 220)
     runtime.time.sleep(.06)
     self._cal_beep(1568, 360)
+
+def _cal_overlap_adjusted_tone(self): self._guard_pattern(_CAL_OVERLAP_ADJUSTED_PATTERN)
 
 def _cal_save_error_tone(self):
     self._guard_pattern(_CAL_SAVE_ERROR_PATTERN)
@@ -566,7 +569,9 @@ def _audible_save_cal(self):
     if had_pending_result and self.saved:
         _debug_event(self, "CAL", "save-ok stage=%d id=%s source=nvm" %
             (self.stage + 1, runtime.PROFILES[self.stage]), persist=True)
-        if not profile_was_saved and len(self.saved_ids) == len(runtime.PROFILES):
+        if self.last_cal_fit:
+            self.cal_overlap_adjusted_tone()
+        elif not profile_was_saved and len(self.saved_ids) == len(runtime.PROFILES):
             self.cal_complete_melody()
         else:
             self.cal_save_success_tone()
@@ -1278,6 +1283,7 @@ runtime.Combined.cal_position_tone = _cal_position_tone
 runtime.Combined.cal_record_start_tone = _cal_record_start_tone
 runtime.Combined.cal_stage_complete_tone = _cal_stage_complete_tone
 runtime.Combined.cal_save_success_tone = _cal_save_success_tone
+runtime.Combined.cal_overlap_adjusted_tone = _cal_overlap_adjusted_tone
 runtime.Combined.cal_save_error_tone = _cal_save_error_tone
 runtime.Combined.cal_complete_melody = _cal_complete_melody
 runtime.Combined._guard_pattern = _guard_pattern

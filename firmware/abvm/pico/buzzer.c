@@ -44,6 +44,12 @@ static const BuzzerTone calibration_enter_prefix[] = {{523,100,0},{659,120,0},{7
 static const BuzzerTone calibration_exit[] = {{784,100,0},{659,120,0},{523,220,0}};
 static const BuzzerTone calibration_error[] = {{220,140,80},{220,260,0}};
 static const BuzzerTone calibration_success[] = {{880,160,60},{1175,220,60},{1568,360,0}};
+/* A successful save whose tolerance was auto-fitted.  The alternating
+ * acknowledgement is intentionally unlike both the rising normal-save cue
+ * and the low double error cue, so button-only calibration is unambiguous. */
+static const BuzzerTone calibration_overlap_adjusted[] = {
+    {740,80,35},{988,80,35},{740,80,45},{1319,240,0}
+};
 static const BuzzerTone calibration_complete[] = {{262,90,35},{294,90,35},{330,90,35},{349,90,35},{392,90,35},{440,90,0}};
 static const BuzzerTone calibration_record_light[] = {{660,65,0}};
 static const BuzzerTone calibration_record_sound[] = {{523,90,0}};
@@ -327,6 +333,9 @@ void buzzer_calibration_stage_complete(uint8_t stage,uint32_t now) {
     begin_styled(motif,count,5u,calibration_custom_volume,calibration_custom_envelope,now);
 }
 void buzzer_calibration_save_success(uint32_t now) { if(!begin_system(12u,6u,now))begin(calibration_success,ARRAY_COUNT(calibration_success),6u,now); }
+void buzzer_calibration_overlap_adjusted(uint32_t now) {
+    begin(calibration_overlap_adjusted,ARRAY_COUNT(calibration_overlap_adjusted),6u,now);
+}
 void buzzer_calibration_save_error(uint32_t now) { if(!begin_system(11u,7u,now))begin(calibration_error,ARRAY_COUNT(calibration_error),7u,now); }
 void buzzer_calibration_complete(uint32_t now) { if(!begin_system(13u,6u,now))begin(calibration_complete,ARRAY_COUNT(calibration_complete),6u,now); }
 void buzzer_calibration_exit(uint32_t now) { if(!begin_system(10u,6u,now))begin(calibration_exit,ARRAY_COUNT(calibration_exit),6u,now); }

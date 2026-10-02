@@ -35,7 +35,18 @@ neighbour_take = runtime.index(
 )
 assert candidate_take < neighbour_take
 assert "reason=centers-too-close" in runtime
+assert "reason=centers-identical" in runtime
 assert "fit=%u|adjusted=%u|revision=%lu" in runtime
+
+# A successful auto-fit has its own audible acknowledgement, while an exact
+# centre collision stays on the error path and is not saved.
+main = (pico / "main.c").read_text(encoding="utf-8")
+buzzer = (pico / "buzzer.c").read_text(encoding="utf-8")
+buzzer_h = (pico / "buzzer.h").read_text(encoding="utf-8")
+for text in (main, buzzer, buzzer_h):
+    assert "buzzer_calibration_overlap_adjusted" in text
+assert 'strstr(event,"|fit=1|")' in main
+assert "calibration_overlap_adjusted" in buzzer
 
 # Candidate plus any adjusted neighbours are one CRC-protected flash
 # transaction; unrelated saved profiles and sound/cycle calibration survive.
