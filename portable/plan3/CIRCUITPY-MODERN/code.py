@@ -299,9 +299,7 @@ _GUARD_RESUME_PATTERN = ((659, 150), (784, 150), (988, 150), (784, 150), (988, 3
 _CAL_ENTER_PATTERN = ((523, 100), (659, 120), (784, 180))
 _CAL_EXIT_PATTERN = ((784, 100), (659, 120), (523, 220))
 _CAL_SAVE_ERROR_PATTERN = ((220, 140), (0, 80), (220, 260))
-_CAL_OVERLAP_ADJUSTED_PATTERN = (
-    (740, 80), (0, 35), (988, 80), (0, 35),
-    (740, 80), (0, 45), (1319, 240))
+_CAL_OVERLAP_ADJUSTED_PATTERN = ((740,80),(0,35),(988,80),(0,35),(740,80),(0,45),(1319,240))
 def _sound_module():
     gc.collect(); return sys.modules.get("sound_step_calibration") or __import__("sound_step_calibration")
 
@@ -353,8 +351,7 @@ def _cal_save_success_tone(self):
     runtime.time.sleep(.06)
     self._cal_beep(1568, 360)
 
-def _cal_overlap_adjusted_tone(self):
-    self._guard_pattern(_CAL_OVERLAP_ADJUSTED_PATTERN)
+def _cal_overlap_adjusted_tone(self): self._guard_pattern(_CAL_OVERLAP_ADJUSTED_PATTERN)
 
 def _cal_save_error_tone(self):
     self._guard_pattern(_CAL_SAVE_ERROR_PATTERN)
