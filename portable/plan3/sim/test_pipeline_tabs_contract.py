@@ -21,7 +21,7 @@ assert "optional GP6 buzzer/error signalling is tracked as a hardware follow-up"
 assert 'PipelineKind.Whisper' in model and 'whisper_steps.txt' in model
 assert 'PipelineKind.WhisperRepeat' in model and 'whisper_repeat_steps.txt' in model
 assert 'PipelineKind.Splash' in model and 'splash_steps.txt' in model
-assert 'FormatVersion = 8' in model and 'soundProfiles' in serializer
+assert 'FormatVersion = 9' in model and 'soundProfiles' in serializer
 assert 'x.Kind != PipelineKind.Splash' in viewmodel
 assert 'MigrateExplicitCatchWait' in serializer
 assert 'AddGameSoundWatch' in bundle and 'SOUNDWATCH|' in bundle and 'FindCatchWaits' in bundle
