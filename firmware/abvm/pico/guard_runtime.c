@@ -65,6 +65,7 @@ typedef struct GuardState {
     uint32_t watchdog_deadline;
     bool watchdog_enabled;
     bool watchdog_tripped;
+    bool manual_game_catchup;
     bool whisper_was_active;
     bool post_whisper_waiting_game;
     bool post_whisper_targeted_grace;
@@ -187,6 +188,8 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
     if (!profile) { fault(vm, now, "profile-missing"); return; }
     if (profile_id == guard.last_stable) return;
     guard.last_stable = profile_id;
+    if(guard.manual_game_catchup&&profile_id!=5u)
+        guard.manual_game_catchup=false;
     if(guard.whisper_pending&&profile_id!=guard.whisper_pending_profile)
         guard.whisper_pending=false;
 
@@ -241,6 +244,12 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
         } else if (guard.stage == 5u) {
             emit(GUARD_EVENT_STATE, profile_id, 0u, 0u, lux,
                  "game-reentry-after-unknown");
+        } else if (guard.manual_game_catchup&&guard.stage==3u) {
+            guard.manual_game_catchup=false;
+            guard.stage=5u;
+            watchdog_advance(now);
+            execute(vm,profile_id,profile->route_id,0u,lux,now,
+                    "manual-watchdog-game-catchup");
         } else if (guard.stage == 4u) {
             guard.stage = 5u;
             watchdog_advance(now);
@@ -418,6 +427,7 @@ bool guard_runtime_start(uint32_t now) {
     guard.event_pending = false;
     guard.watchdog_enabled=false;
     guard.watchdog_tripped=false;
+    guard.manual_game_catchup=false;
     guard.watchdog_deadline=0u;
     guard.whisper_was_active=false;
     clear_post_whisper_grace();
@@ -449,6 +459,7 @@ void guard_runtime_stop(void) {
     guard.whisper_pending=false;
     guard.watchdog_enabled=false;
     guard.watchdog_tripped=false;
+    guard.manual_game_catchup=false;
     guard.watchdog_deadline=0u;
     guard.whisper_was_active=false;
     clear_post_whisper_grace();
@@ -463,9 +474,11 @@ bool guard_runtime_resume(void) {
     guard.paused = false;
     if(guard.watchdog_tripped) {
         guard.watchdog_tripped=false;
+        guard.manual_game_catchup=
+            guard.stage==3u&&guard.watchdog_expected_override==4u;
         guard.stage_started_at=0u;
         guard.watchdog_deadline=0u;
-        guard.candidate=0u;
+        guard.active=guard.candidate=guard.last_stable=0u;
         if(guard.watchdog_expected_override==5u) {
             guard.post_whisper_waiting_game=true;
             guard.post_whisper_targeted_grace=false;

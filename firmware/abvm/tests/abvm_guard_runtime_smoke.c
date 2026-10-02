@@ -189,6 +189,35 @@ int main(int argc, char **argv) {
                  !guard_runtime_watchdog_tripped(),
                  "manual Resume acknowledges Watchdog without skipping stage"))
         return 1;
+    /* If Loading was not calibrated or was too brief to become stable, Game
+     * is first rejected while stage 3 still expects profile 4.  A Watchdog
+     * acknowledgement is an explicit operator confirmation, so the same
+     * already-latched Game scene must be sampled again and may catch up. */
+    if (!require(guard_runtime_start_after_restart(81000u),
+                 "restart Guard for manual Game catch-up") ||
+        !stable(&vm,2000u,82000u,4u,2u) ||
+        !stable(&vm,3000u,82200u,6u,3u)) return 1;
+    guard_runtime_observe(&vm,5000u,82400u);
+    guard_runtime_observe(&vm,5000u,82500u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_DENIED &&
+                 event.reason && !strcmp(event.reason,"game-not-expected"),
+                 "Game is ordered before operator acknowledgement")) return 1;
+    guard_runtime_service(&vm,142300u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_WATCHDOG_TRIPPED &&
+                 guard_runtime_expected_profile()==4u,
+                 "missing Loading trips stage Watchdog")) return 1;
+    if (!require(guard_runtime_resume(),
+                 "operator acknowledges missing Loading")) return 1;
+    guard_runtime_observe(&vm,5000u,142400u);
+    guard_runtime_observe(&vm,5000u,142500u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_ROUTE && event.route_id==8u &&
+                 event.stage==5u && event.reason &&
+                 !strcmp(event.reason,"manual-watchdog-game-catchup") &&
+                 guard_runtime_expected_profile()==0u,
+                 "manual Resume catches stable Game up from stage 3")) return 1;
     /*
      * A Whisper that resumes the fishing Game may reveal Targeted light
      * instead of Game light. Keep the exact Game cursor running for one
