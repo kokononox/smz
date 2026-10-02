@@ -119,11 +119,24 @@ int main(int argc,char **argv){
         drain();now+=3200u;
     }
     if(!require(cycle_runtime_service(now+1000u,true,ARM_HOST_USB_UP,true)==
-                    CYCLE_ACTION_EXPIRE,"limit deadline")||
-       !require(!cycle_runtime_begin_after(now+1000u),
-                    "sixth restart blocked")||
+                    CYCLE_ACTION_START_FINISH,"limit starts Finish"))return 1;
+    cycle_runtime_begin_finish();
+    if(!require(cycle_runtime_take_event(&startup_event)&&
+                    startup_event.type==CYCLE_EVENT_FINISH_START&&
+                    startup_event.route_id==cycle_runtime_finish_route()&&
+                    startup_event.count==5u,
+                    "Finish start telemetry")||
+       !require(!cycle_runtime_route_complete(
+                    cycle_runtime_finish_route(),now+1010u),
+                    "Finish completes without another run")||
+       !require(cycle_runtime_take_event(&startup_event)&&
+                    startup_event.type==CYCLE_EVENT_FINISH_COMPLETE&&
+                    startup_event.count==5u,
+                    "Finish completion telemetry")||
        !require(!marker_armed&&marker_count==5u,
-                    "exactly five restarts retained"))return 1;
+                    "exactly five restarts retained")||
+       !require(cycle_runtime_service(now+2000u,true,ARM_HOST_USB_UP,true)==
+                    CYCLE_ACTION_NONE,"cycle is idle after Finish"))return 1;
 
     /* Desktop light remains the preferred readiness signal, but a failed or
      * slightly drifting calibration must not strand a later round forever. */

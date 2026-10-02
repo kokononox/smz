@@ -3,7 +3,7 @@
 #include <string.h>
 #include "calibration_store.h"
 
-#define CYCLE_VERSION 1u
+#define CYCLE_VERSION 2u
 #define CYCLE_DESCRIPTOR_SIZE 20u
 #define CYCLE_FLAG_AUTO_RESUME 1u
 #define CYCLE_DESKTOP_STABLE_MS 1000u
@@ -15,6 +15,7 @@ typedef enum CyclePhase {
     CYCLE_AFTER = 2,
     CYCLE_WAIT_USB = 3,
     CYCLE_STARTUP = 4,
+    CYCLE_FINISH = 5,
 } CyclePhase;
 
 typedef struct CycleState {
@@ -30,6 +31,7 @@ typedef struct CycleState {
     uint8_t last_host_state;
     uint16_t after_route;
     uint16_t startup_route;
+    uint16_t finish_route;
     uint32_t run_min_ms;
     uint32_t run_max_ms;
     uint32_t usb_stable_ms;
@@ -89,12 +91,15 @@ bool cycle_runtime_init(const AbvmVm *vm,uint32_t now) {
     memset(&cycle,0,sizeof(cycle));
     uint16_t constant_id;const uint8_t *raw;uint32_t size;
     if(!vm||!abvm_find_constant(vm,ABVM_CONST_CYCLE,&constant_id,&raw,&size)||
-       size!=CYCLE_DESCRIPTOR_SIZE||raw[0]!=CYCLE_VERSION||
-       (raw[1]&~CYCLE_FLAG_AUTO_RESUME)||!raw[2]||raw[3])
+       size!=CYCLE_DESCRIPTOR_SIZE||
+       (raw[0]!=1u&&raw[0]!=CYCLE_VERSION)||
+       (raw[1]&~CYCLE_FLAG_AUTO_RESUME)||!raw[2]||
+       (raw[0]==1u&&raw[3]))
         return false;
     (void)constant_id;
     cycle.auto_resume=(raw[1]&CYCLE_FLAG_AUTO_RESUME)!=0u;
     cycle.max_restarts=raw[2];
+    cycle.finish_route=raw[0]>=2u?raw[3]:0u;
     cycle.run_min_ms=read_u32(raw+4u);
     cycle.run_max_ms=read_u32(raw+8u);
     cycle.after_route=read_u16(raw+12u);
@@ -102,6 +107,7 @@ bool cycle_runtime_init(const AbvmVm *vm,uint32_t now) {
     cycle.usb_stable_ms=read_u32(raw+16u);
     if(!cycle.run_min_ms||cycle.run_min_ms>cycle.run_max_ms||
        !cycle.after_route||!cycle.startup_route||
+       (raw[0]>=2u&&!cycle.finish_route)||
        cycle.usb_stable_ms<250u)return false;
     cycle.available=true;
     cycle.prng=now^read_u32(vm->header.program_sha256);
@@ -118,7 +124,7 @@ bool cycle_runtime_waiting_for_usb(void){
 }
 bool cycle_runtime_restart_critical(void){
     return cycle.phase==CYCLE_AFTER||cycle.phase==CYCLE_WAIT_USB||
-           cycle.phase==CYCLE_STARTUP;
+           cycle.phase==CYCLE_STARTUP||cycle.phase==CYCLE_FINISH;
 }
 void cycle_runtime_hold(uint32_t now) {
     if(!cycle.available||cycle.held)return;
@@ -152,7 +158,11 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
     if(!cycle.available)return CYCLE_ACTION_NONE;
     if(cycle.held)return CYCLE_ACTION_NONE;
     if(cycle.phase==CYCLE_RUN&&reached(now,cycle.deadline)){
-        cycle.deadline=0u;emit(CYCLE_EVENT_DEADLINE);
+        cycle.deadline=0u;
+        if(cycle.finish_route&&
+           calibration_store_cycle_count()>=cycle.max_restarts)
+            return CYCLE_ACTION_START_FINISH;
+        emit(CYCLE_EVENT_DEADLINE);
         return CYCLE_ACTION_EXPIRE;
     }
     if(cycle.phase!=CYCLE_AFTER&&cycle.phase!=CYCLE_WAIT_USB)
@@ -209,6 +219,10 @@ void cycle_runtime_begin_startup(void) {
     emit(CYCLE_EVENT_STARTUP_START);cycle.pending.route_id=cycle.startup_route;
     cycle.pending.startup_gate=cycle.startup_gate;
 }
+void cycle_runtime_begin_finish(void) {
+    cycle.phase=CYCLE_FINISH;
+    emit(CYCLE_EVENT_FINISH_START);cycle.pending.route_id=cycle.finish_route;
+}
 bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
     if(cycle.phase==CYCLE_AFTER&&route_id==cycle.after_route){
         if(cycle.auto_resume){
@@ -226,6 +240,11 @@ bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
         arm_run(now,true);
         return true;
     }
+    if(cycle.phase==CYCLE_FINISH&&route_id==cycle.finish_route){
+        cycle.phase=CYCLE_IDLE;cycle.deadline=0u;cycle.held=false;
+        emit(CYCLE_EVENT_FINISH_COMPLETE);
+        return false;
+    }
     return false;
 }
 void cycle_runtime_fail(uint8_t stage) {
@@ -241,4 +260,5 @@ bool cycle_runtime_take_event(CycleEvent *event) {
 }
 uint16_t cycle_runtime_after_route(void){return cycle.after_route;}
 uint16_t cycle_runtime_startup_route(void){return cycle.startup_route;}
+uint16_t cycle_runtime_finish_route(void){return cycle.finish_route;}
 uint8_t cycle_runtime_count(void){return calibration_store_cycle_count();}

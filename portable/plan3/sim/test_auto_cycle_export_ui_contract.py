@@ -44,6 +44,7 @@ assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter
 assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
 assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",' in native_exporter
 assert '"Whisper", "WhisperRepeat"' in native_exporter
+assert '"Whisper", "WhisperRepeat", "Finish"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
 assert 'root["nativeCycle"] = BuildNativeCycle(settings)' in native_exporter
 assert '["usbStableMs"] = 30000' in native_exporter

@@ -51,7 +51,7 @@ public static class NativeUf2Exporter
                 ["compile", source, program, "--routes",
                  "Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
                  "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",
-                 "Whisper", "WhisperRepeat"],
+                 "Whisper", "WhisperRepeat", "Finish"],
                 cancellationToken);
             if (!File.Exists(program) || new FileInfo(program).Length == 0)
                 throw new InvalidDataException("کامپایلر ABP فایل program.abp را نساخت.");
