@@ -97,6 +97,36 @@ assert ("WATCH", 2, "timeout") in timeout_events
 assert not any(event[0] == "KEY" and 70 in event[1] for event in timeout_events)
 assert ("TYPE", "hi :)") in abvm.ReferenceVm(compiled.image).run("Whisper")
 
+# Parallel Groups without a Watch lane use JOIN_ALL: both lanes run and the
+# parent continues only after the slower lane ends.
+join_project = {"pipelines": {"Game": [
+    node("parallelGroup", {}, [
+        node("delay", {"minMs": 120, "maxMs": 120}),
+        node("comment", {"text": "Next"}),
+        node("delay", {"minMs": 450, "maxMs": 450}),
+        node("comment", {"text": "Next"}),
+    ]),
+    node("keystroke", {"key": "Z", "holdMin": 30, "holdMax": 30}),
+]}}
+join_compiled = abvm.Compiler().compile_amsj(join_project, ("Game",))
+join_image = abvm.Verifier.verify(join_compiled.image)
+join_begin = next(ins for ins in join_image.instructions
+                  if ins.op == abvm.OP_SCOPE_BEGIN)
+join_raw = join_image.const(join_begin.a, abvm.CONST_SCOPE)
+join_lanes, join_policy, join_terminal, _ = struct.unpack_from(
+    "<BBBB", join_raw)
+assert (join_lanes, join_policy, join_terminal) ==        (2, abvm.SCOPE_JOIN_ALL, 0xFF)
+for lane_index in range(2):
+    _, lane_end = struct.unpack_from("<II", join_raw, 4 + lane_index * 8)
+    assert join_image.instructions[lane_end].op == abvm.OP_LANE_END
+    assert join_image.instructions[lane_end].flags == 0
+join_vm = abvm.ReferenceVm(join_compiled.image, seed=1)
+join_events = join_vm.run("Game")
+assert any(event[0] == "SCOPE_BEGIN" and event[2] == "JOIN_ALL"
+           for event in join_events)
+assert any(event[0] == "KEY" and 90 in event[1] for event in join_events)
+assert join_vm.now >= 450
+
 # Pause releases held HID state, preserves the exact PC, and leaves absolute
 # Game deadlines unchanged under the WALL clock policy.
 control_project = {"pipelines": {

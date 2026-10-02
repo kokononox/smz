@@ -33,9 +33,11 @@ int main(int argc, char **argv) {
 
     uint32_t now = 0;
     unsigned actions = 0, watches = 0;
-    int paused = 0, interrupted = 0, resumed = 0;
+    int paused = 0, interrupted = 0, resumed = 0, join_all_seen = 0;
     for (unsigned fetch = 0; fetch < 50000u; ++fetch) {
         AbvmEvent event = abvm_tick(&vm, now);
+        if (vm.scope.active && vm.scope.policy==ABVM_SCOPE_JOIN_ALL)
+            join_all_seen=1;
         if (event.type == ABVM_EVENT_FAULT) {
             fprintf(stderr, "ABVM fault: %s\n", event.message);
             return 1;
@@ -86,8 +88,46 @@ int main(int argc, char **argv) {
     if (!require(vm.status == ABVM_STATUS_COMPLETE, "Game complete") ||
         !require(actions > 10u, "actions executed") ||
         !require(watches > 0u, "Watch executed") ||
+        !require(join_all_seen, "JOIN_ALL scope executed") ||
         !require(paused && interrupted && resumed, "control paths executed"))
         return 1;
+
+    /* Both JOIN_ALL lanes begin with keyboard actions.  Keep the first
+     * action pending and prove the second lane waits instead of reaching the
+     * hardware actor and failing busy. */
+    if (!require(abvm_init(&vm,image,(size_t)length),"join reinitialize") ||
+        !require(abvm_start_route(&vm,8u,0u),"join start Game")) return 1;
+    AbvmEvent first_join_action; first_join_action.type=ABVM_EVENT_NONE;
+    now=0u;
+    for(unsigned fetch=0;fetch<1000u;++fetch){
+        AbvmEvent event=abvm_tick(&vm,now++);
+        if(event.type==ABVM_EVENT_FAULT)return 1;
+        if(event.type==ABVM_EVENT_ACTION){
+            if(vm.scope.active&&vm.scope.policy==ABVM_SCOPE_JOIN_ALL){
+                first_join_action=event;break;
+            }
+            if(!require(abvm_complete_action(&vm,event.lane,now),
+                        "complete pre-join action"))return 1;
+        }
+    }
+    if(!require(first_join_action.type==ABVM_EVENT_ACTION,
+                "first JOIN_ALL keyboard action"))return 1;
+    AbvmEvent queued=abvm_tick(&vm,now++);
+    if(!require(queued.type==ABVM_EVENT_NONE,
+                "same actor lane waits while keyboard is busy") ||
+       !require(abvm_complete_action(&vm,first_join_action.lane,now),
+                "complete first JOIN_ALL action"))return 1;
+    AbvmEvent second_join_action;second_join_action.type=ABVM_EVENT_NONE;
+    for(unsigned fetch=0;fetch<20u;++fetch){
+        AbvmEvent event=abvm_tick(&vm,now++);
+        if(event.type==ABVM_EVENT_ACTION){second_join_action=event;break;}
+        if(event.type==ABVM_EVENT_FAULT)return 1;
+    }
+    if(!require(second_join_action.type==ABVM_EVENT_ACTION &&
+                second_join_action.lane!=first_join_action.lane,
+                "second JOIN_ALL lane runs after actor release") ||
+       !require(abvm_complete_action(&vm,second_join_action.lane,now),
+                "complete second JOIN_ALL action"))return 1;
 
     if (!require(abvm_init(&vm,image,(size_t)length),"reinitialize") ||
         !require(abvm_start_route(&vm,8u,0u),"restart Game"))

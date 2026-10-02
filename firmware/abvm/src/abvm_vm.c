@@ -327,9 +327,14 @@ static int verify_image(AbvmVm *vm) {
             }
         }
         if (ins.opcode == ABVM_OP_SCOPE_BEGIN) {
-            if (size != 20u || payload[0] != 2u ||
-                payload[1] != ABVM_SCOPE_CANCEL_ON_TERMINAL_LANE ||
-                payload[2] >= 2u)
+            if (size != 20u || payload[0] != 2u)
+                return fail(vm, "scope descriptor");
+            uint8_t policy = payload[1];
+            uint8_t terminal = payload[2];
+            int terminal_policy =
+                policy == ABVM_SCOPE_CANCEL_ON_TERMINAL_LANE && terminal < 2u;
+            int join_policy = policy == ABVM_SCOPE_JOIN_ALL && terminal == 0xffu;
+            if (ins.flags != policy || (!terminal_policy && !join_policy))
                 return fail(vm, "scope descriptor");
             for (uint8_t lane = 0; lane < 2u; ++lane) {
                 uint32_t first=read_u32(payload+4u+(uint32_t)lane*8u);
@@ -338,7 +343,8 @@ static int verify_image(AbvmVm *vm) {
                 if (first <= pc || first > last || last >= ins.operand_d ||
                     !instruction_at(vm,last,&tail) ||
                     tail.opcode != ABVM_OP_LANE_END ||
-                    !!(tail.flags & 1u) != (lane == payload[2]))
+                    !!(tail.flags & 1u) !=
+                        (terminal_policy && lane == terminal))
                     return fail(vm, "scope range");
                 for (uint32_t nested = first; nested < last; ++nested) {
                     AbvmInstruction child;
@@ -546,6 +552,24 @@ static int package_select(AbvmVm *vm, AbvmLane *lane, AbvmFrame *frame) {
     return 1;
 }
 
+static uint8_t action_actor(uint8_t opcode) {
+    if (opcode==ABVM_OP_KEY || opcode==ABVM_OP_KDOWN ||
+        opcode==ABVM_OP_KUP || opcode==ABVM_OP_TYPE) return 1u;
+    if (opcode==ABVM_OP_RMOUSE) return 2u;
+    if (opcode==ABVM_OP_BEEP) return 3u;
+    return 0u;
+}
+
+static int action_actor_busy(const AbvmVm *vm,uint8_t lane_index,
+                             uint8_t actor) {
+    if (!actor) return 0;
+    for (uint8_t i=0;i<ABVM_MAX_LANES;++i)
+        if (i!=lane_index && vm->lanes[i].active &&
+            vm->lanes[i].blocked==ABVM_BLOCK_ACTION &&
+            vm->lanes[i].reserved==actor) return 1;
+    return 0;
+}
+
 static void finish_lane(AbvmVm *vm, uint8_t lane_index) {
     AbvmLane *lane = &vm->lanes[lane_index];
     lane->active = 0;
@@ -633,10 +657,14 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 lane->due = now + random_range(vm,ins.operand_b,ins.operand_c);
                 break;
             case ABVM_OP_KEY: case ABVM_OP_KDOWN: case ABVM_OP_KUP:
-            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE: case ABVM_OP_BEEP:
+            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE: case ABVM_OP_BEEP: {
+                uint8_t actor=action_actor(ins.opcode);
+                if (action_actor_busy(vm,lane_index,actor)) continue;
                 lane->pc++;
+                lane->reserved=actor;
                 lane->blocked = ABVM_BLOCK_ACTION;
                 return event_of(vm,ABVM_EVENT_ACTION,lane_index,&ins,"action");
+            }
             case ABVM_OP_LOOP_ENTER: {
                 AbvmFrame *frame;
                 if (!push_frame(vm,lane,&frame)) break;
@@ -769,6 +797,7 @@ int abvm_complete_action(AbvmVm *vm, uint8_t lane, uint32_t now) {
     if (!vm || lane>=ABVM_MAX_LANES ||
         vm->lanes[lane].blocked!=ABVM_BLOCK_ACTION) return 0;
     vm->lanes[lane].blocked=ABVM_BLOCK_NONE;
+    vm->lanes[lane].reserved=0u;
     vm->lanes[lane].due=now;
     return 1;
 }

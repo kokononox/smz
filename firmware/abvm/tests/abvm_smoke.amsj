@@ -1,4 +1,3 @@
-
 {
   "pipelineVersion": 6,
   "pipelines": {
@@ -19,6 +18,54 @@
               "holdMax": 180
             },
             "Children": [],
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "parallelGroup",
+            "Props": {},
+            "Children": [
+              {
+                "Type": "keystroke",
+                "Props": {
+                  "key": "A",
+                  "holdMin": 30,
+                  "holdMax": 30
+                },
+                "Children": [],
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "Next"
+                },
+                "Children": [],
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "keystroke",
+                "Props": {
+                  "key": "B",
+                  "holdMin": 30,
+                  "holdMax": 30
+                },
+                "Children": [],
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "Next"
+                },
+                "Children": [],
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
             "Delay": 0,
             "IsDisabled": false
           },
