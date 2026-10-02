@@ -187,7 +187,12 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("arm_uart_mouse_submit_ambient", self.arm)
         self.assertIn("arm_uart_mouse_internal_completion", self.arm)
         self.assertIn("service_ambient_mouse", self.main)
-        self.assertIn("vm.status==ABVM_STATUS_RUNNING", self.main)
+        self.assertIn("ambient_mouse_route_allowed", self.main)
+        self.assertIn("profile>=1u&&profile<=4u", self.main)
+        self.assertIn("if(ambient_mouse_inflight)return;", self.main)
+        self.assertIn(
+            "vm.status==ABVM_STATUS_PAUSED||\n       input_lock_active()",
+            self.main)
 
     def test_physical_light_and_sound_calibration_are_persistent(self):
         self.assertIn("BUTTON_LONG_MS 3000u", self.main)
