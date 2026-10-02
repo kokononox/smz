@@ -85,7 +85,25 @@ internal static class LightStateProfilesUiBootstrap
         RebuildRows();
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var importFromBoard = ActionButton("وارد کردن از برد", "#2F7D5A", "#F5F7FA");
+        importFromBoard.Click += async (_, _) =>
+        {
+            if (MessageBox.Show(window,
+                    "بازه‌های کالیبراسیون ذخیره‌شده روی برد جایگزین مرکز و تلورانس فعلی شوند؟ سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
+                    "وارد کردن کالیبراسیون از برد", MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            importFromBoard.IsEnabled = false;
+            try
+            {
+                if (await vm.ImportLightStateProfilesFromBoardAsync()) RebuildRows();
+            }
+            finally
+            {
+                importFromBoard.IsEnabled = true;
+            }
+        };
         var save = ActionButton("ذخیره پروفایل‌ها", "#5E9FE8", "#10151C");
+        save.Margin = new Thickness(8, 0, 0, 0);
         save.Click += (_, _) => { if (vm.SaveLightStateProfiles()) RebuildRows(); };
         var reset = ActionButton("بازگردانی مقادیر اولیه", "#333740", "#F5F7FA");
         reset.Margin = new Thickness(8, 0, 0, 0);
@@ -96,7 +114,7 @@ internal static class LightStateProfilesUiBootstrap
             vm.ResetLightStateProfiles();
             RebuildRows();
         };
-        actions.Children.Add(save); actions.Children.Add(reset);
+        actions.Children.Add(importFromBoard); actions.Children.Add(save); actions.Children.Add(reset);
         editorBody.Children.Add(actions);
         var saveStatus = Bound(nameof(MainViewModel.LightProfileSaveStatus), 12);
         saveStatus.Margin = new Thickness(0, 8, 0, 0);
