@@ -17,8 +17,8 @@
 #define ARM_RETRY_MAX 2u
 #define ARM_LIVE_LANE 0xffu
 #define ARM_INTERNAL_LANE 0xfeu
-#define HUMAN_SCREEN_W 1920
-#define HUMAN_SCREEN_H 1080
+#define HUMAN_SCREEN_DEFAULT_W 1920
+#define HUMAN_SCREEN_DEFAULT_H 1080
 #define HUMAN_PATH_MAX_STEPS 96u
 #define HUMAN_PATH_MIN_STEPS 16u
 
@@ -65,8 +65,12 @@ static uint32_t sound_deadline;
 static bool host_usb_seen;
 static ArmHostUsbState host_usb_state;
 static HumanPath human_path;
-static int32_t human_virtual_x = HUMAN_SCREEN_W / 2;
-static int32_t human_virtual_y = HUMAN_SCREEN_H / 2;
+static int32_t human_screen_w = HUMAN_SCREEN_DEFAULT_W;
+static int32_t human_screen_h = HUMAN_SCREEN_DEFAULT_H;
+static int32_t human_virtual_x = HUMAN_SCREEN_DEFAULT_W / 2;
+static int32_t human_virtual_y = HUMAN_SCREEN_DEFAULT_H / 2;
+static int32_t human_soft_margin_x, human_soft_margin_y;
+static bool human_display_configured, human_soft_boundary;
 static uint16_t human_moves_since_idle;
 static uint16_t human_next_idle;
 static uint32_t human_last_speed = 1050u;
@@ -113,6 +117,29 @@ static int32_t clamp_i32(int32_t value, int32_t low, int32_t high) {
     if (value < low) return low;
     if (value > high) return high;
     return value;
+}
+static int32_t soft_steer_axis(int32_t current,int32_t proposed,
+                               int32_t limit,int32_t margin) {
+    proposed=clamp_i32(proposed,0,limit-1);
+    if(!human_soft_boundary||margin<=0)return proposed;
+    int32_t low=margin,high=limit-1-margin;
+    if(low>=high)return limit/2;
+    uint32_t jitter_max=(uint32_t)(margin/3);
+    int32_t jitter=(int32_t)(jitter_max?
+        random_next()%(jitter_max+1u):0u);
+    if(proposed<low) {
+        int32_t penetration=low-proposed;
+        return clamp_i32(low+penetration+jitter,low,high);
+    }
+    if(proposed>high) {
+        int32_t penetration=proposed-high;
+        return clamp_i32(high-penetration-jitter,low,high);
+    }
+    if(current<low&&proposed<=current)
+        return clamp_i32(low+(low-current)+jitter,low,high);
+    if(current>high&&proposed>=current)
+        return clamp_i32(high-(current-high)-jitter,low,high);
+    return proposed;
 }
 static uint32_t random_range_u32(uint32_t low, uint32_t high) {
     if (high <= low) return low;
@@ -212,6 +239,14 @@ static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
     human_path.leg_y = end_y;
     human_path.control_x = end_x / 2 + perpendicular_x;
     human_path.control_y = end_y / 2 + perpendicular_y;
+    if(human_soft_boundary) {
+        int32_t global_x=human_virtual_x+human_path.control_x;
+        int32_t global_y=human_virtual_y+human_path.control_y;
+        human_path.control_x=clamp_i32(global_x,human_soft_margin_x,
+            human_screen_w-1-human_soft_margin_x)-human_virtual_x;
+        human_path.control_y=clamp_i32(global_y,human_soft_margin_y,
+            human_screen_h-1-human_soft_margin_y)-human_virtual_y;
+    }
     human_path.last_x = human_path.last_y = 0;
     human_path.steps = steps;
     human_path.step = 0u;
@@ -236,6 +271,27 @@ static bool human_path_command(char *command, size_t capacity) {
 static bool human_path_begin(const uint8_t *payload, uint32_t size,
                              uint8_t path_lane, uint32_t now) {
     int32_t x=0, y=0, w=0, h=0;
+    int32_t screen_w=clamp_i32(
+        json_int_or(payload,size,"screenWidth",HUMAN_SCREEN_DEFAULT_W),640,7680);
+    int32_t screen_h=clamp_i32(
+        json_int_or(payload,size,"screenHeight",HUMAN_SCREEN_DEFAULT_H),480,4320);
+    int32_t margin_pct=clamp_i32(
+        json_int_or(payload,size,"softMarginPct",3),1,20);
+    if(!human_display_configured) {
+        human_virtual_x=screen_w/2;human_virtual_y=screen_h/2;
+        human_display_configured=true;
+    } else if(screen_w!=human_screen_w||screen_h!=human_screen_h) {
+        human_virtual_x=(int32_t)((int64_t)human_virtual_x*screen_w/human_screen_w);
+        human_virtual_y=(int32_t)((int64_t)human_virtual_y*screen_h/human_screen_h);
+    }
+    human_screen_w=screen_w;human_screen_h=screen_h;
+    human_soft_boundary=json_int_or(payload,size,"softBoundary",0)==1;
+    human_soft_margin_x=human_soft_boundary?
+        (screen_w*margin_pct/100>8?screen_w*margin_pct/100:8):0;
+    human_soft_margin_y=human_soft_boundary?
+        (screen_h*margin_pct/100>8?screen_h*margin_pct/100:8):0;
+    human_virtual_x=clamp_i32(human_virtual_x,0,screen_w-1);
+    human_virtual_y=clamp_i32(human_virtual_y,0,screen_h-1);
     int32_t relative_mode=json_int_or(payload,size,"relativeMode",0);
     int32_t target_x,target_y;
     uint32_t target_width;
@@ -257,19 +313,25 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         if(radial<(uint32_t)radius_min||radial>(uint32_t)radius_max){
             rx=radius_min;ry=0;
         }
-        target_x=clamp_i32(human_virtual_x+rx,0,HUMAN_SCREEN_W-1);
-        target_y=clamp_i32(human_virtual_y+ry,0,HUMAN_SCREEN_H-1);
+        target_x=soft_steer_axis(human_virtual_x,human_virtual_x+rx,
+            screen_w,human_soft_margin_x);
+        target_y=soft_steer_axis(human_virtual_y,human_virtual_y+ry,
+            screen_h,human_soft_margin_y);
         target_width=(uint32_t)(radius_max-radius_min+1);
     } else {
         if (!json_int(payload,size,"x",&x) || !json_int(payload,size,"y",&y) ||
             !json_int(payload,size,"w",&w) || !json_int(payload,size,"h",&h) ||
             x < 0 || y < 0 || w <= 0 || h <= 0 ||
-            x > HUMAN_SCREEN_W - w || y > HUMAN_SCREEN_H - h)
+            x > screen_w - w || y > screen_h - h)
             return false;
         /* Two uniform samples create a center-weighted triangular distribution:
          * ordinary human aim lands away from hard region edges most of the time. */
         target_x=x+(int32_t)random_triangular_u32((uint32_t)w-1u);
         target_y=y+(int32_t)random_triangular_u32((uint32_t)h-1u);
+        target_x=soft_steer_axis(human_virtual_x,target_x,
+            screen_w,human_soft_margin_x);
+        target_y=soft_steer_axis(human_virtual_y,target_y,
+            screen_h,human_soft_margin_y);
         target_width=(uint32_t)(w<h?w:h);
     }
     int32_t dx = target_x - human_virtual_x;
@@ -413,6 +475,12 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         dx += (int32_t)((int64_t)dx*extra/distance);
         dy += (int32_t)((int64_t)dy*extra/distance);
     }
+    if(human_soft_boundary) {
+        dx=clamp_i32(human_virtual_x+dx,human_soft_margin_x,
+            screen_w-1-human_soft_margin_x)-human_virtual_x;
+        dy=clamp_i32(human_virtual_y+dy,human_soft_margin_y,
+            screen_h-1-human_soft_margin_y)-human_virtual_y;
+    }
     human_leg(dx,dy,steps,curve);
     return true;
 }
@@ -472,7 +540,11 @@ void arm_uart_mouse_init(void) {
     sound_result_latched=false;
     host_usb_seen=false;host_usb_state=ARM_HOST_USB_UNKNOWN;
     memset(&human_path,0,sizeof(human_path));
-    human_virtual_x=HUMAN_SCREEN_W/2;human_virtual_y=HUMAN_SCREEN_H/2;
+    human_screen_w=HUMAN_SCREEN_DEFAULT_W;
+    human_screen_h=HUMAN_SCREEN_DEFAULT_H;
+    human_virtual_x=human_screen_w/2;human_virtual_y=human_screen_h/2;
+    human_display_configured=false;human_soft_boundary=false;
+    human_soft_margin_x=human_soft_margin_y=0;
     human_moves_since_idle=human_next_idle=0u;
 }
 bool arm_uart_mouse_probe(uint32_t now) {

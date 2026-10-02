@@ -75,8 +75,9 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 8;
+    public const int FormatVersion = 9;
     public HumanMouseProfile HumanMouseProfile { get; set; } = new();
+    public DisplayProfile DisplayProfile { get; set; } = new();
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
     {
         new() { Kind = PipelineKind.Desktop, Title = "Desktop", FileName = "desktop_steps.txt" },
@@ -161,4 +162,23 @@ public sealed class HumanMouseProfile
     public bool IsValid => Version == 1 && DurationMs >= 30_000
         && HandMovementSample.TryDecode(EncodedSample, out var sample)
         && sample.DurationMs >= 30_000 && sample.Segments.Count >= 20;
+}
+
+/// <summary>
+/// Hostless screen geometry used by Native Random Mouse.  Preset is kept for
+/// the authoring UI; Width/Height are the authoritative values embedded in
+/// ABVM so Custom works without installing Classroom Studio on the target PC.
+/// </summary>
+public sealed class DisplayProfile
+{
+    public string Preset { get; set; } = "1920x1080";
+    public int Width { get; set; } = 1920;
+    public int Height { get; set; } = 1080;
+    public bool SoftBoundaryEnabled { get; set; } = true;
+    public int SoftMarginPercent { get; set; } = 3;
+
+    [JsonIgnore]
+    public bool IsValid => Width is >= 640 and <= 7680
+        && Height is >= 480 and <= 4320
+        && SoftMarginPercent is >= 1 and <= 20;
 }

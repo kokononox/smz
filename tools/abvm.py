@@ -324,6 +324,7 @@ class Compiler:
         self.labels: dict[str, int] = {}
         self.gotos: list[tuple[int, str]] = []
         self.human_mouse_profile: dict[str, int] = {}
+        self.display_profile: dict[str, int] = {}
 
     @staticmethod
     def compact_human_mouse_profile(source: dict[str, Any]) -> dict[str, int]:
@@ -366,6 +367,34 @@ class Compiler:
                 int(round(percentile(speeds, 20))))),
             "handSpeedMax": max(150, min(3000,
                 int(round(percentile(speeds, 80))))),
+        }
+
+    @staticmethod
+    def compact_display_profile(source: dict[str, Any]) -> dict[str, int]:
+        profile = source.get("displayProfile") or {}
+        if not profile:
+            # Legacy AMSJ keeps the old 1920x1080 virtual cursor and does not
+            # gain steering merely by being opened in a newer compiler.
+            return {
+                "screenWidth": 1920, "screenHeight": 1080,
+                "softBoundary": 0, "softMarginPct": 3,
+            }
+        width = integer(profile.get("Width") or profile.get("width"))
+        height = integer(profile.get("Height") or profile.get("height"))
+        margin = integer(profile.get("SoftMarginPercent") or
+                         profile.get("softMarginPercent") or 3)
+        enabled = profile.get("SoftBoundaryEnabled")
+        if enabled is None:
+            enabled = profile.get("softBoundaryEnabled")
+        if not 640 <= width <= 7680 or not 480 <= height <= 4320:
+            raise AbvmError(
+                "display resolution must be within 640x480..7680x4320")
+        if not 1 <= margin <= 20:
+            raise AbvmError("soft boundary margin must be 1..20 percent")
+        return {
+            "screenWidth": width, "screenHeight": height,
+            "softBoundary": 1 if bool(enabled) else 0,
+            "softMarginPct": margin,
         }
 
     def emit(self, op: int, flags: int = 0, a: int = 0,
@@ -443,6 +472,7 @@ class Compiler:
         if not isinstance(pipelines, dict):
             raise AbvmError("AMSJ pipelines object is missing")
         self.human_mouse_profile = self.compact_human_mouse_profile(source)
+        self.display_profile = self.compact_display_profile(source)
         self.compile_global_whisper(source)
         for name in route_names:
             nodes = pipelines.get(name)
@@ -550,6 +580,7 @@ class Compiler:
         elif kind == "randomMousePosition":
             spec = dict(p)
             spec.update(self.human_mouse_profile)
+            spec.update(self.display_profile)
             intent = str(spec.get("motionIntent") or "targetRegion")
             if intent in ("microTwitch", "mediumTwitch"):
                 defaults = (2, 12) if intent == "microTwitch" else (20, 80)
@@ -559,6 +590,15 @@ class Compiler:
                 spec["relativeMode"] = 1
                 spec["relativeMin"] = max(1, lo)
                 spec["relativeMax"] = max(1, hi)
+            else:
+                x, y = integer(spec.get("x")), integer(spec.get("y"))
+                w, h = integer(spec.get("w"), 100), integer(spec.get("h"), 100)
+                if (x < 0 or y < 0 or w <= 0 or h <= 0 or
+                        x + w > spec["screenWidth"] or
+                        y + h > spec["screenHeight"]):
+                    raise AbvmError(
+                        "Random Mouse region is outside selected display "
+                        f"{spec['screenWidth']}x{spec['screenHeight']}")
             self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, spec))
         elif kind == "buzzer":
             self.compile_buzzer(p)

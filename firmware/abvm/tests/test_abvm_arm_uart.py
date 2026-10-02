@@ -76,6 +76,13 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn('"relativeMode"', self.arm)
         self.assertIn('"relativeMin"', self.arm)
         self.assertIn('"relativeMax"', self.arm)
+        self.assertIn('"screenWidth"', self.arm)
+        self.assertIn('"screenHeight"', self.arm)
+        self.assertIn('"softBoundary"', self.arm)
+        self.assertIn('"softMarginPct"', self.arm)
+        self.assertIn("soft_steer_axis", self.arm)
+        self.assertIn("human_soft_margin_x", self.arm)
+        self.assertIn("human_soft_margin_y", self.arm)
         self.assertNotIn("registry", self.arm.lower())
         self.assertNotIn("cursor sync", self.arm.lower())
         self.assertNotIn(
