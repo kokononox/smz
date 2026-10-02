@@ -99,6 +99,12 @@ public partial class MainViewModel
         {
             LightProfileSaveStatus = "در حال خواندن کالیبراسیون نوری از برد…";
             var reply = await _bridge.SendAsync("CALDUMP|LIGHT", 3);
+            if (reply == "ERR|COMMAND|unknown=CALDUMP|LIGHT")
+            {
+                LightProfileSaveStatus =
+                    "Firmware برد قدیمی است؛ با همین نسخه یک Native UF2 جدید بسازید و روی برد فلش کنید.";
+                return false;
+            }
             var dump = LightCalibrationDumpParser.Parse(reply);
             if (dump.Profiles.Count == 0)
             {
@@ -114,7 +120,9 @@ public partial class MainViewModel
         }
         catch (Exception ex)
         {
-            LightProfileSaveStatus = "وارد کردن از برد ناموفق بود: " + ex.Message;
+            LightProfileSaveStatus = ex.Message.Contains("ERR|TIMEOUT|CALDUMP", StringComparison.Ordinal)
+                ? "برد پاسخ CALDUMP نداد؛ Native UF2 همین نسخه را روی برد فلش و دوباره متصل کنید."
+                : "وارد کردن از برد ناموفق بود: " + ex.Message;
             return false;
         }
     }

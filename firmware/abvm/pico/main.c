@@ -289,16 +289,25 @@ static void print_light_calibration_dump(void) {
     for(uint8_t id=1u;id<=8u;++id)
         if(calibration_store_light_get(id,&low[id-1u],&high[id-1u]))
             mask|=(uint8_t)(1u<<(id-1u));
-    printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%02x|profiles=",
-           (unsigned long)calibration_store_revision(),mask);
-    if(!mask){printf("none\n");return;}
-    bool first=true;
+    char profiles[256];size_t used=0u;
+    if(!mask)snprintf(profiles,sizeof(profiles),"none");
     for(uint8_t id=1u;id<=8u;++id)if(mask&(1u<<(id-1u))){
-        printf("%s%u:%lu:%lu",first?"":",",id,
-               (unsigned long)low[id-1u],(unsigned long)high[id-1u]);
-        first=false;
+        int written=snprintf(profiles+used,sizeof(profiles)-used,
+                             "%s%u:%lu:%lu",used?",":"",id,
+                             (unsigned long)low[id-1u],
+                             (unsigned long)high[id-1u]);
+        if(written<0||(size_t)written>=sizeof(profiles)-used){
+            printf("ERR|INTERNAL|CALDUMP\n");return;
+        }
+        used+=(size_t)written;
     }
-    printf("\n");
+    /*
+     * Keep the whole reply in one TinyUSB write.  Several immediate printf
+     * calls can fill the CDC endpoint and drop the final newline, leaving the
+     * PC bridge waiting forever for a complete response line.
+     */
+    printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%02x|profiles=%s\n",
+           (unsigned long)calibration_store_revision(),mask,profiles);
 }
 static void release_all_actors(uint32_t now) {
     hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
