@@ -176,6 +176,7 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
             bool usb_stable=reached(now,cycle.up_since+cycle.usb_stable_ms);
             bool desktop_stable=cycle.desktop_timing&&
                 reached(now,cycle.desktop_since+CYCLE_DESKTOP_STABLE_MS);
+            /* Never strand a later round on a marginal light calibration. */
             bool desktop_fallback=usb_stable&&reached(now,
                 cycle.up_since+cycle.usb_stable_ms+
                 CYCLE_DESKTOP_FALLBACK_MS);
