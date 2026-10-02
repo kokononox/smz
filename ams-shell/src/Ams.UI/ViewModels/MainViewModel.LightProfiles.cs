@@ -86,6 +86,39 @@ public partial class MainViewModel
         }
     }
 
+    public async Task<bool> ImportLightStateProfilesFromBoardAsync()
+    {
+        if (_bridge is null || Connection != ConnectionState.Connected
+                            || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "وارد کردن انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+
+        try
+        {
+            LightProfileSaveStatus = "در حال خواندن کالیبراسیون نوری از برد…";
+            var reply = await _bridge.SendAsync("CALDUMP|LIGHT", 3);
+            var dump = LightCalibrationDumpParser.Parse(reply);
+            if (dump.Profiles.Count == 0)
+            {
+                LightProfileSaveStatus = "برد هنوز هیچ کالیبراسیون نوری ذخیره‌شده‌ای ندارد.";
+                return false;
+            }
+
+            var imported = LightCalibrationDumpParser.Apply(dump, LightStateProfiles);
+            if (!SaveLightStateProfiles()) return false;
+            LightProfileSaveStatus =
+                $"{imported} پروفایل از برد وارد و ذخیره شد · revision {dump.Revision}.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "وارد کردن از برد ناموفق بود: " + ex.Message;
+            return false;
+        }
+    }
+
     public bool SaveBuzzerSystemCues()
     {
         try

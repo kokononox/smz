@@ -284,6 +284,22 @@ static int cdc_printf(const char *format, ...) {
 static void print_status(void) {
     printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|cycle=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), cycle_runtime_available(), (unsigned long)vm.now);
 }
+static void print_light_calibration_dump(void) {
+    uint32_t low[8],high[8];uint8_t mask=0u;
+    for(uint8_t id=1u;id<=8u;++id)
+        if(calibration_store_light_get(id,&low[id-1u],&high[id-1u]))
+            mask|=(uint8_t)(1u<<(id-1u));
+    printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%02x|profiles=",
+           (unsigned long)calibration_store_revision(),mask);
+    if(!mask){printf("none\n");return;}
+    bool first=true;
+    for(uint8_t id=1u;id<=8u;++id)if(mask&(1u<<(id-1u))){
+        printf("%s%u:%lu:%lu",first?"":",",id,
+               (unsigned long)low[id-1u],(unsigned long)high[id-1u]);
+        first=false;
+    }
+    printf("\n");
+}
 static void release_all_actors(uint32_t now) {
     hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
     light_sensor_cancel_watch(now);
@@ -603,6 +619,8 @@ static void execute_command(char *line, uint32_t now) {
              !strcmp(line, "HALT") || !strcmp(line, "HALT|SILENT")) stop_control(now);
     else if (!strcmp(line, "CALSTATUS"))
         printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 8u : 0u, calibration_runtime_mode());
+    else if (!strcmp(line, "CALDUMP|LIGHT"))
+        print_light_calibration_dump();
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strcmp(line, "WHISPER-REPEAT")) { if (abvm_interrupt_route(&vm, WHISPER_REPEAT_ROUTE_ID, now)) printf("CONTROL|interrupt|route=WhisperRepeat\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strncmp(line, "SOUND ", 6)) { uint16_t profile = (uint16_t)strtoul(line + 6, NULL, 10); printf("%s|SOUND|profile=%u\n", abvm_sound_detected(&vm, profile, now) ? "OK" : "MISS", profile); }
