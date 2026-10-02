@@ -97,7 +97,11 @@ def fit_profiles(src, pid, candidate):
     for other_id in FIT_IDS:
         if other_id == pid or other_id not in out: continue
         new = out[pid]; other = out[other_id]
-        excess = new["tolerance"] + other["tolerance"] - (abs(center - other["center"]) - FIT_GAP)
+        apart = abs(center - other["center"])
+        if apart <= 0.000001:
+            event = "ERR|CAL|FIT|id=%s|with=%s|reason=centers-identical|gap=%.3f" % (pid, other_id, FIT_GAP)
+            return None, (event,), other_id
+        excess = new["tolerance"] + other["tolerance"] - (apart - FIT_GAP)
         if excess <= 0.000001: continue
         old_new = new["tolerance"]; take = min(excess, old_new - FIT_MIN)
         if take > 0: new["tolerance"] -= take; excess -= take

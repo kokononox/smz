@@ -111,6 +111,19 @@ assert blocked is None
 assert "reason=centers-too-close" in events[0]
 assert blocked_by == "targeted"
 
+# Exact centres are genuinely indistinguishable and must never be squeezed
+# into artificial ranges.
+identical = {
+    "game": {"center": 20.0, "tolerance": 2.0, "stable_ms": 750},
+    "targeted": {"center": 20.0, "tolerance": 1.0, "stable_ms": 750},
+}
+blocked, events, blocked_by = fit_calibration_profiles(
+    identical, "game",
+    {"center": 20.0, "tolerance": 2.0, "stable_ms": 750})
+assert blocked is None
+assert "reason=centers-identical" in events[0]
+assert blocked_by == "targeted"
+
 bridge = (ROOT / "ams-shell/bridge/bridge.py").read_text(encoding="utf-8")
 assert 'stale = state["link"]' in bridge
 assert 'failed = state["link"]' in bridge

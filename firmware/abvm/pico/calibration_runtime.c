@@ -79,6 +79,18 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
         if(i==selected)continue;
         uint32_t apart=distance(centers[selected],centers[i]);
+        /*
+         * Two environments with the same measured centre are not physically
+         * distinguishable.  Do not manufacture two tiny ranges around the
+         * same value; fail closed and ask the operator to change the scene.
+         */
+        if(apart==0u){
+            emit("ERR|CAL|FIT|id=%s|with=%s|reason=centers-identical|gap=%u",
+                 guard_runtime_profile_name(cal.profile),
+                 guard_runtime_profile_name((uint8_t)(i+1u)),
+                 LIGHT_FIT_GAP_TENTHS);
+            return false;
+        }
         uint32_t allowance=apart>LIGHT_FIT_GAP_TENTHS?
             apart-LIGHT_FIT_GAP_TENTHS:0u;
         uint32_t combined=tolerances[selected]+tolerances[i];

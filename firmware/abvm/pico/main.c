@@ -583,7 +583,14 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     if(strstr(event,"mode=started")||strstr(event,"mode=silence")){buzzer_calibration_record_start(sound,now);return;}
     if(sound&&strstr(event,"mode=sound")){buzzer_calibration_sound_target(now);return;}
     if(!sound&&strstr(event,"mode=complete")){buzzer_calibration_stage_complete(cue,now);return;}
-    if(strstr(event,"mode=saved")){if(!sound&&selection==8u)buzzer_calibration_complete(now);else buzzer_calibration_save_success(now);}
+    if(strstr(event,"mode=saved")){
+        if(!sound&&strstr(event,"|fit=1|"))
+            buzzer_calibration_overlap_adjusted(now);
+        else if(!sound&&selection==8u)
+            buzzer_calibration_complete(now);
+        else
+            buzzer_calibration_save_success(now);
+    }
 }
 static void service_light(uint32_t now) {
     light_sensor_service(&vm, now);
