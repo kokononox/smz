@@ -330,7 +330,12 @@ static void start_control(uint32_t now) {
         if (!light_sensor_present()) { printf("ERR|GUARD|NOSENSOR\n"); return; }
         abvm_stop(&vm, now);
         if (guard_runtime_start(now)) {
-            cycle_runtime_manual_start(now);
+            if (!cycle_runtime_manual_start(now)) {
+                guard_runtime_stop();release_all_actors(now);
+                printf("ERR|CYCLE|RESET|guard=off\n");
+                service_cycle_events();
+                return;
+            }
             printf("OK|GUARD|ON\n"); buzzer_play(BUZZER_CUE_START, now);
         }
         else printf("ERR|GUARD|START\n");

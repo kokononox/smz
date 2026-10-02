@@ -140,10 +140,16 @@ void cycle_runtime_continue(uint32_t now) {
     cycle.held_remaining_ms=0u;
 }
 bool cycle_runtime_held(void){return cycle.held;}
-void cycle_runtime_manual_start(uint32_t now) {
-    if(!cycle.available)return;
-    (void)calibration_store_cycle_reset();
+bool cycle_runtime_manual_start(uint32_t now) {
+    if(!cycle.available)return false;
+    /* A stale terminal count must never select Finish in a new operator
+     * session.  Do not arm the run unless the persistent reset succeeded. */
+    if(!calibration_store_cycle_reset()){
+        cycle.phase=CYCLE_IDLE;cycle.deadline=0u;
+        emit(CYCLE_EVENT_FAILED);return false;
+    }
     arm_run(now,false);
+    return true;
 }
 void cycle_runtime_manual_stop(void) {
     if(!cycle.available)return;
@@ -159,8 +165,12 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
     if(cycle.held)return CYCLE_ACTION_NONE;
     if(cycle.phase==CYCLE_RUN&&reached(now,cycle.deadline)){
         cycle.deadline=0u;
-        if(cycle.finish_route&&
-           calibration_store_cycle_count()>=cycle.max_restarts)
+        uint8_t count=calibration_store_cycle_count();
+        if(count>cycle.max_restarts){
+            cycle_runtime_fail(5u);
+            return CYCLE_ACTION_NONE;
+        }
+        if(cycle.finish_route&&count==cycle.max_restarts)
             return CYCLE_ACTION_START_FINISH;
         emit(CYCLE_EVENT_DEADLINE);
         return CYCLE_ACTION_EXPIRE;
@@ -243,6 +253,9 @@ bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
     if(cycle.phase==CYCLE_FINISH&&route_id==cycle.finish_route){
         cycle.phase=CYCLE_IDLE;cycle.deadline=0u;cycle.held=false;
         emit(CYCLE_EVENT_FINISH_COMPLETE);
+        /* Finish is terminal for this session, not a permanent marker.  Clear
+         * the count so a later power-on cannot inherit the five-round limit. */
+        (void)calibration_store_cycle_reset();
         return false;
     }
     return false;
