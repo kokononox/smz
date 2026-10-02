@@ -210,6 +210,12 @@ class PicoLink:
             if line.startswith("EVT|"):
                 self.events.append(line)   # رویداد مسلح، جایگزین پاسخ نمی‌شود
                 continue
+            # Native firmware reports an unsupported command with the complete
+            # request after "unknown=".  Its third pipe field is therefore
+            # "unknown=<head>", not <head>; return it to the caller instead of
+            # mistaking it for a stale error and waiting until disconnect.
+            if line == "ERR|COMMAND|unknown=" + cmd:
+                return line
             parts = line.split("|")
             if len(parts) >= 2 and parts[0] == "OK" and parts[1] and parts[1] != want:
                 continue                 # v0.9.60e - stale OK of an older command
