@@ -888,8 +888,11 @@ static void service_cycle_events(void) {
                 printf("EVT|CYCLE|usb|state=%s|cycle=%u\n",
                        cycle_host_name(event.host_state),event.count);break;
             case CYCLE_EVENT_STARTUP_START:
-                printf("EVT|CYCLE|startup-start|route=%u|cycle=%u\n",
-                       event.route_id,event.count);break;
+                printf("EVT|CYCLE|startup-start|route=%u|cycle=%u|gate=%s\n",
+                       event.route_id,event.count,
+                       event.startup_gate==1u?"desktop-light":
+                       event.startup_gate==2u?"usb-timeout-fallback":
+                                                "unknown");break;
             case CYCLE_EVENT_CANCELLED:
                 printf("EVT|CYCLE|cancelled|reason=manual-stop\n");break;
             case CYCLE_EVENT_BLOCKED:

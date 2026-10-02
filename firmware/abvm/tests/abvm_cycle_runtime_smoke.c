@@ -53,7 +53,12 @@ int main(int argc,char **argv){
                     CYCLE_ACTION_NONE,"Desktop stable early")||
        !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"USB and Desktop stable"))return 1;
-    cycle_runtime_begin_startup();drain();
+    cycle_runtime_begin_startup();
+    CycleEvent startup_event;
+    if(!require(cycle_runtime_take_event(&startup_event)&&
+                startup_event.type==CYCLE_EVENT_STARTUP_START&&
+                startup_event.startup_gate==1u,
+                "Desktop-light startup gate"))return 1;
     if(!require(cycle_runtime_route_complete(cycle_runtime_startup_route(),4500u),
                 "startup complete")||
        !require(!marker_armed&&marker_count==1u,"one-shot clear")||
@@ -83,6 +88,65 @@ int main(int argc,char **argv){
                 "boot stable early")||
        !require(cycle_runtime_service(2000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"armed boot authority"))return 1;
+
+    /* A complete AutoCycle session owns five persistent restart transitions.
+     * Clearing the one-shot armed byte after Startup must preserve the count,
+     * so rounds three through five cannot silently collapse to IDLE. */
+    cycle_runtime_manual_stop();
+    cycle_runtime_manual_start(10000u);drain();
+    uint32_t now=10000u;
+    for(uint8_t round=1u;round<=5u;++round){
+        if(!require(cycle_runtime_service(now+1000u,true,ARM_HOST_USB_UP,true)==
+                        CYCLE_ACTION_EXPIRE,"five-cycle deadline")||
+           !require(cycle_runtime_begin_after(now+1000u),
+                        "five-cycle arm Restart")||
+           !require(marker_armed&&marker_count==round,
+                        "five-cycle persistent count")||
+           !require(!cycle_runtime_route_complete(
+                        cycle_runtime_after_route(),now+1010u),
+                        "five-cycle Restart complete")||
+           !require(cycle_runtime_service(now+1100u,true,ARM_HOST_USB_UP,true)==
+                        CYCLE_ACTION_NONE,"five-cycle USB early")||
+           !require(cycle_runtime_service(now+3100u,true,ARM_HOST_USB_UP,true)==
+                        CYCLE_ACTION_START_STARTUP,
+                        "five-cycle Desktop starts Startup"))return 1;
+        cycle_runtime_begin_startup();drain();
+        if(!require(cycle_runtime_route_complete(
+                        cycle_runtime_startup_route(),now+3200u),
+                        "five-cycle Startup complete")||
+           !require(!marker_armed&&marker_count==round,
+                        "five-cycle count survives Startup"))return 1;
+        drain();now+=3200u;
+    }
+    if(!require(cycle_runtime_service(now+1000u,true,ARM_HOST_USB_UP,true)==
+                    CYCLE_ACTION_EXPIRE,"limit deadline")||
+       !require(!cycle_runtime_begin_after(now+1000u),
+                    "sixth restart blocked")||
+       !require(!marker_armed&&marker_count==5u,
+                    "exactly five restarts retained"))return 1;
+
+    /* Desktop light remains the preferred readiness signal, but a failed or
+     * slightly drifting calibration must not strand a later round forever. */
+    cycle_runtime_manual_stop();
+    cycle_runtime_manual_start(50000u);drain();
+    if(!require(cycle_runtime_service(51000u,true,ARM_HOST_USB_UP,false)==
+                    CYCLE_ACTION_EXPIRE,"fallback deadline")||
+       !require(cycle_runtime_begin_after(51000u),"fallback arm Restart")||
+       !require(!cycle_runtime_route_complete(
+                    cycle_runtime_after_route(),51010u),
+                    "fallback Restart complete")||
+       !require(cycle_runtime_service(51100u,true,ARM_HOST_USB_UP,false)==
+                    CYCLE_ACTION_NONE,"fallback timer starts")||
+       !require(cycle_runtime_service(83099u,true,ARM_HOST_USB_UP,false)==
+                    CYCLE_ACTION_NONE,"fallback early")||
+       !require(cycle_runtime_service(83100u,true,ARM_HOST_USB_UP,false)==
+                    CYCLE_ACTION_START_STARTUP,"bounded fallback starts Startup"))
+        return 1;
+    cycle_runtime_begin_startup();
+    if(!require(cycle_runtime_take_event(&startup_event)&&
+                startup_event.type==CYCLE_EVENT_STARTUP_START&&
+                startup_event.startup_gate==2u,
+                "USB timeout fallback gate"))return 1;
     free(image);
     puts("ABVM native persistent cycle state machine smoke passed");
     return 0;
