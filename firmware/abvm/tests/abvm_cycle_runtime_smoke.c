@@ -5,6 +5,7 @@
 
 static bool marker_armed;
 static uint8_t marker_count;
+static bool marker_reset_ok=true;
 
 bool calibration_store_cycle_armed(void){return marker_armed;}
 uint8_t calibration_store_cycle_count(void){return marker_count;}
@@ -14,6 +15,7 @@ bool calibration_store_cycle_arm_next(uint8_t maximum){
 }
 bool calibration_store_cycle_clear_armed(void){marker_armed=false;return true;}
 bool calibration_store_cycle_reset(void){
+    if(!marker_reset_ok)return false;
     marker_armed=false;marker_count=0u;return true;
 }
 
@@ -133,10 +135,23 @@ int main(int argc,char **argv){
                     startup_event.type==CYCLE_EVENT_FINISH_COMPLETE&&
                     startup_event.count==5u,
                     "Finish completion telemetry")||
-       !require(!marker_armed&&marker_count==5u,
-                    "exactly five restarts retained")||
+       !require(!marker_armed&&marker_count==0u,
+                    "Finish clears the terminal counter")||
        !require(cycle_runtime_service(now+2000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_NONE,"cycle is idle after Finish"))return 1;
+
+    /* Starting a new operator session must never inherit a stale terminal
+     * count.  If Flash reset fails, refuse to arm instead of running Finish
+     * after the first deadline. */
+    marker_count=5u;marker_armed=false;marker_reset_ok=false;
+    if(!require(!cycle_runtime_manual_start(now+3000u),
+                    "stale count reset failure blocks start")||
+       !require(marker_count==5u,
+                    "failed reset does not masquerade as a clean session")||
+       !require(cycle_runtime_service(now+5000u,true,ARM_HOST_USB_UP,true)==
+                    CYCLE_ACTION_NONE,
+                    "blocked start cannot select Finish"))return 1;
+    marker_reset_ok=true;
 
     /* Desktop light remains the preferred readiness signal, but a failed or
      * slightly drifting calibration must not strand a later round forever. */

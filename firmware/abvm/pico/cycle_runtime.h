@@ -50,7 +50,7 @@ bool cycle_runtime_restart_critical(void);
 void cycle_runtime_hold(uint32_t now);
 void cycle_runtime_continue(uint32_t now);
 bool cycle_runtime_held(void);
-void cycle_runtime_manual_start(uint32_t now);
+bool cycle_runtime_manual_start(uint32_t now);
 void cycle_runtime_manual_stop(void);
 CycleAction cycle_runtime_service(uint32_t now, bool host_seen,
                                   ArmHostUsbState host_state,
