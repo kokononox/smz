@@ -10,6 +10,7 @@ typedef enum CycleAction {
     CYCLE_ACTION_NONE = 0,
     CYCLE_ACTION_EXPIRE = 1,
     CYCLE_ACTION_START_STARTUP = 2,
+    CYCLE_ACTION_START_FINISH = 3,
 } CycleAction;
 
 typedef enum CycleEventType {
@@ -26,6 +27,8 @@ typedef enum CycleEventType {
     CYCLE_EVENT_BLOCKED = 10,
     CYCLE_EVENT_FAILED = 11,
     CYCLE_EVENT_ARMED_AT_BOOT = 12,
+    CYCLE_EVENT_FINISH_START = 13,
+    CYCLE_EVENT_FINISH_COMPLETE = 14,
 } CycleEventType;
 
 typedef struct CycleEvent {
@@ -54,11 +57,13 @@ CycleAction cycle_runtime_service(uint32_t now, bool host_seen,
                                   bool desktop_ready);
 bool cycle_runtime_begin_after(uint32_t now);
 void cycle_runtime_begin_startup(void);
+void cycle_runtime_begin_finish(void);
 bool cycle_runtime_route_complete(uint16_t route_id, uint32_t now);
 void cycle_runtime_fail(uint8_t stage);
 bool cycle_runtime_take_event(CycleEvent *event);
 uint16_t cycle_runtime_after_route(void);
 uint16_t cycle_runtime_startup_route(void);
+uint16_t cycle_runtime_finish_route(void);
 uint8_t cycle_runtime_count(void);
 
 #endif

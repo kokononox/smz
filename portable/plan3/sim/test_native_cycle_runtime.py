@@ -28,6 +28,7 @@ source = {
             "Children": [],
             "Delay": 0,
         }),
+        "Finish": route(key),
     },
     "nativeCycle": {
         "enabled": True,
@@ -38,17 +39,18 @@ source = {
         "usbStableMs": 2000,
     },
 }
-program = abvm.Compiler().compile_amsj(source, ("Restart", "Startup"))
+program = abvm.Compiler().compile_amsj(
+    source, ("Restart", "Startup", "Finish"))
 image = abvm.Verifier.verify(program.image)
 cycles = [payload for kind, _, payload in image.constants
           if kind == abvm.CONST_CYCLE]
 assert len(cycles) == 1
-version, flags, limit, reserved, run_min, run_max, after, startup, stable = \
+version, flags, limit, finish, run_min, run_max, after, startup, stable = \
     abvm.CYCLE.unpack(cycles[0])
-assert (version, flags, limit, reserved) == (1, 1, 5, 0)
+assert (version, flags, limit, finish) == (2, 1, 5, 13)
 assert (run_min, run_max) == (110 * 60_000, 130 * 60_000)
 assert (after, startup, stable) == (2, 3, 2000)
-assert {item.route_id for item in image.routes} == {2, 3}
+assert {item.route_id for item in image.routes} == {2, 3, 13}
 assert program.flags & abvm.FLAG_HAS_CYCLE
 
 pico = root / "firmware/abvm/pico"
@@ -61,11 +63,13 @@ guard = (pico / "guard_runtime.c").read_text(encoding="utf-8")
 
 assert "calibration_store_cycle_arm_next" in cycle
 assert "CYCLE_ACTION_EXPIRE" in cycle and "CYCLE_ACTION_START_STARTUP" in cycle
+assert "CYCLE_ACTION_START_FINISH" in cycle
 assert "cycle.down_seen=true" in cycle
 assert "CYCLE_DESKTOP_STABLE_MS 1000u" in cycle
 assert "CYCLE_DESKTOP_FALLBACK_MS 30000u" in cycle
 assert "desktop_ready" in cycle and "cycle.desktop_timing" in cycle
 assert "usb-timeout-fallback" in main
+assert "finish-start" in main and "finish-complete" in main
 assert "EVT|CYCLE|deadline|action=after" in main
 assert "startup-complete|next=login-or-dc|desktop=skip" in main
 assert "guard_runtime_profile_matches(1u,lux)" in main

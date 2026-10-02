@@ -893,6 +893,12 @@ static void service_cycle_events(void) {
                        event.startup_gate==1u?"desktop-light":
                        event.startup_gate==2u?"usb-timeout-fallback":
                                                 "unknown");break;
+            case CYCLE_EVENT_FINISH_START:
+                printf("EVT|CYCLE|finish-start|route=%u|cycle=%u\n",
+                       event.route_id,event.count);break;
+            case CYCLE_EVENT_FINISH_COMPLETE:
+                printf("EVT|CYCLE|finish-complete|cycle=%u|state=idle\n",
+                       event.count);break;
             case CYCLE_EVENT_CANCELLED:
                 printf("EVT|CYCLE|cancelled|reason=manual-stop\n");break;
             case CYCLE_EVENT_BLOCKED:
@@ -935,6 +941,16 @@ static void service_cycle(uint32_t now) {
             cycle_runtime_begin_startup();service_cycle_events();
         } else {
             cycle_runtime_fail(2u);service_cycle_events();
+        }
+    } else if(action==CYCLE_ACTION_START_FINISH) {
+        pending_sound_whisper=false;
+        guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
+        hid_keyboard_discard_completion();
+        arm_uart_mouse_discard_completion();
+        if(abvm_start_route(&vm,cycle_runtime_finish_route(),now)) {
+            cycle_runtime_begin_finish();service_cycle_events();
+        } else {
+            cycle_runtime_fail(4u);service_cycle_events();
         }
     }
 }

@@ -456,6 +456,17 @@
         "Delay": 0,
         "IsDisabled": false
       }
+    ],
+    "Finish": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 25,
+          "maxMs": 25
+        },
+        "Children": [],
+        "Delay": 0
+      }
     ]
   }
 }

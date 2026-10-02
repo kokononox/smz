@@ -10,7 +10,7 @@ source = json.loads((Path(__file__).resolve().parents[3] /
     "firmware/abvm/tests/abvm_guard_smoke.amsj").read_text())
 routes = ("Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
           "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "Whisper",
-          "WhisperRepeat")
+          "WhisperRepeat", "Finish")
 program = abvm.Compiler().compile_amsj(source, routes)
 image = abvm.Verifier.verify(program.image)
 assert image.flags & abvm.FLAG_HAS_GUARD
@@ -23,7 +23,7 @@ v5_size = (abvm.GUARD_HEADER.size + 8 * v4_profile_size
     + abvm.BUZZER_SYSTEM_CUE_COUNT
       * (abvm.GUARD_CUE_META.size + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size))
 assert len(guards[0]) == v5_size
-assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12}
+assert {route.route_id for route in image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13}
 
 # The same profiles without system buzzer records remain a valid v4 compiler
 # contract when their calibration cues use preset IDs without resolved notes.

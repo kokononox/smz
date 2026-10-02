@@ -84,6 +84,7 @@ ROUTE_IDS = {
     "CharacterDashboard": 6,
     "EnteringGameLoading": 7, "Game": 8, "Targeted": 9,
     "Whisper": 10, "Splash": 11, "WhisperRepeat": 12,
+    "Finish": 13,
 }
 
 ROUTE_POLICY_BY_NAME = {
@@ -101,6 +102,7 @@ ROUTE_POLICY_BY_NAME = {
     "Whisper": ROUTE_INTERRUPT_AND_RESUME,
     "WhisperRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
+    "Finish": ROUTE_ABORT_AND_START,
 }
 
 # Real-time routes keep absolute deadlines while paused and while an interrupt
@@ -1109,8 +1111,10 @@ class Compiler:
         compiled_routes = {route.route_id for route in self.routes}
         after_route = ROUTE_IDS["Restart"]
         startup_route = ROUTE_IDS["Startup"]
-        if not {after_route, startup_route}.issubset(compiled_routes):
-            raise AbvmError("Native Cycle needs Restart/After and Startup routes")
+        finish_route = ROUTE_IDS["Finish"]
+        if not {after_route, startup_route, finish_route}.issubset(compiled_routes):
+            raise AbvmError(
+                "Native Cycle needs Restart/After, Startup, and Finish routes")
         run_min = integer(cycle.get("runMinSeconds"), 110 * 60)
         run_max = integer(cycle.get("runMaxSeconds"), 130 * 60)
         if run_max < run_min:
@@ -1124,8 +1128,8 @@ class Compiler:
         if not 250 <= usb_stable <= 300_000:
             raise AbvmError("Native Cycle USB stable window must be 250..300000 ms")
         self.pool.add(CONST_CYCLE, CYCLE.pack(
-            1, 1 if cycle.get("autoResume", True) else 0,
-            max_restarts, 0, run_min * 1000, run_max * 1000,
+            2, 1 if cycle.get("autoResume", True) else 0,
+            max_restarts, finish_route, run_min * 1000, run_max * 1000,
             after_route, startup_route, usb_stable))
         self.flags |= FLAG_HAS_CYCLE
 
@@ -1392,9 +1396,12 @@ class Verifier:
             raw = cycle_constants[0]
             if len(raw) != CYCLE.size:
                 raise AbvmError("invalid Native Cycle descriptor size")
-            version, flags, limit, reserved, run_min, run_max, after, startup, stable = CYCLE.unpack(raw)
+            version, flags, limit, finish, run_min, run_max, after, startup, stable = CYCLE.unpack(raw)
             compiled_routes = {route.route_id for route in image.routes}
-            if version != 1 or flags & ~1 or not 1 <= limit <= 32 or reserved or \
+            finish_valid = (version == 1 and finish == 0) or \
+                (version == 2 and finish in compiled_routes)
+            if version not in (1, 2) or flags & ~1 or not 1 <= limit <= 32 or \
+                    not finish_valid or \
                     not run_min or run_min > run_max or run_max > 7 * 24 * 60 * 60 * 1000 or \
                     after not in compiled_routes or startup not in compiled_routes or \
                     not 250 <= stable <= 300_000:
