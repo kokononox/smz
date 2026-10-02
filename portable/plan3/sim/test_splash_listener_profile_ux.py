@@ -11,7 +11,7 @@ serializer = (root / "ams-shell/src/Ams.UI/Services/PipelineWorkspaceSerializer.
 exporter = (root / "ams-shell/src/Ams.UI/Services/PlanExporter.cs").read_text(encoding="utf-8")
 bundle = (root / "ams-shell/src/Ams.UI/Services/PipelinePlanBundle.cs").read_text(encoding="utf-8")
 
-assert "FormatVersion = 9" in model
+assert "FormatVersion = 10" in model
 assert "TimeoutMinSec" in model and "TimeoutMaxSec" in model
 assert "WhisperSoundEnabled" in vm
 assert "WhisperRepeatSoundEnabled" in vm

@@ -295,11 +295,27 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     int32_t relative_mode=json_int_or(payload,size,"relativeMode",0);
     int32_t target_x,target_y;
     uint32_t target_width;
-    if(relative_mode==1) {
+    if(relative_mode==1||relative_mode==2) {
         int32_t radius_min=clamp_i32(
             json_int_or(payload,size,"relativeMin",2),1,700);
         int32_t radius_max=clamp_i32(
             json_int_or(payload,size,"relativeMax",12),1,700);
+        if(relative_mode==2) {
+            int32_t micro=clamp_i32(
+                json_int_or(payload,size,"handMicroPct",45),0,100);
+            int32_t medium=clamp_i32(
+                json_int_or(payload,size,"handMediumPct",40),0,100);
+            int32_t roll=(int32_t)(random_next()%100u);
+            if(roll<micro) {
+                radius_min=2;radius_max=14;
+            } else if(roll<micro+medium) {
+                radius_min=20;radius_max=90;
+            } else {
+                int32_t personal=clamp_i32(
+                    json_int_or(payload,size,"handBurstP50Px",300),120,700);
+                radius_min=90;radius_max=personal;
+            }
+        }
         if(radius_max<radius_min){
             int32_t swap=radius_min;radius_min=radius_max;radius_max=swap;
         }
@@ -360,6 +376,16 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         int32_t signed_bias=(int32_t)(
             (hand_signature^(hand_signature>>16))&15u)-7;
         curve=clamp_i32(curve+signed_bias,curve_min,curve_max);
+    }
+    if(json_int_or(payload,size,"handProfileV2",0)==1) {
+        /* A low displacement/path ratio means the recorded hand reached its
+         * target through a wider arc. Preserve that personal geometry without
+         * replaying identifiable points or changing the authored destination. */
+        int32_t efficiency=clamp_i32(
+            json_int_or(payload,size,"handEfficiencyPct",75),5,100);
+        int32_t personal_boost=(100-efficiency)/2;
+        curve=clamp_i32(curve+personal_boost,curve_min,
+            clamp_i32(curve_max+personal_boost,curve_max,200));
     }
     int32_t move_min = clamp_i32(
         json_int_or(payload,size,"moveTimeMin",0), 0, 30000);
@@ -466,6 +492,12 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     }
     int32_t over_chance=clamp_i32(
         json_int_or(payload,size,"overshootChance",15),0,100);
+    if(json_int_or(payload,size,"handProfileV2",0)==1) {
+        int32_t personal_correction=clamp_i32(
+            json_int_or(payload,size,"handCorrectionPct",0),0,100);
+        if(personal_correction>over_chance)
+            over_chance=personal_correction;
+    }
     if(distance>=80u&&(int32_t)(random_next()%100u)<over_chance) {
         uint32_t extra=random_range_u32(3u,20u);
         human_path.target_x=target_x;
@@ -568,6 +600,44 @@ ArmMouseSubmit arm_uart_mouse_submit(const AbvmVm *vm, const AbvmEvent *event, u
     if(human_path.phase!=HUMAN_PATH_IDLE)return ARM_MOUSE_BUSY;
     if(!human_path_begin(payload,size,event->lane,now))return ARM_MOUSE_INVALID;
     return ARM_MOUSE_ACCEPTED;
+}
+bool arm_uart_mouse_ambient_config(const AbvmVm *vm,uint16_t *constant_id,
+    uint8_t *environment_mask,uint32_t *interval_min_ms,
+    uint32_t *interval_max_ms) {
+    const uint8_t *payload;uint32_t size;uint16_t id;
+    if(!vm||!constant_id||!environment_mask||!interval_min_ms||
+       !interval_max_ms||
+       !abvm_find_constant(vm,ABVM_CONST_MOUSE,&id,&payload,&size)||
+       json_int_or(payload,size,"ambientProfile",0)!=1)
+        return false;
+    int32_t mask=clamp_i32(
+        json_int_or(payload,size,"ambientEnvironmentMask",0),0,255);
+    int32_t low=clamp_i32(
+        json_int_or(payload,size,"ambientIntervalMinMs",500),250,10000);
+    int32_t high=clamp_i32(
+        json_int_or(payload,size,"ambientIntervalMaxMs",1800),250,10000);
+    if(!mask)return false;
+    if(high<low){int32_t swap=low;low=high;high=swap;}
+    *constant_id=id;*environment_mask=(uint8_t)mask;
+    *interval_min_ms=(uint32_t)low;*interval_max_ms=(uint32_t)high;
+    return true;
+}
+ArmMouseSubmit arm_uart_mouse_submit_ambient(const AbvmVm *vm,
+    uint16_t constant_id,uint32_t now) {
+    if(!vm||!arm_ready||state==ARM_FAULT||state==ARM_HALT||
+       state==ARM_PROBE||state==ARM_SOUND_CAL||completion_pending||
+       deferred_mouse_pending||halt_pending||
+       human_path.phase!=HUMAN_PATH_IDLE||state!=ARM_IDLE)
+        return ARM_MOUSE_BUSY;
+    const uint8_t *payload;uint32_t size;
+    if(!abvm_constant(vm,constant_id,ABVM_CONST_MOUSE,&payload,&size)||
+       json_int_or(payload,size,"ambientProfile",0)!=1)
+        return ARM_MOUSE_INVALID;
+    return human_path_begin(payload,size,ARM_INTERNAL_LANE,now)?
+        ARM_MOUSE_ACCEPTED:ARM_MOUSE_INVALID;
+}
+bool arm_uart_mouse_internal_completion(uint8_t completed_lane) {
+    return completed_lane==ARM_INTERNAL_LANE;
 }
 static ArmMouseSubmit submit_direct(const char *command, uint32_t now,
                                     uint8_t direct_lane) {

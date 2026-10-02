@@ -36,6 +36,11 @@ static size_t command_length;
 static bool arm_fault_reported;
 static bool ui_sound_calibration_pending;
 static uint32_t ui_sound_calibration_deadline;
+static bool ambient_mouse_available,ambient_mouse_inflight;
+static uint16_t ambient_mouse_constant;
+static uint8_t ambient_mouse_environment_mask;
+static uint32_t ambient_mouse_interval_min,ambient_mouse_interval_max;
+static uint32_t ambient_mouse_next_due,ambient_mouse_rng;
 static bool buzzer_action_pending;
 static uint8_t buzzer_action_lane;
 static uint32_t buzzer_action_deadline;
@@ -153,6 +158,61 @@ static bool whisper_interrupt_allowed(void) {
 }
 static bool input_lock_active(void) {
     return hid_keyboard_locked()||arm_uart_mouse_busy();
+}
+static uint32_t ambient_random_next(void) {
+    uint32_t x=ambient_mouse_rng?ambient_mouse_rng:0x7f4a7c15u;
+    x^=x<<13;x^=x>>17;x^=x<<5;ambient_mouse_rng=x;return x;
+}
+static void ambient_mouse_arm_next(uint32_t now) {
+    uint32_t span=ambient_mouse_interval_max-ambient_mouse_interval_min;
+    ambient_mouse_next_due=now+ambient_mouse_interval_min+
+        (span?ambient_random_next()%(span+1u):0u);
+}
+static void ambient_mouse_init(uint32_t now) {
+    ambient_mouse_available=arm_uart_mouse_ambient_config(
+        &vm,&ambient_mouse_constant,&ambient_mouse_environment_mask,
+        &ambient_mouse_interval_min,&ambient_mouse_interval_max);
+    ambient_mouse_inflight=false;
+    ambient_mouse_rng=now^local_u32(vm.header.program_sha256);
+    if(ambient_mouse_available)ambient_mouse_arm_next(now);
+}
+static void ambient_mouse_complete(uint32_t now) {
+    ambient_mouse_inflight=false;
+    if(ambient_mouse_available)ambient_mouse_arm_next(now);
+}
+static void service_ambient_mouse(uint32_t now) {
+    if(!ambient_mouse_available)return;
+    if(ambient_mouse_inflight) {
+        if(!guard_runtime_running()||guard_runtime_paused()||
+           guard_runtime_watchdog_tripped()||
+           cycle_runtime_restart_critical()||calibration_runtime_active()||
+           light_sensor_calibration_active())
+            arm_uart_mouse_release_all(now);
+        return;
+    }
+    if(!guard_runtime_running()||guard_runtime_paused()||
+       guard_runtime_watchdog_tripped()||cycle_runtime_restart_critical()||
+       calibration_runtime_active()||light_sensor_calibration_active()||
+       vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED||
+       input_lock_active()||
+       (int32_t)(now-ambient_mouse_next_due)<0)
+        return;
+    uint8_t profile=guard_runtime_active_profile();
+    if(!profile||profile>8u||
+       !(ambient_mouse_environment_mask&(uint8_t)(1u<<(profile-1u)))) {
+        ambient_mouse_arm_next(now);
+        return;
+    }
+    ArmMouseSubmit result=arm_uart_mouse_submit_ambient(
+        &vm,ambient_mouse_constant,now);
+    if(result==ARM_MOUSE_ACCEPTED) {
+        ambient_mouse_inflight=true;
+        printf("ARM|ambient|accepted|profile=%s\n",
+               guard_runtime_profile_name(profile));
+    } else if(result==ARM_MOUSE_INVALID) {
+        ambient_mouse_available=false;
+        printf("ERR|ARM|ambient|invalid\n");
+    }
 }
 static GlobalWhisperProfile *global_whisper_by_id(uint16_t id) {
     for(uint8_t i=0;i<2u;++i)
@@ -682,7 +742,14 @@ static void service_light(uint32_t now) {
 }
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
-    if (arm_uart_mouse_service(now, &completed_lane) && (vm.status == ABVM_STATUS_RUNNING || vm.status == ABVM_STATUS_PAUSED) && !abvm_complete_action(&vm, completed_lane, now)) printf("ERR|ARM|complete|lane=%u\n", completed_lane);
+    if (arm_uart_mouse_service(now, &completed_lane)) {
+        if(arm_uart_mouse_internal_completion(completed_lane))
+            ambient_mouse_complete(now);
+        else if((vm.status == ABVM_STATUS_RUNNING ||
+                 vm.status == ABVM_STATUS_PAUSED) &&
+                !abvm_complete_action(&vm, completed_lane, now))
+            printf("ERR|ARM|complete|lane=%u\n", completed_lane);
+    }
     char live_reply[96];
     if(arm_uart_mouse_take_live_reply(live_reply,sizeof(live_reply)))
         printf("%s\n",live_reply);
@@ -963,6 +1030,7 @@ int main(void) {
         calibration_runtime_init(&vm);
         (void)cycle_runtime_init(&vm,now_ms());
         load_whisper_profile();
+        ambient_mouse_init(now_ms());
     }
     /* Do not expose a half-ready USB device while a large patched ABP image is
      * being hashed and structurally verified. Attach only after boot work. */
@@ -974,5 +1042,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_vm(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

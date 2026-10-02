@@ -14,7 +14,7 @@ step_defs = (ui / "Models/StepDefinitions.cs").read_text(encoding="utf-8")
 compiler = (ROOT / "tools/abvm.py").read_text(encoding="utf-8")
 native = (ROOT / "firmware/abvm/pico/arm_uart_mouse.c").read_text(encoding="utf-8")
 
-assert "FormatVersion = 9" in model
+assert "FormatVersion = 10" in model
 assert "HumanMouseProfile" in model and "DurationMs >= 30_000" in model
 assert "humanMouseProfile" in serializer
 assert "ProfileCaptureDurationMs = 30_000" in capture
@@ -24,7 +24,16 @@ assert '"motionIntent"' in step_defs
 assert '"microTwitch"' in step_defs and '"mediumTwitch"' in step_defs
 assert "compact_human_mouse_profile" in compiler
 for token in ("handSignature", "handTempoMs", "handSpeedMin", "handSpeedMax",
+              "handProfileV2", "handEfficiencyPct", "handCorrectionPct",
+              "handMicroPct", "handMediumPct", "handBurstP50Px",
               "relativeMode", "relativeMin", "relativeMax"):
     assert token in compiler and token in native
+for token in ("handPauseP50Ms", "handPauseP90Ms", "handTurnP50Deg",
+              "handTurnP90Deg", "handLongPct"):
+    assert token in compiler
+assert "AmbientOutsideGameEnabled" in model
+assert "AmbientOutsideGameEnabled" in view_model
+assert "compile_ambient_mouse" in compiler
+assert "arm_uart_mouse_submit_ambient" in native
 assert "registry" not in native.lower()
-print("global hand profile + board-only relative twitch contract passed")
+print("global hand profile V2 + ambient board-only mouse contract passed")

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 import struct
 import sys
@@ -343,6 +344,7 @@ class Compiler:
             raise AbvmError("human mouse profile payload is malformed")
         delays: list[int] = []
         speeds: list[float] = []
+        moving: list[tuple[int, int, int]] = []
         for token in fields[4].split(";"):
             try:
                 dt_text, dx_text, dy_text = token.split(",")
@@ -353,12 +355,71 @@ class Compiler:
                 raise AbvmError("human mouse profile segment is out of range")
             if dx or dy:
                 delays.append(dt)
+                moving.append((dt, dx, dy))
                 if dt >= 4:
                     speeds.append(((dx * dx + dy * dy) ** .5) * 1000.0 / dt)
         if len(delays) < 20 or len(speeds) < 5:
             raise AbvmError("human mouse profile has too little movement")
         delays.sort(); speeds.sort()
         percentile = lambda values, p: values[(len(values) - 1) * p // 100]
+        pause_gaps: list[int] = []
+        turns: list[float] = []
+        burst_paths: list[float] = []
+        burst_efficiencies: list[float] = []
+        burst_path = burst_dx = burst_dy = 0.0
+        previous: tuple[int, int] | None = None
+
+        def finish_burst() -> None:
+            nonlocal burst_path, burst_dx, burst_dy, previous
+            if burst_path > 0:
+                burst_paths.append(burst_path)
+                burst_efficiencies.append(
+                    min(1.0, math.hypot(burst_dx, burst_dy) / burst_path))
+            burst_path = burst_dx = burst_dy = 0.0
+            previous = None
+
+        for dt, dx, dy in moving:
+            if dt > 150:
+                pause_gaps.append(dt)
+                finish_burst()
+            distance = math.hypot(dx, dy)
+            if previous is not None:
+                px, py = previous
+                denominator = math.hypot(px, py) * distance
+                if denominator:
+                    cosine = max(-1.0, min(1.0, (px * dx + py * dy) /
+                                           denominator))
+                    turns.append(math.degrees(math.acos(cosine)))
+            burst_path += distance
+            burst_dx += dx
+            burst_dy += dy
+            previous = (dx, dy)
+        finish_burst()
+
+        pause_gaps.sort()
+        turns.sort()
+        burst_paths.sort()
+        burst_efficiencies.sort()
+        pause_p50 = int(percentile(pause_gaps, 50)) if pause_gaps else 350
+        pause_p90 = int(percentile(pause_gaps, 90)) if pause_gaps else 1400
+        turn_p50 = int(round(percentile(turns, 50))) if turns else 6
+        turn_p90 = int(round(percentile(turns, 90))) if turns else 20
+        efficiency = int(round(
+            percentile(burst_efficiencies, 50) * 100)) \
+            if burst_efficiencies else 75
+        correction = int(round(
+            100 * sum(angle >= 35 for angle in turns) / len(turns))) \
+            if turns else 12
+        burst_p50 = int(round(percentile(burst_paths, 50))) \
+            if burst_paths else 90
+        micro = sum(path < 80 for path in burst_paths)
+        medium = sum(80 <= path < 300 for path in burst_paths)
+        total_bursts = len(burst_paths)
+        micro_pct = int(round(100 * micro / total_bursts)) \
+            if total_bursts else 45
+        medium_pct = int(round(100 * medium / total_bursts)) \
+            if total_bursts else 40
+        long_pct = max(0, 100 - micro_pct - medium_pct)
         signature = zlib.crc32(encoded.encode()) & 0xffff
         return {
             "handSignature": signature,
@@ -367,7 +428,70 @@ class Compiler:
                 int(round(percentile(speeds, 20))))),
             "handSpeedMax": max(150, min(3000,
                 int(round(percentile(speeds, 80))))),
+            "handProfileV2": 1,
+            "handPauseP50Ms": max(40, min(5000, pause_p50)),
+            "handPauseP90Ms": max(80, min(10000, pause_p90)),
+            "handTurnP50Deg": max(0, min(180, turn_p50)),
+            "handTurnP90Deg": max(0, min(180, turn_p90)),
+            "handEfficiencyPct": max(5, min(100, efficiency)),
+            "handCorrectionPct": max(0, min(100, correction)),
+            "handMicroPct": max(0, min(100, micro_pct)),
+            "handMediumPct": max(0, min(100, medium_pct)),
+            "handLongPct": max(0, min(100, long_pct)),
+            "handBurstP50Px": max(12, min(700, burst_p50)),
         }
+
+    def compile_ambient_mouse(self, source: dict[str, Any]) -> None:
+        profile = source.get("humanMouseProfile") or {}
+        enabled = profile.get("AmbientOutsideGameEnabled")
+        if enabled is None:
+            enabled = profile.get("ambientOutsideGameEnabled")
+        if not bool(enabled):
+            return
+        if not self.human_mouse_profile:
+            raise AbvmError(
+                "Ambient Mouse needs a valid 30-second human mouse profile")
+        mask = integer(profile.get("AmbientEnvironmentMask") or
+                       profile.get("ambientEnvironmentMask"), 0x1f)
+        if mask <= 0 or mask & ~0xff:
+            raise AbvmError("Ambient Mouse environment mask is invalid")
+        pause_p50 = self.human_mouse_profile["handPauseP50Ms"]
+        pause_p90 = self.human_mouse_profile["handPauseP90Ms"]
+        spec = dict(self.human_mouse_profile)
+        spec.update(self.display_profile)
+        spec.update({
+            "ambientProfile": 1,
+            "ambientEnvironmentMask": mask,
+            "ambientIntervalMinMs": max(250, min(5000, pause_p50)),
+            "ambientIntervalMaxMs": max(
+                max(250, min(5000, pause_p50)),
+                min(10000, pause_p90)),
+            "relativeMode": 2,
+            "relativeMin": 2,
+            "relativeMax": max(
+                120, min(700, self.human_mouse_profile["handBurstP50Px"])),
+            "pauseBeforeMin": 0,
+            "pauseBeforeMax": 0,
+            "pauseAfterMin": 0,
+            "pauseAfterMax": 0,
+            "midPauseChance":
+                self.human_mouse_profile["handCorrectionPct"],
+            "midPauseMin": 40,
+            "midPauseMax": max(80, min(800, pause_p50)),
+            "idleEveryMin": 1000,
+            "idleEveryMax": 1000,
+            "idlePauseMin": 0,
+            "idlePauseMax": 0,
+            "overshootChance":
+                max(6, self.human_mouse_profile["handCorrectionPct"]),
+            "curveMinPct": 10,
+            "curveMaxPct": 36,
+            "moveTimeMin": 0,
+            "moveTimeMax": 0,
+        })
+        # Keep this as the first MOUSE constant. Firmware discovers the
+        # unreferenced descriptor without adding a new ABI constant kind.
+        self.pool.obj(CONST_MOUSE, spec)
 
     @staticmethod
     def compact_display_profile(source: dict[str, Any]) -> dict[str, int]:
@@ -473,6 +597,7 @@ class Compiler:
             raise AbvmError("AMSJ pipelines object is missing")
         self.human_mouse_profile = self.compact_human_mouse_profile(source)
         self.display_profile = self.compact_display_profile(source)
+        self.compile_ambient_mouse(source)
         self.compile_global_whisper(source)
         for name in route_names:
             nodes = pipelines.get(name)

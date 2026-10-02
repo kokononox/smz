@@ -135,13 +135,30 @@ internal static class AutoCycleExportUiBootstrap
         };
         panel.Children.Add(AutoCycleUiKit.Title("پروفایل سراسری حرکت دست"));
         panel.Children.Add(AutoCycleUiKit.Helper(
-            "یک بار ۳۰ ثانیه حرکت طبیعی ضبط می‌شود. Native Export سرعت، ریتم و "
-            + "امضای همان دست را روی تمام حرکات موس اعمال می‌کند؛ اجرای برد به "
+            "یک بار ۳۰ ثانیه حرکت طبیعی ضبط می‌شود. Native Export سرعت، ریتم، "
+            + "مکث، طول حرکت، انحنا و اصلاح‌های همان دست را روی حرکات موس اعمال می‌کند؛ اجرای برد به "
             + "Registry، Bridge یا برنامهٔ پس‌زمینه نیاز ندارد."));
         var button = AutoCycleUiKit.Action("ساخت دوباره پروفایل دست — ۳۰ ثانیه", true);
         button.SetBinding(Button.CommandProperty,
             new Binding(nameof(MainViewModel.CaptureHumanMouseProfileCommand)));
         panel.Children.Add(button);
+        var ambient = new CheckBox
+        {
+            Content = "Ambient Mouse مستقل خارج از Game فعال باشد",
+            Foreground = AutoCycleUiKit.Text,
+            Margin = new Thickness(0, 8, 0, 4),
+        };
+        ambient.SetBinding(
+            System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty,
+            new Binding(nameof(MainViewModel.AmbientOutsideGameEnabled))
+            {
+                Mode = BindingMode.TwoWay,
+            });
+        panel.Children.Add(ambient);
+        panel.Children.Add(AutoCycleUiKit.Helper(
+            "پس از پایان Routeهای پایدار Desktop، Login/DC، Dashboard و Loading "
+            + "حرکت انسانی کم‌تعداد ادامه می‌یابد. هنگام تایپ، Whisper، Pause، "
+            + "کالیبراسیون، Restart و اجرای خود Route خودکار متوقف می‌شود."));
         var summary = AutoCycleUiKit.Helper("");
         summary.Foreground = AutoCycleUiKit.Success;
         summary.SetBinding(TextBlock.TextProperty,

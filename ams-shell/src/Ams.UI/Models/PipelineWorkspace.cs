@@ -75,7 +75,7 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 9;
+    public const int FormatVersion = 10;
     public HumanMouseProfile HumanMouseProfile { get; set; } = new();
     public DisplayProfile DisplayProfile { get; set; } = new();
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
@@ -153,15 +153,28 @@ public sealed class PipelineWorkspace
 
 public sealed class HumanMouseProfile
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public int DurationMs { get; set; }
     public string EncodedSample { get; set; } = "";
     public string CapturedAtUtc { get; set; } = "";
+    /// <summary>
+    /// Runs a separate, low-duty-cycle humanized mouse actor after a durable
+    /// non-Game route completes. It never competes with route actions,
+    /// Whisper, calibration, pause, or restart-critical work.
+    /// </summary>
+    public bool AmbientOutsideGameEnabled { get; set; }
+    /// <summary>
+    /// Bit zero represents Native Guard profile 1 (Desktop), through bit four
+    /// for profile 5 (Game). The safe default covers durable profiles 1..5;
+    /// Game continues to use its authored route while it is running.
+    /// </summary>
+    public int AmbientEnvironmentMask { get; set; } = 0x1f;
 
     [JsonIgnore]
-    public bool IsValid => Version == 1 && DurationMs >= 30_000
+    public bool IsValid => Version is 1 or 2 && DurationMs >= 30_000
         && HandMovementSample.TryDecode(EncodedSample, out var sample)
-        && sample.DurationMs >= 30_000 && sample.Segments.Count >= 20;
+        && sample.DurationMs >= 30_000 && sample.Segments.Count >= 20
+        && AmbientEnvironmentMask is >= 0 and <= 0xff;
 }
 
 /// <summary>

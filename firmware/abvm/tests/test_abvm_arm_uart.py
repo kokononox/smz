@@ -73,6 +73,12 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("difficulty*42u", self.arm)
         self.assertIn('"handSpeedMin"', self.arm)
         self.assertIn('"handSpeedMax"', self.arm)
+        self.assertIn('"handProfileV2"', self.arm)
+        self.assertIn('"handEfficiencyPct"', self.arm)
+        self.assertIn('"handCorrectionPct"', self.arm)
+        self.assertIn('"handMicroPct"', self.arm)
+        self.assertIn('"handMediumPct"', self.arm)
+        self.assertIn('"handBurstP50Px"', self.arm)
         self.assertIn('"relativeMode"', self.arm)
         self.assertIn('"relativeMin"', self.arm)
         self.assertIn('"relativeMax"', self.arm)
@@ -130,6 +136,58 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn('"handTempoMs":8', mouse[0])
         self.assertIn('"handSpeedMin":', mouse[0])
         self.assertIn('"handSpeedMax":', mouse[0])
+        self.assertIn('"handProfileV2":1', mouse[0])
+        self.assertIn('"handEfficiencyPct":', mouse[0])
+        self.assertIn('"handCorrectionPct":', mouse[0])
+
+    def test_ambient_mouse_uses_first_unreferenced_human_profile(self):
+        sys.path.insert(0, str(self.root / "tools"))
+        import abvm
+        segments = []
+        for burst in range(12):
+            if burst:
+                segments.append("420,2,0")
+            segments.extend(
+                f"8,{2 + (index % 4)},{(-1) ** index}"
+                for index in range(12))
+        encoded = ";".join(segments)
+        source = {
+            "humanMouseProfile": {
+                "Version": 2,
+                "DurationMs": 30000,
+                "EncodedSample": f"v1|30000|0,0|400,20|{encoded}",
+                "AmbientOutsideGameEnabled": True,
+                "AmbientEnvironmentMask": 31,
+            },
+            "pipelines": {
+                "Game": [{
+                    "Type": "randomMousePosition",
+                    "Props": {
+                        "motionIntent": "microTwitch",
+                        "twitchMinPx": 3, "twitchMaxPx": 14,
+                        "x": 0, "y": 0, "w": 10, "h": 10,
+                    },
+                    "Children": [], "Delay": 0,
+                }],
+            },
+        }
+        image = abvm.Verifier.verify(
+            abvm.Compiler().compile_amsj(source, ("Game",)).image)
+        mouse = [
+            payload.decode()
+            for kind, _, payload in image.constants
+            if kind == abvm.CONST_MOUSE
+        ]
+        self.assertEqual(len(mouse), 2)
+        self.assertIn('"ambientProfile":1', mouse[0])
+        self.assertIn('"ambientEnvironmentMask":31', mouse[0])
+        self.assertIn('"relativeMode":2', mouse[0])
+        self.assertIn('"relativeMode":1', mouse[1])
+        self.assertIn("arm_uart_mouse_ambient_config", self.arm)
+        self.assertIn("arm_uart_mouse_submit_ambient", self.arm)
+        self.assertIn("arm_uart_mouse_internal_completion", self.arm)
+        self.assertIn("service_ambient_mouse", self.main)
+        self.assertIn("vm.status==ABVM_STATUS_RUNNING", self.main)
 
     def test_physical_light_and_sound_calibration_are_persistent(self):
         self.assertIn("BUTTON_LONG_MS 3000u", self.main)
