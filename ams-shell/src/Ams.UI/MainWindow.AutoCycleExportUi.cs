@@ -76,13 +76,13 @@ internal static class AutoCycleExportUiBootstrap
             "رزولوشن داخل AMSJ و UF2 ذخیره می‌شود؛ برای سیستم مقصد نیازی به "
             + "نصب Classroom Studio یا Bridge نیست. اگر رزولوشن در فهرست نبود، Custom را انتخاب کنید."));
 
-        var preset = new ComboBox
+        var preset = new System.Windows.Controls.ComboBox
         {
             ItemsSource = MainViewModel.DisplayResolutionPresets,
             MinWidth = 190, Margin = new Thickness(0, 5, 0, 5),
             FlowDirection = FlowDirection.LeftToRight,
         };
-        preset.SetBinding(ComboBox.SelectedItemProperty,
+        preset.SetBinding(System.Windows.Controls.ComboBox.SelectedItemProperty,
             new Binding(nameof(MainViewModel.DisplayResolutionPreset))
             {
                 Mode = BindingMode.TwoWay,
