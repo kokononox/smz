@@ -49,7 +49,8 @@ bool cycle_runtime_held(void);
 void cycle_runtime_manual_start(uint32_t now);
 void cycle_runtime_manual_stop(void);
 CycleAction cycle_runtime_service(uint32_t now, bool host_seen,
-                                  ArmHostUsbState host_state);
+                                  ArmHostUsbState host_state,
+                                  bool desktop_ready);
 bool cycle_runtime_begin_after(uint32_t now);
 void cycle_runtime_begin_startup(void);
 bool cycle_runtime_route_complete(uint16_t route_id, uint32_t now);

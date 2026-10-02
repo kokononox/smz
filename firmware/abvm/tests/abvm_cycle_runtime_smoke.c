@@ -35,49 +35,53 @@ int main(int argc,char **argv){
        !require(cycle_runtime_init(&vm,0u),"descriptor")||
        !require(cycle_runtime_available(),"available"))return 1;
     cycle_runtime_manual_start(0u);drain();
-    if(!require(cycle_runtime_service(999u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_NONE,
+    if(!require(cycle_runtime_service(999u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "deadline early")||
-       !require(cycle_runtime_service(1000u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_EXPIRE,
+       !require(cycle_runtime_service(1000u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_EXPIRE,
                 "deadline")||
        !require(cycle_runtime_begin_after(1000u),"arm after")||
        !require(marker_armed&&marker_count==1u,"persistent marker"))return 1;
     drain();
-    (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN);drain();
+    (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN,true);drain();
     if(!require(!cycle_runtime_route_complete(cycle_runtime_after_route(),1200u),
                 "after complete")||
-       !require(cycle_runtime_service(1300u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_NONE,
+       !require(cycle_runtime_service(1300u,true,ARM_HOST_USB_UP,false)==CYCLE_ACTION_NONE,
                 "USB stable early")||
-       !require(cycle_runtime_service(3300u,true,ARM_HOST_USB_UP)==
-                    CYCLE_ACTION_START_STARTUP,"USB stable"))return 1;
+       !require(cycle_runtime_service(3300u,true,ARM_HOST_USB_UP,false)==
+                    CYCLE_ACTION_NONE,"USB alone cannot start Startup")||
+       !require(cycle_runtime_service(3400u,true,ARM_HOST_USB_UP,true)==
+                    CYCLE_ACTION_NONE,"Desktop stable early")||
+       !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP,true)==
+                    CYCLE_ACTION_START_STARTUP,"USB and Desktop stable"))return 1;
     cycle_runtime_begin_startup();drain();
-    if(!require(cycle_runtime_route_complete(cycle_runtime_startup_route(),3400u),
+    if(!require(cycle_runtime_route_complete(cycle_runtime_startup_route(),4500u),
                 "startup complete")||
        !require(!marker_armed&&marker_count==1u,"one-shot clear")||
-       !require(cycle_runtime_service(4399u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_NONE,
+       !require(cycle_runtime_service(5499u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "resumed deadline early")||
-       !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_EXPIRE,
+       !require(cycle_runtime_service(5500u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_EXPIRE,
                 "resumed deadline"))return 1;
     cycle_runtime_manual_stop();
     if(!require(!marker_armed&&!marker_count,"manual reset"))return 1;
     cycle_runtime_manual_start(5000u);drain();
     cycle_runtime_hold(5500u);
     if(!require(cycle_runtime_held(),"operator hold")||
-       !require(cycle_runtime_service(7000u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(7000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_NONE,"held Cycle cannot expire"))return 1;
     cycle_runtime_continue(7000u);
     if(!require(!cycle_runtime_held(),"operator continue")||
-       !require(cycle_runtime_service(7499u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(7499u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_NONE,"remaining deadline preserved")||
-       !require(cycle_runtime_service(7500u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(7500u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_EXPIRE,"deadline resumes after hold"))return 1;
     cycle_runtime_manual_stop();
 
     marker_armed=true;marker_count=1u;
     if(!require(cycle_runtime_init(&vm,0u),"boot descriptor"))return 1;
     drain();
-    if(!require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP)==CYCLE_ACTION_NONE,
+    if(!require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "boot stable early")||
-       !require(cycle_runtime_service(2000u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(2000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"armed boot authority"))return 1;
     free(image);
     puts("ABVM native persistent cycle state machine smoke passed");

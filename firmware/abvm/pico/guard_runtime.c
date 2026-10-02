@@ -157,6 +157,11 @@ static GuardProfile *unique_match(uint32_t lux, uint8_t *matches_out) {
     if (matches_out) *matches_out = matches;
     return matches == 1u ? match : NULL;
 }
+bool guard_runtime_profile_matches(uint8_t profile_id,uint32_t lux_tenths) {
+    uint8_t matches=0u;
+    GuardProfile *profile=unique_match(lux_tenths,&matches);
+    return matches==1u&&profile&&profile->id==profile_id;
+}
 static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
                  uint8_t context, uint32_t lux, const char *reason) {
     guard.pending.type = type;

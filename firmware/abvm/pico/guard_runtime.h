@@ -55,6 +55,7 @@ bool guard_runtime_buzzer_cue(uint8_t cue_id, uint16_t hz[8],
 const char *guard_runtime_profile_name(uint8_t profile_id);
 bool guard_runtime_get_profile_range(uint8_t profile_id, uint32_t *low_tenths,
                                      uint32_t *high_tenths);
+bool guard_runtime_profile_matches(uint8_t profile_id, uint32_t lux_tenths);
 bool guard_runtime_set_profile_range(uint8_t profile_id, uint32_t low_tenths, uint32_t high_tenths);
 
 #endif

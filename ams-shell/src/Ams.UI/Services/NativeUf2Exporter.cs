@@ -131,7 +131,10 @@ public static class NativeUf2Exporter
             ["runMinSeconds"] = restartMin * 60,
             ["runMaxSeconds"] = restartMax * 60,
             ["maxRestarts"] = 5,
-            ["usbStableMs"] = 2000,
+            // USB can enumerate during BIOS or early Windows boot.  Require a
+            // longer continuous-UP settle so Startup runs after the desktop is
+            // usable, before the post-restart Guard watchdog is armed.
+            ["usbStableMs"] = 30000,
         };
     }
 

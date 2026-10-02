@@ -159,6 +159,12 @@ static bool whisper_interrupt_allowed(void) {
 static bool input_lock_active(void) {
     return hid_keyboard_locked()||arm_uart_mouse_busy();
 }
+static bool ambient_mouse_route_allowed(uint8_t profile) {
+    /* Ambient is the non-Game sidecar.  It may run while a foreground route
+     * waits; service_vm() yields until the internal movement completes so a
+     * route mouse action can never race it on the single ARM link. */
+    return profile>=1u&&profile<=4u;
+}
 static uint32_t ambient_random_next(void) {
     uint32_t x=ambient_mouse_rng?ambient_mouse_rng:0x7f4a7c15u;
     x^=x<<13;x^=x>>17;x^=x<<5;ambient_mouse_rng=x;return x;
@@ -183,22 +189,25 @@ static void ambient_mouse_complete(uint32_t now) {
 static void service_ambient_mouse(uint32_t now) {
     if(!ambient_mouse_available)return;
     if(ambient_mouse_inflight) {
+        uint8_t profile=guard_runtime_active_profile();
         if(!guard_runtime_running()||guard_runtime_paused()||
            guard_runtime_watchdog_tripped()||
            cycle_runtime_restart_critical()||calibration_runtime_active()||
-           light_sensor_calibration_active())
+           light_sensor_calibration_active()||
+           !ambient_mouse_route_allowed(profile)||
+           !(ambient_mouse_environment_mask&(uint8_t)(1u<<(profile-1u))))
             arm_uart_mouse_release_all(now);
         return;
     }
     if(!guard_runtime_running()||guard_runtime_paused()||
        guard_runtime_watchdog_tripped()||cycle_runtime_restart_critical()||
        calibration_runtime_active()||light_sensor_calibration_active()||
-       vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED||
+       vm.status==ABVM_STATUS_PAUSED||
        input_lock_active()||
        (int32_t)(now-ambient_mouse_next_due)<0)
         return;
     uint8_t profile=guard_runtime_active_profile();
-    if(!profile||profile>8u||
+    if(!ambient_mouse_route_allowed(profile)||
        !(ambient_mouse_environment_mask&(uint8_t)(1u<<(profile-1u)))) {
         ambient_mouse_arm_next(now);
         return;
@@ -896,7 +905,10 @@ static void service_cycle(uint32_t now) {
     bool arm_seen=arm_uart_host_usb_seen();
     ArmHostUsbState host=arm_seen?arm_uart_host_usb_state():
         (tud_mounted()?ARM_HOST_USB_UP:ARM_HOST_USB_DOWN);
-    CycleAction action=cycle_runtime_service(now,true,host);
+    uint32_t lux,age;
+    bool desktop_ready=light_sensor_latest(&lux,&age,now)&&
+        guard_runtime_profile_matches(1u,lux);
+    CycleAction action=cycle_runtime_service(now,true,host,desktop_ready);
     service_cycle_events();
     if(action==CYCLE_ACTION_EXPIRE) {
         pending_sound_whisper=false;
@@ -924,6 +936,10 @@ static void service_cycle(uint32_t now) {
     }
 }
 static void service_vm(uint32_t now) {
+    /* Keep the foreground VM at its exact PC while Ambient owns the ARM mouse.
+     * Route clocks remain wall-clock based, so overdue work resumes immediately
+     * after the internal lane completes. */
+    if(ambient_mouse_inflight)return;
     if (arm_uart_mouse_releasing()) {
         return;
     }

@@ -49,36 +49,40 @@ int main(int argc,char **argv){
        !require(guard_runtime_init(&vm),"Guard descriptor"))return 1;
 
     cycle_runtime_manual_start(0u);drain_cycle();
-    if(!require(cycle_runtime_service(1000u,true,ARM_HOST_USB_UP)==
+    if(!require(cycle_runtime_service(1000u,true,ARM_HOST_USB_UP,true)==
                 CYCLE_ACTION_EXPIRE,"Cycle deadline")||
        !require(cycle_runtime_begin_after(1000u),"begin Restart route")||
        !require(marker_armed&&marker_count==1u,"persistent restart marker")||
        !require(abvm_start_route(&vm,cycle_runtime_after_route(),1000u),
                 "start route 2"))return 1;
     drain_cycle();
-    (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN);drain_cycle();
+    (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN,true);drain_cycle();
     if(!require(!cycle_runtime_route_complete(2u,1200u),"complete route 2")||
-       !require(cycle_runtime_service(1300u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(1300u,true,ARM_HOST_USB_UP,false)==
                 CYCLE_ACTION_NONE,"USB stability window")||
-       !require(cycle_runtime_service(3300u,true,ARM_HOST_USB_UP)==
-                CYCLE_ACTION_START_STARTUP,"stable USB starts Startup")||
-       !require(abvm_start_route(&vm,cycle_runtime_startup_route(),3300u),
+       !require(cycle_runtime_service(3300u,true,ARM_HOST_USB_UP,false)==
+                CYCLE_ACTION_NONE,"USB alone cannot start Startup")||
+       !require(cycle_runtime_service(3400u,true,ARM_HOST_USB_UP,true)==
+                CYCLE_ACTION_NONE,"Desktop stability window")||
+       !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP,true)==
+                CYCLE_ACTION_START_STARTUP,"stable USB and Desktop start Startup")||
+       !require(abvm_start_route(&vm,cycle_runtime_startup_route(),4400u),
                 "start route 3"))return 1;
     cycle_runtime_begin_startup();drain_cycle();
-    if(!require(cycle_runtime_route_complete(3u,3400u),"complete Startup")||
+    if(!require(cycle_runtime_route_complete(3u,4500u),"complete Startup")||
        !require(!marker_armed&&marker_count==1u,"clear one-shot marker")||
-       !require(guard_runtime_start_after_restart(3400u),"start post-restart Guard")||
+       !require(guard_runtime_start_after_restart(4500u),"start post-restart Guard")||
        !require(guard_runtime_stage()==1u&&guard_runtime_expected_profile()==2u,
                 "Desktop skipped; Login expected"))return 1;
 
-    if(!stable(&vm,2000u,3500u,4u,2u)||
-       !stable(&vm,3000u,3700u,6u,3u)||
-       !stable(&vm,4000u,3900u,7u,4u)||
-       !stable(&vm,5000u,4100u,8u,5u)||
+    if(!stable(&vm,2000u,4600u,4u,2u)||
+       !stable(&vm,3000u,4800u,6u,3u)||
+       !stable(&vm,4000u,5000u,7u,4u)||
+       !stable(&vm,5000u,5200u,8u,5u)||
        !require(guard_runtime_expected_profile()==0u,"Game reached")||
-       !require(cycle_runtime_service(4399u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(5499u,true,ARM_HOST_USB_UP,true)==
                 CYCLE_ACTION_NONE,"resumed deadline early")||
-       !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP)==
+       !require(cycle_runtime_service(5500u,true,ARM_HOST_USB_UP,true)==
                 CYCLE_ACTION_EXPIRE,"new Cycle armed after recovery"))return 1;
 
     free(image);

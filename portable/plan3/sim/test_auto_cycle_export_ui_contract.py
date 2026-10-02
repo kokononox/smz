@@ -46,6 +46,7 @@ assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",' in nat
 assert '"Whisper", "WhisperRepeat"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
 assert 'root["nativeCycle"] = BuildNativeCycle(settings)' in native_exporter
+assert '["usbStableMs"] = 30000' in native_exporter
 assert '"runMinSeconds"' in native_exporter and '"maxRestarts"' in native_exporter
 assert "LightStateProfileStore.Load()" in native_exporter
 assert "PipelineWorkspaceSerializer.Serialize(workspace)" in native_exporter
