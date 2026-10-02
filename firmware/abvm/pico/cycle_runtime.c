@@ -7,6 +7,7 @@
 #define CYCLE_DESCRIPTOR_SIZE 20u
 #define CYCLE_FLAG_AUTO_RESUME 1u
 #define CYCLE_DESKTOP_STABLE_MS 1000u
+#define CYCLE_DESKTOP_FALLBACK_MS 30000u
 
 typedef enum CyclePhase {
     CYCLE_IDLE = 0,
@@ -23,6 +24,7 @@ typedef struct CycleState {
     bool up_timing;
     bool desktop_timing;
     bool held;
+    uint8_t startup_gate;
     uint8_t phase;
     uint8_t max_restarts;
     uint8_t last_host_state;
@@ -73,6 +75,8 @@ static void arm_run(uint32_t now,bool resumed) {
     cycle.deadline=now+duration;
     cycle.down_seen=false;
     cycle.up_timing=false;
+    cycle.desktop_timing=false;
+    cycle.startup_gate=0u;
     cycle.held=false;
     cycle.held_remaining_ms=0u;
     emit(resumed?CYCLE_EVENT_RESUMED:CYCLE_EVENT_ARMED);
@@ -169,9 +173,15 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
             else if(!cycle.desktop_timing){
                 cycle.desktop_timing=true;cycle.desktop_since=now;
             }
-            if(cycle.phase==CYCLE_WAIT_USB&&cycle.desktop_timing&&
-               reached(now,cycle.up_since+cycle.usb_stable_ms)&&
-               reached(now,cycle.desktop_since+CYCLE_DESKTOP_STABLE_MS)){
+            bool usb_stable=reached(now,cycle.up_since+cycle.usb_stable_ms);
+            bool desktop_stable=cycle.desktop_timing&&
+                reached(now,cycle.desktop_since+CYCLE_DESKTOP_STABLE_MS);
+            bool desktop_fallback=usb_stable&&reached(now,
+                cycle.up_since+cycle.usb_stable_ms+
+                CYCLE_DESKTOP_FALLBACK_MS);
+            if(cycle.phase==CYCLE_WAIT_USB&&usb_stable&&
+               (desktop_stable||desktop_fallback)){
+                cycle.startup_gate=desktop_stable?1u:2u;
                 cycle.up_timing=false;
                 cycle.desktop_timing=false;
                 return CYCLE_ACTION_START_STARTUP;
@@ -196,6 +206,7 @@ bool cycle_runtime_begin_after(uint32_t now) {
 void cycle_runtime_begin_startup(void) {
     cycle.phase=CYCLE_STARTUP;
     emit(CYCLE_EVENT_STARTUP_START);cycle.pending.route_id=cycle.startup_route;
+    cycle.pending.startup_gate=cycle.startup_gate;
 }
 bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
     if(cycle.phase==CYCLE_AFTER&&route_id==cycle.after_route){

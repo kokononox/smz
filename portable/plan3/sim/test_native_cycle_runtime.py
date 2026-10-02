@@ -63,7 +63,9 @@ assert "calibration_store_cycle_arm_next" in cycle
 assert "CYCLE_ACTION_EXPIRE" in cycle and "CYCLE_ACTION_START_STARTUP" in cycle
 assert "cycle.down_seen=true" in cycle
 assert "CYCLE_DESKTOP_STABLE_MS 1000u" in cycle
+assert "CYCLE_DESKTOP_FALLBACK_MS 30000u" in cycle
 assert "desktop_ready" in cycle and "cycle.desktop_timing" in cycle
+assert "usb-timeout-fallback" in main
 assert "EVT|CYCLE|deadline|action=after" in main
 assert "startup-complete|next=login-or-dc|desktop=skip" in main
 assert "guard_runtime_profile_matches(1u,lux)" in main

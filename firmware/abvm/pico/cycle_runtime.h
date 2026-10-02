@@ -33,6 +33,7 @@ typedef struct CycleEvent {
     uint8_t count;
     uint8_t down_seen;
     uint8_t host_state;
+    uint8_t startup_gate;
     uint16_t route_id;
     uint32_t seconds;
     uint32_t range_min_seconds;
