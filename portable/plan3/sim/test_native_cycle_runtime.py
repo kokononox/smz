@@ -62,8 +62,11 @@ guard = (pico / "guard_runtime.c").read_text(encoding="utf-8")
 assert "calibration_store_cycle_arm_next" in cycle
 assert "CYCLE_ACTION_EXPIRE" in cycle and "CYCLE_ACTION_START_STARTUP" in cycle
 assert "cycle.down_seen=true" in cycle
+assert "CYCLE_DESKTOP_STABLE_MS 1000u" in cycle
+assert "desktop_ready" in cycle and "cycle.desktop_timing" in cycle
 assert "EVT|CYCLE|deadline|action=after" in main
 assert "startup-complete|next=login-or-dc|desktop=skip" in main
+assert "guard_runtime_profile_matches(1u,lux)" in main
 assert "EVT|HOSTUSB|DOWN" in arm and "EVT|HOSTUSB|SUSPEND" in arm
 assert "EVT|HOSTUSB|UP" in arm
 assert "hid_keyboard_discard_completion" in keyboard

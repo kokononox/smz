@@ -6,6 +6,7 @@
 #define CYCLE_VERSION 1u
 #define CYCLE_DESCRIPTOR_SIZE 20u
 #define CYCLE_FLAG_AUTO_RESUME 1u
+#define CYCLE_DESKTOP_STABLE_MS 1000u
 
 typedef enum CyclePhase {
     CYCLE_IDLE = 0,
@@ -20,6 +21,7 @@ typedef struct CycleState {
     bool auto_resume;
     bool down_seen;
     bool up_timing;
+    bool desktop_timing;
     bool held;
     uint8_t phase;
     uint8_t max_restarts;
@@ -31,6 +33,7 @@ typedef struct CycleState {
     uint32_t usb_stable_ms;
     uint32_t deadline;
     uint32_t up_since;
+    uint32_t desktop_since;
     uint32_t held_remaining_ms;
     uint32_t prng;
     CycleEvent pending;
@@ -140,7 +143,8 @@ void cycle_runtime_manual_stop(void) {
     emit(CYCLE_EVENT_CANCELLED);
 }
 CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
-                                  ArmHostUsbState host_state) {
+                                  ArmHostUsbState host_state,
+                                  bool desktop_ready) {
     if(!cycle.available)return CYCLE_ACTION_NONE;
     if(cycle.held)return CYCLE_ACTION_NONE;
     if(cycle.phase==CYCLE_RUN&&reached(now,cycle.deadline)){
@@ -157,12 +161,19 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
         }
         if(host_state==ARM_HOST_USB_DOWN||host_state==ARM_HOST_USB_SUSPEND){
             cycle.down_seen=true;cycle.up_timing=false;
+            cycle.desktop_timing=false;
         }else if(host_state==ARM_HOST_USB_UP&&
                  (cycle.down_seen||calibration_store_cycle_armed())){
             if(!cycle.up_timing){cycle.up_timing=true;cycle.up_since=now;}
-            else if(cycle.phase==CYCLE_WAIT_USB&&
-                    reached(now,cycle.up_since+cycle.usb_stable_ms)){
+            if(!desktop_ready)cycle.desktop_timing=false;
+            else if(!cycle.desktop_timing){
+                cycle.desktop_timing=true;cycle.desktop_since=now;
+            }
+            if(cycle.phase==CYCLE_WAIT_USB&&cycle.desktop_timing&&
+               reached(now,cycle.up_since+cycle.usb_stable_ms)&&
+               reached(now,cycle.desktop_since+CYCLE_DESKTOP_STABLE_MS)){
                 cycle.up_timing=false;
+                cycle.desktop_timing=false;
                 return CYCLE_ACTION_START_STARTUP;
             }
         }
@@ -177,6 +188,7 @@ bool cycle_runtime_begin_after(uint32_t now) {
         cycle.phase=CYCLE_IDLE;emit(CYCLE_EVENT_BLOCKED);return false;
     }
     cycle.phase=CYCLE_AFTER;cycle.down_seen=false;cycle.up_timing=false;
+    cycle.desktop_timing=false;
     cycle.last_host_state=ARM_HOST_USB_UNKNOWN;
     emit(CYCLE_EVENT_AFTER_START);cycle.pending.route_id=cycle.after_route;
     return true;

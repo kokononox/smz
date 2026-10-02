@@ -905,7 +905,10 @@ static void service_cycle(uint32_t now) {
     bool arm_seen=arm_uart_host_usb_seen();
     ArmHostUsbState host=arm_seen?arm_uart_host_usb_state():
         (tud_mounted()?ARM_HOST_USB_UP:ARM_HOST_USB_DOWN);
-    CycleAction action=cycle_runtime_service(now,true,host);
+    uint32_t lux,age;
+    bool desktop_ready=light_sensor_latest(&lux,&age,now)&&
+        guard_runtime_profile_matches(1u,lux);
+    CycleAction action=cycle_runtime_service(now,true,host,desktop_ready);
     service_cycle_events();
     if(action==CYCLE_ACTION_EXPIRE) {
         pending_sound_whisper=false;
