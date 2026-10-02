@@ -702,12 +702,13 @@ class Compiler:
         terminals = [i for i, lane in enumerate(lanes)
                      if any(self.contains(item, "waitForSound") or
                             self.contains(item, "waitForLight") for item in lane)]
-        if len(terminals) != 1:
-            raise AbvmError("Parallel Group requires one terminal Watch lane")
-        terminal = terminals[0]
+        if len(terminals) > 1:
+            raise AbvmError(
+                "Parallel Group supports at most one terminal Watch lane")
+        terminal = terminals[0] if terminals else 0xFF
         self.flags |= FLAG_HAS_SCOPE
         self.max_lanes = 2
-        policy = SCOPE_CANCEL_ON_TERMINAL_LANE
+        policy = SCOPE_CANCEL_ON_TERMINAL_LANE if terminals else SCOPE_JOIN_ALL
         begin = self.emit(OP_SCOPE_BEGIN, flags=policy, a=2)
         ranges = []
         self.scope_depth += 1
@@ -716,7 +717,8 @@ class Compiler:
                 start = len(self.code)
                 self.compile_nodes(lane, depth + 1, path + (index,))
                 end = len(self.code)
-                self.emit(OP_LANE_END, flags=int(index == terminal))
+                self.emit(OP_LANE_END, flags=int(
+                    terminal != 0xFF and index == terminal))
                 ranges.append((start, end))
         finally:
             self.scope_depth -= 1
