@@ -1,9 +1,7 @@
 name: Hourly Backup to Google Drive
 
 on:
-  schedule:
-    - cron: '0 * * * *' # هر ساعت یکبار
-  workflow_dispatch: # برای تست دستی
+  workflow_dispatch: # برای اجرای دستی در صورت نیاز
 
 permissions:
   contents: read
