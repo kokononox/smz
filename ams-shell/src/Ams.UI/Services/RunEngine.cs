@@ -834,30 +834,91 @@ public sealed class RunEngine
         await RunStepsAsync(pool, ct);
     }
 
-    /// <summary>v0.9.15 — Parallel Group: the children run CONCURRENTLY on the same board and the
-    /// group completes when the LONGEST branch completes (the next step after the group runs after
-    /// the join — the user's requested semantics). One serial channel is shared: the bridge
-    /// serializes each individual command, so inside the group the mouse switches to app-paced
-    /// per-point streaming and keyboard chunks shrink to 8 chars — typing and mouse movement
-    /// visibly interleave instead of blocking each other. Pause/Stop propagate to every branch;
-    /// the first fault cancels the rest. Avoid gotoLabel jumps across the group boundary.</summary>
+    /// <summary>Parallel Group completion is explicit:
+    /// waitAll joins every lane; watchLane resumes as soon as the single Watch/Catch lane ends;
+    /// firstCompleted resumes when any lane ends. The two winning policies cancel unfinished
+    /// siblings before the parent continues. Projects saved before completionPolicy existed keep
+    /// their legacy behavior: a single Watch lane wins, otherwise all lanes are joined.</summary>
     private async Task RunParallelGroupAsync(StepNode s, CancellationToken ct)
     {
-        var children = s.Children.Where(c => !c.IsDisabled).ToList();
-        if (children.Count == 0) { _log("parallel group: empty — skipped"); return; }
-        if (children.Count == 1) { await RunStepsAsync(children, ct); return; }
-        _log($"⚡ parallel group: {children.Count} branches start together (join on the longest)");
+        static bool IsNextMarker(StepNode node)
+            => node.Type == "comment"
+               && string.Equals(PropEx.GetString(node.Props, "text").Trim(),
+                   "next", StringComparison.OrdinalIgnoreCase);
+
+        static bool HasWatch(StepNode node)
+            => node.Type is "waitForSound" or "waitForLight"
+               || node.Children.Any(HasWatch);
+
+        var enabled = s.Children.Where(c => !c.IsDisabled).ToList();
+        if (enabled.Count == 0) { _log("parallel group: empty — skipped"); return; }
+
+        // Native plans delimit lanes with comment "Next". Keep the older desktop shape
+        // (one direct child per lane) when no delimiters are present.
+        var lanes = new List<List<StepNode>>();
+        if (enabled.Any(IsNextMarker))
+        {
+            var lane = new List<StepNode>();
+            foreach (var child in enabled)
+            {
+                if (IsNextMarker(child))
+                {
+                    if (lane.Count > 0) { lanes.Add(lane); lane = new(); }
+                }
+                else lane.Add(child);
+            }
+            if (lane.Count > 0) lanes.Add(lane);
+        }
+        else
+        {
+            lanes.AddRange(enabled.Select(child => new List<StepNode> { child }));
+        }
+
+        if (lanes.Count == 0) { _log("parallel group: no runnable lanes — skipped"); return; }
+        if (lanes.Count == 1) { await RunStepsAsync(lanes[0], ct); return; }
+
+        var watchLanes = lanes.Select((lane, index) => new { lane, index })
+            .Where(x => x.lane.Any(HasWatch)).Select(x => x.index).ToList();
+        var configured = PropEx.GetString(s.Props, "completionPolicy", "").Trim();
+        var policy = string.IsNullOrWhiteSpace(configured)
+            ? (watchLanes.Count == 1 ? "watchLane" : "waitAll")
+            : configured;
+        if (policy == "watchLane" && watchLanes.Count != 1)
+            throw new InvalidOperationException(
+                "Parallel Group watchLane requires exactly one lane containing Wait For Sound/Light.");
+        if (policy is not ("waitAll" or "watchLane" or "firstCompleted"))
+            throw new InvalidOperationException(
+                $"Unknown Parallel Group completion policy: {policy}");
+
+        _log($"⚡ parallel group: {lanes.Count} lanes start together ({policy})");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _parallelDepth++;
         try
         {
-            var tasks = children.Select(c => Task.Run(async () =>
+            var tasks = lanes.Select(lane => Task.Run(async () =>
             {
-                try { await RunStepsAsync(new[] { c }, linked.Token); }
+                try { await RunStepsAsync(lane, linked.Token); }
                 catch { linked.Cancel(); throw; }   // first fault stops the sibling branches
             })).ToList();
-            await Task.WhenAll(tasks);
-            _log("⚡ parallel group: all branches finished (joined on the longest)");
+
+            if (policy == "waitAll")
+            {
+                await Task.WhenAll(tasks);
+                _log("⚡ parallel group: all lanes finished");
+                return;
+            }
+
+            var winner = policy == "watchLane"
+                ? tasks[watchLanes[0]]
+                : await Task.WhenAny(tasks);
+            await winner;                 // propagate a real winner fault
+            linked.Cancel();              // stop delays/mouse work in sibling lanes immediately
+            foreach (var sibling in tasks.Where(task => task != winner))
+            {
+                try { await sibling; }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
+            }
+            _log($"⚡ parallel group: {policy} winner finished; siblings cancelled");
         }
         finally { _parallelDepth--; }
     }

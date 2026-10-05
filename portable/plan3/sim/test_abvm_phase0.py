@@ -100,7 +100,7 @@ assert ("TYPE", "hi :)") in abvm.ReferenceVm(compiled.image).run("Whisper")
 # Parallel Groups without a Watch lane use JOIN_ALL: both lanes run and the
 # parent continues only after the slower lane ends.
 join_project = {"pipelines": {"Game": [
-    node("parallelGroup", {}, [
+    node("parallelGroup", {"completionPolicy": "waitAll"}, [
         node("delay", {"minMs": 120, "maxMs": 120}),
         node("comment", {"text": "Next"}),
         node("delay", {"minMs": 450, "maxMs": 450}),
@@ -126,6 +126,46 @@ assert any(event[0] == "SCOPE_BEGIN" and event[2] == "JOIN_ALL"
            for event in join_events)
 assert any(event[0] == "KEY" and 90 in event[1] for event in join_events)
 assert join_vm.now >= 450
+
+# firstCompleted resumes the parent at the first lane boundary and cancels the
+# slower lane, so the next cast/action is not held behind background movement.
+first_project = {"pipelines": {"Game": [
+    node("parallelGroup", {"completionPolicy": "firstCompleted"}, [
+        node("delay", {"minMs": 120, "maxMs": 120}),
+        node("comment", {"text": "Next"}),
+        node("delay", {"minMs": 450, "maxMs": 450}),
+        node("comment", {"text": "Next"}),
+    ]),
+    node("keystroke", {"key": "Z", "holdMin": 30, "holdMax": 30}),
+]}}
+first_compiled = abvm.Compiler().compile_amsj(first_project, ("Game",))
+first_image = abvm.Verifier.verify(first_compiled.image)
+first_begin = next(ins for ins in first_image.instructions
+                   if ins.op == abvm.OP_SCOPE_BEGIN)
+first_raw = first_image.const(first_begin.a, abvm.CONST_SCOPE)
+assert struct.unpack_from("<BBBB", first_raw) == \
+       (2, abvm.SCOPE_CANCEL_ON_ANY, 0xFF, 0)
+first_vm = abvm.ReferenceVm(first_compiled.image, seed=1)
+first_events = first_vm.run("Game")
+assert any(event[0] == "SCOPE_RESUME" and event[1] == "CANCEL_ON_ANY"
+           for event in first_events)
+assert any(event[0] == "KEY" and 90 in event[1] for event in first_events)
+assert first_vm.now < 450
+
+# watchLane is intentionally strict: a malformed group must fail at compile
+# time instead of silently waiting for the wrong lane.
+try:
+    abvm.Compiler().compile_amsj({"pipelines": {"Game": [
+        node("parallelGroup", {"completionPolicy": "watchLane"}, [
+            node("delay", {"minMs": 10, "maxMs": 10}),
+            node("comment", {"text": "Next"}),
+            node("delay", {"minMs": 20, "maxMs": 20}),
+        ])
+    ]}})
+except abvm.AbvmError as exc:
+    assert "exactly one lane containing a Watch" in str(exc)
+else:
+    raise AssertionError("watchLane without a Watch lane was accepted")
 
 # Pause releases held HID state, preserves the exact PC, and leaves absolute
 # Game deadlines unchanged under the WALL clock policy.
