@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.68 — portable human-mouse states, bounded multi-leg paths, per-boot variation, and correct Native infinite loops");
+        Log("Classroom Studio v0.9.69 — personal pause, turn, long-move and state behavior from the verified 30-second hand profile");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 

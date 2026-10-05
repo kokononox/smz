@@ -25,7 +25,8 @@ assert "human_mode_moves_left = (uint16_t)random_range_u32(5u, 17u)" in source
 assert "human_virtual_x+=human_path.leg_x" in source
 assert "human_path.start_x=human_virtual_x" in source
 assert "human_leg(next_x,next_y,next_steps,next_curve)" in source
-assert "human_boot_mixed=false;prng=0x6d2b79f5u" in source
+assert "human_boot_mixed=false" in source
+assert "prng=0x6d2b79f5u" in source
 assert "Cursor.Position" not in source
 assert "GetCursorPos" not in source
 
