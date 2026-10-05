@@ -109,3 +109,38 @@ Login/DC 74±13.5, Character Dashboard 43±1, Entering Game Loading 3±1,
 Game 33±0.7, Targeted 36.7±0.5, Whisper 100±1 with 5,000 ms cooldown, and
 Whisper Repeat 23±2.5 with 1,000,000 ms cooldown. Every profile keeps 750 ms
 stability and 1 lux hysteresis.
+
+## Phase 1 hardware acceptance and phase 2 start
+
+The user reported that the v0.9.68 hardware test completed without a problem
+and supplied the exported NB01 UF2 as evidence.
+
+- Tested UF2 SHA-256:
+  `88a8adf2563fa71d580a4a8054363cca05d2ee813e419a2f5a1d91f30f3e0e43`
+- Extracted ABP SHA-256:
+  `23b6ecef75aca280a45e8abf7e28410829e20c0deca079cf0203320b373d8bce`
+- ABP: 197,180 bytes, 12 routes, 3,521 instructions, two lanes.
+- Native Guard v5 is present with all eight approved ranges, 750 ms stability,
+  1 lux hysteresis, 5,000 ms Whisper cooldown, and 1,000,000 ms Whisper Repeat
+  cooldown.
+- Verified compact personal profile: pause P50/P90 399/399 ms, turn P50/P90
+  4/18 degrees, long-move 67%, efficiency 74%, correction 4%, speed
+  444–1,641 px/s, and tempo 8 ms.
+
+Phase 2 (`0.9.69`) consumes the previously exported but unused pause, turn, and
+long-move statistics. All derived choices remain bounded by authored ranges,
+screen limits, and fixed probability caps. No identifiable trace is replayed.
+
+Phase 2 local validation:
+
+- 69 Portable/ABVM contract files passed.
+- Pico Bridge transport: 18 passed, 0 failed.
+- Native ABVM C smoke passed.
+- Pico firmware and all 30 identity templates compiled.
+- Windows x64 publish is a verified PE32+ GUI executable.
+- TestRunner and LightTelemetryTests compiled with 0 errors.
+- Final NB01 v3.1 UF2 SHA-256:
+  `bfa41829b71f77d063341c4f120c4aee8f0e1426e50fabc07dee965fc8450b15`
+- The v3.1 firmware carries the exact phase-one ABP SHA-256
+  `23b6ecef75aca280a45e8abf7e28410829e20c0deca079cf0203320b373d8bce`;
+  only the board-side mouse actor changed.

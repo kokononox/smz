@@ -1,3 +1,18 @@
+## v0.9.69 — portable human-mouse personalization v3.1
+
+- Recorded the user's successful phase-one hardware test and verified the
+  supplied NB01 UF2: one Native Guard descriptor, all eight approved light
+  profiles, 12 routes, 3,521 instructions, and the expected compact hand
+  statistics.
+- Pico now consumes `handPauseP50Ms` and `handPauseP90Ms` to bias before,
+  after, and mid-path pauses while staying inside every authored range.
+- `handTurnP50Deg` and `handTurnP90Deg` now influence direction persistence,
+  long-path waypoint bend, curve variation, and personal curve bias.
+- `handLongPct` now shifts long-path probability and the slowly varying
+  focused/normal/idle/fatigued state distribution within fixed safety caps.
+- The implementation remains allocation-free and board-local; it does not read
+  the host cursor or introduce OS, network, or vision dependencies.
+
 ## v0.9.68 — portable human-mouse v3 and Native infinite-loop fix
 
 - Corrected the local Windows deliverable to publish a real `win-x64`
