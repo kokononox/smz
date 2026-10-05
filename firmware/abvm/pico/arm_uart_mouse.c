@@ -30,16 +30,25 @@ typedef enum HumanPathPhase {
     HUMAN_PATH_CORRECT,
     HUMAN_PATH_AFTER,
 } HumanPathPhase;
+typedef enum HumanBehaviorMode {
+    HUMAN_MODE_FOCUSED = 0,
+    HUMAN_MODE_NORMAL,
+    HUMAN_MODE_IDLE,
+    HUMAN_MODE_FATIGUED,
+} HumanBehaviorMode;
 typedef struct HumanPath {
     HumanPathPhase phase;
     uint8_t lane;
     uint16_t steps, step, correction_steps;
+    uint16_t second_leg_steps;
     int32_t start_x, start_y, target_x, target_y;
     int32_t leg_x, leg_y, control_x, control_y;
+    int32_t second_leg_x, second_leg_y, second_leg_curve;
     int32_t last_x, last_y;
     uint32_t next_due;
     uint16_t step_delay_ms, after_ms;
     uint16_t mid_pause_ms, mid_pause_step;
+    bool second_leg_pending;
 } HumanPath;
 static ArmState state;
 static char tx[ARM_FRAME_MAX];
@@ -76,12 +85,51 @@ static uint16_t human_next_idle;
 static uint32_t human_last_speed = 1050u;
 static int32_t human_last_curve = 30;
 static int32_t human_last_side = 1;
+static HumanBehaviorMode human_mode = HUMAN_MODE_NORMAL;
+static uint16_t human_mode_moves_left;
+static uint32_t human_move_serial;
+static bool human_boot_mixed;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static uint32_t random_next(void) {
     uint32_t x = prng;
     x ^= x << 13; x ^= x >> 17; x ^= x << 5;
     return prng = x;
+}
+static uint32_t random_range_u32(uint32_t low, uint32_t high);
+static void human_mix_boot_entropy(uint32_t now) {
+    if (human_boot_mixed) return;
+    /* First-use time is board-local and naturally varies with USB enumeration,
+     * calibration and the user's launch timing.  No host cursor or OS state is
+     * read, and a non-zero fallback keeps xorshift valid. */
+    prng ^= now * 0x9e3779b9u + 0x85ebca6bu;
+    if (!prng) prng = 0x6d2b79f5u;
+    human_boot_mixed = true;
+}
+static HumanBehaviorMode human_refresh_mode(void) {
+    if (human_mode_moves_left) {
+        --human_mode_moves_left;
+        return human_mode;
+    }
+    uint32_t roll = random_next() % 100u;
+    human_mode = roll < 18u ? HUMAN_MODE_FOCUSED :
+                 roll < 70u ? HUMAN_MODE_NORMAL :
+                 roll < 86u ? HUMAN_MODE_IDLE : HUMAN_MODE_FATIGUED;
+    /* This move plus 5..17 remaining moves gives a 6..18 move state run. */
+    human_mode_moves_left = (uint16_t)random_range_u32(5u, 17u);
+    return human_mode;
+}
+static uint32_t human_mode_sample(uint32_t low, uint32_t high,
+                                  HumanBehaviorMode mode) {
+    if (high <= low) return low;
+    uint32_t span = high - low;
+    if (mode == HUMAN_MODE_FOCUSED)
+        high = low + (span * 2u) / 3u;
+    else if (mode == HUMAN_MODE_IDLE)
+        low += span / 4u;
+    else if (mode == HUMAN_MODE_FATIGUED)
+        low += span / 2u;
+    return random_range_u32(low, high);
 }
 static uint16_t read_u16_le(const uint8_t *p) {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
@@ -270,6 +318,9 @@ static bool human_path_command(char *command, size_t capacity) {
 }
 static bool human_path_begin(const uint8_t *payload, uint32_t size,
                              uint8_t path_lane, uint32_t now) {
+    human_mix_boot_entropy(now);
+    HumanBehaviorMode behavior = human_refresh_mode();
+    ++human_move_serial;
     int32_t x=0, y=0, w=0, h=0;
     int32_t screen_w=clamp_i32(
         json_int_or(payload,size,"screenWidth",HUMAN_SCREEN_DEFAULT_W),640,7680);
@@ -363,8 +414,16 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (curve_max < curve_min) {
         int32_t swap = curve_min; curve_min = curve_max; curve_max = swap;
     }
+    uint32_t curve_span = (uint32_t)(curve_max - curve_min);
+    uint32_t curve_low = 0u, curve_high = curve_span;
+    if (behavior == HUMAN_MODE_FOCUSED)
+        curve_high = (curve_span * 2u) / 3u;
+    else if (behavior == HUMAN_MODE_IDLE)
+        curve_low = curve_span / 4u;
+    else if (behavior == HUMAN_MODE_FATIGUED)
+        curve_low = curve_span / 2u;
     int32_t sampled_curve = curve_min + (int32_t)random_range_u32(
-        0u, (uint32_t)(curve_max - curve_min));
+        curve_low, curve_high);
     int32_t curve=(human_last_curve*2+sampled_curve)/3;
     human_last_curve=curve;
     uint32_t hand_signature=0u;uint16_t hand_tempo_ms=0u;
@@ -395,8 +454,9 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         int32_t swap = move_min; move_min = move_max; move_max = swap;
     }
     uint32_t duration;
-    if (move_max > 0) duration = random_range_u32(
-        (uint32_t)(move_min > 0 ? move_min : 1), (uint32_t)move_max);
+    if (move_max > 0) duration = human_mode_sample(
+        (uint32_t)(move_min > 0 ? move_min : 1),
+        (uint32_t)move_max, behavior);
     else {
         int32_t profile_speed_min=clamp_i32(
             json_int_or(payload,size,"handSpeedMin",700),150,3000);
@@ -406,8 +466,13 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
             int32_t swap=profile_speed_min;profile_speed_min=profile_speed_max;
             profile_speed_max=swap;
         }
-        uint32_t sampled_speed = random_range_u32(
-            (uint32_t)profile_speed_min,(uint32_t)profile_speed_max);
+        uint32_t speed_low=(uint32_t)profile_speed_min;
+        uint32_t speed_high=(uint32_t)profile_speed_max;
+        uint32_t speed_span=speed_high-speed_low;
+        if(behavior==HUMAN_MODE_FOCUSED)speed_low+=speed_span/3u;
+        else if(behavior==HUMAN_MODE_IDLE)speed_high-=speed_span/5u;
+        else if(behavior==HUMAN_MODE_FATIGUED)speed_high-=speed_span/3u;
+        uint32_t sampled_speed = random_range_u32(speed_low,speed_high);
         uint32_t speed = (human_last_speed * 2u + sampled_speed) / 3u;
         human_last_speed=speed;
         duration = distance * 1000u / speed;
@@ -449,10 +514,10 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (after_max < after_min) {
         int32_t swap=after_min; after_min=after_max; after_max=swap;
     }
-    human_path.next_due = now + random_range_u32(
-        (uint32_t)before_min, (uint32_t)before_max);
-    human_path.after_ms = (uint16_t)random_range_u32(
-        (uint32_t)after_min, (uint32_t)after_max);
+    human_path.next_due = now + human_mode_sample(
+        (uint32_t)before_min, (uint32_t)before_max, behavior);
+    human_path.after_ms = (uint16_t)human_mode_sample(
+        (uint32_t)after_min, (uint32_t)after_max, behavior);
     int32_t idle_every_min=clamp_i32(
         json_int_or(payload,size,"idleEveryMin",5),1,1000);
     int32_t idle_every_max=clamp_i32(
@@ -498,6 +563,10 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         if(personal_correction>over_chance)
             over_chance=personal_correction;
     }
+    if(behavior==HUMAN_MODE_FOCUSED)over_chance=over_chance*3/4;
+    else if(behavior==HUMAN_MODE_IDLE)over_chance+=5;
+    else if(behavior==HUMAN_MODE_FATIGUED)over_chance+=10;
+    over_chance=clamp_i32(over_chance,0,100);
     if(distance>=80u&&(int32_t)(random_next()%100u)<over_chance) {
         uint32_t extra=random_range_u32(3u,20u);
         human_path.target_x=target_x;
@@ -513,7 +582,41 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         dy=clamp_i32(human_virtual_y+dy,human_soft_margin_y,
             screen_h-1-human_soft_margin_y)-human_virtual_y;
     }
-    human_leg(dx,dy,steps,curve);
+    /* Long moves may use two related legs.  The waypoint is bounded on-screen
+     * and remains a compact board-side description: no dense trace is stored. */
+    uint32_t multi_chance=behavior==HUMAN_MODE_FOCUSED?18u:
+        behavior==HUMAN_MODE_NORMAL?34u:
+        behavior==HUMAN_MODE_IDLE?42u:55u;
+    if(distance>=450u&&(random_next()%100u)<multi_chance) {
+        uint32_t first_pct=random_range_u32(52u,72u);
+        int32_t waypoint_x=(int32_t)((int64_t)dx*first_pct/100u);
+        int32_t waypoint_y=(int32_t)((int64_t)dy*first_pct/100u);
+        int32_t bend=(int32_t)random_range_u32(
+            distance/50u+1u,distance/16u+2u);
+        if(random_next()&1u)bend=-bend;
+        waypoint_x+=(int32_t)(-(int64_t)dy*bend/(distance?distance:1u));
+        waypoint_y+=(int32_t)((int64_t)dx*bend/(distance?distance:1u));
+        int32_t waypoint_global_x=clamp_i32(
+            human_virtual_x+waypoint_x,0,screen_w-1);
+        int32_t waypoint_global_y=clamp_i32(
+            human_virtual_y+waypoint_y,0,screen_h-1);
+        waypoint_x=waypoint_global_x-human_virtual_x;
+        waypoint_y=waypoint_global_y-human_virtual_y;
+        human_path.second_leg_x=dx-waypoint_x;
+        human_path.second_leg_y=dy-waypoint_y;
+        human_path.second_leg_steps=(uint16_t)clamp_i32(
+            (int32_t)(steps-(steps*first_pct)/100u),8,HUMAN_PATH_MAX_STEPS);
+        int32_t curve_delta=(int32_t)random_range_u32(4u,14u);
+        if(random_next()&1u)curve_delta=-curve_delta;
+        human_path.second_leg_curve=clamp_i32(curve+curve_delta,0,200);
+        human_path.second_leg_pending=true;
+        uint16_t first_steps=(uint16_t)clamp_i32(
+            (int32_t)((steps*first_pct)/100u),8,HUMAN_PATH_MAX_STEPS);
+        human_leg(waypoint_x,waypoint_y,first_steps,curve);
+    } else human_leg(dx,dy,steps,curve);
+    if(human_path.mid_pause_ms)
+        human_path.mid_pause_step=(uint16_t)random_range_u32(
+            human_path.steps/3u,(human_path.steps*2u)/3u);
     return true;
 }
 static bool queue_frame(const char *payload, uint32_t now, ArmState next, bool fresh) {
@@ -578,6 +681,9 @@ void arm_uart_mouse_init(void) {
     human_display_configured=false;human_soft_boundary=false;
     human_soft_margin_x=human_soft_margin_y=0;
     human_moves_since_idle=human_next_idle=0u;
+    human_last_speed=1050u;human_last_curve=30;human_last_side=1;
+    human_mode=HUMAN_MODE_NORMAL;human_mode_moves_left=0u;
+    human_move_serial=0u;human_boot_mixed=false;prng=0x6d2b79f5u;
 }
 bool arm_uart_mouse_probe(uint32_t now) {
     if (state != ARM_IDLE) return false;
@@ -836,6 +942,19 @@ static void handle_line(uint32_t now) {
             pending_payload[0]=0;state=ARM_IDLE;
             if(human_path.step>=human_path.steps) {
                 if(human_path.phase==HUMAN_PATH_MOVE&&
+                   human_path.second_leg_pending) {
+                    int32_t next_x=human_path.second_leg_x;
+                    int32_t next_y=human_path.second_leg_y;
+                    int32_t next_curve=human_path.second_leg_curve;
+                    uint16_t next_steps=human_path.second_leg_steps;
+                    human_virtual_x+=human_path.leg_x;
+                    human_virtual_y+=human_path.leg_y;
+                    human_path.start_x=human_virtual_x;
+                    human_path.start_y=human_virtual_y;
+                    human_path.second_leg_pending=false;
+                    human_leg(next_x,next_y,next_steps,next_curve);
+                    human_path.next_due=now+random_range_u32(12u,45u);
+                } else if(human_path.phase==HUMAN_PATH_MOVE&&
                    human_path.correction_steps) {
                     int32_t current_x=human_path.start_x+human_path.leg_x;
                     int32_t current_y=human_path.start_y+human_path.leg_y;

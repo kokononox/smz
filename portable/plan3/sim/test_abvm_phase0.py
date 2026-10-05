@@ -165,7 +165,9 @@ budget_project = {"pipelines": {"Game": [
             node("delay", {"minMs": 100, "maxMs": 100}),
         ]),
         node("comment", {"text": "Next"}),
-        node("forLoop", {"mode": "infinite", "count": 0}, [
+        # The editor intentionally retains a stale count when changing modes.
+        # Native must encode infinite as count zero instead of running twice.
+        node("forLoop", {"mode": "infinite", "count": 2}, [
             node("delay", {"minMs": 70, "maxMs": 70}),
         ]),
         node("comment", {"text": "Next"}),
@@ -176,6 +178,10 @@ budget_compiled = abvm.Compiler().compile_amsj(budget_project, ("Game",))
 budget_image = abvm.Verifier.verify(budget_compiled.image)
 budget_begin = next(ins for ins in budget_image.instructions
                     if ins.op == abvm.OP_SCOPE_BEGIN)
+budget_infinite = next(ins for ins in budget_image.instructions
+                       if ins.op == abvm.OP_LOOP_ENTER and not ins.flags and
+                       ins.b == 0)
+assert budget_infinite.b == 0
 budget_raw = budget_image.const(budget_begin.a, abvm.CONST_SCOPE)
 assert struct.unpack_from("<BBBB", budget_raw) == \
        (2, abvm.SCOPE_KEEP_RUNNING_UNTIL_CANCELLED, 0xFF, 0)

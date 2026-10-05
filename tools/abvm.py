@@ -802,12 +802,18 @@ class Compiler:
     def compile_loop(self, node: dict[str, Any], depth: int,
                      path: tuple[int, ...]) -> None:
         p = props(node)
-        timed = str(p.get("mode") or "count").lower() == "time"
+        mode = str(p.get("mode") or "count").lower()
+        timed = mode == "time"
         if timed:
             unit = str(p.get("timeUnit") or "second").lower()
             scale = 60_000 if unit.startswith("min") else \
                 3_600_000 if unit.startswith("hour") else 1000
             value = integer(p.get("timeValue"), 1) * scale
+        elif mode == "infinite":
+            # Count zero is the VM's canonical infinite-loop encoding.  Do not
+            # consume a stale count retained by the editor when the user
+            # switches an existing loop from count to infinite.
+            value = 0
         else:
             value = max(0, integer(p.get("count"), 1))
         enter = self.emit(OP_LOOP_ENTER, flags=int(timed), b=value)

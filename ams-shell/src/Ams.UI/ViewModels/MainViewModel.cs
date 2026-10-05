@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.67 — step-by-step board wizard with per-device default board specs filled in for you, an editable board-spec form in step 2, and a port scan that lists only the boards actually attached");
+        Log("Classroom Studio v0.9.68 — portable human-mouse states, bounded multi-leg paths, per-boot variation, and correct Native infinite loops");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 
