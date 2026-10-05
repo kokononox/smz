@@ -334,7 +334,10 @@ static int verify_image(AbvmVm *vm) {
             int terminal_policy =
                 policy == ABVM_SCOPE_CANCEL_ON_TERMINAL_LANE && terminal < 2u;
             int join_policy = policy == ABVM_SCOPE_JOIN_ALL && terminal == 0xffu;
-            if (ins.flags != policy || (!terminal_policy && !join_policy))
+            int any_policy =
+                policy == ABVM_SCOPE_CANCEL_ON_ANY && terminal == 0xffu;
+            if (ins.flags != policy ||
+                (!terminal_policy && !join_policy && !any_policy))
                 return fail(vm, "scope descriptor");
             for (uint8_t lane = 0; lane < 2u; ++lane) {
                 uint32_t first=read_u32(payload+4u+(uint32_t)lane*8u);

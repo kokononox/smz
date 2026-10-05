@@ -467,9 +467,23 @@ public static class StepDefinitions
             Fields = new FieldDef[]
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
+                new("completionPolicy", "Completion priority", FieldKind.Combo, "waitAll",
+                    new[] { "waitAll", "watchLane", "firstCompleted" }),
             },
-            Summarize = s => $"⚡ Parallel Group · {s.Children.Count} step(s) run simultaneously · next step waits for the longest",
-            // v0.9.15 — structural: the runner executes children concurrently and joins on the longest
+            Summarize = s => {
+                var configured = PropEx.GetString(s.Props, "completionPolicy", "");
+                var hasWatch = ContainsWatch(s);
+                var policy = string.IsNullOrWhiteSpace(configured)
+                    ? (hasWatch ? "watchLane" : "waitAll") : configured;
+                var text = policy switch
+                {
+                    "watchLane" => "Watch/Catch lane wins; sibling lanes are cancelled",
+                    "firstCompleted" => "first completed lane wins; siblings are cancelled",
+                    _ => "wait for all lanes",
+                };
+                return $"⚡ Parallel Group · {s.Children.Count} step(s) · {text}";
+            },
+            // Explicit completion policy: waitAll, watchLane, or firstCompleted.
         },
         ["comment"] = new StepDefinition
         {
@@ -720,6 +734,10 @@ public static class StepDefinitions
             || t.Equals("End If", StringComparison.OrdinalIgnoreCase)
             || t.StartsWith("Else", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool ContainsWatch(StepNode node)
+        => node.Type is "waitForSound" or "waitForLight"
+           || node.Children.Any(ContainsWatch);
 
     private static string MarkerOrComment(string text)
         => IsStructuralMarker(text) ? text.Trim().ToLowerInvariant() : "# " + text;

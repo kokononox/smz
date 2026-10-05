@@ -872,10 +872,27 @@ class Compiler:
         if len(terminals) > 1:
             raise AbvmError(
                 "Parallel Group supports at most one terminal Watch lane")
-        terminal = terminals[0] if terminals else 0xFF
+        configured = str(props(node).get("completionPolicy") or "").strip()
+        if not configured:
+            # Preserve projects created before completionPolicy existed.
+            configured = "watchLane" if terminals else "waitAll"
+        if configured == "waitAll":
+            policy = SCOPE_JOIN_ALL
+            terminal = 0xFF
+        elif configured == "watchLane":
+            if len(terminals) != 1:
+                raise AbvmError(
+                    "watchLane requires exactly one lane containing a Watch")
+            policy = SCOPE_CANCEL_ON_TERMINAL_LANE
+            terminal = terminals[0]
+        elif configured == "firstCompleted":
+            policy = SCOPE_CANCEL_ON_ANY
+            terminal = 0xFF
+        else:
+            raise AbvmError(
+                f"unknown Parallel Group completionPolicy: {configured}")
         self.flags |= FLAG_HAS_SCOPE
         self.max_lanes = 2
-        policy = SCOPE_CANCEL_ON_TERMINAL_LANE if terminals else SCOPE_JOIN_ALL
         begin = self.emit(OP_SCOPE_BEGIN, flags=policy, a=2)
         ranges = []
         self.scope_depth += 1
@@ -1472,6 +1489,10 @@ class Verifier:
                     if policy == SCOPE_CANCEL_ON_TERMINAL_LANE and \
                             terminal >= lanes:
                         raise AbvmError("Scope terminal lane is missing")
+                    if policy != SCOPE_CANCEL_ON_TERMINAL_LANE and \
+                            terminal != 0xFF:
+                        raise AbvmError(
+                            "non-terminal Scope policy has a terminal lane")
                     measured_lanes = max(measured_lanes, lanes)
                     for i in range(lanes):
                         first, last = struct.unpack_from("<II", raw, 4 + i * 8)
