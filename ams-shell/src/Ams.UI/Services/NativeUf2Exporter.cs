@@ -130,7 +130,9 @@ public static class NativeUf2Exporter
             ["autoResume"] = settings.AutoResumeEnabled,
             ["runMinSeconds"] = restartMin * 60,
             ["runMaxSeconds"] = restartMax * 60,
-            ["maxRestarts"] = 5,
+            // The initial run is round 1. Four restart/resume transitions create
+            // rounds 2..5; the next deadline must start Finish, not a sixth run.
+            ["maxRestarts"] = 4,
             // USB can enumerate during BIOS or early Windows boot.  Require a
             // longer continuous-UP settle so Startup runs after the desktop is
             // usable, before the post-restart Guard watchdog is armed.

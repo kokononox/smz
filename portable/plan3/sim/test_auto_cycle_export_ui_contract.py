@@ -48,7 +48,8 @@ assert '"Whisper", "WhisperRepeat", "Finish"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter
 assert 'root["nativeCycle"] = BuildNativeCycle(settings)' in native_exporter
 assert '["usbStableMs"] = 30000' in native_exporter
-assert '"runMinSeconds"' in native_exporter and '"maxRestarts"' in native_exporter
+assert '"runMinSeconds"' in native_exporter and '["maxRestarts"] = 4' in native_exporter
+assert "initial run is round 1" in native_exporter and "rounds 2..5" in native_exporter
 assert "LightStateProfileStore.Load()" in native_exporter
 assert "PipelineWorkspaceSerializer.Serialize(workspace)" in native_exporter
 assert "abvm_uf2.py" in native_exporter and "File.Copy(patched, outputUf2, true)" in native_exporter
