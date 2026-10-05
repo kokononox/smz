@@ -98,3 +98,14 @@ Private local deliverables:
 
 The personalized AMSJ and its generated project UF2 remain local session
 artifacts and are not committed to the public repository.
+
+### Windows packaging correction
+
+The first `0.9.68` ZIP accidentally contained the extensionless Linux apphost
+from a cross-platform `dotnet build`. It is superseded by a `dotnet publish`
+for `win-x64` that contains a PE32+ `ClassroomStudio.exe`. The packaged JSON
+and emergency fallback now use the approved light profiles: Desktop 59±1,
+Login/DC 74±13.5, Character Dashboard 43±1, Entering Game Loading 3±1,
+Game 33±0.7, Targeted 36.7±0.5, Whisper 100±1 with 5,000 ms cooldown, and
+Whisper Repeat 23±2.5 with 1,000,000 ms cooldown. Every profile keeps 750 ms
+stability and 1 lux hysteresis.

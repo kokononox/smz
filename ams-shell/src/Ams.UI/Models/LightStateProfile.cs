@@ -97,18 +97,18 @@ public static class LightStateDefaults
     /// <summary>Phase-four emergency fallback values; the packaged JSON is the hardware source.</summary>
     public static List<LightStateProfile> CreateInitialProfiles() => new()
     {
-        Profile("desktop", "دسکتاپ", 0, 1),
-        Profile("login-or-dc", "صفحه لاگین یا DC", 25, 2),
-        Profile("character-dashboard", "داشبورد انتخاب کرکترها", 31, 3),
-        Profile("entering-game-loading", "صفحه لود ورود به بازی", 5, 4),
-        Profile("game", "محیط بازی", 26, 5),
-        Profile("targeted", "تارگت شدن توسط افراد", 20, 6),
-        Profile("whisper", "ویسپر افراد جدید", 55, 7, 5000),
-        Profile("whisper-repeat", "ویسپر افراد تکراری", 60, 8, 10000),
+        Profile("desktop", "دسکتاپ", 59, 1, tolerance: 1),
+        Profile("login-or-dc", "صفحه لاگین یا DC", 74, 2, tolerance: 13.5),
+        Profile("character-dashboard", "داشبورد انتخاب کرکترها", 43, 3, tolerance: 1),
+        Profile("entering-game-loading", "صفحه لود ورود به بازی", 3, 4, tolerance: 1),
+        Profile("game", "محیط بازی", 33, 5, tolerance: 0.7),
+        Profile("targeted", "تارگت شدن توسط افراد", 36.7, 6, tolerance: 0.5),
+        Profile("whisper", "ویسپر افراد جدید", 100, 7, 5000, tolerance: 1),
+        Profile("whisper-repeat", "ویسپر افراد تکراری", 23, 8, 1000000, tolerance: 2.5),
     };
 
     private static LightStateProfile Profile(string id, string name, double center, int cue,
-        int lightCooldownMs = 0)
+        int lightCooldownMs = 0, double tolerance = 2)
     {
         var preset = CalibrationCueCatalog.Get(cue);
         return new LightStateProfile
@@ -116,7 +116,7 @@ public static class LightStateDefaults
             Id = id,
             Name = name,
             LuxCenter = center,
-            LuxTolerance = 2,
+            LuxTolerance = tolerance,
             StableDurationMs = 750,
             HysteresisLux = 1,
             LightCooldownMs = lightCooldownMs,

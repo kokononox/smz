@@ -1,5 +1,11 @@
 ## v0.9.68 — portable human-mouse v3 and Native infinite-loop fix
 
+- Corrected the local Windows deliverable to publish a real `win-x64`
+  `ClassroomStudio.exe` instead of packaging the Linux apphost produced by a
+  cross-platform build.
+- Updated the packaged and emergency-fallback light profiles to the approved
+  eight-profile calibration, including 5,000 ms Whisper and 1,000,000 ms
+  Whisper Repeat optical cooldowns.
 - Fixed Native `forLoop` compilation so `mode=infinite` always emits the VM's
   canonical zero count, even when the editor retains a stale finite count.
 - Added four slowly varying, board-local movement states: focused, normal,

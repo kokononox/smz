@@ -3,8 +3,8 @@
     "Id": "desktop",
     "Name": "دسکتاپ",
     "Enabled": true,
-    "LuxCenter": 45,
-    "LuxTolerance": 5,
+    "LuxCenter": 59,
+    "LuxTolerance": 1,
     "StableDurationMs": 750,
     "HysteresisLux": 1
   },
@@ -12,8 +12,8 @@
     "Id": "login-or-dc",
     "Name": "صفحه لاگین یا DC",
     "Enabled": true,
-    "LuxCenter": 2.5,
-    "LuxTolerance": 1,
+    "LuxCenter": 74,
+    "LuxTolerance": 13.5,
     "StableDurationMs": 750,
     "HysteresisLux": 1
   },
@@ -21,8 +21,8 @@
     "Id": "character-dashboard",
     "Name": "داشبورد انتخاب کرکترها",
     "Enabled": true,
-    "LuxCenter": 15.3,
-    "LuxTolerance": 3,
+    "LuxCenter": 43,
+    "LuxTolerance": 1,
     "StableDurationMs": 750,
     "HysteresisLux": 1
   },
@@ -30,7 +30,7 @@
     "Id": "entering-game-loading",
     "Name": "صفحه لود ورود به بازی",
     "Enabled": true,
-    "LuxCenter": 38.3,
+    "LuxCenter": 3,
     "LuxTolerance": 1,
     "StableDurationMs": 750,
     "HysteresisLux": 1
@@ -39,8 +39,8 @@
     "Id": "game",
     "Name": "محیط بازی",
     "Enabled": true,
-    "LuxCenter": 25,
-    "LuxTolerance": 2,
+    "LuxCenter": 33,
+    "LuxTolerance": 0.7,
     "StableDurationMs": 750,
     "HysteresisLux": 1
   },
@@ -57,18 +57,20 @@
     "Id": "whisper",
     "Name": "ویسپر",
     "Enabled": true,
-    "LuxCenter": 9.2,
-    "LuxTolerance": 0.5,
+    "LuxCenter": 100,
+    "LuxTolerance": 1,
     "StableDurationMs": 750,
-    "HysteresisLux": 1
+    "HysteresisLux": 1,
+    "LightCooldownMs": 5000
   },
   {
     "Id": "whisper-repeat",
     "Name": "ویسپر افراد تکراری",
     "Enabled": true,
-    "LuxCenter": 30,
-    "LuxTolerance": 2,
+    "LuxCenter": 23,
+    "LuxTolerance": 2.5,
     "StableDurationMs": 750,
-    "HysteresisLux": 1
+    "HysteresisLux": 1,
+    "LightCooldownMs": 1000000
   }
 ]
