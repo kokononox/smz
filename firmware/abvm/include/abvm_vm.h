@@ -84,6 +84,7 @@ typedef struct AbvmScopeState {
     uint8_t reserved[3];
     uint32_t parent_pc;
     uint32_t parent_end_pc;
+    uint32_t deadline;
 } AbvmScopeState;
 
 typedef struct AbvmContext {

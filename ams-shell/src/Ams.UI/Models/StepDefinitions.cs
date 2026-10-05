@@ -468,7 +468,10 @@ public static class StepDefinitions
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
                 new("completionPolicy", "Completion priority", FieldKind.Combo, "waitAll",
-                    new[] { "waitAll", "watchLane", "firstCompleted" }),
+                    new[] { "waitAll", "watchLane", "firstCompleted", "timeBudget" }),
+                new("budgetValue", "Time budget value (used by timeBudget)", FieldKind.Int, "10"),
+                new("budgetUnit", "Time budget unit (used by timeBudget)", FieldKind.Combo, "minute",
+                    new[] { "second", "minute", "hour" }),
             },
             Summarize = s => {
                 var configured = PropEx.GetString(s.Props, "completionPolicy", "");
@@ -479,11 +482,12 @@ public static class StepDefinitions
                 {
                     "watchLane" => "Watch/Catch lane wins; sibling lanes are cancelled",
                     "firstCompleted" => "first completed lane wins; siblings are cancelled",
+                    "timeBudget" => $"run for {PropEx.GetInt(s.Props, "budgetValue", 10)} {PropEx.GetString(s.Props, "budgetUnit", "minute")}(s); then cancel all lanes",
                     _ => "wait for all lanes",
                 };
                 return $"⚡ Parallel Group · {s.Children.Count} step(s) · {text}";
             },
-            // Explicit completion policy: waitAll, watchLane, or firstCompleted.
+            // Explicit completion policy: waitAll, watchLane, firstCompleted, or timeBudget.
         },
         ["comment"] = new StepDefinition
         {

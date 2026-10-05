@@ -152,6 +152,40 @@ assert any(event[0] == "SCOPE_RESUME" and event[1] == "CANCEL_ON_ANY"
 assert any(event[0] == "KEY" and 90 in event[1] for event in first_events)
 assert first_vm.now < 450
 
+# timeBudget is controlled only by the wall-clock budget. A finite fishing
+# lane may finish early while an independent mouse worker keeps running; at
+# the deadline every unfinished lane is cancelled and the parent resumes.
+budget_project = {"pipelines": {"Game": [
+    node("parallelGroup", {
+        "completionPolicy": "timeBudget",
+        "budgetValue": 1,
+        "budgetUnit": "second",
+    }, [
+        node("forLoop", {"mode": "count", "count": 2}, [
+            node("delay", {"minMs": 100, "maxMs": 100}),
+        ]),
+        node("comment", {"text": "Next"}),
+        node("forLoop", {"mode": "infinite", "count": 0}, [
+            node("delay", {"minMs": 70, "maxMs": 70}),
+        ]),
+        node("comment", {"text": "Next"}),
+    ]),
+    node("keystroke", {"key": "Z", "holdMin": 30, "holdMax": 30}),
+]}}
+budget_compiled = abvm.Compiler().compile_amsj(budget_project, ("Game",))
+budget_image = abvm.Verifier.verify(budget_compiled.image)
+budget_begin = next(ins for ins in budget_image.instructions
+                    if ins.op == abvm.OP_SCOPE_BEGIN)
+budget_raw = budget_image.const(budget_begin.a, abvm.CONST_SCOPE)
+assert struct.unpack_from("<BBBB", budget_raw) == \
+       (2, abvm.SCOPE_KEEP_RUNNING_UNTIL_CANCELLED, 0xFF, 0)
+assert budget_begin.b == 1000
+budget_vm = abvm.ReferenceVm(budget_compiled.image, seed=1)
+budget_events = budget_vm.run("Game")
+assert ("SCOPE_RESUME", "TIME_BUDGET", 1000) in budget_events
+assert any(event[0] == "KEY" and 90 in event[1] for event in budget_events)
+assert 1000 <= budget_vm.now < 1100
+
 # watchLane is intentionally strict: a malformed group must fail at compile
 # time instead of silently waiting for the wrong lane.
 try:

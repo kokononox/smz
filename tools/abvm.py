@@ -873,6 +873,7 @@ class Compiler:
             raise AbvmError(
                 "Parallel Group supports at most one terminal Watch lane")
         configured = str(props(node).get("completionPolicy") or "").strip()
+        budget_ms = 0
         if not configured:
             # Preserve projects created before completionPolicy existed.
             configured = "watchLane" if terminals else "waitAll"
@@ -888,12 +889,22 @@ class Compiler:
         elif configured == "firstCompleted":
             policy = SCOPE_CANCEL_ON_ANY
             terminal = 0xFF
+        elif configured == "timeBudget":
+            unit = str(props(node).get("budgetUnit") or "minute").lower()
+            scale = 60_000 if unit.startswith("min") else \
+                3_600_000 if unit.startswith("hour") else 1000
+            budget_ms = integer(props(node).get("budgetValue"), 10) * scale
+            if not 1 <= budget_ms <= 0x7FFFFFFF:
+                raise AbvmError(
+                    "timeBudget duration must be between 1 ms and 2^31-1 ms")
+            policy = SCOPE_KEEP_RUNNING_UNTIL_CANCELLED
+            terminal = 0xFF
         else:
             raise AbvmError(
                 f"unknown Parallel Group completionPolicy: {configured}")
         self.flags |= FLAG_HAS_SCOPE
         self.max_lanes = 2
-        begin = self.emit(OP_SCOPE_BEGIN, flags=policy, a=2)
+        begin = self.emit(OP_SCOPE_BEGIN, flags=policy, a=2, b=budget_ms)
         ranges = []
         self.scope_depth += 1
         try:
@@ -1493,6 +1504,13 @@ class Verifier:
                             terminal != 0xFF:
                         raise AbvmError(
                             "non-terminal Scope policy has a terminal lane")
+                    if policy == SCOPE_KEEP_RUNNING_UNTIL_CANCELLED:
+                        if ins.b <= 0:
+                            raise AbvmError(
+                                "time-budget Scope duration is missing")
+                    elif ins.b != 0:
+                        raise AbvmError(
+                            "non-time-budget Scope has a duration")
                     measured_lanes = max(measured_lanes, lanes)
                     for i in range(lanes):
                         first, last = struct.unpack_from("<II", raw, 4 + i * 8)
@@ -1694,8 +1712,17 @@ class ReferenceVm:
     def step_next(self) -> bool:
         if not self.running or self.paused:
             return False
+        budget_groups: list[dict[str, Any]] = []
+        seen_groups: set[int] = set()
+        for item in self.lanes:
+            group = item.group
+            if group is not None and \
+                    group["policy"] == SCOPE_KEEP_RUNNING_UNTIL_CANCELLED and \
+                    id(group) not in seen_groups:
+                seen_groups.add(id(group))
+                budget_groups.append(group)
         active = [lane for lane in self.lanes if lane.active]
-        if not active:
+        if not active and not budget_groups:
             if self.suspended:
                 finished = self.current_route_name
                 context = self.suspended.pop()
@@ -1709,7 +1736,15 @@ class ReferenceVm:
             self.running = False
             self.events.append(("ROUTE_COMPLETE", self.current_route_name, self.now))
             return False
-        self.now = max(self.now, min(lane.due for lane in active))
+        due_times = [lane.due for lane in active]
+        due_times.extend(group["deadline"] for group in budget_groups)
+        self.now = max(self.now, min(due_times))
+        expired = next((
+            group for group in budget_groups
+            if self.now >= group["deadline"]), None)
+        if expired is not None:
+            self.resume_scope(expired, "TIME_BUDGET")
+            return True
         lane = next(item for item in active if item.due <= self.now)
         self.step(lane)
         return True
@@ -1727,11 +1762,17 @@ class ReferenceVm:
 
     @staticmethod
     def shift_context_deadlines(lanes: list[Lane], delta: int) -> None:
+        shifted_groups: set[int] = set()
         for lane in lanes:
             lane.due += delta
             for frame in lane.frames or []:
                 if frame.get("deadline") is not None:
                     frame["deadline"] += delta
+            if lane.group is not None and \
+                    lane.group["policy"] == SCOPE_KEEP_RUNNING_UNTIL_CANCELLED and \
+                    id(lane.group) not in shifted_groups:
+                lane.group["deadline"] += delta
+                shifted_groups.add(id(lane.group))
 
     def pause(self) -> bool:
         if not self.running or self.paused:
@@ -1794,6 +1835,15 @@ class ReferenceVm:
         self.suspended.clear()
         self.events.append(("STOP", self.current_route_name, self.now))
 
+    def resume_scope(self, group: dict[str, Any], reason: str | None = None) -> None:
+        for sibling in group["children"]:
+            sibling.active = False
+            sibling.group = None
+        parent = group["parent"]
+        parent.active, parent.due = True, self.now
+        label = reason or SCOPE_POLICIES[group["policy"]]
+        self.events.append(("SCOPE_RESUME", label, self.now))
+
     def finish_lane(self, lane: Lane) -> None:
         lane.active = False
         if lane.group is None:
@@ -1803,11 +1853,7 @@ class ReferenceVm:
         resume = policy == SCOPE_CANCEL_ON_ANY or \
             (policy == SCOPE_CANCEL_ON_TERMINAL_LANE and lane.terminal)
         if resume:
-            for sibling in group["children"]:
-                sibling.active = False
-            parent = group["parent"]
-            parent.active, parent.due = True, self.now
-            self.events.append(("SCOPE_RESUME", SCOPE_POLICIES[policy], self.now))
+            self.resume_scope(group)
         elif policy == SCOPE_JOIN_ALL and \
                 not any(child.active for child in group["children"]):
             parent = group["parent"]
@@ -1900,6 +1946,8 @@ class ReferenceVm:
             parent.pc, parent.active = ins.d, False
             group: dict[str, Any] = {
                 "parent": parent, "children": [], "policy": policy,
+                "deadline": self.now + ins.b
+                if policy == SCOPE_KEEP_RUNNING_UNTIL_CANCELLED else None,
             }
             for i in range(count):
                 start, end = struct.unpack_from("<II", raw, 4 + i * 8)
