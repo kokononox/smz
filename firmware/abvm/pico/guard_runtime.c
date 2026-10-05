@@ -50,6 +50,7 @@ typedef struct GuardState {
     uint8_t last_stable;
     uint8_t stage;
     bool targeted_active;
+    bool dc_then_login_pending;
     bool whisper_light_active;
     uint16_t whisper_light_route;
     bool input_locked;
@@ -175,6 +176,7 @@ static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
 }
 static void fault(AbvmVm *vm, uint32_t now, const char *reason) {
     guard.running = false;
+    guard.dc_then_login_pending = false;
     emit(GUARD_EVENT_FAULT, guard.active, 0u, 0u, 0u, reason);
     abvm_stop(vm, now);
 }
@@ -215,10 +217,13 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
         guard.whisper_was_active=false;
         if (guard.targeted_active || guard.stage >= 3u) {
             guard.stage = 2u;
+            guard.targeted_active = false;
+            guard.dc_then_login_pending = true;
             watchdog_advance(now);
             execute(vm, profile_id, GUARD_ROUTE_DC, 2u, lux, now,
                     "dc-fallback-to-stage-2");
         } else if (guard.stage == 1u) {
+            guard.dc_then_login_pending = false;
             guard.stage = 2u;
             watchdog_advance(now);
             execute(vm, profile_id, profile->route_id, 1u, lux, now,
@@ -424,6 +429,7 @@ bool guard_runtime_start(uint32_t now) {
     guard.paused = false;
     guard.active = guard.candidate = guard.last_stable = guard.stage = 0u;
     guard.targeted_active = false;
+    guard.dc_then_login_pending = false;
     guard.whisper_light_active = false;
     guard.whisper_light_route = 0u;
     guard.whisper_pending=false;
@@ -459,6 +465,7 @@ void guard_runtime_stop(void) {
     guard.paused = false;
     guard.active = guard.candidate = guard.last_stable = 0u;
     guard.targeted_active = false;
+    guard.dc_then_login_pending = false;
     guard.whisper_light_active = false;
     guard.whisper_light_route = 0u;
     guard.whisper_pending=false;
@@ -561,6 +568,10 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
 void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if (!guard.running || !vm) return;
+    /* DC is a required recovery macro.  Do not let a fast Dashboard/Login
+     * light change abort it before its completion event can chain Login/DC. */
+    if (guard.dc_then_login_pending && vm->status == ABVM_STATUS_RUNNING &&
+        vm->route_id == GUARD_ROUTE_DC) return;
     if (whisper_route_active(vm)) {
         guard.whisper_was_active=true;
         /*
@@ -641,6 +652,19 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     guard.active = match->id;
     guard.candidate = 0u;
     transition(vm, match->id, lux, now);
+}
+bool guard_runtime_route_complete(AbvmVm *vm,uint16_t route_id,
+                                  uint32_t now) {
+    if(!guard.running||!guard.dc_then_login_pending||
+       route_id!=GUARD_ROUTE_DC||!vm)return false;
+    guard.dc_then_login_pending=false;
+    GuardProfile *login=profile_by_id(2u);
+    if(!login){fault(vm,now,"login-or-dc-profile-missing");return true;}
+    /* Keep stage 2 and the stable Login/DC optical latch.  The next stable
+     * Dashboard sample will continue the normal 2 -> 3 -> 4 -> 5 order. */
+    execute(vm,2u,login->route_id,1u,0u,now,
+            "dc-complete-to-login-or-dc");
+    return true;
 }
 bool guard_runtime_take_event(GuardRuntimeEvent *event) {
     if (!guard.event_pending || !event) return false;

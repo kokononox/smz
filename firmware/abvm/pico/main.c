@@ -1053,6 +1053,7 @@ static void service_vm(uint32_t now) {
         case ABVM_EVENT_INTERRUPT_RESUME: printf("CONTROL|interrupt-resume|route=%u\n", vm.route_id); break;
         case ABVM_EVENT_ROUTE_COMPLETE: {
             release_all_actors(now);printf("ROUTE|complete|route=%u\n",event.route_id);
+            (void)guard_runtime_route_complete(&vm,event.route_id,now);
             if(cycle_runtime_route_complete(event.route_id,now)) {
                 printf("EVT|CYCLE|startup-complete|next=login-or-dc|desktop=skip|cycle=%u\n",
                        cycle_runtime_count());
