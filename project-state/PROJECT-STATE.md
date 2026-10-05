@@ -2,16 +2,15 @@
 
 > منبع حقیقت جاری پروژه؛ تاریخچه‌ی کامل در صفحه‌ی Notion پروژه نگهداری می‌شود.
 
-## وضعیت لحظه‌ای — ۲۰۲۶-۰۹-۱۵
+## وضعیت لحظه‌ای — ۲۰۲۶-۱۰-۰۵
 
-- مخزن فعال: `kirobesaban/smc-1`.
-- شاخه‌ی پایدار: `main`.
-- PRهای `#155`، `#156` و `#157` به‌ترتیب merge شده‌اند.
-- شاخه‌ی جاری: `feature/light-state-profiles`.
-- PR جاری: `#158`، مستقیماً روی `main`، Ready for review و mergeable.
-- چهار gate نهایی سبزند: portable contracts، Windows build/TestRunner، sensitive guard و downloadable package.
-- بستهٔ تست gated توسط AutoCycle منتشر می‌شود؛ شمارهٔ دقیق آخرین Release در PR و صفحهٔ Releases ثبت است.
-- خط ریلیز اپ: `0.9.67 / PLAN|2`.
+- مخزن فعال: `kokononox/smz`.
+- شاخهٔ ادغام Native جاری: `arch/abvm-phase0`.
+- PRهای `#123`، `#124` و `#125` به‌ترتیب زنجیره DC/Login، سیاست‌های پایان گروه موازی و `timeBudget` را اضافه کرده‌اند.
+- `timeBudget` روی commit `e72643a` ادغام شده است؛ Release بعدی به‌علت نگرفتن GitHub-hosted runner منتشر نشد، اما بیلد Windows x64 و گیت‌های پرتابل به‌صورت محلی موفق بودند.
+- قرارداد فعلی ماهیگیری: بودجه ۹ دقیقه، سقف ۸۰ دور، مسیر مستقل موس، Catch با threshold 40 و Soft Boundary چهاردرصد.
+- فایل AMSJ دارای پروفایل شخصی حرکت دست است و بدون اجازهٔ جداگانه در مخزن عمومی ثبت نمی‌شود؛ جزئیات و SHA-256 در `docs/session-2026-10-05-timebudget-human-mouse.md` ثبت شده‌اند.
+- ارتقای بعدی فقط پرتابل است: Pico مغز مستقل و Pro Micro بازوی Mouse/Sound می‌مانند؛ هیچ وابستگی Host، شبکه، Vision یا OS اضافه نمی‌شود.
 
 ## معماری تثبیت‌شده
 
