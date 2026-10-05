@@ -34,6 +34,7 @@ bool guard_runtime_resume(void);
 void guard_runtime_service(AbvmVm *vm, uint32_t now);
 void guard_runtime_set_input_locked(bool locked);
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux_tenths, uint32_t now);
+bool guard_runtime_route_complete(AbvmVm *vm, uint16_t route_id, uint32_t now);
 bool guard_runtime_take_event(GuardRuntimeEvent *event);
 bool guard_runtime_running(void);
 bool guard_runtime_paused(void);

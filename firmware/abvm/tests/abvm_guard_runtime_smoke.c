@@ -115,6 +115,30 @@ int main(int argc, char **argv) {
     if (!stable(&vm, 2000u, 2900u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
+    /* Dashboard -> DC must run the dedicated DC macro completely, then
+     * chain Login/DC before ordered Dashboard -> Loading -> Game recovery. */
+    if (!require(guard_runtime_start(3000u),
+                 "restart Guard for Dashboard DC chain") ||
+        !stable(&vm,1000u,3000u,1u,1u) ||
+        !stable(&vm,2000u,3200u,4u,2u) ||
+        !stable(&vm,3000u,3400u,6u,3u) ||
+        !stable(&vm,2000u,3600u,5u,2u)) return 1;
+    guard_runtime_observe(&vm,3000u,3800u);
+    guard_runtime_observe(&vm,3000u,3900u);
+    if (!require(vm.route_id==5u && !guard_runtime_take_event(&event),
+                 "Dashboard light cannot abort the DC macro")) return 1;
+    if (!require(guard_runtime_route_complete(&vm,5u,4000u),
+                 "DC completion is handled") ||
+        !require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_ROUTE && event.route_id==4u &&
+                 event.stage==2u && event.reason &&
+                 !strcmp(event.reason,"dc-complete-to-login-or-dc") &&
+                 vm.route_id==4u,
+                 "DC chains Login/DC")) return 1;
+    if (!stable(&vm,3000u,4200u,6u,3u) ||
+        !stable(&vm,4000u,4400u,7u,4u) ||
+        !stable(&vm,5000u,4600u,8u,5u)) return 1;
+
     /*
      * Disconnect is the only optical profile allowed to preempt Whisper.
      * Start directly at Game, enter a non-light Whisper, then hold DC for its
