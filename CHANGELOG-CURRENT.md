@@ -1,3 +1,21 @@
+## v0.9.68 — portable human-mouse v3 and Native infinite-loop fix
+
+- Fixed Native `forLoop` compilation so `mode=infinite` always emits the VM's
+  canonical zero count, even when the editor retains a stale finite count.
+- Added four slowly varying, board-local movement states: focused, normal,
+  idle, and fatigued. A state persists for 6–18 moves rather than changing
+  independently on every action.
+- Correlated each state with bounded selections inside the authored speed,
+  duration, curvature, and pause ranges; correction probability remains capped.
+- Added compact two-leg geometry for selected movements of at least 450 pixels.
+  Waypoints stay on-screen, the authored destination is preserved exactly, and
+  overshoot still uses the existing bounded correction phase.
+- Mixed the first movement's board-local uptime into the Pico PRNG so cold
+  boots do not replay the same sequence. No host cursor, OS, network, or vision
+  dependency was introduced.
+- Added deterministic contracts for stale-count infinite loops, state cadence,
+  per-boot variation, multi-leg endpoint conservation, and hostless operation.
+
 ## ABVM native R30 — Classroom Light Watch accepts Native sample age
 
 - Classroom's strict light-telemetry parser now accepts the Native Pico reply

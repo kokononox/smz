@@ -11,9 +11,10 @@
     <ProjectReference Include="../ams-shell/src/Ams.UI/Ams.UI.csproj" />
     <Compile Remove="LightTelemetryTests\**\*.cs" />
   </ItemGroup>
-  <!-- v0.9.67: keep the long-lived runner source compatible with the current Insert contract.
+  <!-- v0.9.68: keep the long-lived runner source compatible with the current Insert contract.
        playAudio remains registered for old .amsj files; buzzer and Launch recovery are visible actions. -->
-  <Target Name="AlignLegacyRailContract" BeforeTargets="CoreCompile">
+  <Target Name="AlignLegacyRailContract" BeforeTargets="CoreCompile"
+          Condition="'$(OS)' == 'Windows_NT'">
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$p = Join-Path '$(MSBuildProjectDirectory)' 'TestRunner.cs'; $s = [IO.File]::ReadAllText($p); $old = [char]34 + 'openFile' + [char]34 + ', ' + [char]34 + 'playAudio' + [char]34 + ', ' + [char]34 + 'runExe' + [char]34; $new = $old.Replace('playAudio','buzzer'); if ($s.Contains($old)) { [IO.File]::WriteAllText($p, $s.Replace($old, $new)) } elseif (-not $s.Contains($new)) { throw 'legacy rail contract marker not found' }&quot;" />
   </Target>
 </Project>

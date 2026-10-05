@@ -58,3 +58,43 @@ Candidate implementation scope:
 - Run portable/ABVM/C contracts.
 - Inspect the packaged artifact before delivery.
 - Commit and push source plus this handoff update before distributing a new build.
+
+## v0.9.68 local build result
+
+The approved portable-only phase was implemented on
+`feature/portable-human-mouse`.
+
+- Native `mode=infinite` now always compiles to the VM's zero-count encoding;
+  a retained editor count can no longer stop the mouse worker after two runs.
+- The Pico mouse actor now keeps one of four board-local states for 6–18 moves:
+  focused, normal, idle, or fatigued.
+- Speed, duration, curvature, pauses, and correction probability are sampled
+  coherently inside bounded authored/profile ranges.
+- Selected moves of at least 450 pixels use an on-screen two-leg path while
+  retaining exact final targeting and bounded overshoot correction.
+- First-use board uptime is mixed into the PRNG, avoiding identical cold-boot
+  sequences without host cursor, OS, network, or vision input.
+- Classroom Studio was advanced to `0.9.68`.
+
+Validation:
+
+- 67 Portable/ABVM contract files passed.
+- Pico Bridge transport: 18 passed, 0 failed.
+- ABVM C smoke tests passed.
+- Pico firmware compiled; 30 non-empty identity templates were generated.
+- Windows application compiled with 0 errors.
+- TestRunner and LightTelemetryTests compiled with 0 errors. Their Windows
+  Desktop executables cannot run on the Linux build host.
+
+Private local deliverables:
+
+- `autocycle5-80-times-v8-human-mouse-v3.amsj`
+  - SHA-256: `99d78195cb9cb4e6c40c0cd20c22cc33eadf574ec4190437dfa8d3d94545cda5`
+  - All 15 mouse siblings inside fishing `timeBudget` groups use true
+    `infinite`; every fishing sibling remains capped at 80 iterations.
+- `autocycle5-human-mouse-v3-runtime-NB01.uf2`
+  - SHA-256: `ddb6b9ecb33c1eafc5aacd5f4be6d978712a43363f06388b9693a15224c2a696`
+  - 12 routes, 3,521 instructions, two lanes, 195,328-byte ABP payload.
+
+The personalized AMSJ and its generated project UF2 remain local session
+artifacts and are not committed to the public repository.
