@@ -149,7 +149,7 @@
                 <MenuItem Header="_Delay" Command="{Binding AddStepCommand}" CommandParameter="delay" />
                 <MenuItem Header="_For Loop" Command="{Binding AddStepCommand}" CommandParameter="forLoop" />
                 <MenuItem Header="Random Pac_kage" Command="{Binding AddStepCommand}" CommandParameter="randomPackage" />
-                <MenuItem Header="Run in Parallel (grou_p) — choose waitAll, watchLane, or firstCompleted" Command="{Binding AddStepCommand}" CommandParameter="parallelGroup" />
+                <MenuItem Header="Run in Parallel (grou_p) — choose waitAll, watchLane, firstCompleted, or timeBudget" Command="{Binding AddStepCommand}" CommandParameter="parallelGroup" />
                 <Separator />
                 <MenuItem Header="_Find Image On Screen" Command="{Binding AddStepCommand}" CommandParameter="findImage" />
                 <MenuItem Header="Wait For _Sound" Command="{Binding AddStepCommand}" CommandParameter="waitForSound" />

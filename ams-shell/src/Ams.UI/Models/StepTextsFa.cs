@@ -18,7 +18,9 @@ public static class StepTextsFa
     {
         // ── v0.9.55 — renameable container heads
         ["title"] = "عنوان مجموعه (خالی = نام پیش‌فرض)",
-        ["completionPolicy"] = "شرط پایان گروه موازی (waitAll = انتظار برای همه · watchLane = پایان مسیر Watch/Catch · firstCompleted = اولین مسیر تمام‌شده)",
+        ["completionPolicy"] = "شرط پایان گروه موازی (waitAll = انتظار برای همه · watchLane = پایان مسیر Watch/Catch · firstCompleted = اولین مسیر · timeBudget = پایان زمان تعیین‌شده)",
+        ["budgetValue"] = "مدت اجرای گروه در حالت timeBudget",
+        ["budgetUnit"] = "واحد مدت اجرای گروه در حالت timeBudget",
         // ── shared human-mouse fields (mouseMove + findImage approach + randomMousePosition) ──
         ["human"] = "حرکت انسانی (مسیر WindMouse + مکث‌ها سمت اپ — خاموش = پرش فوری برد)",
         ["motionIntent"] = "نوع حرکت (targetRegion = رفتن به ناحیه هدف · microTwitch = ریزحرکت · mediumTwitch = حرکت متوسط)",

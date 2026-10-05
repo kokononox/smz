@@ -836,9 +836,10 @@ public sealed class RunEngine
 
     /// <summary>Parallel Group completion is explicit:
     /// waitAll joins every lane; watchLane resumes as soon as the single Watch/Catch lane ends;
-    /// firstCompleted resumes when any lane ends. The two winning policies cancel unfinished
-    /// siblings before the parent continues. Projects saved before completionPolicy existed keep
-    /// their legacy behavior: a single Watch lane wins, otherwise all lanes are joined.</summary>
+    /// firstCompleted resumes when any lane ends; timeBudget keeps the scope alive for its exact
+    /// wall-clock budget, even if one worker finishes early, then cancels all remaining workers.
+    /// Projects saved before completionPolicy existed keep their legacy behavior: a single Watch
+    /// lane wins, otherwise all lanes are joined.</summary>
     private async Task RunParallelGroupAsync(StepNode s, CancellationToken ct)
     {
         static bool IsNextMarker(StepNode node)
@@ -886,20 +887,52 @@ public sealed class RunEngine
         if (policy == "watchLane" && watchLanes.Count != 1)
             throw new InvalidOperationException(
                 "Parallel Group watchLane requires exactly one lane containing Wait For Sound/Light.");
-        if (policy is not ("waitAll" or "watchLane" or "firstCompleted"))
+        if (policy is not ("waitAll" or "watchLane" or "firstCompleted" or "timeBudget"))
             throw new InvalidOperationException(
                 $"Unknown Parallel Group completion policy: {policy}");
 
         _log($"⚡ parallel group: {lanes.Count} lanes start together ({policy})");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var faultSignal = new TaskCompletionSource<Exception>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         _parallelDepth++;
         try
         {
             var tasks = lanes.Select(lane => Task.Run(async () =>
             {
                 try { await RunStepsAsync(lane, linked.Token); }
-                catch { linked.Cancel(); throw; }   // first fault stops the sibling branches
+                catch (OperationCanceledException) when (linked.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    faultSignal.TrySetResult(ex);
+                    linked.Cancel();
+                    throw;
+                }
             })).ToList();
+
+            if (policy == "timeBudget")
+            {
+                long budgetMs = Math.Max(1, PropEx.GetInt(s.Props, "budgetValue", 10))
+                    * UnitMs(PropEx.GetString(s.Props, "budgetUnit", "minute"));
+                _log($"⚡ timeBudget: {budgetMs / 1000}s; completed lanes stay finished, other lanes continue");
+                var timer = Task.Delay(TimeSpan.FromMilliseconds(budgetMs), ct);
+                var completed = await Task.WhenAny(timer, faultSignal.Task);
+                if (completed == faultSignal.Task)
+                {
+                    var failure = await faultSignal.Task;
+                    linked.Cancel();
+                    throw failure;
+                }
+                await timer;              // propagate an external Stop/cancellation
+                linked.Cancel();          // the budget is authoritative
+                foreach (var task in tasks)
+                {
+                    try { await task; }
+                    catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
+                }
+                _log("⚡ timeBudget elapsed; all remaining lanes cancelled");
+                return;
+            }
 
             if (policy == "waitAll")
             {

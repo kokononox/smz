@@ -350,6 +350,34 @@ class TestRunner
         Assert(sw.ElapsedMilliseconds >= 380,
             $"the step AFTER a parallel group runs only after the join (elapsed {sw.ElapsedMilliseconds}ms)");
 
+        var budgetGroup = new StepNode
+        {
+            Type = "parallelGroup",
+            Props = new Dictionary<string, object?>
+            {
+                ["completionPolicy"] = "timeBudget",
+                ["budgetValue"] = 1,
+                ["budgetUnit"] = "second",
+            },
+        };
+        budgetGroup.Children.Add(DelayStep(80)); // finite worker ends early
+        var endlessWorker = new StepNode
+        {
+            Type = "forLoop",
+            Props = new Dictionary<string, object?> { ["mode"] = "infinite" },
+        };
+        endlessWorker.Children.Add(DelayStep(50));
+        budgetGroup.Children.Add(endlessWorker);
+        sw.Restart();
+        new RunEngine(new FakeBridge(), _ => { }, 1920, 1080)
+            .RunAsync(new[] { budgetGroup }, CancellationToken.None).Wait();
+        sw.Stop();
+        Assert(sw.ElapsedMilliseconds >= 900,
+            $"timeBudget stays alive after the finite lane ends (elapsed {sw.ElapsedMilliseconds}ms)");
+        if (IsCi) Console.WriteLine($"INFO(CI): one-second timeBudget elapsed {sw.ElapsedMilliseconds}ms");
+        else Assert(sw.ElapsedMilliseconds < 1400,
+            $"timeBudget cancels the infinite worker near its deadline (elapsed {sw.ElapsedMilliseconds}ms)");
+
         var conc = new FakeBridge { ArtificialDelayMs = 150 };
         var pgConc = new StepNode { Type = "parallelGroup" };
         pgConc.Children.Add(new StepNode { Type = "typeText", Props = new Dictionary<string, object?> { { "text", "aaaa" } } });

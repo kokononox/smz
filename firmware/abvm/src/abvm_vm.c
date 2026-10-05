@@ -336,9 +336,16 @@ static int verify_image(AbvmVm *vm) {
             int join_policy = policy == ABVM_SCOPE_JOIN_ALL && terminal == 0xffu;
             int any_policy =
                 policy == ABVM_SCOPE_CANCEL_ON_ANY && terminal == 0xffu;
+            int budget_policy =
+                policy == ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED &&
+                terminal == 0xffu && ins.operand_b > 0u;
             if (ins.flags != policy ||
-                (!terminal_policy && !join_policy && !any_policy))
+                (!terminal_policy && !join_policy && !any_policy &&
+                 !budget_policy))
                 return fail(vm, "scope descriptor");
+            if (policy != ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED &&
+                ins.operand_b != 0u)
+                return fail(vm, "scope duration");
             for (uint8_t lane = 0; lane < 2u; ++lane) {
                 uint32_t first=read_u32(payload+4u+(uint32_t)lane*8u);
                 uint32_t last=read_u32(payload+8u+(uint32_t)lane*8u);
@@ -481,6 +488,9 @@ static void shift_deadlines(AbvmVm *vm, uint32_t delta) {
                 lane->frames[j].mode)
                 lane->frames[j].deadline += delta;
     }
+    if (vm->scope.active &&
+        vm->scope.policy == ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED)
+        vm->scope.deadline += delta;
 }
 
 int abvm_resume(AbvmVm *vm, uint32_t now) {
@@ -573,6 +583,22 @@ static int action_actor_busy(const AbvmVm *vm,uint8_t lane_index,
     return 0;
 }
 
+static void resume_scope(AbvmVm *vm) {
+    uint8_t parent_index = vm->scope.parent_lane;
+    uint8_t other_index = (uint8_t)(1u - parent_index);
+    memset(&vm->lanes[other_index], 0, sizeof(vm->lanes[other_index]));
+    AbvmLane *parent = &vm->lanes[parent_index];
+    parent->active = 1;
+    parent->blocked = ABVM_BLOCK_NONE;
+    parent->reserved = 0u;
+    parent->pc = vm->scope.parent_pc;
+    parent->end_pc = vm->scope.parent_end_pc;
+    parent->frame_count = vm->scope.parent_frame_count;
+    parent->due = vm->now;
+    vm->lane_count = 1;
+    memset(&vm->scope, 0, sizeof(vm->scope));
+}
+
 static void finish_lane(AbvmVm *vm, uint8_t lane_index) {
     AbvmLane *lane = &vm->lanes[lane_index];
     lane->active = 0;
@@ -584,18 +610,7 @@ static void finish_lane(AbvmVm *vm, uint8_t lane_index) {
         !vm->lanes[0].active && !vm->lanes[1].active)
         resume = 1;
     if (!resume) return;
-    uint8_t parent_index = vm->scope.parent_lane;
-    uint8_t other_index = (uint8_t)(1u - parent_index);
-    memset(&vm->lanes[other_index], 0, sizeof(vm->lanes[other_index]));
-    lane = &vm->lanes[parent_index];
-    lane->active = 1;
-    lane->blocked = ABVM_BLOCK_NONE;
-    lane->pc = vm->scope.parent_pc;
-    lane->end_pc = vm->scope.parent_end_pc;
-    lane->frame_count = vm->scope.parent_frame_count;
-    lane->due = vm->now;
-    vm->lane_count = 1;
-    memset(&vm->scope, 0, sizeof(vm->scope));
+    resume_scope(vm);
 }
 
 AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
@@ -612,6 +627,14 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
     if (vm->status != ABVM_STATUS_RUNNING)
         return event_of(vm, ABVM_EVENT_NONE, 0, 0, 0);
 
+    if (vm->scope.active &&
+        vm->scope.policy == ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED &&
+        time_reached(now, vm->scope.deadline)) {
+        resume_scope(vm);
+        return event_of(vm, ABVM_EVENT_RELEASE_ALL, 0, 0,
+                        "scope-time-budget");
+    }
+
     uint8_t active = 0;
     for (uint8_t i = 0; i < ABVM_MAX_LANES; ++i) {
         AbvmLane *lane = &vm->lanes[i];
@@ -624,6 +647,9 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
             lane->due = now;
         }
     }
+    if (!active && vm->scope.active &&
+        vm->scope.policy == ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED)
+        return event_of(vm, ABVM_EVENT_NONE, 0, 0, "scope-time-budget-wait");
     if (!active) {
         if (vm->suspended.valid) {
             vm->lane_count = vm->suspended.lane_count;
@@ -737,6 +763,9 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 vm->scope.parent_frame_count=lane->frame_count;
                 vm->scope.parent_pc=ins.operand_d;
                 vm->scope.parent_end_pc=lane->end_pc;
+                vm->scope.deadline =
+                    payload[1] == ABVM_SCOPE_KEEP_RUNNING_UNTIL_CANCELLED
+                    ? now + ins.operand_b : 0u;
                 uint32_t start0=read_u32(payload+4u);
                 uint32_t end0=read_u32(payload+8u);
                 uint32_t start1=read_u32(payload+12u);
