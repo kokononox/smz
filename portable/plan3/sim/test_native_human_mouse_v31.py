@@ -15,8 +15,9 @@ for token in (
     '"handLongPct"',
     "human_personal_pause",
     "human_turn_p90_deg",
-    "(multi_chance*2u+personal.long_pct)/3u",
-    "distance*turn/200u",
+    "human_refresh_mode(",
+    "personal.long_pct",
+    "distance*turn/450u",
 ):
     assert token in source, token
 
@@ -56,15 +57,14 @@ for value in range(101):
     focused, normal, idle = state_cutoffs(value)
     assert 0 < focused < normal < idle < 100
 
-for distance in (450, 900, 1600, 3000):
+for distance in (600, 900, 1600, 3000):
     for turn in range(turn_p50, turn_p90 + 1):
-        bend = max(distance // 80 + 1,
-                   min(distance // 10 + 1, distance * turn // 200))
-        assert 0 < bend <= distance // 10 + 1
+        bend = max(distance // 100 + 1,
+                   min(distance // 25 + 1, distance * turn // 450))
+        assert 0 < bend <= distance // 25 + 1
 
-for base in (18, 34, 42, 55):
-    personalized = max(10, min(75, (base * 2 + long_pct) // 3))
-    assert 10 <= personalized <= 75
+assert "(multi_chance*2u+personal.long_pct)/3u" not in source
+assert "HUMAN_MODE_FOCUSED?10u" in source
 
 assert "Cursor.Position" not in source
 assert "GetCursorPos" not in source

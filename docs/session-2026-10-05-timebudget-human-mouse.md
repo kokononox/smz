@@ -144,3 +144,38 @@ Phase 2 local validation:
 - The v3.1 firmware carries the exact phase-one ABP SHA-256
   `23b6ecef75aca280a45e8abf7e28410829e20c0deca079cf0203320b373d8bce`;
   only the board-side mouse actor changed.
+
+## Phase 2 curvature feedback and v3.2
+
+Hardware feedback on v3.1 reported excessive visible bowing in every movement.
+The supplied result UF2 has SHA-256
+`1d4d2bbe180da4702ce5f4e49373e0d63b23618f6efb170a7f709d527e7680aa`.
+Its firmware bytes outside the ABP slot are identical to the delivered v3.1
+firmware, confirming that the curve engine—not Guard or the project—is the
+source of the behavior.
+
+Root cause: the previous Native formula mapped curve 100 to a lateral control
+height of 31.2% of movement distance. v3.2 changes the mapping to 2% at 100,
+6% at 139, 15% at 169, 30% at 189, and reserves 30–50% geometry for sampled
+authored values 190–200. The 190–200 band uses a direction-locked two-leg
+Circular Mode; ordinary multi-leg paths require at least 600 px and bend no
+more than 4%.
+
+The user's tested ABP contains 36 mouse constants. Its authored ranges include
+only four 120–195 constants capable of occasionally sampling Circular Mode;
+ordinary actions remain in lower ranges. The ABP, Guard, fishing, Catch, and
+light profiles remain unchanged for the v3.2 comparison.
+
+v3.2 local validation:
+
+- 70 Portable/ABVM contract files passed.
+- Pico Bridge transport: 18 passed, 0 failed.
+- Native ABVM C smoke passed.
+- Pico firmware and 30 identity templates compiled.
+- Windows x64 publish is a verified PE32+ GUI executable.
+- TestRunner and LightTelemetryTests compiled with 0 errors.
+- Final NB01 v3.2 UF2 SHA-256:
+  `07f2d91ced677b0901abdb44de59a806de3cc484efa28707e17ecaefbf9b99ca`
+- The final image preserves the user's tested ABP exactly: SHA-256
+  `9011f0ec787f563029d329764b4dffc5007574702834268ce6b816a8af72dca8`,
+  197,148 bytes, 3,519 instructions, 12 routes, and one Native Guard.
