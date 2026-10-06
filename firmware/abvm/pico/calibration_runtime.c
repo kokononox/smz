@@ -41,15 +41,15 @@ void calibration_runtime_init(const AbvmVm *vm){memset(&cal,0,sizeof(cal));calib
 bool calibration_runtime_active(void){return cal.mode!=CAL_MODE_NONE;}
 CalibrationMode calibration_runtime_mode(void){return cal.mode;}
 static uint8_t light_stage(void){return (uint8_t)(cal.light_slot+1u);}
-static void enter_light(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_LIGHT;cal.phase=PHASE_READY;cal.light_slot=0u;cal.profile=LIGHT_CALIBRATION_ORDER[0];emit("EVT|CAL|mode=ready|kind=light|stage=1|id=%s|seconds=5",guard_runtime_profile_name(cal.profile));}
+static void enter_light(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_LIGHT;cal.phase=PHASE_READY;cal.light_slot=0u;cal.profile=LIGHT_CALIBRATION_ORDER[0];emit("EVT|CAL|mode=ready|kind=light|stage=1|count=%u|profile=%u|id=%s|seconds=5",LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile));}
 static void enter_sound(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_SOUND;cal.phase=PHASE_READY;cal.profile=1u;emit("EVT|SOUNDCAL|mode=ready|id=1|silence=3|sound=30");}
 static void exit_mode(void){CalibrationMode old=cal.mode;cal.mode=CAL_MODE_NONE;cal.phase=PHASE_READY;emit("EVT|%s|mode=exited|revision=%lu",old==CAL_MODE_LIGHT?"CAL":"SOUNDCAL",(unsigned long)calibration_store_revision());}
 bool calibration_runtime_blue_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_light();return true;}if(cal.mode==CAL_MODE_LIGHT){exit_mode();return true;}return false;}
 bool calibration_runtime_yellow_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_sound();return true;}if(cal.mode==CAL_MODE_SOUND){exit_mode();return true;}return false;}
-bool calibration_runtime_blue_short(uint32_t now){(void)now;if(cal.mode==CAL_MODE_LIGHT){if(cal.phase==PHASE_LIGHT_SAMPLE)return true;cal.light_slot=(uint8_t)((cal.light_slot+1u)%LIGHT_PROFILE_COUNT);cal.profile=LIGHT_CALIBRATION_ORDER[cal.light_slot];cal.phase=PHASE_READY;emit("EVT|CAL|mode=ready|kind=light|stage=%u|id=%s|seconds=5",light_stage(),guard_runtime_profile_name(cal.profile));return true;}if(cal.mode==CAL_MODE_SOUND){if(cal.phase==PHASE_SOUND_SILENCE||cal.phase==PHASE_SOUND_TARGET)return true;cal.profile=cal.profile>=SOUND_PROFILE_COUNT?1u:(uint8_t)(cal.profile+1u);cal.phase=PHASE_READY;emit("EVT|SOUNDCAL|mode=ready|id=%u|silence=3|sound=30",cal.profile);return true;}return false;}
+bool calibration_runtime_blue_short(uint32_t now){(void)now;if(cal.mode==CAL_MODE_LIGHT){if(cal.phase==PHASE_LIGHT_SAMPLE)return true;cal.light_slot=(uint8_t)((cal.light_slot+1u)%LIGHT_PROFILE_COUNT);cal.profile=LIGHT_CALIBRATION_ORDER[cal.light_slot];cal.phase=PHASE_READY;emit("EVT|CAL|mode=ready|kind=light|stage=%u|count=%u|profile=%u|id=%s|seconds=5",light_stage(),LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile));return true;}if(cal.mode==CAL_MODE_SOUND){if(cal.phase==PHASE_SOUND_SILENCE||cal.phase==PHASE_SOUND_TARGET)return true;cal.profile=cal.profile>=SOUND_PROFILE_COUNT?1u:(uint8_t)(cal.profile+1u);cal.phase=PHASE_READY;emit("EVT|SOUNDCAL|mode=ready|id=%u|silence=3|sound=30",cal.profile);return true;}return false;}
 bool calibration_runtime_yellow_short(uint32_t now){
     if(cal.mode==CAL_MODE_LIGHT){
-        if(cal.phase==PHASE_READY){if(!light_sensor_calibration_start(LIGHT_SAMPLE_MS,now)){emit("ERR|CAL|START|kind=light");return true;}cal.phase=PHASE_LIGHT_SAMPLE;emit("EVT|CAL|mode=started|kind=light|stage=%u|id=%s|seconds=5",light_stage(),guard_runtime_profile_name(cal.profile));return true;}
+        if(cal.phase==PHASE_READY){if(!light_sensor_calibration_start(LIGHT_SAMPLE_MS,now)){emit("ERR|CAL|START|kind=light");return true;}cal.phase=PHASE_LIGHT_SAMPLE;emit("EVT|CAL|mode=started|kind=light|stage=%u|count=%u|profile=%u|id=%s|seconds=5",light_stage(),LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile));return true;}
         return true;
     }
     if(cal.mode==CAL_MODE_SOUND){if(cal.phase!=PHASE_READY&&cal.phase!=PHASE_SOUND_COMPLETE)return true;cal.silence_peak=cal.sound_peak=0u;cal.phase=PHASE_SOUND_SILENCE;cal.phase_started=now;if(!arm_uart_sound_calibration_start(now,SOUND_SAMPLE_MS)){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|START|id=%u",cal.profile);}else emit("EVT|SOUNDCAL|mode=silence|id=%u|seconds=3",cal.profile);return true;}
@@ -136,8 +136,9 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
         if(update_mask&(1u<<i))
             guard_runtime_set_profile_range((uint8_t)(i+1u),lows[i],highs[i]);
     cal.phase=PHASE_READY;
-    emit("EVT|CAL|mode=saved|kind=light|stage=%u|id=%s|center=%lu|low=%lu|high=%lu|samples=%lu|fit=%u|adjusted=%u|revision=%lu",
-         light_stage(),guard_runtime_profile_name(cal.profile),(unsigned long)center,
+    emit("EVT|CAL|mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s|center=%lu|low=%lu|high=%lu|samples=%lu|fit=%u|adjusted=%u|revision=%lu",
+         light_stage(),LIGHT_PROFILE_COUNT,cal.profile,
+         guard_runtime_profile_name(cal.profile),(unsigned long)center,
          (unsigned long)lows[selected],(unsigned long)highs[selected],
          (unsigned long)samples,fitted?1u:0u,adjusted,
          (unsigned long)calibration_store_revision());
@@ -149,7 +150,8 @@ static void service_light(void){
        !light_sensor_calibration_take(&r))return;
     if(!r.valid||r.samples<5u){
         cal.phase=PHASE_READY;
-        emit("ERR|CAL|UNSTABLE|kind=light|stage=%u",light_stage());return;
+        emit("ERR|CAL|UNSTABLE|kind=light|stage=%u|count=%u|profile=%u",
+             light_stage(),LIGHT_PROFILE_COUNT,cal.profile);return;
     }
     uint32_t center=r.average_lux*10u;
     uint32_t spread=(r.maximum_lux-r.minimum_lux)*10u;

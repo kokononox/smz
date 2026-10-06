@@ -19,7 +19,7 @@ yellow = runtime.split(
 assert "fit_and_save_light(center,low,high,r.samples)" in service
 assert "PHASE_LIGHT_RESULT" not in runtime
 assert "calibration_store_light_set" not in yellow
-assert "mode=saved|kind=light|stage=%u|id=%s" in runtime
+assert "mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s" in runtime
 assert "saved=0" not in runtime
 
 # Reuse the approved portable policy in tenths of lux: fixed centers, a
