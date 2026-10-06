@@ -81,22 +81,32 @@ def main():
         gaps = [steps[i + 1][0] - steps[i][0] for i in range(len(steps) - 1)]
         return sizes, turns, dist, efficiency, gaps
 
-    # Move 0: long ordinary move — jittered ticks, bounded flicks, no kink.
+    # Every physical report stays inside the user's recorded continuous-hand
+    # envelope. Larger authored points must be expanded on Pico, never burst
+    # into 1-2 px reports by ARM after transport.
+    for move in moves:
+        for _, dx, dy in move["steps"]:
+            assert dx * dx + dy * dy <= 9, \
+                f"physical report exceeds 3 px: {(dx, dy)}"
+
+    # Move 0: long ordinary move — continuous reports, varied texture, no kink.
     sizes, turns, dist, eff, _ = metrics(moves[0])
     assert dist > 400, dist
     median = statistics.median(sizes)
-    assert statistics.pstdev(sizes) > median * 0.3, "ticks must jitter"
-    assert max(sizes) <= 80, f"flick exceeds hand reach: {max(sizes)}"
+    assert median <= 3, median
+    assert len({round(size, 3) for size in sizes}) >= 3, \
+        "continuous reports must retain varied hand texture"
+    assert max(sizes) <= 3, f"pixel continuity broken: {max(sizes)}"
     assert max(turns) <= 90, f"ordinary join kink: {max(turns)}"
     assert eff >= 0.90, f"ordinary move wanders too much: {eff}"
 
     # Move 1: medium twitch stays small and calm.
     sizes, _, dist, _, _ = metrics(moves[1])
-    assert dist < 100 and max(sizes) <= 12, (dist, max(sizes))
+    assert dist < 100 and max(sizes) <= 3, (dist, max(sizes))
 
     # Move 2: micro twitch never bursts.
     sizes, _, dist, _, _ = metrics(moves[2])
-    assert max(sizes) <= 8, max(sizes)
+    assert max(sizes) <= 3, max(sizes)
 
     # Move 3 follows the 4 s idle: opening ticks run visibly slower.
     _, _, dist, _, gaps = metrics(moves[3])
@@ -110,7 +120,7 @@ def main():
     assert dist > 600, dist
     assert eff <= 0.90, f"circular arc flattened: {eff}"
     assert max(turns) <= 90, f"circular join kink: {max(turns)}"
-    assert max(sizes) <= 80, max(sizes)
+    assert max(sizes) <= 3, max(sizes)
 
     print("v3.3 human-mouse motion contract passed")
 

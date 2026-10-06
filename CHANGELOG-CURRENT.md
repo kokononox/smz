@@ -1,3 +1,17 @@
+## v0.9.73 — continuous three-pixel human mouse reports
+
+- Native Pico mouse motion now treats three-pixel Euclidean continuity as a
+  hard transport contract: every authored `MMOVE` satisfies
+  `dx*dx + dy*dy <= 9`.
+- Larger Bezier points are expanded into ACK-paced Pico substeps. ARM 2.8.3
+  remains one command to one HID report, so the old hidden 1 ms ARM burst does
+  not return.
+- Exact endpoints, two-leg paths, correction legs, curvature, warm-up, pauses
+  and bounded wander remain intact.
+- The hardware motion harness now fails CI on any report above three pixels.
+- `PING` now reports the actual nine Native Guard light profiles instead of the
+  stale hard-coded value eight.
+
 ## v0.9.72 — split Targeted optics and authored-tick ARM transport
 
 - Targeted now mirrors Whisper with two independent optical classifiers:

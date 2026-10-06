@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""v3.3 hand-motion source contract: jittered per-tick progress, bounded
-flicks, lateral tremor with closed endpoints, C1 circular joins, and the
-post-idle warm-up all live in the native engine."""
+"""Native hand-motion source contract: jittered authored progress, continuous
+three-pixel physical reports, closed endpoints, C1 circular joins, and the
+post-idle warm-up all live in the Pico engine."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -15,7 +15,7 @@ for token in (
     # jittered progress along an unchanged authored path
     "progress_q16",
     "ease_q16(progress)",
-    "45u + ((random_next() % 111u) + (random_next() % 111u)) / 2u",
+    "45u + ((random_next() % 111u) +",
     # bounded flicks inside the recorded hand's reach
     "flick_chance",
     "flick_left",
@@ -36,11 +36,17 @@ for token in (
     "warmup_steps",
     "idle_gap>=2200u",
     "pause*8u/5u+1u",
+    # every physical report is capped on Pico before UART transport
+    "HUMAN_REPORT_MAX_DISTANCE_SQ 9u",
+    "HUMAN_SUBSTEP_INTERVAL_MS 2u",
+    "human_cap_report",
+    "point_pending",
+    "distance_sq>HUMAN_REPORT_MAX_DISTANCE_SQ",
 ):
     assert token in source, token
 
-# ~6 px median per tick matches the recorded hand; the old 4 px grid was
-# measurably finer than any of the user's captures.
+# The ~6 px authored-point density remains a velocity/curve control. Physical
+# output is independently expanded to <=3 px reports by the contract above.
 assert "(distance + 5u) / 6u" in source
 
 # The host harness loops the ARM UART in software and logs every MMOVE tick.
