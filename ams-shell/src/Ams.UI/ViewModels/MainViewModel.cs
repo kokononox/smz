@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.69 — personal pause, turn, long-move and state behavior from the verified 30-second hand profile");
+        Log("Classroom Studio v0.9.70 — restrained ordinary curvature with explicit authored Circular Mode at 190–200");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 

@@ -95,6 +95,7 @@ static uint16_t human_mode_moves_left;
 static uint32_t human_move_serial;
 static bool human_boot_mixed;
 static uint8_t human_turn_p90_deg = 18u;
+static int8_t human_side_lock;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static uint32_t random_next(void) {
@@ -312,19 +313,33 @@ static uint32_t smooth_q16(uint16_t step, uint16_t steps) {
     uint64_t t2 = ((uint64_t)t * t) >> 16;
     return (uint32_t)((t2 * (196608u - 2u * t)) >> 16);
 }
+static uint32_t human_curve_height_per_mille(int32_t curve_pct) {
+    int32_t curve=clamp_i32(curve_pct,0,200);
+    /* The editor defines 100 as the beginning of authored curvature, not a
+     * 31%-of-distance bow. Preserve deliberate deep/circular ranges while
+     * keeping ordinary 100..139 motion subtle. */
+    if(curve<=100)return 5u+(uint32_t)curve*15u/100u;          /* 0.5..2% */
+    if(curve<=139)return 20u+(uint32_t)(curve-100)*40u/39u;   /* 2..6% */
+    if(curve<=169)return 60u+(uint32_t)(curve-140)*90u/29u;   /* 6..15% */
+    if(curve<=189)return 150u+(uint32_t)(curve-170)*150u/19u; /* 15..30% */
+    return 300u+(uint32_t)(curve-190)*200u/10u;               /* 30..50% */
+}
 static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
                       int32_t curve_pct) {
     int64_t distance2 = (int64_t)end_x * end_x + (int64_t)end_y * end_y;
     uint32_t distance = isqrt_u32(
         distance2 > UINT32_MAX ? UINT32_MAX : (uint32_t)distance2);
     int32_t height = (int32_t)((distance *
-        (uint32_t)(12 + clamp_i32(curve_pct, 0, 200) * 3)) / 1000u);
+        human_curve_height_per_mille(curve_pct)) / 1000u);
     if (height < 2 && distance > 20u) height = 2;
     int32_t side;
-    uint32_t side_persist=(uint32_t)clamp_i32(
-        84-(int32_t)human_turn_p90_deg,55,82);
-    if ((random_next() % 100u) < side_persist) side = human_last_side;
-    else side = -human_last_side;
+    if(human_side_lock)side=human_side_lock;
+    else {
+        uint32_t side_persist=(uint32_t)clamp_i32(
+            84-(int32_t)human_turn_p90_deg,55,82);
+        if ((random_next() % 100u) < side_persist) side = human_last_side;
+        else side = -human_last_side;
+    }
     human_last_side = side;
     int32_t perpendicular_x = distance ?
         (int32_t)((-(int64_t)end_y * height * side) / distance) : 0;
@@ -366,6 +381,7 @@ static bool human_path_command(char *command, size_t capacity) {
 static bool human_path_begin(const uint8_t *payload, uint32_t size,
                              uint8_t path_lane, uint32_t now) {
     human_mix_boot_entropy(now);
+    human_side_lock=0;
     HumanPersonalProfile personal=human_personal_profile(payload,size);
     human_turn_p90_deg=personal.enabled?personal.turn_p90_deg:18u;
     HumanBehaviorMode behavior = human_refresh_mode(
@@ -474,6 +490,8 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         curve_low = curve_span / 2u;
     int32_t sampled_curve = curve_min + (int32_t)random_range_u32(
         curve_low, curve_high);
+    bool circular_authored=sampled_curve>=190;
+    int32_t circular_curve=sampled_curve;
     int32_t curve=(human_last_curve*2+sampled_curve)/3;
     human_last_curve=curve;
     uint32_t hand_signature=0u;uint16_t hand_tempo_ms=0u;
@@ -492,11 +510,11 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
          * replaying identifiable points or changing the authored destination. */
         int32_t efficiency=clamp_i32(
             json_int_or(payload,size,"handEfficiencyPct",75),5,100);
-        int32_t personal_boost=(100-efficiency)/2;
-        curve=clamp_i32(curve+personal_boost,curve_min,
-            clamp_i32(curve_max+personal_boost,curve_max,200));
+        int32_t span=curve_max-curve_min;
+        int32_t personal_boost=(100-efficiency)*span/200;
+        curve=clamp_i32(curve+personal_boost,curve_min,curve_max);
         int32_t turn_bias=((int32_t)personal.turn_p50_deg-8)/2;
-        curve=clamp_i32(curve+turn_bias,curve_min,200);
+        curve=clamp_i32(curve+turn_bias,curve_min,curve_max);
     }
     int32_t move_min = clamp_i32(
         json_int_or(payload,size,"moveTimeMin",0), 0, 30000);
@@ -619,6 +637,7 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     else if(behavior==HUMAN_MODE_IDLE)over_chance+=5;
     else if(behavior==HUMAN_MODE_FATIGUED)over_chance+=10;
     over_chance=clamp_i32(over_chance,0,100);
+    if(circular_authored)over_chance=0; /* circular geometry owns the endpoint */
     if(distance>=80u&&(int32_t)(random_next()%100u)<over_chance) {
         uint32_t extra=random_range_u32(3u,20u);
         human_path.target_x=target_x;
@@ -634,14 +653,57 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         dy=clamp_i32(human_virtual_y+dy,human_soft_margin_y,
             screen_h-1-human_soft_margin_y)-human_virtual_y;
     }
-    /* Long moves may use two related legs.  The waypoint is bounded on-screen
-     * and remains a compact board-side description: no dense trace is stored. */
-    uint32_t multi_chance=behavior==HUMAN_MODE_FOCUSED?18u:
-        behavior==HUMAN_MODE_NORMAL?34u:
-        behavior==HUMAN_MODE_IDLE?42u:55u;
-    if(personal.enabled)multi_chance=(uint32_t)clamp_i32(
-        (int32_t)((multi_chance*2u+personal.long_pct)/3u),10,75);
-    if(distance>=450u&&(random_next()%100u)<multi_chance) {
+    /* 190..200 is an explicitly authored circular range. Build one coherent
+     * half-ellipse from two locked-side legs instead of forcing every curved
+     * move through the same exaggerated quadratic bow. */
+    if(circular_authored&&distance>=120u) {
+        int32_t low_x=human_soft_boundary?human_soft_margin_x:0;
+        int32_t high_x=human_soft_boundary?
+            screen_w-1-human_soft_margin_x:screen_w-1;
+        int32_t low_y=human_soft_boundary?human_soft_margin_y:0;
+        int32_t high_y=human_soft_boundary?
+            screen_h-1-human_soft_margin_y:screen_h-1;
+        int32_t base_x=human_virtual_x+dx/2;
+        int32_t base_y=human_virtual_y+dy/2;
+        uint32_t radius_pct=30u+(uint32_t)(circular_curve-190)*2u;
+        int32_t radius=(int32_t)(distance*radius_pct/100u);
+        int32_t off_x=(int32_t)(-(int64_t)dy*radius/distance);
+        int32_t off_y=(int32_t)((int64_t)dx*radius/distance);
+        int32_t preferred=(random_next()%100u)<68u?human_last_side:
+            -human_last_side;
+        int32_t px=clamp_i32(base_x+off_x*preferred,low_x,high_x);
+        int32_t py=clamp_i32(base_y+off_y*preferred,low_y,high_y);
+        int32_t ax=clamp_i32(base_x-off_x*preferred,low_x,high_x);
+        int32_t ay=clamp_i32(base_y-off_y*preferred,low_y,high_y);
+        uint32_t preferred_room=isqrt_u32((uint32_t)(
+            (int64_t)(px-base_x)*(px-base_x)+
+            (int64_t)(py-base_y)*(py-base_y)));
+        uint32_t alternate_room=isqrt_u32((uint32_t)(
+            (int64_t)(ax-base_x)*(ax-base_x)+
+            (int64_t)(ay-base_y)*(ay-base_y)));
+        if(alternate_room>preferred_room+2u) {
+            px=ax;py=ay;preferred=-preferred;
+        }
+        human_side_lock=(int8_t)preferred;
+        human_last_side=preferred;
+        int32_t waypoint_x=px-human_virtual_x;
+        int32_t waypoint_y=py-human_virtual_y;
+        human_path.second_leg_x=dx-waypoint_x;
+        human_path.second_leg_y=dy-waypoint_y;
+        human_path.second_leg_steps=(uint16_t)clamp_i32(
+            (int32_t)(steps/2u),8,HUMAN_PATH_MAX_STEPS);
+        int32_t leg_curve=130+(circular_curve-190)*3;
+        human_path.second_leg_curve=leg_curve;
+        human_path.second_leg_pending=true;
+        human_leg(waypoint_x,waypoint_y,(uint16_t)clamp_i32(
+            (int32_t)(steps-steps/2u),8,HUMAN_PATH_MAX_STEPS),leg_curve);
+    } else {
+        /* Ordinary multi-leg motion is deliberately rare and shallow. LongPct
+         * classifies the recorded trace; it is not a circular-path chance. */
+        uint32_t multi_chance=behavior==HUMAN_MODE_FOCUSED?10u:
+            behavior==HUMAN_MODE_NORMAL?18u:
+            behavior==HUMAN_MODE_IDLE?25u:32u;
+        if(distance>=600u&&(random_next()%100u)<multi_chance) {
         uint32_t first_pct=random_range_u32(52u,72u);
         int32_t waypoint_x=(int32_t)((int64_t)dx*first_pct/100u);
         int32_t waypoint_y=(int32_t)((int64_t)dy*first_pct/100u);
@@ -649,11 +711,11 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         if(personal.enabled) {
             uint32_t turn=random_range_u32(
                 personal.turn_p50_deg,personal.turn_p90_deg);
-            uint32_t personal_bend=distance*turn/200u;
+            uint32_t personal_bend=distance*turn/450u;
             bend=(int32_t)clamp_i32((int32_t)personal_bend,
-                (int32_t)(distance/80u+1u),(int32_t)(distance/10u+1u));
+                (int32_t)(distance/100u+1u),(int32_t)(distance/25u+1u));
         } else bend=(int32_t)random_range_u32(
-            distance/50u+1u,distance/16u+2u);
+            distance/100u+1u,distance/25u+1u);
         if(random_next()&1u)bend=-bend;
         waypoint_x+=(int32_t)(-(int64_t)dy*bend/(distance?distance:1u));
         waypoint_y+=(int32_t)((int64_t)dx*bend/(distance?distance:1u));
@@ -667,18 +729,19 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         human_path.second_leg_y=dy-waypoint_y;
         human_path.second_leg_steps=(uint16_t)clamp_i32(
             (int32_t)(steps-(steps*first_pct)/100u),8,HUMAN_PATH_MAX_STEPS);
-        uint32_t curve_delta_max=14u;
+        uint32_t curve_delta_max=8u;
         if(personal.enabled)curve_delta_max=(uint32_t)clamp_i32(
             4+((int32_t)personal.turn_p90_deg-
-               (int32_t)personal.turn_p50_deg)/2,4,18);
-        int32_t curve_delta=(int32_t)random_range_u32(4u,curve_delta_max);
+               (int32_t)personal.turn_p50_deg)/4,4,8);
+        int32_t curve_delta=(int32_t)random_range_u32(2u,curve_delta_max);
         if(random_next()&1u)curve_delta=-curve_delta;
         human_path.second_leg_curve=clamp_i32(curve+curve_delta,0,200);
         human_path.second_leg_pending=true;
         uint16_t first_steps=(uint16_t)clamp_i32(
             (int32_t)((steps*first_pct)/100u),8,HUMAN_PATH_MAX_STEPS);
         human_leg(waypoint_x,waypoint_y,first_steps,curve);
-    } else human_leg(dx,dy,steps,curve);
+        } else human_leg(dx,dy,steps,curve);
+    }
     if(human_path.mid_pause_ms)
         human_path.mid_pause_step=(uint16_t)random_range_u32(
             human_path.steps/3u,(human_path.steps*2u)/3u);
@@ -749,7 +812,7 @@ void arm_uart_mouse_init(void) {
     human_last_speed=1050u;human_last_curve=30;human_last_side=1;
     human_mode=HUMAN_MODE_NORMAL;human_mode_moves_left=0u;
     human_move_serial=0u;human_boot_mixed=false;human_turn_p90_deg=18u;
-    prng=0x6d2b79f5u;
+    human_side_lock=0;prng=0x6d2b79f5u;
 }
 bool arm_uart_mouse_probe(uint32_t now) {
     if (state != ARM_IDLE) return false;
@@ -1034,6 +1097,7 @@ static void handle_line(uint32_t now) {
                 } else {
                     human_virtual_x=human_path.target_x;
                     human_virtual_y=human_path.target_y;
+                    human_side_lock=0;
                     human_path.phase=HUMAN_PATH_AFTER;
                     human_path.next_due=now+human_path.after_ms;
                 }

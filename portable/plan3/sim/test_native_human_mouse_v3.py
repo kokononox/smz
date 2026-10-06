@@ -16,7 +16,7 @@ for token in (
     "human_mix_boot_entropy(now)",
     "second_leg_pending",
     "second_leg_steps",
-    "distance>=450u",
+    "distance>=600u",
     "random_range_u32(52u,72u)",
 ):
     assert token in source, token
@@ -62,7 +62,7 @@ assert {mode for mode, _ in a} == {
 
 # Long-path waypoint percentages are deliberately bounded.  For every allowed
 # split, both legs remain non-empty and add back to the authored displacement.
-for dx, dy in ((450, 0), (900, 500), (-1200, 700), (700, -900)):
+for dx, dy in ((600, 0), (900, 500), (-1200, 700), (700, -900)):
     for first_pct in range(52, 73):
         wx = int(dx * first_pct / 100)
         wy = int(dy * first_pct / 100)

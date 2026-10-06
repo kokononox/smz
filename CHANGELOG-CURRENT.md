@@ -1,3 +1,20 @@
+## v0.9.70 — restrained curvature and explicit Circular Mode
+
+- Hardware feedback showed visibly excessive bowing across ordinary v3.1
+  movements. The tested UF2 was confirmed to use the exact v3.1 firmware;
+  differences were confined to its valid project ABP.
+- Replaced the old linear curve formula, where curve 100 produced a 31.2%
+  lateral bow, with an authored piecewise mapping: 100→2%, 139→6%, 169→15%,
+  189→30%, and 200→50%.
+- Only an actual sampled authored value of 190–200 enters Circular Mode.
+  Circular paths use two continuous, direction-locked legs and choose the side
+  with more screen room.
+- Efficiency and personal turn bias now remain inside the authored curve range.
+- Ordinary two-leg movement now starts at 600 px, bends by at most 4%, uses
+  lower state probabilities, and no longer treats `handLongPct` as a circular
+  path probability.
+- Circular Mode disables overshoot because its geometry owns the exact endpoint.
+
 ## v0.9.69 — portable human-mouse personalization v3.1
 
 - Recorded the user's successful phase-one hardware test and verified the
