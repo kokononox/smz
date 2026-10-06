@@ -207,6 +207,10 @@ class AbvmArmUartContractTests(unittest.TestCase):
             "cal.profile=LIGHT_CALIBRATION_ORDER[cal.light_slot]",
             self.calibration,
         )
+        self.assertIn(
+            "stage=%u|count=%u|profile=%u|id=%s",
+            self.calibration,
+        )
         self.assertIn("SOUND_SILENCE_MS 3000u", self.calibration)
         self.assertIn("SOUND_TARGET_MS 30000u", self.calibration)
         self.assertIn("CAL_OFFSET_A", self.storage)

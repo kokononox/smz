@@ -674,7 +674,9 @@ static uint8_t event_u8(const char *event,const char *key,uint8_t fallback) {
 static void service_calibration_cue(const char *event,uint32_t now) {
     bool sound=strstr(event,"|SOUNDCAL|")!=NULL;
     bool error=!strncmp(event,"ERR|",4);
-    uint8_t selection=event_u8(event,sound?"id=":"stage=",1u);
+    uint8_t stage=event_u8(event,"stage=",1u);
+    uint8_t selection=event_u8(event,sound?"id=":"profile=",
+                               sound?1u:stage);
     uint8_t cue=sound?selection:guard_runtime_calibration_cue(selection);
     if(!sound){
         uint8_t volume=100u,envelope=0u;
@@ -698,7 +700,7 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     if(strstr(event,"mode=saved")){
         if(!sound&&strstr(event,"|fit=1|"))
             buzzer_calibration_overlap_adjusted(now);
-        else if(!sound&&selection==9u)
+        else if(!sound&&stage==9u)
             buzzer_calibration_complete(now);
         else
             buzzer_calibration_save_success(now);

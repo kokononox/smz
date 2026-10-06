@@ -14,6 +14,12 @@
 
 ## v0.9.73 hotfix — Whisper priority and nine-position calibration
 
+- Fixed the physical calibration event/cue mapper: calibration stage is a
+  display position, while profile is the stable Guard ID. The earlier hotfix
+  reordered stages but still looked cues up by stage, so the final four
+  positions could sound/map like the old eight-position layout. Events now
+  report `count=9` and the explicit `profile` ID, and cue/save-complete logic
+  uses the correct field.
 - Optical Whisper New now has priority over Targeted New/Repeat. It cancels
   the active Targeted overlay, preserves the exact suspended Game cursor, and
   runs the Whisper New route. Targeted can never resume afterward.
