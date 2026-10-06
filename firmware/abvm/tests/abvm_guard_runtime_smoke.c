@@ -105,6 +105,15 @@ int main(int argc, char **argv) {
     if (!stable(&vm, 6000u, 2500u, 9u, 5u)) return 1;
     if (!require(vm.suspended.valid && vm.suspended.route_id==8u,
                  "Targeted suspends the exact Game cursor for resume")) return 1;
+    guard_runtime_observe(&vm,5000u,2620u);
+    guard_runtime_observe(&vm,1000u,2630u);
+    guard_runtime_observe(&vm,9000u,2640u);
+    guard_runtime_observe(&vm,7000u,2650u);
+    guard_runtime_observe(&vm,123456u,2660u);
+    if (!require(vm.route_id==9u&&vm.suspended.valid,
+                 "Targeted New ignores every non-DC light until END") ||
+        !require(!guard_runtime_take_event(&event),
+                 "Targeted New emits no transient optical event")) return 1;
     /* Simulate Targeted END restoring the suspended Game context. */
     vm.route_id=vm.suspended.route_id;
     vm.suspended.valid=false;
@@ -172,6 +181,31 @@ int main(int argc, char **argv) {
                  guard_runtime_stage()==2u,
                  "stable DC preempts Whisper and starts recovery")) return 1;
     /*
+     * Targeted has the same optical lock: all ordinary scene changes are
+     * ignored, but a stable disconnect may replace it with recovery.
+     */
+    if (!require(guard_runtime_start(3500u),
+                 "restart Guard for Targeted DC priority") ||
+        !stable(&vm,5000u,3500u,8u,5u) ||
+        !stable(&vm,6000u,3700u,9u,5u)) return 1;
+    guard_runtime_observe(&vm,1000u,3850u);
+    guard_runtime_observe(&vm,7000u,3860u);
+    if (!require(vm.route_id==9u&&vm.suspended.valid,
+                 "non-DC light cannot preempt Targeted") ||
+        !require(!guard_runtime_take_event(&event),
+                 "Targeted suppresses non-DC optical events")) return 1;
+    guard_runtime_observe(&vm,2000u,3900u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_STATE && vm.route_id==9u,
+                 "DC candidate respects stability during Targeted")) return 1;
+    guard_runtime_observe(&vm,2000u,4000u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_ROUTE &&
+                 event.route_id==5u && vm.route_id==5u &&
+                 guard_runtime_active_profile()==2u &&
+                 guard_runtime_stage()==2u,
+                 "stable DC preempts Targeted and starts recovery")) return 1;
+    /*
      * A completed optical Whisper cannot be re-armed by a quick light bounce.
      * The per-profile board-only cooldown remains effective with sound off.
      */
@@ -201,6 +235,14 @@ int main(int argc, char **argv) {
         !stable(&vm,9000u,5200u,14u,5u)) return 1;
     if (!require(vm.suspended.valid && vm.suspended.route_id==8u,
                  "Targeted Repeat suspends the Game cursor")) return 1;
+    guard_runtime_observe(&vm,5000u,5310u);
+    guard_runtime_observe(&vm,1000u,5320u);
+    guard_runtime_observe(&vm,6000u,5330u);
+    guard_runtime_observe(&vm,8000u,5340u);
+    if (!require(vm.route_id==14u&&vm.suspended.valid,
+                 "Targeted Repeat ignores every non-DC light until END") ||
+        !require(!guard_runtime_take_event(&event),
+                 "Targeted Repeat emits no transient optical event")) return 1;
     vm.route_id=8u;vm.suspended.valid=false;
     guard_runtime_observe(&vm,5000u,5400u);
     guard_runtime_observe(&vm,5000u,5500u);

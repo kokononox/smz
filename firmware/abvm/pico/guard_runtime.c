@@ -139,6 +139,11 @@ static bool whisper_route_active(const AbvmVm *vm) {
            (vm->route_id == GUARD_ROUTE_WHISPER ||
             vm->route_id == GUARD_ROUTE_WHISPER_REPEAT);
 }
+static bool targeted_route_active(const AbvmVm *vm) {
+    return vm && vm->status == ABVM_STATUS_RUNNING &&
+           (vm->route_id == 9u ||
+            vm->route_id == GUARD_ROUTE_TARGETED_REPEAT);
+}
 static bool inside(const GuardProfile *profile, uint32_t lux, bool widened) {
     uint32_t low = profile->low;
     uint32_t high = profile->high;
@@ -549,6 +554,15 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
         return;
     }
     /*
+     * Targeted is an interrupt-and-resume macro. Its optical lock ends only
+     * after the VM has restored the suspended route; seeing Game light while
+     * the macro is still running is not completion.
+     */
+    if(guard.targeted_active&&!targeted_route_active(vm)) {
+        guard.targeted_active=false;
+        guard.active=guard.candidate=guard.last_stable=0u;
+    }
+    /*
      * Whisper New/Repeat describe transient overlays, not a durable optical
      * scene.  While either bounded interrupt is running, ignore every Guard
      * sample (including an apparent Desktop return) and let every Whisper
@@ -585,6 +599,38 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
      * light change abort it before its completion event can chain Login/DC. */
     if (guard.dc_then_login_pending && vm->status == ABVM_STATUS_RUNNING &&
         vm->route_id == GUARD_ROUTE_DC) return;
+    if(guard.targeted_active&&targeted_route_active(vm)) {
+        /*
+         * Targeted New/Repeat are bounded macros, not durable scenes. Ignore
+         * Game, Desktop, the other Targeted range, Whisper and unknown light
+         * until every Targeted step has finished. A stable Login/DC sample is
+         * the sole optical exception and immediately starts recovery.
+         */
+        uint8_t targeted_matches=0u;
+        GuardProfile *targeted_match=unique_match(lux,&targeted_matches);
+        if(targeted_matches!=1u||!targeted_match||
+           targeted_match->id!=2u) {
+            if(guard.candidate==2u)guard.candidate=0u;
+            return;
+        }
+        if(guard.active==2u) {
+            guard.candidate=0u;
+            return;
+        }
+        if(guard.candidate!=2u) {
+            guard.candidate=2u;
+            guard.candidate_since=now;
+            emit(GUARD_EVENT_STATE,2u,0u,0u,lux,
+                 "dc-candidate-during-targeted");
+            return;
+        }
+        if(!reached(now,guard.candidate_since+
+                    targeted_match->stable_ms))return;
+        guard.active=2u;
+        guard.candidate=0u;
+        transition(vm,2u,lux,now);
+        return;
+    }
     if (whisper_route_active(vm)) {
         guard.whisper_was_active=true;
         /*

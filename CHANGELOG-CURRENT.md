@@ -12,6 +12,10 @@
 - `Targeted New` and `Targeted Repeat` play their own editable profile motifs;
   the compiler contract rejects a fixture where their notification notes are
   identical.
+- Once either Targeted light starts its bounded macro, Native Guard ignores
+  every later optical scene change until the macro finishes and the suspended
+  Game cursor is restored. A stable Login/DC reading is the sole exception
+  and immediately replaces Targeted with the disconnect-recovery route.
 - ARM 2.8.3-S5 no longer subdivides each v3.3 Pico `MMOVE` into 1–2 px reports.
   Every bounded authored tick is emitted as one HID report, preserving the
   intended velocity jitter while retaining defensive splitting above ±127.

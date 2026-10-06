@@ -32,7 +32,7 @@ actor as ABVM, and `BEEP|hz,durationMs` uses the nonblocking GP6 PWM actor.
 For ABVM Wait For Sound, the step's `threshold` is authoritative; zero opts
 into the persisted physical calibration for that profile.
 
-A typed `GUARD` constant embeds the six calibrated optical profiles exported by Classroom Studio. The allocation-free global Guard applies unique-range classification, per-profile stability, hysteresis, sensor freshness, ordered Desktop → Login → Dashboard → Loading → Game progression, Targeted as a Game side-state, and the dedicated DC fallback route. GP4 or `GUARD|ON` starts Guard at the physical state currently visible; `GUARD|OFF`/`HALT` stops it. Missing/ambiguous light never invents a state, sensor timeout stops execution, and every accepted transition starts the matching verified ABVM route.
+A typed `GUARD` constant embeds the nine calibrated optical profiles exported by Classroom Studio. The allocation-free global Guard applies unique-range classification, per-profile stability, hysteresis, sensor freshness, ordered Desktop → Login → Dashboard → Loading → Game progression, split Targeted New/Repeat Game side-states, and the dedicated DC fallback route. GP4 or `GUARD|ON` starts Guard at the physical state currently visible; `GUARD|OFF`/`HALT` stops it. Missing/ambiguous light never invents a state, sensor timeout stops execution, and every accepted transition starts the matching verified ABVM route.
 
 Implemented: native ABP verification, millisecond scheduler, CDC control, Key/KDown/KUp/Type, bounded relative mouse, nonblocking ARM UART sound watch, nonblocking BH1750 Light Watch/calibration, global nine-profile Guard routing, HALT on every release boundary, GP3 Pause/Resume, GP4 Guard Start/Stop, independent Targeted New/Repeat and Whisper New/Repeat interrupts, nonblocking original GP6 passive-buzzer presets, and fail-closed boot/transport behavior.
 
@@ -44,9 +44,16 @@ whether the Whisper interrupt originated from light, sound, or manual control.
 The sole exception is a stable Login/DC profile: disconnect recovery has
 priority, cancels the transient Whisper overlay, and starts the DC route.
 
+Targeted New and Targeted Repeat use the same bounded optical lock. Once
+either light signature starts its interrupt route, Game, Desktop, Whisper,
+the other Targeted signature, and unknown/ambiguous light cannot preempt it.
+All Targeted steps finish before the suspended Game cursor is restored. The
+sole optical exception is a stable Login/DC profile, which immediately
+replaces Targeted with the disconnect-recovery route.
+
 ## Passive buzzer on GP6
 
-The native adapter preserves physical feedback on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep. Light calibration uses eight memorable 3–4 note motifs; Classroom Studio exposes a separate assignment menu so every environment can use any motif and preview it on the connected board. The selected cue IDs are stored in the Native Guard descriptor and require no PC helper at runtime. Sound calibration retains ID 1/2/3 selection, silence-start, target-start, save/error, and enter/exit feedback.
+The native adapter preserves physical feedback on the existing GP6 → resistor → S8050 circuit. Guard Start/Stop/Pause/Resume use the legacy multi-note patterns. Every confirmed transition after the initial state emits a distinct 150 ms profile-dependent rising sweep. Light calibration uses nine memorable 3–4 note motifs; Classroom Studio exposes a separate assignment menu so every environment can use any motif and preview it on the connected board. The selected cue IDs are stored in the Native Guard descriptor and require no PC helper at runtime. Sound calibration retains ID 1/2/3 selection, silence-start, target-start, save/error, and enter/exit feedback.
 
 Whisper New and Whisper Repeat also carry independent board-only optical cooldowns in the Native Guard descriptor. A brief return to the same light signature during cooldown is ignored even when both global sound listeners are disabled. Classroom Studio accepts up to 3,600,000 ms (60 minutes) per optical Whisper cooldown.
 
