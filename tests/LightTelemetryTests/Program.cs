@@ -49,10 +49,11 @@ Check(dump.Revision == 42 && dump.Mask == 0x0191 && dump.Profiles.Count == 4
     "light calibration dump parses tenths and partial profile mask");
 var importTargets = LightStateDefaults.CreateInitialProfiles();
 Check(LightCalibrationDumpParser.Apply(dump, importTargets) == 4
-      && importTargets[0].LuxCenter == 1.5 && importTargets[4].LuxCenter == 27
+      && importTargets.Single(x => x.Id == "desktop").LuxCenter == 1.5
+      && importTargets.Single(x => x.Id == "game").LuxCenter == 27
       && importTargets.Single(x => x.Id == "whisper-repeat").LuxTolerance == 1.05
       && importTargets.Single(x => x.Id == "targeted-repeat").LuxCenter == 39.0
-      && importTargets[1].LuxCenter == 25,
+      && importTargets.Single(x => x.Id == "login-or-dc").LuxCenter == 74,
     "board calibration import atomically updates only returned ranges");
 try
 {
