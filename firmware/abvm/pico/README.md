@@ -21,6 +21,13 @@ The patcher validates UF2 framing, requires exactly one compatible slot, checks 
 
 The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. `TYPE` is a real allocation-free, nonblocking TinyUSB actor: it preserves held modifiers, supports printable US-ASCII plus Enter/Tab, applies per-key, word, punctuation and thinking delays, and performs bounded typo/backspace correction. Clipboard, secret, malformed JSON, and non-ASCII payloads fail closed instead of being silently typed.
 
+Human `RMOUSE` paths enforce physical pixel continuity before UART transport:
+every Pico-authored `MMOVE` satisfies `dx*dx + dy*dy <= 9`. A farther Bezier
+point is drained through ACK-paced Pico substeps before authored progress
+advances. ARM 2.8.3 therefore remains one command to one HID report; exact
+endpoints, curves, corrections and timing texture are preserved without
+restoring the hidden ARM-side 1 ms subdivision.
+
 `WATCH` carries typed descriptors. Sound descriptors contain profile ID, threshold, and sustained-duration requirements; Pico arms ARM 2.8 with framed `ASND`, continues mouse service while the ADC listener runs, consumes `EVT|ASND|DETECTED/TIMEOUT`, and feeds detections directly into `abvm_sound_detected()`. Light descriptors contain the BH1750 lux range, stable duration, and high/low-resolution mode. The native I2C0 actor on GP20/GP21 samples without sleeping, requires an uninterrupted in-range window, and resumes the exact VM lane through `abvm_light_detected()`. Missing sensors fail closed instead of skipping a guard.
 
 The same native BH1750 actor serves read-only `LUX?` telemetry and asynchronous `LCAL|ms` calibration. Calibration accumulates min/max/average in fixed state while USB, HID, ARM UART, buttons, and the VM continue to run. Pause/Stop/route boundaries cancel active watches; ARM sound is additionally cancelled through framed `HALT`.

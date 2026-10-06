@@ -21,6 +21,8 @@
 #define HUMAN_SCREEN_DEFAULT_H 1080
 #define HUMAN_PATH_MAX_STEPS 96u
 #define HUMAN_PATH_MIN_STEPS 16u
+#define HUMAN_REPORT_MAX_DISTANCE_SQ 9u
+#define HUMAN_SUBSTEP_INTERVAL_MS 2u
 
 typedef enum ArmState { ARM_IDLE, ARM_PROBE, ARM_MOVE, ARM_SOUND_ARM, ARM_SOUND_CANCEL, ARM_SOUND_CAL, ARM_HALT, ARM_FAULT } ArmState;
 typedef enum HumanPathPhase {
@@ -57,6 +59,10 @@ typedef struct HumanPath {
     bool second_leg_pending;
     /* v3.3 hand-motion fields */
     uint32_t progress_q16;     /* jittered progress along the leg */
+    uint32_t pending_progress_q16;
+    uint16_t pending_step;
+    int32_t pending_x, pending_y;
+    bool point_pending;
     uint16_t leg_distance;     /* px, for per-tick cap and wander scale */
     int32_t norm_x, norm_y;    /* leg normal, q15 */
     uint16_t wander_amp;       /* px lateral tremor amplitude, 0 disables */
@@ -436,76 +442,133 @@ static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
     human_exit_y=human_path.leg_y-human_path.control2_y;
     human_exit_distance=distance?distance:1u;
     human_path.progress_q16=0u;
+    human_path.pending_progress_q16=0u;
+    human_path.pending_step=0u;
+    human_path.pending_x=human_path.pending_y=0;
+    human_path.point_pending=false;
     human_path.flick_left=0u;
     human_path.last_x = human_path.last_y = 0;
     human_path.steps = steps;
     human_path.step = 0u;
 }
+static void human_cap_report(int32_t dx,int32_t dy,int32_t *out_x,
+                             int32_t *out_y) {
+    int32_t best_x=0,best_y=0;
+    int64_t best_dot=0,best_norm=1;
+    for(int32_t x=-3;x<=3;++x)for(int32_t y=-3;y<=3;++y){
+        int32_t norm=x*x+y*y;
+        if(!norm||(uint32_t)norm>HUMAN_REPORT_MAX_DISTANCE_SQ)continue;
+        int64_t dot=(int64_t)dx*x+(int64_t)dy*y;
+        if(dot<=0)continue;
+        int64_t dot_sq=dot*dot;
+        int64_t best_sq=best_dot*best_dot;
+        if(!best_dot||dot_sq*best_norm>best_sq*norm||
+           (dot_sq*best_norm==best_sq*norm&&dot>best_dot)){
+            best_x=x;best_y=y;best_dot=dot;best_norm=norm;
+        }
+    }
+    if(!best_dot){
+        if(dx)best_x=dx>0?1:-1;
+        else if(dy)best_y=dy>0?1:-1;
+    }
+    *out_x=best_x;*out_y=best_y;
+}
 static bool human_path_command(char *command, size_t capacity) {
     if (human_path.phase != HUMAN_PATH_MOVE &&
         human_path.phase != HUMAN_PATH_CORRECT) return false;
-    if (human_path.step >= human_path.steps) return false;
-    uint16_t next = (uint16_t)(human_path.step + 1u);
-    /* v3.3: the recorded hand does not advance equal pixels per 8 ms tick.
-     * Progress jitters around the mean and occasionally bursts (a flick),
-     * while the authored Bezier geometry and the exact endpoint stay fixed. */
-    uint32_t base = 65536u / human_path.steps;
-    uint32_t jpct = 100u;
-    if (human_path.phase == HUMAN_PATH_MOVE) {
-        jpct = 45u + ((random_next() % 111u) + (random_next() % 111u)) / 2u;
-        if (human_path.flick_left) {
-            jpct = 200u + random_next() % 101u;
-            --human_path.flick_left;
-        } else if (human_path.flick_chance &&
-                   (random_next() % 100u) < human_path.flick_chance) {
-            human_path.flick_left = (uint8_t)(1u + random_next() % 2u);
-            jpct = 200u + random_next() % 101u;
+    for(;;){
+        if(!human_path.point_pending){
+            if (human_path.step >= human_path.steps) return false;
+            uint16_t next = (uint16_t)(human_path.step + 1u);
+            /* The hand-authored point may be farther than one physical HID
+             * report. Keep the velocity texture in point timing, but drain
+             * each point through continuous <=3 px reports on the Pico side.
+             * ARM remains one authored command -> one HID report. */
+            uint32_t base = 65536u / human_path.steps;
+            uint32_t jpct = 100u;
+            if (human_path.phase == HUMAN_PATH_MOVE) {
+                jpct = 45u + ((random_next() % 111u) +
+                              (random_next() % 111u)) / 2u;
+                if (human_path.flick_left) {
+                    jpct = 200u + random_next() % 101u;
+                    --human_path.flick_left;
+                } else if (human_path.flick_chance &&
+                           (random_next() % 100u) <
+                               human_path.flick_chance) {
+                    human_path.flick_left =
+                        (uint8_t)(1u + random_next() % 2u);
+                    jpct = 200u + random_next() % 101u;
+                }
+            }
+            uint32_t inc = (base * jpct) / 100u;
+            if (!inc) inc = 1u;
+            if (human_path.leg_distance) {
+                uint32_t cap = (uint32_t)(((uint64_t)72u << 16) /
+                                          human_path.leg_distance);
+                uint32_t floor = base * 2u;
+                if (cap < floor) cap = floor;
+                if (inc > cap) inc = cap;
+            }
+            uint32_t progress = human_path.progress_q16 + inc;
+            if (next >= human_path.steps || progress >= 65536u) {
+                progress = 65536u;
+                next = human_path.steps;
+            }
+            uint32_t t = ease_q16(progress);
+            int32_t x=q16_cubic(human_path.leg_x,
+                                human_path.control1_x,
+                                human_path.control2_x,t);
+            int32_t y=q16_cubic(human_path.leg_y,
+                                human_path.control1_y,
+                                human_path.control2_y,t);
+            if (human_path.wander_amp &&
+                human_path.phase == HUMAN_PATH_MOVE) {
+                uint32_t envelope = progress < 32768u ? progress * 2u :
+                                    (65536u - progress) * 2u;
+                uint32_t phase = human_path.wander_phase + (uint32_t)(
+                    ((uint64_t)progress *
+                     human_path.wander_cycles_q8) >> 8);
+                uint32_t tri = phase & 65535u;
+                tri = tri < 32768u ? tri * 2u :
+                                     (65536u - tri) * 2u;
+                int32_t centered = (int32_t)tri - 32768;
+                int32_t offset = (int32_t)(
+                    ((int64_t)human_path.wander_amp * centered *
+                     (int32_t)envelope) / 2147483648LL);
+                x += (int32_t)(
+                    ((int64_t)human_path.norm_x * offset) / 32768);
+                y += (int32_t)(
+                    ((int64_t)human_path.norm_y * offset) / 32768);
+            }
+            human_path.pending_x=x;
+            human_path.pending_y=y;
+            human_path.pending_progress_q16=progress;
+            human_path.pending_step=next;
+            human_path.point_pending=true;
         }
+        int32_t dx=human_path.pending_x-human_path.last_x;
+        int32_t dy=human_path.pending_y-human_path.last_y;
+        uint64_t distance_sq=(uint64_t)((int64_t)dx*dx)+
+                             (uint64_t)((int64_t)dy*dy);
+        if(distance_sq>HUMAN_REPORT_MAX_DISTANCE_SQ){
+            int32_t report_x,report_y;
+            human_cap_report(dx,dy,&report_x,&report_y);
+            human_path.last_x+=report_x;
+            human_path.last_y+=report_y;
+            int n=snprintf(command,capacity,"MMOVE|%ld,%ld,rel,2",
+                           (long)report_x,(long)report_y);
+            return n>0&&(size_t)n<capacity;
+        }
+        human_path.last_x=human_path.pending_x;
+        human_path.last_y=human_path.pending_y;
+        human_path.progress_q16=human_path.pending_progress_q16;
+        human_path.step=human_path.pending_step;
+        human_path.point_pending=false;
+        if(!dx&&!dy&&human_path.step<human_path.steps)continue;
+        int n=snprintf(command,capacity,"MMOVE|%ld,%ld,rel,2",
+                       (long)dx,(long)dy);
+        return n>0&&(size_t)n<capacity;
     }
-    uint32_t inc = (base * jpct) / 100u;
-    if (!inc) inc = 1u;
-    if (human_path.leg_distance) {
-        /* Keep one tick inside the recorded hand's reach (max ~68 px/8 ms). */
-        uint32_t cap = (uint32_t)(((uint64_t)72u << 16) /
-                                  human_path.leg_distance);
-        uint32_t floor = base * 2u;
-        if (cap < floor) cap = floor;
-        if (inc > cap) inc = cap;
-    }
-    uint32_t progress = human_path.progress_q16 + inc;
-    if (next >= human_path.steps || progress >= 65536u) {
-        progress = 65536u;
-        next = human_path.steps;
-    }
-    human_path.progress_q16 = progress;
-    uint32_t t = ease_q16(progress);
-    int32_t x=q16_cubic(human_path.leg_x,human_path.control1_x,
-                        human_path.control2_x,t);
-    int32_t y=q16_cubic(human_path.leg_y,human_path.control1_y,
-                        human_path.control2_y,t);
-    if (human_path.wander_amp && human_path.phase == HUMAN_PATH_MOVE) {
-        /* Lateral tremor with a zero-at-both-ends envelope: the target stays
-         * exact while the mid-path stops looking ruler-straight. */
-        uint32_t envelope = progress < 32768u ? progress * 2u :
-                            (65536u - progress) * 2u;
-        uint32_t phase = human_path.wander_phase + (uint32_t)(
-            ((uint64_t)progress * human_path.wander_cycles_q8) >> 8);
-        uint32_t tri = phase & 65535u;
-        tri = tri < 32768u ? tri * 2u : (65536u - tri) * 2u;
-        int32_t centered = (int32_t)tri - 32768;
-        int32_t offset = (int32_t)(((int64_t)human_path.wander_amp *
-                         centered * (int32_t)envelope) / 2147483648LL);
-        x += (int32_t)(((int64_t)human_path.norm_x * offset) / 32768);
-        y += (int32_t)(((int64_t)human_path.norm_y * offset) / 32768);
-    }
-    int32_t dx = x - human_path.last_x;
-    int32_t dy = y - human_path.last_y;
-    human_path.last_x = x; human_path.last_y = y; human_path.step = next;
-    if (!dx && !dy && next < human_path.steps)
-        return human_path_command(command, capacity);
-    int n = snprintf(command, capacity, "MMOVE|%ld,%ld,rel,2",
-                     (long)dx, (long)dy);
-    return n > 0 && (size_t)n < capacity;
 }
 static bool human_path_begin(const uint8_t *payload, uint32_t size,
                              uint8_t path_lane, uint32_t now) {
@@ -1270,7 +1333,8 @@ static void handle_line(uint32_t now) {
                     human_path.next_due=now+human_path.after_ms;
                 }
             } else {
-                uint32_t pause=human_path.step_delay_ms;
+                uint32_t pause=human_path.point_pending?
+                    HUMAN_SUBSTEP_INTERVAL_MS:human_path.step_delay_ms;
                 if(human_path.warmup_steps&&
                    human_path.step<human_path.warmup_steps)
                     pause=pause*8u/5u+1u;
