@@ -1047,8 +1047,8 @@ class Compiler:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
             if cue not in range(0, 101):
                 raise AbvmError("Native Guard calibration cue is out of range: " + profile_id)
-            if numeric_id not in (7, 8) and cooldown:
-                raise AbvmError("Native Guard light cooldown is only valid for Whisper profiles")
+            if numeric_id not in (6, 7, 8) and cooldown:
+                raise AbvmError("Native Guard light cooldown is only valid for Targeted and Whisper profiles")
             ranges.append((profile_id, low, high))
             packed.extend(GUARD_PROFILE.pack(
                 numeric_id, cue, ROUTE_IDS[route_name], low, high, stable,
@@ -1383,7 +1383,7 @@ class Verifier:
                         cue not in range(0 if version >= 4 else 1, 101 if version >= 4 else 9) or route_id not in ROUTE_IDS.values() or \
                         low > high or stable > 3_600_000 or \
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
-                        (profile_id not in (7, 8) and cooldown):
+                        (profile_id not in (6, 7, 8) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
                 if version in (4, 5):
                     custom_offset = GUARD_HEADER.size + index * profile_size + GUARD_PROFILE.size

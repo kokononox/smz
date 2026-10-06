@@ -51,7 +51,8 @@
     "LuxCenter": 36.7,
     "LuxTolerance": 0.5,
     "StableDurationMs": 750,
-    "HysteresisLux": 1
+    "HysteresisLux": 1,
+    "LightCooldownMs": 60000
   },
   {
     "Id": "whisper",

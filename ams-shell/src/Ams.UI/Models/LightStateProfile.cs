@@ -14,7 +14,8 @@ public class LightStateProfile
     public double HysteresisLux { get; set; } = 1;
     /// <summary>
     /// Board-only re-arm delay for transient light overlays. It is currently
-    /// consumed by Whisper New and Whisper Repeat; durable scenes keep zero.
+    /// consumed by Targeted, Whisper New and Whisper Repeat; durable scenes
+    /// keep zero.
     /// </summary>
     public int LightCooldownMs { get; set; }
     /// <summary>One of the 100 built-in calibration motifs; zero selects Custom.</summary>
@@ -102,7 +103,7 @@ public static class LightStateDefaults
         Profile("character-dashboard", "داشبورد انتخاب کرکترها", 43, 3, tolerance: 1),
         Profile("entering-game-loading", "صفحه لود ورود به بازی", 3, 4, tolerance: 1),
         Profile("game", "محیط بازی", 33, 5, tolerance: 0.7),
-        Profile("targeted", "تارگت شدن توسط افراد", 36.7, 6, tolerance: 0.5),
+        Profile("targeted", "تارگت شدن توسط افراد", 36.7, 6, 60000, tolerance: 0.5),
         Profile("whisper", "ویسپر افراد جدید", 100, 7, 5000, tolerance: 1),
         Profile("whisper-repeat", "ویسپر افراد تکراری", 23, 8, 1000000, tolerance: 2.5),
     };

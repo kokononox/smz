@@ -185,3 +185,26 @@ v3.2 local validation:
 - The final image preserves the user's tested ABP exactly: SHA-256
   `9011f0ec787f563029d329764b4dffc5007574702834268ce6b816a8af72dca8`,
   197,148 bytes, 3,519 instructions, 12 routes, and one Native Guard.
+
+## v3.3 — 2026-10-06 motion-texture follow-up
+
+The user supplied a 332-second macro recording plus three raw hand captures
+(hand3, hand2, my-hand; 84.9 s combined). Tick-level comparison found the
+remaining machine tells: uniform ~4 px ticks, 0.93 median path efficiency,
+and rare 167° joins. v3.3 jitters per-tick progress along the unchanged
+authored path (triangular 45–155%, plus 8% bounded flicks capped at
+72 px/tick), adds an envelope-closed lateral tremor on 80 px+ moves, blends
+ordinary leg joins toward the previous exit tangent with an exact C1 join for
+Circular Mode, and warms up the first move after a 2.2 s idle. The Targeted
+optical profile gains a board-local cooldown (default 60 s) editable in the
+Status section alongside Whisper and Whisper Repeat.
+
+Validation: 71 Portable/ABVM contract files, 32 firmware unit tests, the
+guard/cycle/light/type C smokes, and a new host harness
+(`abvm_human_mouse_smoke.c` + `test_abvm_human_mouse_motion.py`) that loops
+the ARM UART in software and measures the real MMOVE stream. The behavioural
+fixture uses a synthetic 30 s profile; the user's real trace is never
+committed. The deliverable ABP is canonically identical to the
+hardware-tested NB016 ABP (same 3,521-instruction stream and constant
+multiset) except the Targeted cooldown (two descriptor bytes) and refreshed
+hand statistics compiled from the new captures.

@@ -84,7 +84,7 @@
         "stableDurationMs": 100,
         "hysteresisLux": 2,
         "calibrationCue": 3,
-        "lightCooldownMs": 0,
+        "lightCooldownMs": 5000,
         "calibrationCuePattern": "330:120,40;440:180",
         "calibrationCueVolume": 100,
         "calibrationCueEnvelope": "sharp",

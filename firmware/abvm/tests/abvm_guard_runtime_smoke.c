@@ -112,7 +112,16 @@ int main(int argc, char **argv) {
     if (!require(guard_runtime_take_event(&event), "targeted return") ||
         !require(event.type == GUARD_EVENT_STATE && event.route_id == 0u,
                  "Game does not replay after Targeted")) return 1;
-    if (!stable(&vm, 2000u, 2900u, 5u, 2u)) return 1;
+    /* The armed Targeted cooldown suppresses an immediate optical retrigger
+     * while the session is back in Game; the route cursor stays untouched. */
+    guard_runtime_observe(&vm,6000u,2820u);
+    guard_runtime_observe(&vm,6000u,2930u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_DENIED && event.reason &&
+                 !strcmp(event.reason,"light-targeted-cooldown") &&
+                 vm.route_id==8u,
+                 "light Targeted cooldown suppresses quick retrigger")) return 1;
+    if (!stable(&vm, 2000u, 3100u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
     /* Dashboard -> DC must run the dedicated DC macro completely, then

@@ -58,7 +58,7 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("HUMAN_PATH_MOVE", self.arm)
         self.assertIn("HUMAN_PATH_CORRECT", self.arm)
         self.assertIn("HUMAN_PATH_AFTER", self.arm)
-        self.assertIn("q16_bezier", self.arm)
+        self.assertIn("q16_cubic", self.arm)
         self.assertIn("smooth_q16", self.arm)
         self.assertIn("human_path.mid_pause_ms", self.arm)
         self.assertIn("human_moves_since_idle", self.arm)

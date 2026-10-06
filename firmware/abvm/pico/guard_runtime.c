@@ -276,12 +276,19 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             guard.watchdog_expected_override=5u;
             emit(GUARD_EVENT_STATE,profile_id,0u,3u,lux,
                  "post-whisper-targeted-grace-start");
+        } else if (profile->cooldown_ms && profile->next_allowed &&
+                   !reached(now,profile->next_allowed)) {
+            /* Repeated targeting inside the cooldown window must not yank the
+             * session out of Game again; the overlay is transient. */
+            emit(GUARD_EVENT_DENIED, profile_id, 0u, 3u, lux,
+                 "light-targeted-cooldown");
         } else if (guard.stage == 5u && !guard.targeted_active) {
             if (!abvm_interrupt_route(vm, profile->route_id, now)) {
                 fault(vm, now, "targeted-interrupt-failed");
                 return;
             }
             guard.targeted_active = true;
+            arm_light_whisper_cooldown(profile_id,now);
             emit(GUARD_EVENT_ROUTE, profile_id, profile->route_id, 3u, lux,
                  "game-to-targeted-interrupt");
         } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
@@ -391,7 +398,8 @@ bool guard_runtime_init(const AbvmVm *vm) {
             (seen & (uint8_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id ||
             profile->cooldown_ms>3600000u ||
-            (profile->id!=7u&&profile->id!=8u&&profile->cooldown_ms))
+            (profile->id!=6u&&profile->id!=7u&&profile->id!=8u&&
+             profile->cooldown_ms))
             return false;
         seen |= (uint8_t)(1u << (profile->id - 1u));
     }

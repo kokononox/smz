@@ -15,7 +15,7 @@ expected = {
     "character-dashboard": (43, 1, 0),
     "entering-game-loading": (3, 1, 0),
     "game": (33, 0.7, 0),
-    "targeted": (36.7, 0.5, 0),
+    "targeted": (36.7, 0.5, 60000),
     "whisper": (100, 1, 5000),
     "whisper-repeat": (23, 2.5, 1000000),
 }
@@ -36,6 +36,7 @@ fallback = (
 for token in (
     'Profile("desktop", "دسکتاپ", 59, 1, tolerance: 1)',
     'Profile("login-or-dc", "صفحه لاگین یا DC", 74, 2, tolerance: 13.5)',
+    'Profile("targeted", "تارگت شدن توسط افراد", 36.7, 6, 60000, tolerance: 0.5)',
     'Profile("whisper", "ویسپر افراد جدید", 100, 7, 5000, tolerance: 1)',
     'Profile("whisper-repeat", "ویسپر افراد تکراری", 23, 8, 1000000, tolerance: 2.5)',
 ):

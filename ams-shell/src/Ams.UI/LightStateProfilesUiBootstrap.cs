@@ -164,7 +164,7 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text($"{profile.LuxMin:0.#} تا {profile.LuxMax:0.#}", 12, "#D9DEE7"), 4);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
         Add(row, Editor(profile, nameof(profile.HysteresisLux)), 6);
-        Add(row, profile.Id is "whisper" or "whisper-repeat"
+        Add(row, profile.Id is "whisper" or "whisper-repeat" or "targeted"
             ? Editor(profile, nameof(profile.LightCooldownMs))
             : Text("—", 12, "#777F8C"), 7);
         return row;

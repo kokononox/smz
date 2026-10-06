@@ -102,6 +102,7 @@ jobs:
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/hid_keyboard.c \
               firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
+            python firmware/abvm/tests/test_abvm_human_mouse_motion.py
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
