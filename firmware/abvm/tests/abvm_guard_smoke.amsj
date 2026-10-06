@@ -84,7 +84,7 @@
         "stableDurationMs": 100,
         "hysteresisLux": 2,
         "calibrationCue": 3,
-        "lightCooldownMs": 5000,
+        "lightCooldownMs": 0,
         "calibrationCuePattern": "330:120,40;440:180",
         "calibrationCueVolume": 100,
         "calibrationCueEnvelope": "sharp",
@@ -98,7 +98,7 @@
         "stableDurationMs": 100,
         "hysteresisLux": 2,
         "calibrationCue": 2,
-        "lightCooldownMs": 5000,
+        "lightCooldownMs": 0,
         "calibrationCuePattern": "1175:100,25;1397:180",
         "calibrationCueVolume": 100,
         "calibrationCueEnvelope": "sharp",
@@ -112,11 +112,26 @@
         "stableDurationMs": 100,
         "hysteresisLux": 2,
         "calibrationCue": 1,
-        "lightCooldownMs": 3600000,
+        "lightCooldownMs": 1000,
         "calibrationCuePattern": "262:120,40;392:180",
         "calibrationCueVolume": 100,
         "calibrationCueEnvelope": "sharp",
         "calibrationCueTempo": 100
+      },
+      {
+        "id": "targeted-repeat",
+        "enabled": true,
+        "luxCenter": 900,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 9,
+        "lightCooldownMs": 9000,
+        "calibrationCuePattern": "988:90,30;1319:190",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100,
+        "name": "Targeted Repeat"
       }
     ],
     "buzzerCues": [
@@ -466,6 +481,19 @@
         },
         "Children": [],
         "Delay": 0
+      }
+    ],
+    "TargetedRepeat": [
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "R",
+          "holdMin": 1,
+          "holdMax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
       }
     ]
   }

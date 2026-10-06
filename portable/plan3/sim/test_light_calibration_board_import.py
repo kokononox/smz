@@ -11,7 +11,7 @@ tests = (root / "tests/LightTelemetryTests/Program.cs").read_text()
 bridge = (root / "ams-shell/bridge/bridge.py").read_text()
 
 assert 'CALDUMP|LIGHT' in main
-assert 'OK|CALDUMP|LIGHT|revision=%lu|mask=%02x|profiles=%s\\n' in main
+assert 'OK|CALDUMP|LIGHT|revision=%lu|mask=%04x|profiles=%s\\n' in main
 assert 'calibration_store_light_get' in main
 assert 'char profiles[256]' in main
 assert 'printf("%s%u:%lu:%lu"' not in main

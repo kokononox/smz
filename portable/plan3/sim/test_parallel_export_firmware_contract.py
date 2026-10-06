@@ -29,9 +29,9 @@ assert 'ParallelLeaf=new(){"randomMousePosition","mouseMove"' in exporter
 assert 'case "buzzer":EmitBuzzer(n)' in exporter
 assert '"comment","buzzer"' in exporter
 assert 'StepDefinitions.BuildBuzzerCommands' in exporter
-# ARM 2.8.2-S4 keeps relative HID, latches ADC peaks outside HID cadence, and
+# ARM 2.8.3-S5 keeps relative HID, preserves Pico-authored ticks, latches ADC peaks outside HID cadence, and
 # never treats an open-but-idle CDC port as a pending secure handshake.
-assert '#define FW_VER   "2.8.2-S4"' in arm
+assert '#define FW_VER   "2.8.3-S5"' in arm
 assert 'if (!strcmp(cmd, "SCAL"))' in arm
 for token in ('ASND|', 'ASNDCANCEL', 'ASND=1', 'EVT|ASND|'):
     assert token in arm28, token
@@ -40,7 +40,7 @@ move_steps = arm.split("static void mouse_move_steps", 1)[1].split(
 assert "ARM_SOUND_TICK()" not in move_steps
 main_loop = arm28.split("void loop()", 1)[1]
 assert "arm28_sound_tick();" in main_loop
-assert "OK|HVER|2.8.2-S4|REL=1|ASND=1" in arm28
+assert "OK|HVER|2.8.3-S5|REL=1|ASND=1" in arm28
 assert "if(!g_secure){if(Serial.available())do_handshake(40);else delay(1);return;}" in arm28
 for token in ('ISR(ADC_vect)', 'ASND_WINDOW_SAMPLES 96U', '_BV(ADATE)', '_BV(ADIE)',
               'asndObservedPeak', 'asndSustainedMs', 'EVT|ASND|'):

@@ -50,7 +50,7 @@ public static class NativeUf2Exporter
             var compilerSummary = await RunPythonAsync(compiler,
                 ["compile", source, program, "--routes",
                  "Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
-                 "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",
+                 "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "TargetedRepeat",
                  "Whisper", "WhisperRepeat", "Finish"],
                 cancellationToken);
             if (!File.Exists(program) || new FileInfo(program).Length == 0)

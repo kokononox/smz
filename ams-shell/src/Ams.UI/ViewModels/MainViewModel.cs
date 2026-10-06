@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.71 — hand-like tick jitter, bounded flicks, tremor, smooth leg joins, post-idle warm-up and Targeted light cooldown");
+        Log("Classroom Studio v0.9.72 — Targeted New/Repeat optical routes, independent cooldowns and ARM 2.8.3 authored-tick HID");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 

@@ -263,7 +263,11 @@ void buzzer_set_calibration_style(uint8_t volume,uint8_t envelope){
     calibration_custom_envelope=envelope<=3u?envelope:0u;
 }
 void buzzer_guard_transition(uint8_t profile_id,uint32_t now) {
-    if(profile_id<1u||profile_id>6u)return;
+    /* IDs 7/8 use dedicated Whisper cues in main.c. ID 9 is Targeted
+     * Repeat and keeps a distinct fallback sweep when an old descriptor has
+     * no embedded profile motif. */
+    if(profile_id<1u||profile_id>9u||
+       profile_id==7u||profile_id==8u)return;
     if(active&&priority>4u)return;
     if(begin_system((uint8_t)(16u+profile_id),4u,now))return;
     sweep_start_hz=(uint16_t)(440u+(uint16_t)profile_id*110u);

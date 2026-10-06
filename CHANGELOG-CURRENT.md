@@ -1,3 +1,29 @@
+## v0.9.72 — split Targeted optics and authored-tick ARM transport
+
+- Targeted now mirrors Whisper with two independent optical classifiers:
+  `Targeted New` and `Targeted Repeat`. Each owns a dedicated pipeline tab,
+  ABVM route and calibrated light range. As with Whisper, the New route has
+  no cooldown; only Repeat owns the board-local cooldown clock.
+- Native Guard carries nine light profiles. Calibration persistence can import
+  a binding-compatible eight-profile v3 record, and the `CALDUMP|LIGHT` mask
+  expands to four hexadecimal digits. Physical light
+  calibration now cycles through all nine stages and announces completion only
+  after `Targeted Repeat`.
+- `Targeted New` and `Targeted Repeat` play their own editable profile motifs;
+  the compiler contract rejects a fixture where their notification notes are
+  identical.
+- Once either Targeted light starts its bounded macro, Native Guard ignores
+  every later optical scene change until the macro finishes and the suspended
+  Game cursor is restored. A stable Login/DC reading is the sole exception
+  and immediately replaces Targeted with the disconnect-recovery route.
+- ARM 2.8.3-S5 no longer subdivides each v3.3 Pico `MMOVE` into 1–2 px reports.
+  Every bounded authored tick is emitted as one HID report, preserving the
+  intended velocity jitter while retaining defensive splitting above ±127.
+- The supplied 226.1 s game recording contained 6,485 cursor samples. Its
+  geometry removed the old 167° join failure (maximum observed turn 90°), but
+  74.8% of moving reports arrived within 0–3 ms and virtually none at the
+  authored 4–12 ms cadence. That evidence directly motivated ARM 2.8.3-S5.
+
 ## v0.9.71 — hand-like motion texture and Targeted light cooldown
 
 - A full-session macro recording (332 s, 5,320 cursor samples) was compared

@@ -21,7 +21,7 @@ static void arm28_sound_cancel();
 #include "ams_board26_impl.h"
 #undef setup
 #undef loop
-// ARM 2.8.2-S4 keeps the hardware-proven S3 mouse cadence byte-for-byte.
+// ARM 2.8.3-S5 preserves each Pico-authored MMOVE as one USB HID report.
 // Sound uses the ATmega32U4 free-running ADC in the background: the ISR builds
 // the same 10 ms peak windows used by blocking WSND/SCAL, so a 145-unit splash
 // remains a 145-unit splash while MMOVE micro-steps are being emitted.
@@ -87,7 +87,7 @@ static bool arm28_sound_tick(){
   return false;
 }
 static bool arm27_handle(char* line){
-  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.2-S4|REL=1|ASND=1");return true;}
+  if(!strcmp(line,"HVER")){send_line("OK|HVER|2.8.3-S5|REL=1|ASND=1");return true;}
   if(!strncmp(line,"ASND|",5)){
     int thr=60;unsigned long minimum=60,timeout=30000;
     sscanf(line+5,"%d,%lu,%lu",&thr,&minimum,&timeout);
