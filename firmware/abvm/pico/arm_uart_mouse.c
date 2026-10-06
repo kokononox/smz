@@ -47,7 +47,8 @@ typedef struct HumanPath {
     uint16_t steps, step, correction_steps;
     uint16_t second_leg_steps;
     int32_t start_x, start_y, target_x, target_y;
-    int32_t leg_x, leg_y, control_x, control_y;
+    int32_t leg_x, leg_y;
+    int32_t control1_x, control1_y, control2_x, control2_y;
     int32_t second_leg_x, second_leg_y, second_leg_curve;
     int32_t last_x, last_y;
     uint32_t next_due;
@@ -96,6 +97,7 @@ static uint32_t human_move_serial;
 static bool human_boot_mixed;
 static uint8_t human_turn_p90_deg = 18u;
 static int8_t human_side_lock;
+static int32_t human_leg_curve_min, human_leg_curve_max;
 
 static bool reached(uint32_t now, uint32_t due) { return (int32_t)(now - due) >= 0; }
 static uint32_t random_next(void) {
@@ -302,11 +304,13 @@ static uint32_t isqrt_u32(uint32_t value) {
     }
     return result;
 }
-static int32_t q16_bezier(int32_t end, int32_t control, uint32_t t) {
+static int32_t q16_cubic(int32_t end,int32_t control1,int32_t control2,
+                         uint32_t t) {
     uint32_t u = 65536u - t;
-    int64_t value = (int64_t)2u * u * t * control +
-                    (int64_t)t * t * end;
-    return (int32_t)(value >> 32);
+    int64_t value = (int64_t)3u*u*u*t*control1+
+                    (int64_t)3u*u*t*t*control2+
+                    (int64_t)t*t*t*end;
+    return (int32_t)(value >> 48);
 }
 static uint32_t smooth_q16(uint16_t step, uint16_t steps) {
     uint32_t t = ((uint32_t)step << 16) / steps;
@@ -329,9 +333,25 @@ static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
     int64_t distance2 = (int64_t)end_x * end_x + (int64_t)end_y * end_y;
     uint32_t distance = isqrt_u32(
         distance2 > UINT32_MAX ? UINT32_MAX : (uint32_t)distance2);
-    int32_t height = (int32_t)((distance *
-        human_curve_height_per_mille(curve_pct)) / 1000u);
-    if (height < 2 && distance > 20u) height = 2;
+    int32_t range_min=clamp_i32(human_leg_curve_min,0,200);
+    int32_t range_max=clamp_i32(human_leg_curve_max,range_min,200);
+    int32_t span=range_max-range_min;
+    int32_t window=span>0?clamp_i32(span/3,2,24):0;
+    int32_t sample_min=clamp_i32(curve_pct-window,range_min,range_max);
+    int32_t sample_max=clamp_i32(curve_pct+window,range_min,range_max);
+    if(sample_max<sample_min)sample_max=sample_min;
+    int32_t curve1=(int32_t)random_range_u32(
+        (uint32_t)sample_min,(uint32_t)sample_max);
+    int32_t curve2=(int32_t)random_range_u32(
+        (uint32_t)sample_min,(uint32_t)sample_max);
+    if(curve1==curve2&&sample_max>sample_min)
+        curve2=curve1<sample_max?curve1+1:curve1-1;
+    int32_t height1=(int32_t)((distance*
+        human_curve_height_per_mille(curve1))/1000u);
+    int32_t height2=(int32_t)((distance*
+        human_curve_height_per_mille(curve2))/1000u);
+    if(height1<2&&distance>20u)height1=2;
+    if(height2<2&&distance>20u)height2=2;
     int32_t side;
     if(human_side_lock)side=human_side_lock;
     else {
@@ -341,20 +361,32 @@ static void human_leg(int32_t end_x, int32_t end_y, uint16_t steps,
         else side = -human_last_side;
     }
     human_last_side = side;
-    int32_t perpendicular_x = distance ?
-        (int32_t)((-(int64_t)end_y * height * side) / distance) : 0;
-    int32_t perpendicular_y = distance ?
-        (int32_t)(((int64_t)end_x * height * side) / distance) : 0;
+    int32_t perpendicular1_x=distance?
+        (int32_t)((-(int64_t)end_y*height1*side)/distance):0;
+    int32_t perpendicular1_y=distance?
+        (int32_t)(((int64_t)end_x*height1*side)/distance):0;
+    int32_t perpendicular2_x=distance?
+        (int32_t)((-(int64_t)end_y*height2*side)/distance):0;
+    int32_t perpendicular2_y=distance?
+        (int32_t)(((int64_t)end_x*height2*side)/distance):0;
     human_path.leg_x = end_x;
     human_path.leg_y = end_y;
-    human_path.control_x = end_x / 2 + perpendicular_x;
-    human_path.control_y = end_y / 2 + perpendicular_y;
+    human_path.control1_x=end_x/3+perpendicular1_x;
+    human_path.control1_y=end_y/3+perpendicular1_y;
+    human_path.control2_x=end_x*2/3+perpendicular2_x;
+    human_path.control2_y=end_y*2/3+perpendicular2_y;
     if(human_soft_boundary) {
-        int32_t global_x=human_virtual_x+human_path.control_x;
-        int32_t global_y=human_virtual_y+human_path.control_y;
-        human_path.control_x=clamp_i32(global_x,human_soft_margin_x,
+        int32_t global1_x=human_virtual_x+human_path.control1_x;
+        int32_t global1_y=human_virtual_y+human_path.control1_y;
+        int32_t global2_x=human_virtual_x+human_path.control2_x;
+        int32_t global2_y=human_virtual_y+human_path.control2_y;
+        human_path.control1_x=clamp_i32(global1_x,human_soft_margin_x,
             human_screen_w-1-human_soft_margin_x)-human_virtual_x;
-        human_path.control_y=clamp_i32(global_y,human_soft_margin_y,
+        human_path.control1_y=clamp_i32(global1_y,human_soft_margin_y,
+            human_screen_h-1-human_soft_margin_y)-human_virtual_y;
+        human_path.control2_x=clamp_i32(global2_x,human_soft_margin_x,
+            human_screen_w-1-human_soft_margin_x)-human_virtual_x;
+        human_path.control2_y=clamp_i32(global2_y,human_soft_margin_y,
             human_screen_h-1-human_soft_margin_y)-human_virtual_y;
     }
     human_path.last_x = human_path.last_y = 0;
@@ -367,8 +399,10 @@ static bool human_path_command(char *command, size_t capacity) {
     if (human_path.step >= human_path.steps) return false;
     uint16_t next = (uint16_t)(human_path.step + 1u);
     uint32_t t = smooth_q16(next, human_path.steps);
-    int32_t x = q16_bezier(human_path.leg_x, human_path.control_x, t);
-    int32_t y = q16_bezier(human_path.leg_y, human_path.control_y, t);
+    int32_t x=q16_cubic(human_path.leg_x,human_path.control1_x,
+                        human_path.control2_x,t);
+    int32_t y=q16_cubic(human_path.leg_y,human_path.control1_y,
+                        human_path.control2_y,t);
     int32_t dx = x - human_path.last_x;
     int32_t dy = y - human_path.last_y;
     human_path.last_x = x; human_path.last_y = y; human_path.step = next;
@@ -480,6 +514,8 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (curve_max < curve_min) {
         int32_t swap = curve_min; curve_min = curve_max; curve_max = swap;
     }
+    human_leg_curve_min=curve_min;
+    human_leg_curve_max=curve_max>189?189:curve_max;
     uint32_t curve_span = (uint32_t)(curve_max - curve_min);
     uint32_t curve_low = 0u, curve_high = curve_span;
     if (behavior == HUMAN_MODE_FOCUSED)
@@ -693,6 +729,8 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         human_path.second_leg_steps=(uint16_t)clamp_i32(
             (int32_t)(steps/2u),8,HUMAN_PATH_MAX_STEPS);
         int32_t leg_curve=130+(circular_curve-190)*3;
+        human_leg_curve_min=clamp_i32(leg_curve-6,0,200);
+        human_leg_curve_max=clamp_i32(leg_curve+6,0,200);
         human_path.second_leg_curve=leg_curve;
         human_path.second_leg_pending=true;
         human_leg(waypoint_x,waypoint_y,(uint16_t)clamp_i32(
@@ -812,7 +850,8 @@ void arm_uart_mouse_init(void) {
     human_last_speed=1050u;human_last_curve=30;human_last_side=1;
     human_mode=HUMAN_MODE_NORMAL;human_mode_moves_left=0u;
     human_move_serial=0u;human_boot_mixed=false;human_turn_p90_deg=18u;
-    human_side_lock=0;prng=0x6d2b79f5u;
+    human_side_lock=0;human_leg_curve_min=human_leg_curve_max=0;
+    prng=0x6d2b79f5u;
 }
 bool arm_uart_mouse_probe(uint32_t now) {
     if (state != ARM_IDLE) return false;
@@ -1092,6 +1131,7 @@ static void handle_line(uint32_t now) {
                     uint16_t correction_steps=human_path.correction_steps;
                     human_path.phase=HUMAN_PATH_CORRECT;
                     human_path.correction_steps=0u;
+                    human_leg_curve_min=human_leg_curve_max=8;
                     human_leg(correction_x,correction_y,correction_steps,8);
                     human_path.next_due=now+random_range_u32(70u,160u);
                 } else {

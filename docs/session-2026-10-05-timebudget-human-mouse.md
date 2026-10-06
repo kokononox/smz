@@ -161,6 +161,12 @@ authored values 190–200. The 190–200 band uses a direction-locked two-leg
 Circular Mode; ordinary multi-leg paths require at least 600 px and bend no
 more than 4%.
 
+Each leg now uses two Cubic Bezier control points. Entry and exit curvature are
+sampled independently from a bounded local window inside the authored range;
+equal values are separated by one unit when possible. Therefore arc strength
+changes from start to finish without leaving the configured range. Circular
+Mode keeps one rotation direction across both legs while its strength varies.
+
 The user's tested ABP contains 36 mouse constants. Its authored ranges include
 only four 120–195 constants capable of occasionally sampling Circular Mode;
 ordinary actions remain in lower ranges. The ABP, Guard, fishing, Catch, and
@@ -174,8 +180,8 @@ v3.2 local validation:
 - Pico firmware and 30 identity templates compiled.
 - Windows x64 publish is a verified PE32+ GUI executable.
 - TestRunner and LightTelemetryTests compiled with 0 errors.
-- Final NB01 v3.2 UF2 SHA-256:
-  `07f2d91ced677b0901abdb44de59a806de3cc484efa28707e17ecaefbf9b99ca`
+- Final NB01 v3.2 Cubic UF2 SHA-256:
+  `ac84020d09b2596cf4071f143a2da116927ea6493b3effd89fabe5a66bc45787`
 - The final image preserves the user's tested ABP exactly: SHA-256
   `9011f0ec787f563029d329764b4dffc5007574702834268ce6b816a8af72dca8`,
   197,148 bytes, 3,519 instructions, 12 routes, and one Native Guard.
