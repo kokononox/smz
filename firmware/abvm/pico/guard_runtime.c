@@ -56,6 +56,7 @@ typedef struct GuardState {
     uint16_t whisper_light_route;
     bool input_locked;
     bool whisper_pending;
+    bool whisper_pending_replaces_targeted;
     uint8_t whisper_pending_profile;
     uint16_t whisper_pending_route;
     uint32_t whisper_pending_lux;
@@ -322,6 +323,7 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             guard.active=guard.candidate=guard.last_stable=0u;
         } else if(guard.input_locked) {
             guard.whisper_pending=true;
+            guard.whisper_pending_replaces_targeted=false;
             guard.whisper_pending_profile=profile_id;
             guard.whisper_pending_route=whisper_route;
             guard.whisper_pending_lux=lux;
@@ -535,13 +537,21 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
            vm->route_id==GUARD_ROUTE_STARTUP||
            vm->status!=ABVM_STATUS_RUNNING) {
             guard.whisper_pending=false;
+            guard.whisper_pending_replaces_targeted=false;
             return;
         }
         if(guard.input_locked)return;
-        if(!abvm_interrupt_route(vm,guard.whisper_pending_route,now)) {
+        bool replace_targeted =
+            guard.whisper_pending_replaces_targeted &&
+            guard.targeted_active && targeted_route_active(vm);
+        int started=replace_targeted
+            ? abvm_replace_interrupt_route(vm,guard.whisper_pending_route,now)
+            : abvm_interrupt_route(vm,guard.whisper_pending_route,now);
+        if(!started) {
             fault(vm,now,"whisper-deferred-interrupt-failed");
             return;
         }
+        if(replace_targeted)guard.targeted_active=false;
         guard.whisper_light_active=true;
         guard.whisper_light_route=guard.whisper_pending_route;
         arm_light_whisper_cooldown(guard.whisper_pending_profile,now);
@@ -551,6 +561,7 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
              "deferred-whisper-repeat-after-input-release":
              "deferred-whisper-new-after-input-release");
         guard.whisper_pending=false;
+        guard.whisper_pending_replaces_targeted=false;
         return;
     }
     /*
@@ -602,33 +613,63 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     if(guard.targeted_active&&targeted_route_active(vm)) {
         /*
          * Targeted New/Repeat are bounded macros, not durable scenes. Ignore
-         * Game, Desktop, the other Targeted range, Whisper and unknown light
-         * until every Targeted step has finished. A stable Login/DC sample is
-         * the sole optical exception and immediately starts recovery.
+         * Game, Desktop, the other Targeted range, Whisper Repeat and unknown
+         * light until every Targeted step has finished. Stable Login/DC keeps
+         * absolute priority. Stable optical Whisper New has the next priority:
+         * it cancels (never resumes) Targeted and replaces it while preserving
+         * the exact suspended Game cursor.
          */
         uint8_t targeted_matches=0u;
         GuardProfile *targeted_match=unique_match(lux,&targeted_matches);
         if(targeted_matches!=1u||!targeted_match||
-           targeted_match->id!=2u) {
-            if(guard.candidate==2u)guard.candidate=0u;
+           (targeted_match->id!=2u&&targeted_match->id!=7u)) {
+            if(guard.candidate==2u||guard.candidate==7u)
+                guard.candidate=0u;
             return;
         }
-        if(guard.active==2u) {
+        uint8_t priority_profile=targeted_match->id;
+        if(guard.active==priority_profile) {
             guard.candidate=0u;
             return;
         }
-        if(guard.candidate!=2u) {
-            guard.candidate=2u;
+        if(guard.candidate!=priority_profile) {
+            guard.candidate=priority_profile;
             guard.candidate_since=now;
-            emit(GUARD_EVENT_STATE,2u,0u,0u,lux,
-                 "dc-candidate-during-targeted");
+            emit(GUARD_EVENT_STATE,priority_profile,0u,
+                 priority_profile==2u?0u:4u,lux,
+                 priority_profile==2u?
+                 "dc-candidate-during-targeted":
+                 "whisper-new-candidate-during-targeted");
             return;
         }
         if(!reached(now,guard.candidate_since+
                     targeted_match->stable_ms))return;
-        guard.active=2u;
+        guard.active=priority_profile;
         guard.candidate=0u;
-        transition(vm,2u,lux,now);
+        if(priority_profile==2u) {
+            transition(vm,2u,lux,now);
+            return;
+        }
+        if(guard.input_locked) {
+            guard.whisper_pending=true;
+            guard.whisper_pending_replaces_targeted=true;
+            guard.whisper_pending_profile=7u;
+            guard.whisper_pending_route=GUARD_ROUTE_WHISPER;
+            guard.whisper_pending_lux=lux;
+            emit(GUARD_EVENT_STATE,7u,0u,4u,lux,
+                 "whisper-new-waiting-input-release-during-targeted");
+            return;
+        }
+        if(!abvm_replace_interrupt_route(vm,GUARD_ROUTE_WHISPER,now)) {
+            fault(vm,now,"targeted-to-whisper-new-replace-failed");
+            return;
+        }
+        guard.targeted_active=false;
+        guard.whisper_light_active=true;
+        guard.whisper_light_route=GUARD_ROUTE_WHISPER;
+        arm_light_whisper_cooldown(7u,now);
+        emit(GUARD_EVENT_ROUTE,7u,GUARD_ROUTE_WHISPER,4u,lux,
+             "targeted-cancelled-to-whisper-new-light-interrupt");
         return;
     }
     if (whisper_route_active(vm)) {

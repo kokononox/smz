@@ -191,7 +191,7 @@ internal static class LightStateProfilesUiBootstrap
         var body = new StackPanel();
         body.Children.Add(Text("تخصیص صدای راهنمای کالیبراسیون", 15, "#F5F7FA", FontWeights.SemiBold));
         body.Children.Add(Text(
-            "برای هر محیط از ۱۰۰ ملودی آماده انتخاب کن یا با «ویرایش حرفه‌ای» نوت، مدت، مکث، حجم، سرعت و لبهٔ صدای سفارشی بساز. همه صداهای قبلی—۸ صدای محیطی، Start/Stop/Pause/Resume، هشدار و خطا، Whisper، گذار محیط، آژیر Watchdog و چرخه کامل کالیبراسیون—در ابتدای فهرست حفظ شده‌اند.",
+            "برای هر محیط از ۱۰۰ ملودی آماده انتخاب کن یا با «ویرایش حرفه‌ای» نوت، مدت، مکث، حجم، سرعت و لبهٔ صدای سفارشی بساز. همه صداهای قبلی—۹ صدای محیطی، Start/Stop/Pause/Resume، هشدار و خطا، Whisper، گذار محیط، آژیر Watchdog و چرخه کامل کالیبراسیون—در ابتدای فهرست حفظ شده‌اند.",
             12, "#AAB3C2"));
         foreach (var profile in vm.LightStateProfiles)
         {

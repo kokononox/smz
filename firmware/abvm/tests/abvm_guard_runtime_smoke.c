@@ -108,31 +108,51 @@ int main(int argc, char **argv) {
     guard_runtime_observe(&vm,5000u,2620u);
     guard_runtime_observe(&vm,1000u,2630u);
     guard_runtime_observe(&vm,9000u,2640u);
-    guard_runtime_observe(&vm,7000u,2650u);
+    guard_runtime_observe(&vm,8000u,2650u);
     guard_runtime_observe(&vm,123456u,2660u);
     if (!require(vm.route_id==9u&&vm.suspended.valid,
-                 "Targeted New ignores every non-DC light until END") ||
+                 "Targeted New ignores ordinary and Whisper Repeat light") ||
         !require(!guard_runtime_take_event(&event),
                  "Targeted New emits no transient optical event")) return 1;
-    /* Simulate Targeted END restoring the suspended Game context. */
+    /*
+     * Whisper New is the one non-DC exception. It replaces and permanently
+     * cancels Targeted while retaining the original suspended Game cursor.
+     */
+    guard_runtime_observe(&vm,7000u,2670u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_STATE &&
+                 event.reason && !strcmp(event.reason,
+                     "whisper-new-candidate-during-targeted") &&
+                 vm.route_id==9u,
+                 "Whisper New observes stability before replacing Targeted"))
+        return 1;
+    guard_runtime_observe(&vm,7000u,2770u);
+    if (!require(guard_runtime_take_event(&event) &&
+                 event.type==GUARD_EVENT_ROUTE &&
+                 event.route_id==10u && vm.route_id==10u &&
+                 vm.suspended.valid && vm.suspended.route_id==8u &&
+                 event.reason && !strcmp(event.reason,
+                     "targeted-cancelled-to-whisper-new-light-interrupt"),
+                 "Whisper New cancels Targeted and preserves Game")) return 1;
+    /* Simulate Whisper END restoring the suspended Game context. */
     vm.route_id=vm.suspended.route_id;
     vm.suspended.valid=false;
-    guard_runtime_observe(&vm, 5000u, 2700u);
     guard_runtime_observe(&vm, 5000u, 2800u);
+    guard_runtime_observe(&vm, 5000u, 2900u);
     if (!require(guard_runtime_take_event(&event), "targeted return") ||
         !require(event.type == GUARD_EVENT_STATE && event.route_id == 0u,
-                 "Game does not replay after Targeted")) return 1;
+                 "Game does not replay after replacement Whisper")) return 1;
     /* Targeted New mirrors Whisper New and therefore has no cooldown. A new
      * optical event can immediately interrupt Game again. */
-    if (!stable(&vm,6000u,2820u,9u,5u))
+    if (!stable(&vm,6000u,2920u,9u,5u))
         return 1;
     vm.route_id=8u;vm.suspended.valid=false;
-    guard_runtime_observe(&vm,5000u,2940u);
-    guard_runtime_observe(&vm,5000u,3050u);
+    guard_runtime_observe(&vm,5000u,3040u);
+    guard_runtime_observe(&vm,5000u,3150u);
     if (!require(guard_runtime_take_event(&event) &&
                  event.type==GUARD_EVENT_STATE && vm.route_id==8u,
                  "Targeted New returns without arming a cooldown")) return 1;
-    if (!stable(&vm, 2000u, 3100u, 5u, 2u)) return 1;
+    if (!stable(&vm, 2000u, 3200u, 5u, 2u)) return 1;
     if (!require(guard_runtime_active_profile() == 2u, "DC profile") ||
         !require(guard_runtime_stage() == 2u, "DC resets stage")) return 1;
     /* Dashboard -> DC must run the dedicated DC macro completely, then
@@ -189,7 +209,7 @@ int main(int argc, char **argv) {
         !stable(&vm,5000u,3500u,8u,5u) ||
         !stable(&vm,6000u,3700u,9u,5u)) return 1;
     guard_runtime_observe(&vm,1000u,3850u);
-    guard_runtime_observe(&vm,7000u,3860u);
+    guard_runtime_observe(&vm,8000u,3860u);
     if (!require(vm.route_id==9u&&vm.suspended.valid,
                  "non-DC light cannot preempt Targeted") ||
         !require(!guard_runtime_take_event(&event),

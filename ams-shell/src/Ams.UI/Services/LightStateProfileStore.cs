@@ -72,7 +72,15 @@ public static class LightStateProfileStore
             else if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)
                 profile.LightCooldownMs = fallback.LightCooldownMs;
         }
-        return valid;
+        // Canonicalize the user-facing calibration order even for older
+        // persisted files. Preserve every edited value; only reorder the
+        // required records, then retain any future/unknown valid records.
+        var byId = valid.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        var ordered = LightStateDefaults.CreateInitialProfiles()
+            .Select(x => byId[x.Id])
+            .ToList();
+        ordered.AddRange(valid.Where(x => !defaults.ContainsKey(x.Id)));
+        return ordered;
     }
 
     internal static void MigrateCueStyle(LightStateProfile profile)

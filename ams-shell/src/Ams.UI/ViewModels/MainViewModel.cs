@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.73 — continuous three-pixel human mouse, nine optical profiles and ARM 2.8.3 HID");
+        Log("Classroom Studio v0.9.73 — Whisper-over-Targeted priority, ordered nine-profile calibration, continuous three-pixel human mouse and ARM 2.8.3 HID");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 

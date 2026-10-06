@@ -198,6 +198,15 @@ class AbvmArmUartContractTests(unittest.TestCase):
         self.assertIn("BUTTON_LONG_MS 3000u", self.main)
         self.assertIn("calibration_runtime_blue_long", self.main)
         self.assertIn("calibration_runtime_yellow_long", self.main)
+        self.assertIn("LIGHT_PROFILE_COUNT 9u", self.calibration)
+        self.assertIn(
+            "1u, 2u, 3u, 4u, 5u, 6u, 9u, 7u, 8u",
+            self.calibration,
+        )
+        self.assertIn(
+            "cal.profile=LIGHT_CALIBRATION_ORDER[cal.light_slot]",
+            self.calibration,
+        )
         self.assertIn("SOUND_SILENCE_MS 3000u", self.calibration)
         self.assertIn("SOUND_TARGET_MS 30000u", self.calibration)
         self.assertIn("CAL_OFFSET_A", self.storage)

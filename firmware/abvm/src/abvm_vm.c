@@ -469,6 +469,23 @@ int abvm_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now) {
     return load_route(vm, &route, now);
 }
 
+int abvm_replace_interrupt_route(AbvmVm *vm, uint16_t route_id,
+                                 uint32_t now) {
+    AbvmRoute route;
+    if (!vm || vm->status != ABVM_STATUS_RUNNING ||
+        !vm->suspended.valid || !find_route(vm, route_id, &route) ||
+        (route.policy_flags & ABVM_ROUTE_POLICY_MASK) !=
+            ABVM_ROUTE_INTERRUPT_AND_RESUME)
+        return 0;
+    /*
+     * Keep vm->suspended exactly as authored by the first interrupt. Loading
+     * the replacement discards the current overlay lanes/scope, so the
+     * cancelled overlay can never resume after the replacement finishes.
+     */
+    vm->pending_release = 1;
+    return load_route(vm, &route, now);
+}
+
 int abvm_pause(AbvmVm *vm, uint32_t now) {
     if (!vm || vm->status != ABVM_STATUS_RUNNING) return 0;
     vm->status = ABVM_STATUS_PAUSED;
