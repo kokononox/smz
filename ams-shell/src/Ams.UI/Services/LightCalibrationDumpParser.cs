@@ -11,7 +11,7 @@ public sealed record LightCalibrationRange(byte ProfileId, uint LowTenths, uint 
 }
 
 public sealed record LightCalibrationDump(
-    uint Revision, byte Mask, IReadOnlyList<LightCalibrationRange> Profiles, string RawReply);
+    uint Revision, ushort Mask, IReadOnlyList<LightCalibrationRange> Profiles, string RawReply);
 
 /// <summary>Strict parser and atomic importer for the native CALDUMP|LIGHT contract.</summary>
 public static class LightCalibrationDumpParser
@@ -19,7 +19,7 @@ public static class LightCalibrationDumpParser
     private static readonly string[] ProfileIds =
     [
         "desktop", "login-or-dc", "character-dashboard", "entering-game-loading",
-        "game", "targeted", "whisper", "whisper-repeat",
+        "game", "targeted", "whisper", "whisper-repeat", "targeted-repeat",
     ];
 
     public static LightCalibrationDump Parse(string reply)
@@ -43,8 +43,8 @@ public static class LightCalibrationDumpParser
             || !fields.TryGetValue("revision", out var revisionText)
             || !uint.TryParse(revisionText, NumberStyles.None, CultureInfo.InvariantCulture, out var revision)
             || !fields.TryGetValue("mask", out var maskText)
-            || maskText.Length != 2
-            || !byte.TryParse(maskText, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var mask)
+            || maskText.Length != 4
+            || !ushort.TryParse(maskText, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var mask)
             || !fields.TryGetValue("profiles", out var profilesText))
             throw new LightCalibrationDumpProtocolException(raw, "Calibration dump metadata is invalid.");
 
@@ -56,7 +56,7 @@ public static class LightCalibrationDumpParser
                 var values = encoded.Split(':', StringSplitOptions.None);
                 if (values.Length != 3
                     || !byte.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out var id)
-                    || id is < 1 or > 8
+                    || id is < 1 or > 9
                     || !uint.TryParse(values[1], NumberStyles.None, CultureInfo.InvariantCulture, out var low)
                     || !uint.TryParse(values[2], NumberStyles.None, CultureInfo.InvariantCulture, out var high)
                     || low > high || high > 1_000_000u

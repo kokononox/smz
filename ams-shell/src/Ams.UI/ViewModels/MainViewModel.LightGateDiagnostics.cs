@@ -100,7 +100,7 @@ public partial class MainViewModel
             "character-dashboard" => LightExecutionIntent.CharacterDashboard,
             "entering-game-loading" => LightExecutionIntent.EnteringGameLoading,
             "game" => LightExecutionIntent.Game,
-            "targeted" => LightExecutionIntent.Targeted,
+            "targeted" or "targeted-repeat" => LightExecutionIntent.Targeted,
             _ => LightExecutionIntent.Desktop,
         };
 

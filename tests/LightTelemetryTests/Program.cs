@@ -41,21 +41,23 @@ Rejects("OK|LUX|lux=1.0|sensor=ok|age=-1", "negative Native sample age is reject
 Rejects("OK|LUX|lux=1.0|sensor=ok|extra=1", "unknown compact telemetry field is rejected");
 Rejects("ERR|NOSENSOR|LUX|extra", "typed errors must be exact");
 var dump = LightCalibrationDumpParser.Parse(
-    "OK|CALDUMP|LIGHT|revision=42|mask=91|profiles=1:5:25,5:250:290,8:599:620");
-Check(dump.Revision == 42 && dump.Mask == 0x91 && dump.Profiles.Count == 3
+    "OK|CALDUMP|LIGHT|revision=42|mask=0191|profiles=1:5:25,5:250:290,8:599:620,9:380:400");
+Check(dump.Revision == 42 && dump.Mask == 0x0191 && dump.Profiles.Count == 4
       && dump.Profiles[0].CenterLux == 1.5 && dump.Profiles[0].ToleranceLux == 1.0
-      && dump.Profiles[2].CenterLux == 60.95 && dump.Profiles[2].ToleranceLux == 1.05,
+      && dump.Profiles[2].CenterLux == 60.95 && dump.Profiles[2].ToleranceLux == 1.05
+      && dump.Profiles[3].CenterLux == 39.0 && dump.Profiles[3].ToleranceLux == 1.0,
     "light calibration dump parses tenths and partial profile mask");
 var importTargets = LightStateDefaults.CreateInitialProfiles();
-Check(LightCalibrationDumpParser.Apply(dump, importTargets) == 3
+Check(LightCalibrationDumpParser.Apply(dump, importTargets) == 4
       && importTargets[0].LuxCenter == 1.5 && importTargets[4].LuxCenter == 27
-      && importTargets[7].LuxTolerance == 1.05
+      && importTargets.Single(x => x.Id == "whisper-repeat").LuxTolerance == 1.05
+      && importTargets.Single(x => x.Id == "targeted-repeat").LuxCenter == 39.0
       && importTargets[1].LuxCenter == 25,
     "board calibration import atomically updates only returned ranges");
 try
 {
     LightCalibrationDumpParser.Parse(
-        "OK|CALDUMP|LIGHT|revision=42|mask=01|profiles=1:30:20");
+        "OK|CALDUMP|LIGHT|revision=42|mask=0001|profiles=1:30:20");
     Check(false, "light calibration dump rejects inverted range");
 }
 catch (LightCalibrationDumpProtocolException)
@@ -65,7 +67,7 @@ catch (LightCalibrationDumpProtocolException)
 try
 {
     LightCalibrationDumpParser.Parse(
-        "OK|CALDUMP|LIGHT|revision=42|mask=03|profiles=1:10:20");
+        "OK|CALDUMP|LIGHT|revision=42|mask=0003|profiles=1:10:20");
     Check(false, "light calibration dump rejects mismatched mask");
 }
 catch (LightCalibrationDumpProtocolException)
@@ -73,7 +75,7 @@ catch (LightCalibrationDumpProtocolException)
     Check(true, "light calibration dump rejects mismatched mask");
 }
 Check(LightCalibrationDumpParser.Parse(
-        "OK|CALDUMP|LIGHT|revision=0|mask=00|profiles=none").Profiles.Count == 0,
+        "OK|CALDUMP|LIGHT|revision=0|mask=0000|profiles=none").Profiles.Count == 0,
     "empty board calibration dump is represented explicitly");
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");

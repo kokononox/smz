@@ -46,9 +46,19 @@
   },
   {
     "Id": "targeted",
-    "Name": "تارگت شدن توسط افراد",
+    "Name": "تارگت شدن — فرد جدید",
     "Enabled": true,
     "LuxCenter": 36.7,
+    "LuxTolerance": 0.5,
+    "StableDurationMs": 750,
+    "HysteresisLux": 1,
+    "LightCooldownMs": 0
+  },
+  {
+    "Id": "targeted-repeat",
+    "Name": "تارگت شدن — فرد تکراری",
+    "Enabled": true,
+    "LuxCenter": 39,
     "LuxTolerance": 0.5,
     "StableDurationMs": 750,
     "HysteresisLux": 1,
@@ -62,7 +72,7 @@
     "LuxTolerance": 1,
     "StableDurationMs": 750,
     "HysteresisLux": 1,
-    "LightCooldownMs": 5000
+    "LightCooldownMs": 0
   },
   {
     "Id": "whisper-repeat",

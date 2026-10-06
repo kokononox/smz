@@ -8,7 +8,7 @@
 #define GUARD_VERSION_V3 3u
 #define GUARD_VERSION_V4 4u
 #define GUARD_VERSION_V5 5u
-#define GUARD_PROFILE_COUNT 8u
+#define GUARD_PROFILE_COUNT 9u
 #define GUARD_PROFILE_SIZE_V1 20u
 #define GUARD_PROFILE_SIZE_V2 24u
 #define GUARD_PROFILE_SIZE_V4 76u
@@ -19,6 +19,7 @@
 #define GUARD_ROUTE_STARTUP 3u
 #define GUARD_ROUTE_WHISPER 10u
 #define GUARD_ROUTE_WHISPER_REPEAT 12u
+#define GUARD_ROUTE_TARGETED_REPEAT 14u
 #define GUARD_ROUTE_GAME 8u
 #define POST_WHISPER_TARGET_GRACE_MS 60000u
 
@@ -269,7 +270,9 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
                     "game-not-expected");
         return;
     }
-    if (profile_id == 6u) {
+    if (profile_id == 6u || profile_id == 9u) {
+        uint16_t targeted_route=profile_id==9u?
+            GUARD_ROUTE_TARGETED_REPEAT:profile->route_id;
         if(guard.stage==5u&&guard.post_whisper_waiting_game) {
             guard.post_whisper_targeted_grace=true;
             guard.post_whisper_targeted_since=now;
@@ -283,14 +286,15 @@ static void transition(AbvmVm *vm, uint8_t profile_id, uint32_t lux,
             emit(GUARD_EVENT_DENIED, profile_id, 0u, 3u, lux,
                  "light-targeted-cooldown");
         } else if (guard.stage == 5u && !guard.targeted_active) {
-            if (!abvm_interrupt_route(vm, profile->route_id, now)) {
+            if (!abvm_interrupt_route(vm, targeted_route, now)) {
                 fault(vm, now, "targeted-interrupt-failed");
                 return;
             }
             guard.targeted_active = true;
             arm_light_whisper_cooldown(profile_id,now);
-            emit(GUARD_EVENT_ROUTE, profile_id, profile->route_id, 3u, lux,
-                 "game-to-targeted-interrupt");
+            emit(GUARD_EVENT_ROUTE, profile_id, targeted_route, 3u, lux,
+                 profile_id==9u?"game-to-targeted-repeat-light-interrupt":
+                                "game-to-targeted-new-light-interrupt");
         } else emit(GUARD_EVENT_DENIED, profile_id, 0u, 0u, lux,
                     "targeted-only-from-game");
         return;
@@ -357,7 +361,7 @@ bool guard_runtime_init(const AbvmVm *vm) {
         (uint32_t)payload[3]*60000u:0u;
     guard.sensor_timeout_ms = read_u32_le(payload + 4u);
     if (guard.sensor_timeout_ms < 250u) return false;
-    uint8_t seen = 0u;
+    uint16_t seen = 0u;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
         const uint8_t *item = payload + 8u + (uint32_t)i * profile_size;
         GuardProfile *profile = &guard.profiles[i];
@@ -394,14 +398,15 @@ bool guard_runtime_init(const AbvmVm *vm) {
              ((profile->calibration_cue==0u)!=(profile->custom_count>0u))) ||
             (version==GUARD_VERSION_V5&&profile->calibration_cue==0u&&
              !profile->custom_count) ||
-            profile->id < 1u || profile->id > 8u ||
-            (seen & (uint8_t)(1u << (profile->id - 1u))) ||
+            profile->id < 1u || profile->id > 9u ||
+            (seen & (uint16_t)(1u << (profile->id - 1u))) ||
             profile->low > profile->high || !profile->route_id ||
             profile->cooldown_ms>3600000u ||
             (profile->id!=6u&&profile->id!=7u&&profile->id!=8u&&
+             profile->id!=9u&&
              profile->cooldown_ms))
             return false;
-        seen |= (uint8_t)(1u << (profile->id - 1u));
+        seen |= (uint16_t)(1u << (profile->id - 1u));
     }
     memset(guard.buzzer_cues,0,sizeof(guard.buzzer_cues));
     if(version==GUARD_VERSION_V5){
@@ -427,7 +432,7 @@ bool guard_runtime_init(const AbvmVm *vm) {
         }
         if(cue_seen!=0x007fffffu)return false;
     }
-    guard.available = seen == 0xffu;
+    guard.available = seen == 0x01ffu;
     return guard.available;
 }
 bool guard_runtime_available(void) { return guard.available; }
@@ -635,7 +640,7 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
         return;
     }
     if(guard.post_whisper_targeted_grace) {
-        if(match->id==6u) {
+        if(match->id==6u||match->id==9u) {
             if(reached(now,guard.post_whisper_targeted_since+
                       POST_WHISPER_TARGET_GRACE_MS))
                 trip_operator_watchdog(vm,now,5u,
@@ -736,9 +741,9 @@ const char *guard_runtime_profile_name(uint8_t profile_id) {
     static const char *names[] = {
         "unknown", "desktop", "login-or-dc", "character-dashboard",
         "entering-game-loading", "game", "targeted", "whisper-new",
-        "whisper-repeat"
+        "whisper-repeat", "targeted-repeat"
     };
-    return profile_id <= 8u ? names[profile_id] : "invalid";
+    return profile_id <= 9u ? names[profile_id] : "invalid";
 }
 
 bool guard_runtime_get_profile_range(uint8_t profile_id,uint32_t *low_tenths,

@@ -44,7 +44,7 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
@@ -181,6 +181,7 @@ public static class PipelineWorkspaceSerializer
             "EnteringGameLoading" => PipelineKind.EnteringGameLoading,
             "Game" => PipelineKind.Game,
             "Targeted" => PipelineKind.Targeted,
+            "TargetedRepeat" => PipelineKind.TargetedRepeat,
             "Whisper" => PipelineKind.Whisper,
             "WhisperRepeat" => PipelineKind.WhisperRepeat,
             "Finish" or "End" => PipelineKind.Finish,

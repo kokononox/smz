@@ -84,7 +84,7 @@ ROUTE_IDS = {
     "CharacterDashboard": 6,
     "EnteringGameLoading": 7, "Game": 8, "Targeted": 9,
     "Whisper": 10, "Splash": 11, "WhisperRepeat": 12,
-    "Finish": 13,
+    "Finish": 13, "TargetedRepeat": 14,
 }
 
 ROUTE_POLICY_BY_NAME = {
@@ -99,6 +99,7 @@ ROUTE_POLICY_BY_NAME = {
     "EnteringGameLoading": ROUTE_ABORT_AND_START,
     "Game": ROUTE_ABORT_AND_RESTART,
     "Targeted": ROUTE_INTERRUPT_AND_RESUME,
+    "TargetedRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Whisper": ROUTE_INTERRUPT_AND_RESUME,
     "WhisperRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
@@ -1005,10 +1006,11 @@ class Compiler:
             "targeted": (6, "Targeted"),
             "whisper": (7, "Whisper"),
             "whisper-repeat": (8, "WhisperRepeat"),
+            "targeted-repeat": (9, "TargetedRepeat"),
         }
         profiles = guard.get("profiles")
         if not isinstance(profiles, list) or len(profiles) != len(expected):
-            raise AbvmError("Native Guard needs exactly eight profiles")
+            raise AbvmError("Native Guard needs exactly nine profiles")
         by_id = {str(item.get("id") or ""): item for item in profiles
                  if isinstance(item, dict)}
         if set(by_id) != set(expected):
@@ -1047,7 +1049,7 @@ class Compiler:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
             if cue not in range(0, 101):
                 raise AbvmError("Native Guard calibration cue is out of range: " + profile_id)
-            if numeric_id not in (6, 7, 8) and cooldown:
+            if numeric_id not in (6, 7, 8, 9) and cooldown:
                 raise AbvmError("Native Guard light cooldown is only valid for Targeted and Whisper profiles")
             ranges.append((profile_id, low, high))
             packed.extend(GUARD_PROFILE.pack(
@@ -1360,11 +1362,11 @@ class Verifier:
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
             profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5) else GUARD_PROFILE_V1
             profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5) else 0)
-            base_size = GUARD_HEADER.size + 8 * profile_size
+            base_size = GUARD_HEADER.size + 9 * profile_size
             expected_size = base_size + (GUARD_CUE_META.size + BUZZER_SYSTEM_CUE_COUNT * (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size) if version == 5 else 0)
             if len(raw) != expected_size:
                 raise AbvmError("invalid Native Guard descriptor size")
-            if version not in (1, 2, 3, 4, 5) or count != 8 or mode not in (0, 1) or \
+            if version not in (1, 2, 3, 4, 5) or count != 9 or mode not in (0, 1) or \
                     (version < 3 and reserved) or \
                     (version >= 3 and reserved not in range(1, 61)) or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
@@ -1379,11 +1381,11 @@ class Verifier:
                     cue, cooldown = profile_id, 0
                     if enabled != 1:
                         raise AbvmError("invalid Native Guard profile")
-                if profile_id not in range(1, 9) or profile_id in ids or \
+                if profile_id not in range(1, 10) or profile_id in ids or \
                         cue not in range(0 if version >= 4 else 1, 101 if version >= 4 else 9) or route_id not in ROUTE_IDS.values() or \
                         low > high or stable > 3_600_000 or \
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
-                        (profile_id not in (6, 7, 8) and cooldown):
+                        (profile_id not in (6, 7, 8, 9) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
                 if version in (4, 5):
                     custom_offset = GUARD_HEADER.size + index * profile_size + GUARD_PROFILE.size
@@ -1398,7 +1400,7 @@ class Verifier:
                         if frequency not in range(30, 20001) or not duration:
                             raise AbvmError("invalid Native Guard custom cue tone")
                 ids.add(profile_id)
-            if ids != set(range(1, 9)):
+            if ids != set(range(1, 10)):
                 raise AbvmError("Native Guard profile set mismatch")
             if version == 5:
                 cue_count, r1, r2, r3 = GUARD_CUE_META.unpack_from(raw, base_size)

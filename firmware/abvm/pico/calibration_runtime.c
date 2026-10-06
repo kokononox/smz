@@ -13,7 +13,7 @@
 #define SOUND_TARGET_MS 30000u
 #define SOUND_MIN_SEPARATION 12u
 #define SOUND_MINIMUM_MS 20u
-#define LIGHT_PROFILE_COUNT 8u
+#define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define LIGHT_FIT_GAP_TENTHS 3u
 #define LIGHT_FIT_MIN_TENTHS 5u
@@ -59,7 +59,8 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
     uint32_t lows[LIGHT_PROFILE_COUNT],highs[LIGHT_PROFILE_COUNT];
     uint32_t centers[LIGHT_PROFILE_COUNT],tolerances[LIGHT_PROFILE_COUNT];
     uint8_t selected=(uint8_t)(cal.profile-1u);
-    uint8_t update_mask=(uint8_t)(1u<<selected),adjusted=0u;
+    uint16_t update_mask=(uint16_t)(1u<<selected);
+    uint8_t adjusted=0u;
     bool fitted=false;
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
         if(!guard_runtime_get_profile_range((uint8_t)(i+1u),&lows[i],&highs[i])){
@@ -106,7 +107,7 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
         take=minimum(excess,available);
         tolerances[i]-=take;excess-=take;
         if(take){
-            fitted=true;++adjusted;update_mask|=(uint8_t)(1u<<i);
+            fitted=true;++adjusted;update_mask|=(uint16_t)(1u<<i);
             range_from_center(centers[i],tolerances[i],&lows[i],&highs[i]);
         }
         if(excess){

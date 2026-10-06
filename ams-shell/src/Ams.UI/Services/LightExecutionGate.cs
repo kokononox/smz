@@ -159,7 +159,7 @@ public static class LightExecutionGate
             LightExecutionIntent.CharacterDashboard => profileId == "character-dashboard",
             LightExecutionIntent.EnteringGameLoading => profileId == "entering-game-loading",
             LightExecutionIntent.Game => profileId == "game",
-            LightExecutionIntent.Targeted => profileId == "targeted",
+            LightExecutionIntent.Targeted => profileId is "targeted" or "targeted-repeat",
             _ => false,
         };
 }

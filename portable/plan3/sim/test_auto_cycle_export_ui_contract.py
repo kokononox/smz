@@ -42,7 +42,7 @@ assert "پروفایل سراسری حرکت دست" in ui and "CaptureHumanMous
 assert ui.count("AutoCycleUiKit.Action(") == 3
 assert "CapturePipelineWorkspaceForExport()" in native_vm and "NativeUf2Exporter.ExportAsync(" in native_vm
 assert '"Desktop", "Restart", "Startup", "LoginOrDc", "Dc"' in native_exporter
-assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted",' in native_exporter
+assert '"CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "TargetedRepeat",' in native_exporter
 assert '"Whisper", "WhisperRepeat"' in native_exporter
 assert '"Whisper", "WhisperRepeat", "Finish"' in native_exporter
 assert 'root["nativeGuard"] = BuildNativeGuard()' in native_exporter

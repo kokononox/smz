@@ -12,7 +12,7 @@ view_model = (UI / "ViewModels/MainViewModel.DisplayProfile.cs").read_text(encod
 ui = (UI / "MainWindow.AutoCycleExportUi.cs").read_text(encoding="utf-8")
 native = (ROOT / "firmware/abvm/pico/arm_uart_mouse.c").read_text(encoding="utf-8")
 
-assert "FormatVersion = 11" in model
+assert "FormatVersion = 12" in model
 assert "DisplayProfile" in model and "displayProfile" in serializer
 for preset in ("800x600", "1366x768", "1680x1050", "1920x1080", "Custom"):
     assert f'"{preset}"' in view_model

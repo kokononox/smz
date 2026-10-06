@@ -65,9 +65,11 @@ public static class LightStateProfileStore
                 profile.CalibrationCueTempo = 100;
             if (profile.CalibrationCueEnvelope is not ("sharp" or "smooth" or "fade-in" or "fade-out"))
                 profile.CalibrationCueEnvelope = "sharp";
-            // Existing profile files predate optical cooldown. A zero value on
-            // either transient Whisper profile is migrated to the safe default.
-            if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)
+            // New-person notifications run immediately. Only repeat-person
+            // classifiers own a board-local cooldown, mirroring the UI tabs.
+            if (profile.Id is "targeted" or "whisper")
+                profile.LightCooldownMs = 0;
+            else if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)
                 profile.LightCooldownMs = fallback.LightCooldownMs;
         }
         return valid;

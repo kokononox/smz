@@ -6,8 +6,8 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 3u
-#define LIGHT_PROFILE_COUNT 8u
+#define CAL_VERSION 4u
+#define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
 #define CAL_AREA_SIZE (2u * CAL_SLOT_SIZE)
@@ -16,7 +16,7 @@
 
 typedef struct CalibrationPayload {
     uint8_t binding[32];
-    uint8_t light_mask;
+    uint16_t light_mask;
     uint8_t sound_mask;
     uint8_t cycle_armed;
     uint8_t cycle_count;
@@ -49,6 +49,18 @@ typedef struct LegacyCalibrationRecordV2 {
     uint32_t sequence,crc32;
     LegacyCalibrationPayloadV2 payload;
 } LegacyCalibrationRecordV2;
+typedef struct LegacyCalibrationPayloadV3 {
+    uint8_t binding[32];
+    uint8_t light_mask,sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[8],light_high[8];
+    uint16_t sound_threshold[3],sound_minimum[3],sound_silence[3],sound_peak[3];
+} LegacyCalibrationPayloadV3;
+typedef struct LegacyCalibrationRecordV3 {
+    uint32_t magic;
+    uint16_t version,size;
+    uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV3 payload;
+} LegacyCalibrationRecordV3;
 
 _Static_assert(sizeof(CalibrationRecord) <= FLASH_PAGE_SIZE, "calibration record page");
 static CalibrationRecord current;
@@ -71,6 +83,12 @@ static uint32_t legacy_record_crc(const LegacyCalibrationRecordV2 *record) {
     memcpy(bytes+sizeof(record->sequence),&record->payload,sizeof(record->payload));
     return crc32_bytes(bytes,sizeof(bytes));
 }
+static uint32_t legacy_v3_record_crc(const LegacyCalibrationRecordV3 *record) {
+    uint8_t bytes[sizeof(record->sequence)+sizeof(record->payload)];
+    memcpy(bytes,&record->sequence,sizeof(record->sequence));
+    memcpy(bytes+sizeof(record->sequence),&record->payload,sizeof(record->payload));
+    return crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -82,6 +100,13 @@ static bool legacy_record_valid(const LegacyCalibrationRecordV2 *record,
        record->size!=sizeof(LegacyCalibrationPayloadV2)||
        memcmp(record->payload.binding,binding,32u))return false;
     return record->crc32==legacy_record_crc(record);
+}
+static bool legacy_v3_record_valid(const LegacyCalibrationRecordV3 *record,
+                                   const uint8_t binding[32]) {
+    if(record->magic!=CAL_MAGIC||record->version!=3u||
+       record->size!=sizeof(LegacyCalibrationPayloadV3)||
+       memcmp(record->payload.binding,binding,32u))return false;
+    return record->crc32==legacy_v3_record_crc(record);
 }
 static const CalibrationRecord *flash_record(uint32_t offset) {
     return (const CalibrationRecord *)(uintptr_t)(XIP_BASE + offset);
@@ -95,16 +120,43 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV3 *v3a=(const LegacyCalibrationRecordV3 *)a;
+        const LegacyCalibrationRecordV3 *v3b=(const LegacyCalibrationRecordV3 *)b;
+        bool v3av=legacy_v3_record_valid(v3a,binding);
+        bool v3bv=legacy_v3_record_valid(v3b,binding);
+        const LegacyCalibrationRecordV3 *legacy_v3=NULL;
+        if(v3av&&(!v3bv||(int32_t)(v3a->sequence-v3b->sequence)>0)){
+            legacy_v3=v3a;active_offset=CAL_OFFSET_A;
+        } else if(v3bv){legacy_v3=v3b;active_offset=CAL_OFFSET_B;}
         const LegacyCalibrationRecordV2 *la=(const LegacyCalibrationRecordV2 *)a;
         const LegacyCalibrationRecordV2 *lb=(const LegacyCalibrationRecordV2 *)b;
-        bool lav=legacy_record_valid(la,binding),lbv=legacy_record_valid(lb,binding);
+        bool lav=!legacy_v3&&legacy_record_valid(la,binding);
+        bool lbv=!legacy_v3&&legacy_record_valid(lb,binding);
         const LegacyCalibrationRecordV2 *legacy=NULL;
         if(lav&&(!lbv||(int32_t)(la->sequence-lb->sequence)>0)){legacy=la;active_offset=CAL_OFFSET_A;}
         else if(lbv){legacy=lb;active_offset=CAL_OFFSET_B;}
         else active_offset=CAL_OFFSET_B;
         current.magic=CAL_MAGIC;current.version=CAL_VERSION;
         current.size=sizeof(CalibrationPayload);memcpy(current.payload.binding,binding,32u);
-        if(legacy){
+        if(legacy_v3){
+            current.sequence=legacy_v3->sequence;
+            current.payload.light_mask=legacy_v3->payload.light_mask;
+            current.payload.sound_mask=legacy_v3->payload.sound_mask;
+            current.payload.cycle_armed=legacy_v3->payload.cycle_armed;
+            current.payload.cycle_count=legacy_v3->payload.cycle_count;
+            memcpy(current.payload.light_low,legacy_v3->payload.light_low,
+                   sizeof(legacy_v3->payload.light_low));
+            memcpy(current.payload.light_high,legacy_v3->payload.light_high,
+                   sizeof(legacy_v3->payload.light_high));
+            memcpy(current.payload.sound_threshold,legacy_v3->payload.sound_threshold,
+                   sizeof(legacy_v3->payload.sound_threshold));
+            memcpy(current.payload.sound_minimum,legacy_v3->payload.sound_minimum,
+                   sizeof(legacy_v3->payload.sound_minimum));
+            memcpy(current.payload.sound_silence,legacy_v3->payload.sound_silence,
+                   sizeof(legacy_v3->payload.sound_silence));
+            memcpy(current.payload.sound_peak,legacy_v3->payload.sound_peak,
+                   sizeof(legacy_v3->payload.sound_peak));
+        } else if(legacy){
             current.sequence=legacy->sequence;
             current.payload.light_mask=legacy->payload.light_mask;
             current.payload.sound_mask=legacy->payload.sound_mask;
@@ -149,10 +201,10 @@ bool calibration_store_light_set(uint8_t id,uint32_t low,uint32_t high){
     memcpy(lows,current.payload.light_low,sizeof(lows));
     memcpy(highs,current.payload.light_high,sizeof(highs));
     lows[id-1u]=low;highs[id-1u]=high;
-    return calibration_store_light_update((uint8_t)(1u<<(id-1u)),lows,highs);
+    return calibration_store_light_update((uint16_t)(1u<<(id-1u)),lows,highs);
 }
-bool calibration_store_light_update(uint8_t update_mask,const uint32_t lows[8],
-                                    const uint32_t highs[8]){
+bool calibration_store_light_update(uint16_t update_mask,const uint32_t lows[9],
+                                    const uint32_t highs[9]){
     if(!update_mask||!lows||!highs)return false;
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)
         if((update_mask&(1u<<i))&&(lows[i]>highs[i]||highs[i]>1000000u))

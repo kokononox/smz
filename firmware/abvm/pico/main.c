@@ -285,13 +285,13 @@ static void print_status(void) {
     printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|cycle=%u|time=%lu\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), cycle_runtime_available(), (unsigned long)vm.now);
 }
 static void print_light_calibration_dump(void) {
-    uint32_t low[8],high[8];uint8_t mask=0u;
-    for(uint8_t id=1u;id<=8u;++id)
+    uint32_t low[9],high[9];uint16_t mask=0u;
+    for(uint8_t id=1u;id<=9u;++id)
         if(calibration_store_light_get(id,&low[id-1u],&high[id-1u]))
-            mask|=(uint8_t)(1u<<(id-1u));
+            mask|=(uint16_t)(1u<<(id-1u));
     char profiles[256];size_t used=0u;
     if(!mask)snprintf(profiles,sizeof(profiles),"none");
-    for(uint8_t id=1u;id<=8u;++id)if(mask&(1u<<(id-1u))){
+    for(uint8_t id=1u;id<=9u;++id)if(mask&(1u<<(id-1u))){
         int written=snprintf(profiles+used,sizeof(profiles)-used,
                              "%s%u:%lu:%lu",used?",":"",id,
                              (unsigned long)low[id-1u],
@@ -306,7 +306,7 @@ static void print_light_calibration_dump(void) {
      * calls can fill the CDC endpoint and drop the final newline, leaving the
      * PC bridge waiting forever for a complete response line.
      */
-    printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%02x|profiles=%s\n",
+    printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%04x|profiles=%s\n",
            (unsigned long)calibration_store_revision(),mask,profiles);
 }
 static void release_all_actors(uint32_t now) {
@@ -654,6 +654,18 @@ static void service_keyboard(uint32_t now) {
     if(hid_keyboard_take_live_reply(reply,sizeof(reply)))printf("%s\n",reply);
 }
 static bool light_cal_cue_active, sound_cal_cue_active;
+static bool play_guard_profile_pattern(uint8_t profile_id,uint32_t now) {
+    uint16_t hz[8],duration[8],gap[8];
+    uint8_t count=0u,volume=100u,envelope=0u;
+    BuzzerTone tones[8];
+    if(!guard_runtime_calibration_pattern(profile_id,hz,duration,gap,
+                                           &count,&volume,&envelope))
+        return false;
+    for(uint8_t i=0;i<count;++i)
+        tones[i]=(BuzzerTone){hz[i],duration[i],gap[i]};
+    buzzer_play_sequence(tones,count,volume,envelope,now);
+    return true;
+}
 static uint8_t event_u8(const char *event,const char *key,uint8_t fallback) {
     const char *p=strstr(event,key); if(!p)return fallback;
     unsigned long value=strtoul(p+strlen(key),NULL,10);
@@ -686,7 +698,7 @@ static void service_calibration_cue(const char *event,uint32_t now) {
     if(strstr(event,"mode=saved")){
         if(!sound&&strstr(event,"|fit=1|"))
             buzzer_calibration_overlap_adjusted(now);
-        else if(!sound&&selection==8u)
+        else if(!sound&&selection==9u)
             buzzer_calibration_complete(now);
         else
             buzzer_calibration_save_success(now);
@@ -759,6 +771,12 @@ static void service_light(uint32_t now) {
                     buzzer_play(BUZZER_CUE_WHISPER,now);
                 else if(guard_event.profile_id==8u)
                     buzzer_play(BUZZER_CUE_WHISPER_REPEAT,now);
+                else if((guard_event.profile_id==6u||
+                         guard_event.profile_id==9u)&&
+                        play_guard_profile_pattern(guard_event.profile_id,now)) {
+                    /* Targeted New/Repeat use their own editable profile
+                     * motifs, so the two optical events never share a note. */
+                }
                 else buzzer_guard_transition(guard_event.profile_id, now);
                 printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
                        profile,guard_event.stage);

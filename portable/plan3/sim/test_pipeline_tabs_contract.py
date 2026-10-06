@@ -20,10 +20,11 @@ assert "SelectedNodes = new()" in viewmodel and "_undo.Clear()" in viewmodel and
 assert "optional GP6 buzzer/error signalling is tracked as a hardware follow-up" in spec
 assert 'PipelineKind.Whisper' in model and 'whisper_steps.txt' in model
 assert 'PipelineKind.WhisperRepeat' in model and 'whisper_repeat_steps.txt' in model
+assert 'PipelineKind.TargetedRepeat' in model and 'targeted_repeat_steps.txt' in model
 assert 'PipelineKind.Finish' in model and 'finish_steps.txt' in model
 assert '"Finish" or "End" => PipelineKind.Finish' in serializer
 assert 'PipelineKind.Splash' in model and 'splash_steps.txt' in model
-assert 'FormatVersion = 11' in model and 'soundProfiles' in serializer
+assert 'FormatVersion = 12' in model and 'soundProfiles' in serializer
 assert 'x.Kind != PipelineKind.Splash' in viewmodel
 assert 'MigrateExplicitCatchWait' in serializer
 assert 'AddGameSoundWatch' in bundle and 'SOUNDWATCH|' in bundle and 'FindCatchWaits' in bundle

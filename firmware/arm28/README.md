@@ -1,4 +1,4 @@
-# Classroom Studio ARM 2.8 — portable relative mouse
+# Classroom Studio ARM 2.8.3 — authored-tick relative mouse
 
 This is the exact ARM 2.7 source currently used on the Pro Micro, with one
 focused change: `MMOVE|dx,dy,rel,2` now emits genuine relative HID reports.
@@ -17,3 +17,9 @@ Open `ams_board28.ino`, select the same Classroom Studio Board / Pro Micro
 5V 16 MHz profile used for ARM 2.7, compile, and upload. The verified build uses
 28,594 of 28,672 bytes, so it fits the normal Caterina/Leonardo bootloader profile;
 ISP remains optional.
+
+ARM 2.8.3 preserves each bounded relative `MMOVE` authored by the Pico as one
+USB HID report. Earlier 2.8.2 firmware subdivided every point into 1–2 px
+micro-reports at 1 ms intervals, which erased the v3.3 velocity jitter and made
+reports arrive in bursts. Oversized legacy deltas are still split defensively
+at the signed HID limit.

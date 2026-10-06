@@ -13,12 +13,14 @@ public class LightStateProfile
     public int StableDurationMs { get; set; } = 750;
     public double HysteresisLux { get; set; } = 1;
     /// <summary>
-    /// Board-only re-arm delay for transient light overlays. It is currently
-    /// consumed by Targeted, Whisper New and Whisper Repeat; durable scenes
-    /// keep zero.
+    /// Board-only re-arm delay for transient light overlays. Only repeat-person
+    /// Targeted/Whisper profiles use it; new-person and durable scenes keep zero.
     /// </summary>
     public int LightCooldownMs { get; set; }
-    /// <summary>One of the 100 built-in calibration motifs; zero selects Custom.</summary>
+    /// <summary>
+    /// One of the 100 built-in calibration motifs; zero selects Custom.
+    /// Targeted New/Repeat also use their distinct motif as the runtime notice.
+    /// </summary>
     // -1 is the deserialization sentinel for profile files created before this
     // property existed. Normalize migrates it to that environment's legacy cue.
     public int CalibrationCue { get; set; } = -1;
@@ -103,8 +105,9 @@ public static class LightStateDefaults
         Profile("character-dashboard", "داشبورد انتخاب کرکترها", 43, 3, tolerance: 1),
         Profile("entering-game-loading", "صفحه لود ورود به بازی", 3, 4, tolerance: 1),
         Profile("game", "محیط بازی", 33, 5, tolerance: 0.7),
-        Profile("targeted", "تارگت شدن توسط افراد", 36.7, 6, 60000, tolerance: 0.5),
-        Profile("whisper", "ویسپر افراد جدید", 100, 7, 5000, tolerance: 1),
+        Profile("targeted", "تارگت شدن — فرد جدید", 36.7, 6, tolerance: 0.5),
+        Profile("targeted-repeat", "تارگت شدن — فرد تکراری", 39, 9, 60000, tolerance: 0.5),
+        Profile("whisper", "ویسپر افراد جدید", 100, 7, tolerance: 1),
         Profile("whisper-repeat", "ویسپر افراد تکراری", 23, 8, 1000000, tolerance: 2.5),
     };
 

@@ -151,8 +151,11 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn('"BEEPSEQ|"', self.main)
         self.assertIn("ui_buzzer_sequence_reply", self.main)
         self.assertIn("guard_runtime_calibration_style", self.main)
+        self.assertIn("selection==9u", self.main)
         self.assertIn("volume=%u|envelope=%u", self.main)
         self.assertIn("profile_id*110u", self.buzzer)
+        self.assertIn("profile_id>9u", self.buzzer)
+        self.assertIn("profile_id==7u||profile_id==8u", self.buzzer)
         self.assertIn("sweep_start_hz+220u", self.buzzer)
         self.assertIn("sweep_duration_ms=150u", self.buzzer)
         self.assertNotIn("buzzer_play_stage(guard_event.stage, now)", self.main)
@@ -161,6 +164,12 @@ class AbvmBuzzerContractTests(unittest.TestCase):
         self.assertIn("guard_runtime_buzzer_cue", self.main)
         self.assertIn("buzzer_set_system_cue", self.main)
         self.assertIn("begin_system(23u,8u,now)", self.buzzer)
+        self.assertIn("play_guard_profile_pattern", self.main)
+        self.assertIn("guard_event.profile_id==6u", self.main)
+        self.assertIn("guard_event.profile_id==9u", self.main)
+        self.assertIn(
+            "guard_runtime_calibration_pattern(profile_id", self.main
+        )
 
     def test_route_release_preserves_system_cues_but_cancels_owned_beeps(self):
         release = self.main.split(

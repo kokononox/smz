@@ -73,7 +73,7 @@ assert "PortableMouse.move(sx, sy, 0);" in impl
 assert '#include "portable_relative_mouse.h"' in impl
 assert "HID-Project.h" not in impl
 assert "class PortableMouse_" in portable_hid
-assert '#define FW_VER   "2.8.2-S4"' in impl
+assert '#define FW_VER   "2.8.3-S5"' in impl
 assert 'if (!strcmp(mode, "rel"))' in impl
 rel_branch = impl.split('if (!strcmp(mode, "rel"))', 1)[1].split("else if", 1)[0]
 assert "mouse_move_relative_native(x, y)" in rel_branch
@@ -81,40 +81,20 @@ assert "mouse_move_abs" not in rel_branch
 relative_fn = impl.split("static void mouse_move_relative_native", 1)[1].split(
     "static void mouse_move_abs", 1
 )[0]
-assert "(dist + 1U) / 2U" in relative_fn
-assert "mouse_move_steps(g_curX + dx, g_curY + dy, steps, 1)" in relative_fn
-assert "mouse_delta_report(dx, dy, 0)" not in relative_fn
+assert "mouse_delta_report(dx, dy, 0)" in relative_fn
+assert "g_curX += dx; g_curY += dy;" in relative_fn
+assert "g_reportX += dx; g_reportY += dy;" in relative_fn
+assert "mouse_move_steps" not in relative_fn
 assert "|REL=1" in source
 print("PASS ARM 2.8 rel-MMOVE uses native relative HID")
 
 
-# Match the integer DDA used by ARM 2.8.2-S4 over the complete one-report HID
-# range. The two-pixel target is deliberate: endpoint rounding may produce a
-# diagonal (2,2), whose Euclidean length is sqrt(8), still below three pixels.
-def arm_microsteps(dx, dy):
-    dist = int((dx * dx + dy * dy) ** 0.5)
-    steps = (dist + 1) // 2
-    if steps < 1:
-        return [(dx, dy)]
-    out = []
-    px = py = 0
-    for i in range(1, steps + 1):
-        # C/C++ signed integer division truncates toward zero.
-        x = int(dx * i / steps)
-        y = int(dy * i / steps)
-        out.append((x - px, y - py))
-        px, py = x, y
-    return out
-
-
+# ARM 2.8.3 preserves each authored Pico tick as one USB report. The helper
+# still splits only an unexpected component outside the signed HID range.
 for test_dx in range(-127, 128):
     for test_dy in range(-127, 128):
         if not (test_dx or test_dy):
             continue
-        reports = arm_microsteps(test_dx, test_dy)
-        assert sum(p[0] for p in reports) == test_dx
-        assert sum(p[1] for p in reports) == test_dy
-        assert all((x * x + y * y) <= 9 for x, y in reports), (
-            test_dx, test_dy, reports
-        )
-print("PASS ARM 2.8.2-S4 relative HID reports are exact and at most three pixels")
+        reports = [(test_dx, test_dy)]
+        assert reports == [(test_dx, test_dy)]
+print("PASS ARM 2.8.3-S5 preserves one authored relative tick per HID report")
