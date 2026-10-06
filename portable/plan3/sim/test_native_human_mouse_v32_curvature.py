@@ -16,6 +16,10 @@ for token in (
     "if(distance>=600u",
     "distance*turn/450u",
     "distance/25u+1u",
+    "q16_cubic",
+    "control1_x",
+    "control2_x",
+    "curve2=curve1<sample_max?curve1+1:curve1-1",
 ):
     assert token in source, token
 
@@ -57,6 +61,30 @@ for distance in (600, 900, 1600, 3000):
 # Circular radius remains intentional and visible only in the 190..200 band.
 assert [30 + (curve - 190) * 2 for curve in range(190, 201)] == \
        list(range(30, 51, 2))
+
+# Each leg samples two control-point curves from one bounded local window. If
+# the window has room, equal samples are separated by one unit, so the arc
+# strength changes from entry to exit without leaving the authored range.
+def control_pair(base, range_min, range_max, first, second):
+    span = range_max - range_min
+    window = max(2, min(24, span // 3)) if span > 0 else 0
+    low = max(range_min, min(range_max, base - window))
+    high = max(range_min, min(range_max, base + window))
+    first = max(low, min(high, first))
+    second = max(low, min(high, second))
+    if first == second and high > low:
+        second = first + 1 if first < high else first - 1
+    return first, second, low, high
+
+
+for base, low, high in ((110, 105, 175), (150, 120, 189),
+                        (145, 139, 151), (8, 8, 8)):
+    c1, c2, allowed_low, allowed_high = control_pair(
+        base, low, high, base, base)
+    assert allowed_low <= c1 <= allowed_high
+    assert allowed_low <= c2 <= allowed_high
+    if allowed_high > allowed_low:
+        assert c1 != c2
 
 assert "Cursor.Position" not in source
 assert "GetCursorPos" not in source

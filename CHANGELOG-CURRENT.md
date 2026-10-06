@@ -9,6 +9,9 @@
 - Only an actual sampled authored value of 190–200 enters Circular Mode.
   Circular paths use two continuous, direction-locked legs and choose the side
   with more screen room.
+- Each leg now uses a Cubic Bezier with independently sampled entry and exit
+  curvature. The two controls differ whenever the authored range has room and
+  both remain inside that range.
 - Efficiency and personal turn bias now remain inside the authored curve range.
 - Ordinary two-leg movement now starts at 600 px, bends by at most 4%, uses
   lower state probabilities, and no longer treats `handLongPct` as a circular
