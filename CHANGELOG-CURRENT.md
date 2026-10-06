@@ -12,6 +12,18 @@
 - `PING` now reports the actual nine Native Guard light profiles instead of the
   stale hard-coded value eight.
 
+## v0.9.73 hotfix — Whisper priority and nine-position calibration
+
+- Optical Whisper New now has priority over Targeted New/Repeat. It cancels
+  the active Targeted overlay, preserves the exact suspended Game cursor, and
+  runs the Whisper New route. Targeted can never resume afterward.
+- Login/DC remains the absolute optical priority and can still replace an
+  active Whisper before chaining DC → Login/DC recovery.
+- Physical and Classroom calibration now expose all nine positions in this
+  order after Game: Targeted New, Targeted Repeat, Whisper New, Whisper Repeat.
+- The three-pixel continuous human-mouse transport and ARM 2.8.3 contract are
+  unchanged.
+
 ## v0.9.72 — split Targeted optics and authored-tick ARM transport
 
 - Targeted now mirrors Whisper with two independent optical classifiers:

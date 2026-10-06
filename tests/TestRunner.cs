@@ -3681,7 +3681,7 @@ class TestRunner
                 if (!isLabel) (metaLine.Contains("BundleVersion") ? pinnedBundle : pinned).Add(int.Parse(metaMatch.Groups[1].Value));
             }
         }
-        var curMinor = 72;
+        var curMinor = 73;
         var curBundleMinor = 64;   // the firmware template is unchanged in this release, so the bundle stays on its older line
         var pinnedText = string.Join(", ", pinned.Distinct().OrderBy(n => n));
         Assert(pinned.Count > 0 && pinned.Distinct().All(n => n == curMinor),

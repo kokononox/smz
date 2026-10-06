@@ -134,6 +134,12 @@ typedef struct AbvmVm {
 int abvm_init(AbvmVm *vm, const uint8_t *image, size_t image_size);
 int abvm_start_route(AbvmVm *vm, uint16_t route_id, uint32_t now);
 int abvm_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now);
+/*
+ * Replace the currently running interrupt without touching its suspended
+ * parent. This lets a higher-priority bounded overlay cancel a lower-priority
+ * overlay and still return to the exact parent cursor when it completes.
+ */
+int abvm_replace_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now);
 int abvm_pause(AbvmVm *vm, uint32_t now);
 int abvm_resume(AbvmVm *vm, uint32_t now);
 void abvm_stop(AbvmVm *vm, uint32_t now);

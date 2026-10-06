@@ -65,6 +65,12 @@ internal static class LightStateProfileStoreContract
             legacySix.Single(x => x.Id == "game").LuxCenter = 88.5;
             var migrated = LightStateProfileStore.Normalize(legacySix);
             Check(migrated.Count == 9
+                  && migrated.Select(x => x.Id).SequenceEqual(new[]
+                  {
+                      "desktop", "login-or-dc", "character-dashboard",
+                      "entering-game-loading", "game", "targeted",
+                      "targeted-repeat", "whisper", "whisper-repeat",
+                  })
                   && migrated.Single(x => x.Id == "game").LuxCenter == 88.5
                   && migrated.Single(x => x.Id == "targeted-repeat").LuxCenter == 39
                   && migrated.Single(x => x.Id == "whisper").LuxCenter == 100
@@ -73,7 +79,7 @@ internal static class LightStateProfileStoreContract
                   && migrated.Single(x => x.Id == "targeted-repeat").LightCooldownMs == 60000
                   && migrated.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 1000000
                   && migrated.All(x => x.CalibrationCue is >= 1 and <= 9),
-                "legacy storage gains split repeat profiles and distinct calibration motifs");
+                "legacy storage gains all profiles in the canonical nine-position calibration order");
 
             var build517Profile = new LightStateProfile
             {
