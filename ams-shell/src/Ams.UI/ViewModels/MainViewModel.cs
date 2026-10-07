@@ -2036,6 +2036,7 @@ public partial class MainViewModel : ObservableObject
 
             // a thread-pool thread every 300 ms for the whole pause.
 
+            engine.SetGlobalHandSample(_pipelineWorkspace.HumanMouseProfile.EncodedSample);
             engine.SetPauseCheck(async ct =>
 
             {
@@ -3680,7 +3681,7 @@ public partial class MainViewModel : ObservableObject
 
 
 
-        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type, sampleMouse, pickPoint, previewBuzzer)
+        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type, sampleMouse, pickPoint, previewBuzzer, globalHandSample: () => _pipelineWorkspace.HumanMouseProfile.EncodedSample)
 
         {
 

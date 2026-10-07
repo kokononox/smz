@@ -95,6 +95,8 @@ public sealed class RunEngine
     /// <summary>Human-like mouse speed range (ms) injected by MainViewModel. 0 = disabled.</summary>
     public void SetMouseSpeedRange(int min, int max) { _mouseSpeedMin = min; _mouseSpeedMax = max; }
     private int _mouseSpeedMin, _mouseSpeedMax;
+    private string _globalHandSample = "";
+    public void SetGlobalHandSample(string encoded) => _globalHandSample = encoded;
 
     public async Task RunAsync(IEnumerable<StepNode> roots, CancellationToken ct)
     {
@@ -475,7 +477,7 @@ public sealed class RunEngine
                     //  • WindMouse trail (gravity + wind, ease-in-out timing, overshoot & correct)
                     //  • complete pause management: reaction / hesitation / settle pauses and a
                     //    long 0–5000 ms "distraction" break every N moves — all step fields
-                    var cfg = HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax);
+                    var cfg = HumanMouse.Config.FromProps(MouseSpeedPolicy.ResolveProfile(s.Props, _globalHandSample), _mouseSpeedMin, _mouseSpeedMax);
                     var intent = PropEx.GetString(s.Props, "motionIntent", "targetRegion");
                     var (x, y, w, h) = (PropEx.GetInt(s.Props, "x"), PropEx.GetInt(s.Props, "y"),
                                         Math.Max(1, PropEx.GetInt(s.Props, "w", 100)), Math.Max(1, PropEx.GetInt(s.Props, "h", 100)));
@@ -1103,6 +1105,8 @@ public sealed class RunEngine
         lock (_rngLock)   // v0.9.15 — shared RNG + pause planner are not thread-safe (Parallel Group)
             plan = HumanMouse.PlanMove(start.X, start.Y, tx, ty, cfg, MousePauses, Rng, _screenW, _screenH);
 
+        var mouseClock = System.Diagnostics.Stopwatch.StartNew();
+        _log($"mouse policy: mode={plan.SelectedSpeedMode} cap={plan.SpeedCap}px/s source={cfg.ProfileSource}; planned pauses before={plan.BeforeMs} after={plan.AfterMs} idle={plan.LongPauseMs}");
         if (plan.BeforeMs > 0) await PausableDelay(plan.BeforeMs, ct);
         int pathMs = 0;
         foreach (var w in plan.Waypoints) pathMs += w.DelayMs;
@@ -1112,7 +1116,7 @@ public sealed class RunEngine
                  ? $" · curve fixed {plan.CurveMinPct}%"
                  : $" · curve continuously {plan.CurveMinPct}–{plan.CurveMaxPct}%") +
              (plan.TargetMoveMs > 0 ? $" · move-time {plan.TargetMoveMs}ms target" : ""));
-        if (_parallelDepth > 0)
+        if (_parallelDepth > 0 || cfg.SpeedCap > 0)
         {
             // v0.9.15 — inside a Parallel Group the monolithic send_path would monopolize the bridge
             // worker for the whole path (concurrent typing would freeze). Pace each micro-step
@@ -1121,9 +1125,11 @@ public sealed class RunEngine
             foreach (var w in plan.Waypoints)
             {
                 ct.ThrowIfCancellationRequested();
+                // New policy delays BEFORE the incoming delta; bypass legacy 25ms path thinning.
+                if (cfg.SpeedCap > 0) await PausableDelay(w.DelayMs, ct);
                 await Send($"MMOVE|{w.X},{w.Y},abs,0", ct, quiet: true);
                 _mouseAnchor = new System.Drawing.Point(w.X, w.Y);   // v0.9.20 — anchor tracks every issued point
-                int dly = w.DelayMs;
+                int dly = cfg.SpeedCap > 0 ? 0 : w.DelayMs;
                 // v0.9.23 — two-handed human pattern: while a sibling branch types, the mouse
                 // slows to half speed and takes irregular micro-rests (v0.9.21 kept it 100%
                 // active; the recorded human mostly rests the mouse during fast typing).
@@ -1169,6 +1175,11 @@ public sealed class RunEngine
             }
         }
         }
+        mouseClock.Stop();
+        double measuredLength = 0; int mx = start.X, my = start.Y;
+        foreach (var wp in plan.Waypoints) { measuredLength += Math.Sqrt((wp.X-mx)*(double)(wp.X-mx)+(wp.Y-my)*(double)(wp.Y-my)); mx=wp.X; my=wp.Y; }
+        long actualMotionMs = Math.Max(1, mouseClock.ElapsedMilliseconds-plan.BeforeMs);
+        _log($"mouse actual: path={measuredLength:F1}px planned={pathMs}ms elapsed={actualMotionMs}ms average={measuredLength*1000/actualMotionMs:F1}px/s (includes transport, pauses during movement and any user pause)");
         if (plan.AfterMs > 0) await PausableDelay(plan.AfterMs, ct);
         if (plan.LongPauseMs > 0)
         {

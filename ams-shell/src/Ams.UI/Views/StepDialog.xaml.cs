@@ -26,6 +26,7 @@ public partial class StepDialog : Window
     private readonly Func<Task<(int x, int y, int w, int h)?>>? _pickRegion;
     private readonly Func<Task<(int x, int y)?>>? _pickPoint;
     private readonly Func<Task<string?>>? _sampleMouse;
+    private readonly Func<string>? _globalHandSample;
     private readonly Func<IReadOnlyDictionary<string, object?>, Task<string>>? _previewBuzzer;
     private System.Windows.Controls.TextBlock? _sampleStatus;
     private Wpf.Ui.Controls.Button? _pointPickerButton;
@@ -39,7 +40,7 @@ public partial class StepDialog : Window
                       Func<Task<(int x, int y, int w, int h)?>>? pickRegion = null, string? stepType = null,
                       Func<Task<string?>>? sampleMouse = null,
                       Func<Task<(int x, int y)?>>? pickPoint = null,
-                      Func<IReadOnlyDictionary<string, object?>, Task<string>>? previewBuzzer = null)
+                      Func<IReadOnlyDictionary<string, object?>, Task<string>>? previewBuzzer = null, Func<string>? globalHandSample = null)
     {
         InitializeComponent();
         // v0.9.24 — Persian dialog chrome: translate the New:/Edit: prefix; action names stay English
@@ -53,6 +54,7 @@ public partial class StepDialog : Window
         _pickRegion = pickRegion;
         _pickPoint = pickPoint;
         _sampleMouse = sampleMouse;
+        _globalHandSample = globalHandSample;
         _previewBuzzer = previewBuzzer;
         BuildForm(current);
         WireConditionalVisibility();   // v0.9.14 — hide fields ruled out by the current mode/toggle
@@ -222,6 +224,25 @@ public partial class StepDialog : Window
             Margin = new Thickness(0, 4, 0, 2), TextWrapping = TextWrapping.Wrap,
         };
         FormPanel.Children.Add(_sampleStatus);
+        if (_stepType == "randomMousePosition" && _globalHandSample is not null)
+        {
+            string local = current is null ? "" : PropEx.GetString(current, "handSample");
+            var info = new System.Windows.Controls.TextBlock { TextWrapping = TextWrapping.Wrap,
+                Text = string.IsNullOrEmpty(local) ? "نمونهٔ اختصاصی خالی است؛ منبع پروفایل را صریح انتخاب کنید."
+                    : local == _globalHandSample() ? "نمونهٔ استپ با پروفایل اصلی برابر است."
+                    : "نمونهٔ استپ با پروفایل اصلی متفاوت است؛ ممکن است نمونهٔ قبلی باشد." };
+            FormPanel.Children.Add(info);
+            var replace = new Wpf.Ui.Controls.Button { Content = "جایگزینی نمونهٔ استپ با پروفایل اصلی", Margin = new Thickness(0, 6, 0, 0) };
+            replace.Click += (_, _) => {
+                string encoded = _globalHandSample();
+                if (!HandMovementSample.TryDecode(encoded, out var sample)) { info.Text = "پروفایل اصلی معتبر نیست؛ ابتدا آن را ضبط کنید."; return; }
+                ((Wpf.Ui.Controls.TextBox)_controls["handSample"]).Text = encoded;
+                ((System.Windows.Controls.ComboBox)_controls["handProfileSource"]).SelectedItem = "local";
+                info.Text = "نمونهٔ استپ با پروفایل اصلی جایگزین شد؛ برای ذخیره تأیید کنید.";
+                if (_sampleStatus is not null) _sampleStatus.Text = SampleStatus(sample);
+            };
+            FormPanel.Children.Add(replace);
+        }
     }
 
 
@@ -478,6 +499,11 @@ public partial class StepDialog : Window
         }
 
         var vals = ReadValues();
+        if (_stepType == "randomMousePosition")
+        {
+            try { MouseSpeedPolicy.Validate(MouseSpeedPolicy.ResolveProfile(vals, _globalHandSample?.Invoke() ?? "")); }
+            catch (FormatException ex) { System.Windows.MessageBox.Show(this, ex.Message, "تنظیم سرعت نامعتبر", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        }
         if (_stepType == "mouseMove"
             && (!vals.TryGetValue("moveMode", out var moveMode) || (string?)moveMode != "handSample"))
         {

@@ -250,6 +250,8 @@ public static class ScriptGenerator
     /// fall back to the human defaults — same keys as HumanMouse.Config.FromProps).</summary>
     private static string CfgHash(System.Collections.Generic.IReadOnlyDictionary<string, object?> p, int speedMin, int speedMax)
     {
+        if (PropEx.GetString(p, "speedMode", "legacy") != "legacy" || PropEx.GetString(p, "handProfileSource", "legacy") != "legacy")
+            throw new InvalidOperationException("Mouse speed controls require Windows execution or Native Export, not legacy PowerShell.");
         int G(string k, int d) => PropEx.GetInt(p, k, d);
         int sampledMin = 0, sampledMax = 0;
         bool hasSampledCadence = HandMovementSample.TryDecode(PropEx.GetString(p, "handSample"), out var sample)

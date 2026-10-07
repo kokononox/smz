@@ -50,6 +50,8 @@ public static class HumanMouse
         public int SampledCurvePct { get; init; }             // v0.9.8: fresh value selected for this move
         public int CurveMinPct { get; init; }                 // requested dynamic range (for log/tests)
         public int CurveMaxPct { get; init; }
+        public string SelectedSpeedMode { get; init; } = "legacy";
+        public int SpeedCap { get; init; }
         public int TargetMoveMs { get; init; }                // v0.9.10: sampled duration target (0 = speed-driven)
     }
 
@@ -72,6 +74,14 @@ public static class HumanMouse
         public int CurveMaxPct { get; init; } = 45;           // 0..100 bow, 101..200 true arc
         public int SpeedMinPxPerSec { get; init; } = 0;       // app setting (px/s) — max 0 = no path timing
         public int SpeedMaxPxPerSec { get; init; } = 2000;   // v0.9.24 — recalibrated from the dense hand recording (was 2300 → 500 → 2000)
+        public string SpeedMode { get; init; } = "legacy";
+        public string ProfileSource { get; init; } = "legacy";
+        public int SpeedCap { get; init; }
+        public int SlowWeight { get; init; } = 20;
+        public int NormalWeight { get; init; } = 50;
+        public int FastWeight { get; init; } = 30;
+        public int CustomSpeedMin { get; init; } = 300;
+        public int CustomSpeedMax { get; init; } = 530;
         public int MoveTimeMinMs { get; init; }               // v0.9.10: per-move duration range ms (0/0 = speed-driven)
         public int MoveTimeMaxMs { get; init; }
 
@@ -140,6 +150,11 @@ public static class HumanMouse
                 OvershootChancePct = Math.Clamp(PropEx.GetInt(p, "overshootChance", gentleDefaults ? 12 : 15), 0, 100),
                 CurveMinPct = curveMin,
                 CurveMaxPct = curveMax,
+                SpeedMode = PropEx.GetString(p, "speedMode", "legacy"),
+                ProfileSource = PropEx.GetString(p, "handProfileSource", "legacy"),
+                SpeedCap = MouseSpeedPolicy.Validate(p),
+                SlowWeight = PropEx.GetInt(p, "speedSlowWeight", 20), NormalWeight = PropEx.GetInt(p, "speedNormalWeight", 50), FastWeight = PropEx.GetInt(p, "speedFastWeight", 30),
+                CustomSpeedMin = PropEx.GetInt(p, "speedCustomMin", 300), CustomSpeedMax = PropEx.GetInt(p, "speedCustomMax", 530),
                 SpeedMinPxPerSec = effectiveSpeedMin,
                 SpeedMaxPxPerSec = effectiveSpeedMax,
                 MoveTimeMinMs = mtMin,
@@ -330,7 +345,23 @@ public static class HumanMouse
 
         // v0.9.8 — speed is a CONTINUOUS profile, not one random speed for the whole move.
         // It alternates smoothly between low/high portions of [SpeedMin, SpeedMax].
-        AssignDynamicStreamDelays(dense, sx, sy, c.SpeedMinPxPerSec, c.SpeedMaxPxPerSec, rng, targetMoveMs);
+        string selectedSpeedMode = "legacy";
+        int effectiveMin = c.SpeedMinPxPerSec, effectiveMax = c.SpeedMaxPxPerSec;
+        if (c.SpeedMode != "legacy")
+        {
+            (effectiveMin, effectiveMax, selectedSpeedMode) = MouseSpeedPolicy.Select(c.SpeedMode, effectiveMin, c.SpeedCap, c.SlowWeight, c.NormalWeight, c.FastWeight, c.CustomSpeedMin, c.CustomSpeedMax, rng);
+            targetMoveMs = 0; // explicit speed policy supersedes legacy duration overrides
+        }
+        AssignDynamicStreamDelays(dense, sx, sy, effectiveMin, effectiveMax, rng, targetMoveMs);
+        if (c.SpeedCap > 0)
+        {
+            int px = sx, py = sy;
+            for (int i = 0; i < dense.Count; i++) {
+                var wp = dense[i]; double length = Math.Sqrt((wp.X-px)*(double)(wp.X-px) + (wp.Y-py)*(double)(wp.Y-py));
+                dense[i] = wp with { DelayMs = Math.Max(wp.DelayMs, (int)Math.Ceiling(length * 1000 / c.SpeedCap)) };
+                px = wp.X; py = wp.Y;
+            }
+        }
         int dynamicTotalMs = dense.Sum(p => p.DelayMs);
         for (int i = 0; i < ctrl.Count; i++) ctrl[i] = ctrl[i] with { DelayMs = 0 };
         AssignDelays(ctrl, dynamicTotalMs, rng); // old-bridge fallback keeps equivalent total time
@@ -375,6 +406,7 @@ public static class HumanMouse
             SampledCurvePct = sampledCurvePct,
             CurveMinPct = curveMin,
             CurveMaxPct = curveMax,
+            SelectedSpeedMode = selectedSpeedMode, SpeedCap = c.SpeedCap,
             TargetMoveMs = targetMoveMs,
         };
     }

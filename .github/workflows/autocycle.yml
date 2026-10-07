@@ -103,6 +103,7 @@ jobs:
               firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py
+            python firmware/abvm/tests/test_abvm_mouse_speed_controls.py
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
@@ -371,3 +372,31 @@ jobs:
             TEST-GUIDE-FA.md
             staged/windows-tests.log
             staged/light-telemetry-tests.log
+
+  mouse-speed-test-package:
+    name: diagnostic / mouse speed test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/game-mouse-speed-controls'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/MOUSE-SPEED-TEST.md
+          zip -qr ClassroomStudio-LightState-MouseSpeed-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-MouseSpeed-TestBuild.zip > mouse-speed-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-MouseSpeed-TestBuild
+          path: |
+            ClassroomStudio-LightState-MouseSpeed-TestBuild.zip
+            mouse-speed-sha256.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -71,6 +71,13 @@ typedef struct HumanPath {
     uint16_t warmup_steps;     /* slower opening steps after a long idle */
     uint8_t flick_chance;      /* percent chance of a short velocity burst */
     uint8_t flick_left;        /* remaining burst steps */
+    /* Opt-in speed controls: pace actual emitted deltas, not straight distance. */
+    uint16_t speed_target, speed_cap;
+    uint8_t speed_mode, profile_source;
+    bool paced_pending;
+    char paced_command[40];
+    uint32_t speed_started, speed_last_sent, speed_path_milli, speed_reports;
+    uint32_t speed_pauses, speed_before, speed_after, speed_idle;
 } HumanPath;
 static ArmState state;
 static char tx[ARM_FRAME_MAX];
@@ -717,8 +724,34 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
     if (move_max < move_min) {
         int32_t swap = move_min; move_min = move_max; move_max = swap;
     }
+    uint8_t speed_control=(uint8_t)clamp_i32(json_int_or(payload,size,"speedControl",0),0,6);
+    uint8_t selected_speed_mode=speed_control;
+    uint32_t speed_target=0u,speed_cap=0u;
+    if(speed_control) {
+        uint32_t maximum=(uint32_t)clamp_i32(json_int_or(payload,size,"handSpeedMax",1600),150,3000);
+        speed_cap=(uint32_t)clamp_i32(json_int_or(payload,size,"speedCap",(int32_t)maximum),150,(int32_t)maximum);
+        uint32_t minimum=(uint32_t)clamp_i32(json_int_or(payload,size,"handSpeedMin",700),150,(int32_t)speed_cap);
+        if(speed_control==5u) {
+            uint32_t slow=(uint32_t)clamp_i32(json_int_or(payload,size,"speedSlowWeight",20),0,100);
+            uint32_t normal=(uint32_t)clamp_i32(json_int_or(payload,size,"speedNormalWeight",50),0,100);
+            uint32_t fast=(uint32_t)clamp_i32(json_int_or(payload,size,"speedFastWeight",30),0,100);
+            if(!slow&&!normal&&!fast)return false;
+            uint32_t pick=random_next()%(slow+normal+fast);
+            selected_speed_mode=pick<slow?2u:pick<slow+normal?3u:4u;
+        }
+        uint32_t low=minimum,high=speed_cap;
+        if(selected_speed_mode==2u){low=150u;high=(minimum+speed_cap)/2u;}
+        else if(selected_speed_mode==3u)high=minimum+(speed_cap-minimum)*2u/3u;
+        else if(selected_speed_mode==4u){low=speed_cap*85u/100u;if(low<minimum)low=minimum;}
+        else if(selected_speed_mode==6u){
+            low=(uint32_t)clamp_i32(json_int_or(payload,size,"speedCustomMin",300),150,(int32_t)speed_cap);
+            high=(uint32_t)clamp_i32(json_int_or(payload,size,"speedCustomMax",530),(int32_t)low,(int32_t)speed_cap);
+        }
+        speed_target=random_range_u32(low,high);
+    }
     uint32_t duration;
-    if (move_max > 0) duration = human_mode_sample(
+    if(speed_control) duration=distance*1000u/speed_target;
+    else if (move_max > 0) duration = human_mode_sample(
         (uint32_t)(move_min > 0 ? move_min : 1),
         (uint32_t)move_max, behavior);
     else {
@@ -753,6 +786,11 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         HUMAN_PATH_MIN_STEPS, HUMAN_PATH_MAX_STEPS);
 
     memset(&human_path, 0, sizeof(human_path));
+    human_path.speed_target=(uint16_t)speed_target;
+    human_path.speed_cap=(uint16_t)speed_cap;
+    human_path.speed_mode=selected_speed_mode;
+    human_path.profile_source=(uint8_t)clamp_i32(json_int_or(payload,size,"handProfileSourceId",0),0,1);
+    human_path.speed_started=human_path.speed_last_sent=now;
     human_path.phase = HUMAN_PATH_BEFORE;
     human_path.lane = path_lane;
     human_path.start_x = human_virtual_x;
@@ -805,8 +843,10 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
             human_path.warmup_steps=(uint16_t)(steps/6u?steps/6u:1u);
         }
     }
+    human_path.speed_before=human_path.next_due-now;
     human_path.after_ms = (uint16_t)human_personal_pause(
         (uint32_t)after_min,(uint32_t)after_max,behavior,&personal);
+    human_path.speed_after=human_path.after_ms;
     int32_t idle_every_min=clamp_i32(
         json_int_or(payload,size,"idleEveryMin",5),1,1000);
     int32_t idle_every_max=clamp_i32(
@@ -826,6 +866,7 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
         uint32_t total=(uint32_t)human_path.after_ms+
             random_range_u32((uint32_t)idle_min,(uint32_t)idle_max);
         human_path.after_ms=(uint16_t)(total>60000u?60000u:total);
+        human_path.speed_idle=human_path.after_ms-human_path.speed_after;
         human_moves_since_idle=0u;
         human_next_idle=(uint16_t)random_range_u32(
             (uint32_t)idle_every_min,(uint32_t)idle_every_max);
@@ -1335,11 +1376,13 @@ static void handle_line(uint32_t now) {
             } else {
                 uint32_t pause=human_path.point_pending?
                     HUMAN_SUBSTEP_INTERVAL_MS:human_path.step_delay_ms;
+                if(human_path.speed_cap)pause=0u;
                 if(human_path.warmup_steps&&
                    human_path.step<human_path.warmup_steps)
                     pause=pause*8u/5u+1u;
                 if(human_path.mid_pause_ms&&
                    human_path.step>=human_path.mid_pause_step) {
+                    human_path.speed_pauses+=human_path.mid_pause_ms;
                     pause+=human_path.mid_pause_ms;
                     human_path.mid_pause_ms=0u;
                 }
@@ -1405,13 +1448,49 @@ bool arm_uart_mouse_service(uint32_t now, uint8_t *completed_lane_out) {
             human_path.phase=HUMAN_PATH_MOVE;
         if(human_path.phase==HUMAN_PATH_AFTER) {
             completion_lane=human_path.lane;completion_pending=true;
+            if(human_path.speed_cap) {
+                uint32_t elapsed=now-human_path.speed_started;
+                printf("EVT|MOUSE|mode=%u|source=%u|cap=%u|target=%u|reports=%lu|path_milli_px=%lu|elapsed_ms=%lu|mid_pause_ms=%lu|before_ms=%lu|after_ms=%lu|idle_ms=%lu\n",
+                    human_path.speed_mode,human_path.profile_source,human_path.speed_cap,human_path.speed_target,
+                    (unsigned long)human_path.speed_reports,(unsigned long)human_path.speed_path_milli,
+                    (unsigned long)elapsed,(unsigned long)human_path.speed_pauses,
+                    (unsigned long)human_path.speed_before,(unsigned long)human_path.speed_after,(unsigned long)human_path.speed_idle);
+            }
             human_path.phase=HUMAN_PATH_IDLE;
         } else {
-            char command[40];
-            if(!human_path_command(command,sizeof(command))||
-               !queue_payload(command,now,ARM_MOVE))
-                set_fault("human-mouse-frame");
-            else lane=human_path.lane;
+            if(human_path.speed_cap) {
+                if(!human_path.paced_pending) {
+                    if(!human_path_command(human_path.paced_command,sizeof(human_path.paced_command))) {
+                        set_fault("human-mouse-frame"); return false;
+                    }
+                    long dx=0,dy=0;
+                    if(sscanf(human_path.paced_command+6,"%ld,%ld",&dx,&dy)!=2) {
+                        set_fault("human-speed-frame"); return false;
+                    }
+                    uint32_t squared=(uint32_t)(dx*dx+dy*dy);
+                    uint32_t ceil_length=isqrt_u32(squared);
+                    if(ceil_length*ceil_length<squared)++ceil_length;
+                    uint32_t phase=human_path.steps?human_path.step*100u/human_path.steps:50u;
+                    uint32_t shape=phase<20u||phase>80u?75u:100u;
+                    uint32_t instantaneous=human_path.speed_target*shape/100u;
+                    if(!instantaneous)instantaneous=1u;
+                    uint32_t interval=(ceil_length*1000u+instantaneous-1u)/instantaneous;
+                    human_path.next_due=human_path.speed_last_sent+interval;
+                    human_path.speed_path_milli+=isqrt_u32(squared*1000000u);
+                    human_path.paced_pending=true;
+                }
+                if(reached(now,human_path.next_due)) {
+                    if(!queue_payload(human_path.paced_command,now,ARM_MOVE))set_fault("human-mouse-frame");
+                    else {
+                        lane=human_path.lane;human_path.paced_pending=false;
+                        human_path.speed_last_sent=now;++human_path.speed_reports;
+                    }
+                }
+            } else {
+                char command[40];
+                if(!human_path_command(command,sizeof(command))||!queue_payload(command,now,ARM_MOVE))set_fault("human-mouse-frame");
+                else lane=human_path.lane;
+            }
         }
     }
     if (sound_active&&reached(now,sound_deadline+ARM_ACK_TIMEOUT_MS)) {

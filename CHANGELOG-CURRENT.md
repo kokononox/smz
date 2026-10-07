@@ -1,3 +1,22 @@
+# Experimental mouse speed controls — 2026-10-07
+
+Base: `build/guard-whisper-priority-20261007` at `8dfbd96` (latest successful AutoCycle build). No stable-branch merge or hardware flashing is performed by this change.
+
+- Separate Random Mouse motion intent from speed: legacy/profile/slow/normal/fast/mixed/custom.
+- Weighted per-move selection, bounded by the recorded 80th-percentile personal speed ceiling; this is a robust profile bound, NOT the hand's instantaneous maximum.
+- Explicit global/local/legacy profile selection; show mismatching step samples and offer an explicit copy of the global sample.
+- Desktop policy applies timing to the final curved path; opt-in moves bypass old bridge thinning and await each micro-step. This can expose transport limits rather than guarantee the selected speed.
+- Native actor paces emitted <=3px relative reports by their actual distance. No ACK or USB safety gate is bypassed. Pauses stay separate and unchanged.
+- Native EVT|MOUSE telemetry reports selection, source, cap, target, report count, path length, elapsed time, before/after/idle/mid pauses. Source 0 = global/legacy; 1 = local. Actual USB HID delivery must still be tested on hardware.
+- Missing fields remain legacy. Legacy PLAN2 and PowerShell exports reject new controls rather than silently lose them.
+- Native controls require the newly built matching Pico UF2. Old Pico firmware ignores these optional payload fields and must not be used to validate the new speed policy. Pro Micro firmware is unchanged.
+
+Test: import a copy of the project, select `global` source, then `mixed` speed; cap `0` uses the recorded ceiling, weights 0/50/50 select normal/fast equally by number of moves. Do not shorten sound/keyboard safety waits. Export and flash only the matching diagnostic Pico firmware, then record the Game route and save its serial log. Do not flash during an active run.
+
+Validation: local .NET cross-build (app + TestRunner), native compiler/host contract tests and the real native C actor harness. Windows execution, WPF rendering and physical-board performance remain CI/hardware gates.
+
+---
+
 ## v0.9.73 — continuous three-pixel human mouse reports
 
 - Native Pico mouse motion now treats three-pixel Euclidean continuity as a
