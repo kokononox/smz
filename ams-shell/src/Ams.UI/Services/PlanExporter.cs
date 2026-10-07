@@ -26,8 +26,8 @@ namespace Ams.UI.Services;
 /// The gen-3 engine (PLAN|2, portable/plan3/tools/plan_gen.py) belongs to the parked 0.9.66
 /// line, so every step that needs it is a BLOCKING ERROR here - never silently skipped.
 ///
-/// Compiled (8 of the 23 app actions): randomMousePosition, mouseMove (emitted as a
-/// deterministic 1x1 RMOUSE region - the engine draws tx=randint(x, x+0)=x every pass),
+/// Compiled (8 of the 23 app actions): randomMousePosition, mouseMove (emitted as an
+/// RMOUSE rectangle; the engine samples a fresh destination within it on every execution),
 /// mouseClick, typeText, delay, forLoop, waitForLight (plain + armed), comment. Blocked (15):
 /// findImage, waitForSound, keystroke, keyDown, keyUp, mouseScroll, label, gotoLabel,
 /// rawCommand, randomPackage, parallelGroup, playAudio, playScript, runExe, openFile.
@@ -36,7 +36,7 @@ namespace Ams.UI.Services;
 /// PLAN|2 compensations vs plan_gen (gen-3): the PLAN|2 engine DEFAULTS mid-pauses ON (12%) and
 /// idle breaks ON (1000-5000 ms every 5-12 moves) when a key is omitted, so this exporter emits
 /// mid= and idle= EXPLICITLY on every move (mid=0:0,0 / idle=1,1:0,0 disable them), and the
-/// mouseMove emulation always carries idle=1,1:0,0 (a point-to-point move never idles).
+/// mouseMove emulation always carries idle=1,1:0,0 (one step never schedules a long idle break).
 /// </summary>
 public static class PlanExporter
 {
@@ -369,8 +369,12 @@ public static class PlanExporter
                 Emit(n, new[] { "HANDPATH|" + payload }, "HANDPATH");
                 return;
             }
-            if(!PropEx.GetBool(n.Props,"human",true)){Emit(n,new[]{"MOVETO|x="+x+"|y="+y+"|human=0"},"MOVETO");return;}
-            Emit(n,new[]{"MOVETO|x="+x+"|y="+y+Tuning(n,(1,1,0,0))},"MOVETO");
+            int w = PropEx.GetInt(n.Props, "w", 1), h = PropEx.GetInt(n.Props, "h", 1);
+            if (w <= 0 || h <= 0)
+            { Error(n, "region width/height must be positive (got " + w + "x" + h + ")"); return; }
+            if (!PropEx.GetBool(n.Props, "human", true))
+                Flag(n, "PLAN|2 RMOUSE always uses a humanized path; human=false cannot be preserved in portable export");
+            Emit(n, new[] { "RMOUSE|region=" + x + "," + y + "," + w + "," + h + Tuning(n, (1, 1, 0, 0)) }, "MOVETO");
         }
 
         private void EmitMouseClick(StepNode n)

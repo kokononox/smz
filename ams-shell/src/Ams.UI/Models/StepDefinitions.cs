@@ -86,6 +86,8 @@ public static class StepDefinitions
             {
                 new("x", "X", FieldKind.Int, "600"),
                 new("y", "Y", FieldKind.Int, "497"),
+                new("w", "Region width", FieldKind.Int, "100"),
+                new("h", "Region height", FieldKind.Int, "100"),
                 new("moveMode", "Movement source", FieldKind.Combo, "fixed", new[] { "fixed", "handSample" }),
                 new("handSample", "Recorded hand movement", FieldKind.Text, ""),
                 new("human", "Humanized movement (app-side WindMouse path + pauses — off = instant firmware move)", FieldKind.Check, "true"),
@@ -113,7 +115,8 @@ public static class StepDefinitions
                     }
                     return "Replay Relative Hand Gesture · sample required";
                 }
-                return $"Move to Position ({PropEx.GetInt(s.Props, "x")}, {PropEx.GetInt(s.Props, "y")})";
+                return $"Move to random point in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} " +
+                       $"{Math.Max(1, PropEx.GetInt(s.Props, "w", 1))}x{Math.Max(1, PropEx.GetInt(s.Props, "h", 1))}]";
             },
             Commands = s => new[] { $"MMOVE|{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")},abs,{(PropEx.GetBool(s.Props, "human", true) ? 1 : 0)}" },
         },

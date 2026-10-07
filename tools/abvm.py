@@ -728,6 +728,27 @@ class Compiler:
                         "Random Mouse region is outside selected display "
                         f"{spec['screenWidth']}x{spec['screenHeight']}")
             self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, spec))
+        elif kind == "mouseMove":
+            if str(p.get("moveMode") or "fixed") == "handSample":
+                raise AbvmError(
+                    "Native Export does not support mouseMove handSample; use fixed rectangle mode")
+            if not bool(p.get("human", True)):
+                raise AbvmError(
+                    "Native Export mouseMove requires humanized movement; enable Humanized movement")
+            spec = dict(p)
+            spec.update(self.human_mouse_profile)
+            spec.update(self.display_profile)
+            spec["motionIntent"] = "targetRegion"
+            x, y = integer(spec.get("x")), integer(spec.get("y"))
+            w, h = integer(spec.get("w"), 1), integer(spec.get("h"), 1)
+            if (x < 0 or y < 0 or w <= 0 or h <= 0 or
+                    x + w > spec["screenWidth"] or
+                    y + h > spec["screenHeight"]):
+                raise AbvmError(
+                    "Move to Location rectangle is outside selected display "
+                    f"{spec['screenWidth']}x{spec['screenHeight']}")
+            spec.update({"x": x, "y": y, "w": w, "h": h})
+            self.emit(OP_RMOUSE, a=self.pool.obj(CONST_MOUSE, spec))
         elif kind == "buzzer":
             self.compile_buzzer(p)
         elif kind == "forLoop":

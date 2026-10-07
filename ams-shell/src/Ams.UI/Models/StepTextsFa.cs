@@ -45,7 +45,7 @@ public static class StepTextsFa
 
         // ── mouse actions ──
         ["button"] = "دکمه‌ی موس",
-        ["moveMode"] = "حالت حرکت (fixed = مقصد مطلق · handSample = بازپخش نسبی نمونه از موقعیت فعلی نشانگر)",
+        ["moveMode"] = "حالت حرکت (fixed = انتخاب نقطه‌ی تصادفی در مستطیل · handSample = بازپخش نسبی نمونه از موقعیت فعلی نشانگر)",
         ["handSample"] = "نمونه‌ی نسبی ذخیره‌شده‌ی حرکت دست",
         ["action"] = "نوع کلیک",
         ["delta"] = "مقدار ویل (عدد منفی = پایین)",
@@ -157,6 +157,8 @@ public static class StepTextsFa
         // x/y/w/h — mouseMove vs randomMousePosition vs findImage
         ["mouseMove:x"] = "مختصات X",
         ["mouseMove:y"] = "مختصات Y",
+        ["mouseMove:w"] = "عرض مستطیل مقصد",
+        ["mouseMove:h"] = "ارتفاع مستطیل مقصد",
         ["randomMousePosition:x"] = "ناحیه X",
         ["randomMousePosition:y"] = "ناحیه Y",
         ["randomMousePosition:w"] = "عرض ناحیه",

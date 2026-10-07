@@ -498,26 +498,30 @@ public sealed class RunEngine
                     // handSample is a relative gesture from the cursor's current position.
                     // There is deliberately no absolute destination: a bare HID device cannot
                     // know the host cursor origin without a Windows-side bridge.
-                    if (PropEx.GetString(s.Props, "moveMode", "fixed") == "handSample"
-                        && HandMovementSample.TryDecode(PropEx.GetString(s.Props, "handSample"), out var handSample))
+                    if (PropEx.GetString(s.Props, "moveMode", "fixed") == "handSample")
                     {
+                        if (!HandMovementSample.TryDecode(PropEx.GetString(s.Props, "handSample"), out var handSample))
+                            throw new InvalidOperationException("mouseMove handSample mode needs a valid recorded movement.");
                         await ReplayHandMovementAsync(handSample, ct);
-                    }
-                    else if (PropEx.GetBool(s.Props, "human", true))
-                    {
-                        // v0.9.14 — tunable per step (dialog fields, Gentle defaults) instead of
-                        // the fixed preset; every cursor move in the app is now configurable.
-                        await HumanMoveToAsync(PropEx.GetInt(s.Props, "x", 600), PropEx.GetInt(s.Props, "y", 497),
-                                               HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax, gentleDefaults: true), ct);
                     }
                     else
                     {
-                        string rawCmd = StepDefinitions.GetCommands(s)[0];
-                        await Send(rawCmd, ct);
-                        // v0.9.20 — keep the cursor anchor in sync (format: MMOVE|x,y,abs,h)
-                        var parts = rawCmd.Split('|', ',');
-                        if (parts.Length >= 3 && int.TryParse(parts[1], out int ax) && int.TryParse(parts[2], out int ay))
-                            _mouseAnchor = new System.Drawing.Point(ax, ay);
+                        var (x, y, w, h) = GetMouseMoveRegion(s);
+                        int destX, destY;
+                        lock (_rngLock)
+                        {
+                            // Sample a new point on every execution; the region is a target
+                            // surface, not a point that merely needs to be entered.
+                            destX = x + Rng.Next(w);
+                            destY = y + Rng.Next(h);
+                        }
+                        // v0.9.14 — tunable per step (dialog fields, Gentle defaults) instead of
+                        // the fixed preset; every cursor move in the app is now configurable.
+                        if (PropEx.GetBool(s.Props, "human", true))
+                            await HumanMoveToAsync(destX, destY,
+                                HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax, gentleDefaults: true), ct);
+                        else
+                            await SendMmoveAbsAsync(destX, destY, ct);
                     }
                     break;
                 }
@@ -958,6 +962,18 @@ public sealed class RunEngine
 
     /// <summary>v0.9.15 — thread-safe inclusive random (Parallel Group branches share Rng).</summary>
     private int NextRandom(int min, int max) { lock (_rngLock) return Rng.Next(min, max + 1); }
+
+    private (int X, int Y, int W, int H) GetMouseMoveRegion(StepNode step)
+    {
+        int x = PropEx.GetInt(step.Props, "x", 600);
+        int y = PropEx.GetInt(step.Props, "y", 497);
+        int w = PropEx.GetInt(step.Props, "w", 1);
+        int h = PropEx.GetInt(step.Props, "h", 1);
+        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + (long)w > _screenW || y + (long)h > _screenH)
+            throw new InvalidOperationException(
+                $"mouseMove rectangle [{x},{y} {w}x{h}] must be inside the configured display {_screenW}x{_screenH}.");
+        return (x, y, w, h);
+    }
 
     /// <summary>v0.9.21 — split a KTEXT op into one INSTANT op per character ("KTEXT|0,0,&lt;c&gt;",
     /// no board-side per-key delay), so a Parallel Group's keyboard branch holds the single

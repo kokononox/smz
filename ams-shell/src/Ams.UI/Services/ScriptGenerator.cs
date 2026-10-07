@@ -189,10 +189,18 @@ public static class ScriptGenerator
                         if (seg.Dx != 0 || seg.Dy != 0) sb.AppendLine($"{pad}Send-Cmd \"MMOVE|{seg.Dx},{seg.Dy},rel,2\"");
                     }
                 }
-                else if (PropEx.GetBool(n.Props, "human", true))
-                    sb.AppendLine($"{pad}Move-HumanMouse {PropEx.GetInt(n.Props, "x", 600)} {PropEx.GetInt(n.Props, "y", 497)} {screenW} {screenH} @{{ {GentleHashFromProps(n.Props, mouseSpeedMin, mouseSpeedMax)} }}");
                 else
-                    sb.AppendLine($"{pad}Send-Cmd \"MMOVE|{PropEx.GetInt(n.Props, "x", 600)},{PropEx.GetInt(n.Props, "y", 497)},abs,0\"");
+                {
+                    int x = PropEx.GetInt(n.Props, "x", 600), y = PropEx.GetInt(n.Props, "y", 497);
+                    int w = Math.Max(1, PropEx.GetInt(n.Props, "w", 1));
+                    int h = Math.Max(1, PropEx.GetInt(n.Props, "h", 1));
+                    sb.AppendLine($"{pad}$destX = {x} + $script:rng.Next(0, {w})");
+                    sb.AppendLine($"{pad}$destY = {y} + $script:rng.Next(0, {h})");
+                    if (PropEx.GetBool(n.Props, "human", true))
+                        sb.AppendLine($"{pad}Move-HumanMouse $destX $destY {screenW} {screenH} @{{ {GentleHashFromProps(n.Props, mouseSpeedMin, mouseSpeedMax)} }}");
+                    else
+                        sb.AppendLine($"{pad}Send-Cmd \"MMOVE|$destX,$destY,abs,0\"");
+                }
                 break;
             }
 

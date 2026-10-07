@@ -3673,8 +3673,7 @@ public partial class MainViewModel : ObservableObject
         if (type == "waitForSound") { calibrate = CalibrateSoundThreshold; calibrateKey = "threshold"; }
         if (type == "waitForLight") { calibrate = CalibrateLightRange; calibrateKey = "luxCenter"; }   // v0.9.39 — BH1750 range centre
 
-        if (type is "randomMousePosition" or "findImage") pickRegion = PickRegionOnScreen;
-        if (type == "mouseMove") pickPoint = PickPointOnScreen;
+        if (type is "randomMousePosition" or "findImage" or "mouseMove") pickRegion = PickRegionOnScreen;
         if (type is "mouseMove" or "randomMousePosition") sampleMouse = SampleHandMovementAsync;
         if (type == "buzzer") previewBuzzer = PreviewBuzzerAsync;
         if (type == "waitForSound") previewBuzzer = PreviewArmBuzzerAsync;

@@ -1161,7 +1161,9 @@ class TestRunner
             Assert(ps.Contains("Move-HumanMouse"), "generated script uses the human-mouse function");
             Assert(!ps.Contains("[Math]::Random"), "no invalid [Math]::Random in the PS 5.1 output");
             Assert(ps.Count(ch => ch == '{') == ps.Count(ch => ch == '}'), "generated script braces are balanced");
-            Assert(ps.Contains("Move-HumanMouse 700 400"), "humanized Mouse Position step uses the engine too");
+            Assert(ps.Contains("$destX = 700 + $script:rng.Next(0, 1)")
+                   && ps.Contains("Move-HumanMouse $destX $destY"),
+                "humanized mouseMove samples a target from the configured rectangle before moving");
             Assert(ps.Contains("curvMin=120; curvMax=190"), "generated script preserves the full curvature range");
             Assert(ps.Contains("$curveKnots") && ps.Contains("$speedKnots") && ps.Contains("$spacingKnots"),
                 "generated script continuously profiles curvature, speed and micro-step spacing");
@@ -1187,6 +1189,39 @@ class TestRunner
         var lastPt = fbS.LastPath![^1];
         Assert(lastPt.X >= 100 && lastPt.X < 600 && lastPt.Y >= 100 && lastPt.Y < 500,
             $"stream ends inside the region (got {lastPt.X},{lastPt.Y})");
+
+        // mouseMove samples a new target point from its rectangle on every run and
+        // still uses the app-side human path, starting from the live cursor anchor.
+        var fbMoveRegion = new FakeBridge();
+        var moveRegionSteps = Enumerable.Range(0, 5).Select(_ => new StepNode
+        {
+            Type = "mouseMove", Delay = 0, DelayMax = 0,
+            Props = new Dictionary<string, object?>
+            {
+                ["x"] = 100, ["y"] = 120, ["w"] = 400, ["h"] = 300, ["human"] = true,
+                ["pauseBeforeMin"] = 0, ["pauseBeforeMax"] = 0,
+                ["pauseAfterMin"] = 0, ["pauseAfterMax"] = 0,
+                ["midPauseChance"] = 0, ["overshootChance"] = 0,
+                ["moveTimeMin"] = 100, ["moveTimeMax"] = 150,
+            },
+        }).ToArray();
+        new RunEngine(fbMoveRegion, _ => { }, 1920, 1080)
+            .RunAsync(moveRegionSteps, CancellationToken.None).Wait();
+        var regionTargets = fbMoveRegion.Paths.Select(path => path[^1]).ToList();
+        Assert(fbMoveRegion.PathCalls == 5 && regionTargets.All(p =>
+                   p.X >= 100 && p.X < 500 && p.Y >= 120 && p.Y < 420),
+            "mouseMove streams five human paths and every final cursor target stays inside its rectangle");
+        Assert(regionTargets.Select(p => (p.X, p.Y)).Distinct().Count() > 1,
+            "mouseMove samples a fresh destination instead of repeatedly aiming at one point");
+
+        var fbLegacyMouse = new FakeBridge();
+        new RunEngine(fbLegacyMouse, _ => { }, 1920, 1080).RunAsync(new[]
+        {
+            new StepNode { Type = "mouseMove", Delay = 0, DelayMax = 0,
+                Props = new Dictionary<string, object?> { ["x"] = 20, ["y"] = 30, ["human"] = false } },
+        }, CancellationToken.None).Wait();
+        Assert(fbLegacyMouse.Sent.Any(c => c == "MMOVE|20,30,abs,0"),
+            "legacy mouseMove steps without w/h retain their exact-coordinate behavior");
 
         // old bridge.py (no send_path) → control-point fallback with firmware smoothstep
         var fbOld = new FakeBridge { UnknownOp = true };
@@ -3828,21 +3863,22 @@ class TestRunner
             Assert(pexRand.Counts.Contains("RMOUSE x1") && pexRand.Disabled.Count == 0,
                 "v0.9.65: emission counts are reported");
 
-            // mouseMove -> deterministic 1x1 RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
+            // mouseMove -> selected RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
             var pexMove = PlanExporter.Compile(new List<StepNode>
             {
-                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["human"] = true }),
+                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["w"] = 180, ["h"] = 120, ["human"] = true }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexMove.Text.Contains("MOVETO|x=700|y=400|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
-                "v0.9.66: mouseMove emits native PLAN|2 MOVETO");
+            Assert(pexMove.Text.Contains("RMOUSE|region=700,400,180,120|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
+                "mouseMove exports a random point within the chosen rectangle as humanized PLAN|2 RMOUSE");
             Assert(!pexMove.Text.Contains("idle=5,12"),
                 "v0.9.65: the engine's built-in idle default never leaks into a point move");
             var pexNoHuman = PlanExporter.Compile(new List<StepNode>
             {
                 PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 5, ["y"] = 6, ["human"] = false }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexNoHuman.Text.Contains("MOVETO|x=5|y=6|human=0\n"),
-                "v0.9.66: human=false emits native non-human MOVETO");
+            Assert(pexNoHuman.Text.Contains("RMOUSE|region=5,6,1,1|before=60,220")
+                   && pexNoHuman.Flags.Any(f => f.Contains("human=false cannot be preserved")),
+                "portable export warns that human=false is not supported by PLAN|2 RMOUSE");
 
             var hand = new HandMovementSample.Sample(10_000, new System.Drawing.Point(100, 100),
                 new System.Drawing.Point(130, 106), new[]
@@ -3928,11 +3964,12 @@ class TestRunner
             var stepDialogSource = V27ReadSrc(Path.Combine("Views", "StepDialog.xaml.cs"));
             var mainVmMouseSource = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             Assert(stepDialogSource.Contains("randomMousePosition\" && f.Key == \"h\"")
-                   && stepDialogSource.Contains("انتخاب مختصات روی صفحه")
-                   && mainVmMouseSource.Contains("PickPointOnScreen")
-                   && V27ReadSrc(Path.Combine("Views", "PointPickerWindow.xaml")).Contains("PointPickerWindow")
+                   && stepDialogSource.Contains("کشیدن مستطیل مقصد روی صفحه")
+                   && mainVmMouseSource.Contains("or \"mouseMove\") pickRegion = PickRegionOnScreen")
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "w")
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "h")
                    && stepDialogSource.Contains("مقصد و هندسه همچنان تصادفی‌اند"),
-                "Random Mouse has sampling UI and Move to Position has a one-click point picker");
+                "Move to Location exposes rectangle dimensions and a drag-to-select region picker");
 
             // CLICK with swapped hold bounds
             var pexClick = PlanExporter.Compile(new List<StepNode>
@@ -4806,6 +4843,7 @@ sealed class FakeBridge : IBoardBridge
     public bool UnknownOp;                 // v0.9.2 — simulate an old bridge.py without send_path
     public int PathCalls;
     public List<(int X, int Y, int DelayMs)>? LastPath;
+    public readonly List<List<(int X, int Y, int DelayMs)>> Paths = new();
     public int ArtificialDelayMs;          // v0.9.15 — per-op latency for concurrency tests
     public int InFlight;
     public int MaxInFlight;
@@ -4819,6 +4857,7 @@ sealed class FakeBridge : IBoardBridge
             if (ArtificialDelayMs > 0) await Task.Delay(ArtificialDelayMs);
             MaxInFlight = Math.Max(MaxInFlight, InFlight);
             LastPath = points.ToList();
+            Paths.Add(LastPath);
             return "OK|PATH," + points.Count;
         }
         finally { Interlocked.Decrement(ref InFlight); }

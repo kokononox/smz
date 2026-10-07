@@ -29,6 +29,7 @@ public partial class StepDialog : Window
     private readonly Func<IReadOnlyDictionary<string, object?>, Task<string>>? _previewBuzzer;
     private System.Windows.Controls.TextBlock? _sampleStatus;
     private Wpf.Ui.Controls.Button? _pointPickerButton;
+    private Wpf.Ui.Controls.Button? _regionPickerButton;
 
     /// <summary>Edited values when the dialog closes with OK; otherwise null.</summary>
     public Dictionary<string, object?>? Values { get; private set; }
@@ -62,6 +63,10 @@ public partial class StepDialog : Window
         foreach (var f in _fields)
         {
             object? cur = current is not null && current.TryGetValue(f.Key, out var v) ? v : f.Default;
+            // Preserve exact-point behavior for saved steps created before rectangles existed.
+            if (_stepType == "mouseMove" && current is not null
+                && (f.Key is "w" or "h") && !current.ContainsKey(f.Key))
+                cur = 1;
 
             // The recorded path is an opaque compact payload. Keep it in the dialog model,
             // never expose it as an editable textbox; the sampler/status controls own it.
@@ -158,22 +163,6 @@ public partial class StepDialog : Window
             if (_stepType == "randomMousePosition" && f.Key == "h" && _sampleMouse is not null)
                 AddMouseSampleControls(current);
 
-            // A fixed Move to Position needs a point picker, not the rectangular
-            // picker used by Random Mouse Position and Find Image.
-            if (_pickPoint is not null && f.Key == "y"
-                && _controls.ContainsKey("x") && _controls.ContainsKey("y"))
-            {
-                _pointPickerButton = new Wpf.Ui.Controls.Button
-                {
-                    Content = "انتخاب مختصات روی صفحه…  (کلیک = تأیید · Esc = لغو)",
-                    Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
-                    Margin = new Thickness(0, 4, 0, 0),
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                };
-                _pointPickerButton.Click += OnPickPoint;
-                FormPanel.Children.Add(_pointPickerButton);
-            }
-
             // Browse button for path-type fields (playAudio / runExe / openFile) (§5.5.x)
             // Uses a plain WPF Button so it stays visible on the dark panel background.
             if (!string.IsNullOrWhiteSpace(f.BrowseFilter))
@@ -199,15 +188,15 @@ public partial class StepDialog : Window
             if (_pickRegion is not null && f.Key == "h"
                 && _controls.ContainsKey("x") && _controls.ContainsKey("y") && _controls.ContainsKey("w"))
             {
-                var btn = new Wpf.Ui.Controls.Button
+                _regionPickerButton = new Wpf.Ui.Controls.Button
                 {
-                    Content = "انتخاب ناحیه روی صفحه…  (بکش · دابل‌کلیک تأیید می‌کند · Esc لغو)",
+                    Content = "کشیدن مستطیل مقصد روی صفحه…  (پس از رهاکردن، کلیک کنید تا تأیید شود)",
                     Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
                     Margin = new Thickness(0, 4, 0, 0),
                     HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 };
-                btn.Click += OnPickRegion;
-                FormPanel.Children.Add(btn);
+                _regionPickerButton.Click += OnPickRegion;
+                FormPanel.Children.Add(_regionPickerButton);
             }
         }
     }
@@ -354,6 +343,8 @@ public partial class StepDialog : Window
             }
             if (_pointPickerButton is not null)
                 _pointPickerButton.Visibility = IsHandSampleMode() ? Visibility.Collapsed : Visibility.Visible;
+            if (_regionPickerButton is not null)
+                _regionPickerButton.Visibility = IsHandSampleMode() ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 
@@ -372,7 +363,7 @@ public partial class StepDialog : Window
 
     private static readonly HashSet<string> HandSampleTuningKeys = new(StringComparer.Ordinal)
     {
-        "x", "y", "human", "pauseBeforeMin", "pauseBeforeMax", "pauseAfterMin", "pauseAfterMax",
+        "x", "y", "w", "h", "human", "pauseBeforeMin", "pauseBeforeMax", "pauseAfterMin", "pauseAfterMax",
         "midPauseChance", "midPauseMin", "midPauseMax", "overshootChance", "curveMinPct",
         "curveMaxPct", "moveTimeMin", "moveTimeMax"
     };
@@ -487,6 +478,18 @@ public partial class StepDialog : Window
         }
 
         var vals = ReadValues();
+        if (_stepType == "mouseMove"
+            && (!vals.TryGetValue("moveMode", out var moveMode) || (string?)moveMode != "handSample"))
+        {
+            int w = vals.TryGetValue("w", out var width) && width is int wi ? wi : 1;
+            int h = vals.TryGetValue("h", out var height) && height is int hi ? hi : 1;
+            if (w <= 0 || h <= 0)
+            {
+                System.Windows.MessageBox.Show(this, "عرض و ارتفاع مستطیل مقصد باید بزرگ‌تر از صفر باشند.",
+                    "ناحیه‌ی مقصد نامعتبر", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+        }
         if (_stepType == "buzzer")
         {
             try { _ = StepDefinitions.BuildBuzzerCommands(vals); }
