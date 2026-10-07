@@ -1,4 +1,7 @@
 import hashlib,struct,unittest
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 from tools.abvm_slot import DEFAULT_CAPACITY,SLOT_HEADER_SIZE,SLOT_MAGIC,SLOT_VERSION,render
 from tools.abvm_uf2 import UF2_MAGIC0,UF2_MAGIC1,UF2_MAGIC_END,Uf2Error,inject,locate_slot,parse
 
