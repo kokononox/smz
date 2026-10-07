@@ -20,12 +20,25 @@ static int stable(AbvmVm *vm, uint32_t lux, uint32_t at, uint16_t route,
     guard_runtime_observe(vm, lux, at);
     guard_runtime_observe(vm, lux, at + 100u);
     GuardRuntimeEvent event;
-    if (!require(guard_runtime_take_event(&event), "Guard event") ||
-        !require(event.type == GUARD_EVENT_ROUTE, "route event") ||
+    if (!guard_runtime_take_event(&event)) {
+        fprintf(stderr,"ABVM Guard smoke missing event: lux=%u at=%u expected-route=%u\n",
+                lux,at,route);
+        return 0;
+    }
+    if (!require(event.type == GUARD_EVENT_ROUTE, "route event") ||
         !require(event.route_id == route, "route id") ||
         !require(event.stage == stage, "stage") ||
         !require(vm->route_id == route, "VM route")) return 0;
     return 1;
+}
+static void restore_interrupted_route(AbvmVm *vm) {
+    vm->lane_count=vm->suspended.lane_count;
+    vm->route_flags=vm->suspended.route_flags;
+    vm->route_id=vm->suspended.route_id;
+    memcpy(vm->lanes,vm->suspended.lanes,sizeof(vm->lanes));
+    memcpy(&vm->scope,&vm->suspended.scope,sizeof(vm->scope));
+    memset(&vm->suspended,0,sizeof(vm->suspended));
+    vm->status=ABVM_STATUS_RUNNING;
 }
 int main(int argc, char **argv) {
     if (argc != 2) return 2;
@@ -209,9 +222,9 @@ int main(int argc, char **argv) {
         !stable(&vm,5000u,3500u,8u,5u) ||
         !stable(&vm,6000u,3700u,9u,5u)) return 1;
     guard_runtime_observe(&vm,1000u,3850u);
-    guard_runtime_observe(&vm,8000u,3860u);
+    guard_runtime_observe(&vm,6000u,3860u);
     if (!require(vm.route_id==9u&&vm.suspended.valid,
-                 "non-DC light cannot preempt Targeted") ||
+                 "ordinary non-Whisper light cannot preempt Targeted") ||
         !require(!guard_runtime_take_event(&event),
                  "Targeted suppresses non-DC optical events")) return 1;
     guard_runtime_observe(&vm,2000u,3900u);
@@ -258,7 +271,7 @@ int main(int argc, char **argv) {
     guard_runtime_observe(&vm,5000u,5310u);
     guard_runtime_observe(&vm,1000u,5320u);
     guard_runtime_observe(&vm,6000u,5330u);
-    guard_runtime_observe(&vm,8000u,5340u);
+    guard_runtime_observe(&vm,3000u,5340u);
     if (!require(vm.route_id==14u&&vm.suspended.valid,
                  "Targeted Repeat ignores every non-DC light until END") ||
         !require(!guard_runtime_take_event(&event),
@@ -281,6 +294,154 @@ int main(int argc, char **argv) {
         !require(vm.suspended.valid && vm.suspended.route_id==8u,
                  "Targeted New cooldown does not block Targeted Repeat policy"))
         return 1;
+    /*
+     * Whisper Repeat may preempt either Targeted route only after its
+     * independent light cooldown has expired. A fresh Repeat preempts
+     * Targeted New, while the same light during Repeat cooldown leaves
+     * Targeted Repeat untouched.
+     */
+    if(!require(guard_runtime_start(170000u),
+                "restart Guard for Whisper priority")||
+       !stable(&vm,5000u,170000u,8u,5u)||
+       !stable(&vm,6000u,170200u,9u,5u))return 1;
+    guard_runtime_observe(&vm,8000u,170320u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&vm.route_id==9u,
+                "Whisper Repeat waits for stable light during Targeted New"))
+        return 1;
+    guard_runtime_observe(&vm,8000u,170420u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_ROUTE&&event.route_id==12u&&
+                vm.route_id==12u&&vm.suspended.valid&&
+                vm.suspended.route_id==8u&&
+                event.reason&&!strcmp(event.reason,
+                    "targeted-cancelled-to-whisper-repeat-light-interrupt"),
+                "stable Whisper Repeat safely replaces Targeted New"))
+        return 1;
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,170450u);
+    (void)guard_runtime_take_event(&event);
+    if(!stable(&vm,9000u,170500u,14u,5u))return 1;
+    guard_runtime_observe(&vm,8000u,170620u);
+    guard_runtime_observe(&vm,8000u,170720u);
+    if(!require(vm.route_id==14u&&vm.suspended.valid&&
+                !guard_runtime_take_event(&event),
+                "Whisper Repeat cooldown cannot interrupt Targeted Repeat"))
+        return 1;
+    if(!require(guard_runtime_start(175000u),
+                "restart Guard for Whisper priority over Targeted Repeat")||
+       !stable(&vm,5000u,175000u,8u,5u)||
+       !stable(&vm,9000u,175200u,14u,5u))return 1;
+    guard_runtime_observe(&vm,8000u,175320u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&vm.route_id==14u,
+                "Whisper Repeat waits for stability during Targeted Repeat"))
+        return 1;
+    guard_runtime_observe(&vm,8000u,175420u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_ROUTE&&event.route_id==12u&&
+                vm.route_id==12u&&vm.suspended.valid&&
+                vm.suspended.route_id==8u,
+                "stable Whisper Repeat safely replaces Targeted Repeat"))
+        return 1;
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,175450u);
+    (void)guard_runtime_take_event(&event);
+
+    /*
+     * If Repeat becomes stable during Whisper New, queue it without
+     * interrupting New. On New completion, start Repeat before the restored
+     * Game route can execute, preserving the exact suspended cursor through
+     * both overlays.
+     */
+    if(!require(guard_runtime_start(200000u),
+                "restart Guard for queued Whisper Repeat")||
+       !stable(&vm,5000u,200000u,8u,5u)||
+       !require(abvm_interrupt_route(&vm,10u,200200u),
+                "start Whisper New before queued Repeat"))return 1;
+    guard_runtime_service(&vm,200250u);
+    uint32_t game_pc=vm.suspended.lanes[0].pc;
+    latest_lux=8000u;latest_ready=true;
+    guard_runtime_service(&vm,200300u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&vm.route_id==10u,
+                "Whisper Repeat candidate does not interrupt Whisper New"))
+        return 1;
+    latest_lux=8000u;latest_ready=true;
+    guard_runtime_service(&vm,200400u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_STATE&&vm.route_id==10u,
+                "stable Whisper Repeat queues behind Whisper New"))return 1;
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,200500u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_ROUTE&&event.route_id==12u&&
+                event.reason&&!strcmp(event.reason,
+                    "queued-whisper-repeat-after-whisper-new")&&
+                vm.route_id==12u&&vm.suspended.valid&&
+                vm.suspended.route_id==8u&&
+                vm.suspended.lanes[0].pc==game_pc,
+                "Whisper Repeat starts after New with exact Game cursor"))
+        return 1;
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,200600u);
+    if(!require(vm.route_id==8u&&!vm.suspended.valid&&
+                !guard_runtime_paused()&&
+                !guard_runtime_take_event(&event),
+                "fishing resumes after queued Whisper Repeat completes"))
+        return 1;
+
+    /*
+     * After a Whisper overlay, Targeted New and Repeat are evaluated
+     * immediately. A persistent Targeted Repeat runs once, then its normal
+     * cooldown lets the fishing route continue without a grace watchdog.
+     */
+    if(!require(guard_runtime_start(300000u),
+                "restart Guard for post-Whisper Targeted New")||
+       !stable(&vm,5000u,300000u,8u,5u)||
+       !require(abvm_interrupt_route(&vm,10u,300200u),
+                "Whisper before Targeted New"))return 1;
+    guard_runtime_service(&vm,300250u);
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,300300u);
+    guard_runtime_observe(&vm,6000u,300400u);
+    guard_runtime_observe(&vm,6000u,300500u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_ROUTE&&event.route_id==9u&&
+                vm.route_id==9u&&vm.suspended.valid&&
+                event.reason&&!strcmp(event.reason,
+                    "game-to-targeted-new-light-interrupt"),
+                "Targeted New interrupts Game immediately after Whisper"))
+        return 1;
+
+    if(!require(guard_runtime_start(400000u),
+                "restart Guard for post-Whisper Targeted Repeat")||
+       !stable(&vm,5000u,400000u,8u,5u)||
+       !require(abvm_interrupt_route(&vm,10u,400200u),
+                "Whisper before Targeted Repeat"))return 1;
+    guard_runtime_service(&vm,400250u);
+    restore_interrupted_route(&vm);
+    guard_runtime_service(&vm,400300u);
+    guard_runtime_observe(&vm,9000u,400400u);
+    guard_runtime_observe(&vm,9000u,400500u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_ROUTE&&event.route_id==14u&&
+                vm.route_id==14u&&vm.suspended.valid&&
+                event.reason&&!strcmp(event.reason,
+                    "game-to-targeted-repeat-light-interrupt"),
+                "Targeted Repeat runs immediately after Whisper"))
+        return 1;
+    restore_interrupted_route(&vm);
+    latest_lux=9000u;latest_ready=true;
+    guard_runtime_service(&vm,400600u);
+    guard_runtime_observe(&vm,9000u,400700u);
+    if(!require(guard_runtime_take_event(&event)&&
+                event.type==GUARD_EVENT_DENIED&&event.reason&&
+                !strcmp(event.reason,"light-targeted-cooldown")&&
+                vm.route_id==8u&&!guard_runtime_paused(),
+                "persistent Targeted Repeat respects cooldown without watchdog"))
+        return 1;
+
     /*
      * Post-restart Guard skips Desktop, then requires the complete ordered
      * Login -> Dashboard -> Loading -> Game sequence. Each accepted stage
@@ -344,61 +505,6 @@ int main(int argc, char **argv) {
                  !strcmp(event.reason,"manual-watchdog-game-catchup") &&
                  guard_runtime_expected_profile()==0u,
                  "manual Resume catches stable Game up from stage 3")) return 1;
-    /*
-     * A Whisper that resumes the fishing Game may reveal Targeted light
-     * instead of Game light. Keep the exact Game cursor running for one
-     * minute; returning to Game cancels the grace without route 9.
-     */
-    if(!require(guard_runtime_start(100000u),"post-Whisper grace Guard")||
-       !stable(&vm,5000u,100000u,8u,5u)||
-       !require(abvm_interrupt_route(&vm,10u,100200u),"Whisper interrupt"))
-        return 1;
-    guard_runtime_service(&vm,100250u);
-    vm.route_id=8u;vm.status=ABVM_STATUS_RUNNING;vm.suspended.valid=false;
-    guard_runtime_service(&vm,100300u);
-    guard_runtime_observe(&vm,6000u,100400u);
-    guard_runtime_observe(&vm,6000u,100500u);
-    if(!require(guard_runtime_take_event(&event)&&
-                event.type==GUARD_EVENT_STATE&&
-                event.reason&&!strcmp(event.reason,
-                    "post-whisper-targeted-grace-start")&&
-                vm.route_id==8u&&!guard_runtime_paused(),
-                "Targeted starts one-minute fishing grace"))return 1;
-    guard_runtime_observe(&vm,5000u,101000u);
-    guard_runtime_observe(&vm,5000u,101100u);
-    if(!require(guard_runtime_take_event(&event)&&
-                event.type==GUARD_EVENT_STATE&&vm.route_id==8u&&
-                !guard_runtime_paused(),
-                "Game return cancels post-Whisper grace"))return 1;
-
-    /* Persistent Targeted reaches exactly 60 seconds and trips the same
-     * fail-safe operator Watchdog instead of starting route 9. */
-    if(!require(abvm_interrupt_route(&vm,10u,102000u),
-                "second Whisper interrupt"))return 1;
-    guard_runtime_service(&vm,102050u);
-    vm.route_id=8u;vm.status=ABVM_STATUS_RUNNING;vm.suspended.valid=false;
-    latest_lux=6000u;latest_ready=true;
-    guard_runtime_service(&vm,102100u);
-    guard_runtime_observe(&vm,6000u,102200u);
-    guard_runtime_observe(&vm,6000u,102300u);
-    (void)guard_runtime_take_event(&event);
-    guard_runtime_observe(&vm,6000u,162199u);
-    if(!require(!guard_runtime_paused()&&vm.route_id==8u,
-                "fishing continues before 60-second boundary"))return 1;
-    guard_runtime_observe(&vm,6000u,162200u);
-    if(!require(guard_runtime_take_event(&event)&&
-                event.type==GUARD_EVENT_WATCHDOG_TRIPPED&&
-                event.reason&&!strcmp(event.reason,
-                    "post-whisper-targeted-timeout")&&
-                guard_runtime_paused()&&
-                guard_runtime_watchdog_tripped()&&
-                guard_runtime_expected_profile()==5u&&
-                guard_runtime_watchdog_timeout_ms()==60000u,
-                "persistent Targeted trips operator Watchdog"))return 1;
-    if(!require(abvm_resume(&vm,162300u)&&guard_runtime_resume()&&
-                !guard_runtime_paused()&&
-                guard_runtime_expected_profile()==5u,
-                "manual Resume keeps waiting for Game"))return 1;
     guard_runtime_stop();
     if (!require(!guard_runtime_running(), "stop")) return 1;
     free(image);
