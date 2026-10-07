@@ -407,7 +407,8 @@ class TestRunner
             Props = new Dictionary<string, object?> { { "text", "hi" } },
         });
         new RunEngine(parMouse, _ => { }, 1920, 1080).RunAsync(new[] { pgMouse }, CancellationToken.None).Wait();
-        Assert(parMouse.PathCalls == 0 && parMouse.Sent.Any(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")),
+        Assert(parMouse.PathCalls == 0
+               && parMouse.Sent.Count(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")) > 1,
             "inside a parallel group the mouse is app-paced per-point (interleaves with typing)");
         Assert(parMouse.Sent.Any(c => c.StartsWith("KTEXT|")),
             "the typing branch ran concurrently on the same bridge");
@@ -1184,8 +1185,12 @@ class TestRunner
         new RunEngine(fbS, _ => { }, 1920, 1080).RunAsync(new[] { rndStep2 }, CancellationToken.None).Wait();
         // The sampled destination and speed are intentionally random. Shorter valid
         // paths bottom out at eight points; assert density without a flaky distance assumption.
-        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: >= 8 } && !fbS.Sent.Any(c => c.StartsWith("MMOVE|")),
+        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: >= 8 }
+               && fbS.Sent.Any(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")),
             $"randomMousePosition streams one dense path (calls={fbS.PathCalls}, pts={fbS.LastPath?.Count})");
+        Assert(fbS.Sent.FindIndex(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0"))
+               > fbS.Sent.IndexOf("SETRES|1920,1080"),
+            "RunEngine synchronizes the live cursor to the board after SETRES and before movement");
         var lastPt = fbS.LastPath![^1];
         Assert(lastPt.X >= 100 && lastPt.X < 600 && lastPt.Y >= 100 && lastPt.Y < 500,
             $"stream ends inside the region (got {lastPt.X},{lastPt.Y})");

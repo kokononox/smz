@@ -66,6 +66,7 @@ class Ctx:
         self.light_calls = []
         self.light_result = True
         self.logs = []
+        self.path_starts = []
         self._pos = None
         self.t = 0.0
 
@@ -104,6 +105,8 @@ class Ctx:
 
     def log(self, msg):
         self.logs.append(msg)
+        if msg.startswith("rmouse -> "):
+            self.path_starts.append(len(self.moves))
 
 
 def run(text, ctx=None):
@@ -151,6 +154,18 @@ check(line == "RMOUSE|region=700,400,180,120|before=60,220|after=80,280|curve=20
 ctx = run(text)
 check(ctx.moves[-1][0] in range(700, 880) and ctx.moves[-1][1] in range(400, 520),
       "mouseMove lands at a fresh point inside the selected region on the real engine")
+
+repeat = step("forLoop", {"mode": "count", "count": 4}, children=[
+    step("mouseMove", {"x": 700, "y": 400, "w": 180, "h": 120, "human": True})
+])
+text, gen = build([repeat])
+ctx = run(text)
+continuous = len(ctx.path_starts) == 4 and all(
+    abs(ctx.moves[ctx.path_starts[i]][0] - ctx.moves[ctx.path_starts[i] - 1][0]) <= 3
+    and abs(ctx.moves[ctx.path_starts[i]][1] - ctx.moves[ctx.path_starts[i] - 1][1]) <= 3
+    for i in range(1, len(ctx.path_starts)))
+check(continuous,
+      "portable loop starts each Move to Location from the previous path's actual final point")
 
 text, gen = build([step("mouseMove", {"x": 5, "y": 6, "human": False})])
 check(any("human=false cannot be preserved" in f for f in gen.flags), "human=false is flagged, not silent")

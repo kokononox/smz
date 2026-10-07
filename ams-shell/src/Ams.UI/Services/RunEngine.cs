@@ -98,9 +98,19 @@ public sealed class RunEngine
 
     public async Task RunAsync(IEnumerable<StepNode> roots, CancellationToken ct)
     {
-        _mouseAnchor = System.Windows.Forms.Cursor.Position;   // v0.9.20 — anchor syncs at run start
         _parallelKeySeq = 0; _lastParallelKeyTick = 0; _mouseRestAtSeq = -1;   // v0.9.23 — reset typing signal
         await Send($"SETRES|{_screenW},{_screenH}", ct);
+        // SETRES updates the display bounds, not the Pro Micro's tracked cursor.
+        // The host cursor may have moved with a physical mouse since the board last
+        // emitted HID, so anchor the board at the live Windows position before any
+        // absolute human path. abs,0 is a no-op when both positions already agree.
+        var liveCursor = System.Windows.Forms.Cursor.Position;
+        _mouseAnchor = liveCursor;
+        if (liveCursor.X >= 0 && liveCursor.X < _screenW && liveCursor.Y >= 0 && liveCursor.Y < _screenH)
+        {
+            await SendMmoveAbsAsync(liveCursor.X, liveCursor.Y, ct);
+            _log($"mouse: board cursor synchronized to live position ({liveCursor.X},{liveCursor.Y})");
+        }
         // v0.9.28 — prime the vision hot path (tier-1 JIT + pooled allocators) BEFORE the first
         // findImage: a cold first entireScreen poll round took ~15 s once, so playAudio fired ~15 s
         // after the image was already visible. One small synthetic match here makes round 1 fast.
@@ -1086,10 +1096,9 @@ public sealed class RunEngine
     /// every-N-moves break when the planner says one is due.</summary>
     private async Task HumanMoveToAsync(int tx, int ty, HumanMouse.Config cfg, CancellationToken ct)
     {
-        // v0.9.20 — plan from the app-side cursor anchor, not the racy OS read: with parallel
-        // branches the OS position can lag the commands we have already issued, which made the
-        // next path start from a stale point and the cursor visibly jump back mid-run.
-        var start = _mouseAnchor ?? System.Windows.Forms.Cursor.Position;   // v0.8.5 — anchor, never the region corner
+        // v0.9.20 — plan from the app-side cursor anchor, updated by every move in
+        // this run. RunAsync synchronizes it with Windows and the board before steps begin.
+        var start = _mouseAnchor ?? System.Windows.Forms.Cursor.Position;   // never the region corner
         HumanMouse.Plan plan;
         lock (_rngLock)   // v0.9.15 — shared RNG + pause planner are not thread-safe (Parallel Group)
             plan = HumanMouse.PlanMove(start.X, start.Y, tx, ty, cfg, MousePauses, Rng, _screenW, _screenH);
