@@ -14,7 +14,7 @@ step_defs = (ui / "Models/StepDefinitions.cs").read_text(encoding="utf-8")
 compiler = (ROOT / "tools/abvm.py").read_text(encoding="utf-8")
 native = (ROOT / "firmware/abvm/pico/arm_uart_mouse.c").read_text(encoding="utf-8")
 
-assert "FormatVersion = 12" in model
+assert "FormatVersion = 13" in model
 assert "HumanMouseProfile" in model and "DurationMs >= 30_000" in model
 assert "humanMouseProfile" in serializer
 assert "ProfileCaptureDurationMs = 30_000" in capture
