@@ -1,3 +1,11 @@
+## Follow-up: Native footprint and 1024 KiB slot
+
+- Requested diagnostic slot expanded to 1024 KiB. The injector still enforces the actual capacity in the UF2 header; no safety check is removed. An old 512 KiB template is not enlarged by editing the app.
+- Drop redundant raw handSample from Native constants only when the actor already consumes validated compact signature/tempo. This is lossless for Native behavior; original .amsj recordings are untouched.
+- Drop relative-mode authoring region keys after the compiler has emitted relativeMin/Max; those keys are not read by the Native actor.
+- A new full-UF2 flash guard rejects any block entering the standard Pico's final 8 KiB calibration sectors. CI checks every packaged native template.
+- Correct all eight new Persian field dictionary entries; first Windows CI run had 841 passes and one localisation failure. No test was disabled.
+
 # Experimental mouse speed controls — 2026-10-07
 
 Base: `build/guard-whisper-priority-20261007` at `8dfbd96` (latest successful AutoCycle build). No stable-branch merge or hardware flashing is performed by this change.

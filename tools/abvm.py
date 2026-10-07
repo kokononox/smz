@@ -757,6 +757,13 @@ class Compiler:
             spec.update(self.human_mouse_profile)
             spec.update(self.display_profile)
             self.mouse_speed_controls(spec)
+            # Native actor reads compact signature/tempo before the raw trace.
+            # Once those values exist, the full handSample is unreachable runtime
+            # data, not replay instructions. Drop it rather than copy 20KB into
+            # every mouse constant (the .amsj source remains untouched).
+            signature, tempo = integer(spec.get("handSignature"), -1), integer(spec.get("handTempoMs"), -1)
+            if 0 <= signature <= 65535 and 2 <= tempo <= 20:
+                spec.pop("handSample", None)
             intent = str(spec.get("motionIntent") or "targetRegion")
             if intent in ("microTwitch", "mediumTwitch"):
                 defaults = (2, 12) if intent == "microTwitch" else (20, 80)
@@ -766,6 +773,8 @@ class Compiler:
                 spec["relativeMode"] = 1
                 spec["relativeMin"] = max(1, lo)
                 spec["relativeMax"] = max(1, hi)
+                for key in ("x", "y", "w", "h", "twitchMinPx", "twitchMaxPx", "motionIntent"):
+                    spec.pop(key, None)
             else:
                 x, y = integer(spec.get("x")), integer(spec.get("y"))
                 w, h = integer(spec.get("w"), 100), integer(spec.get("h"), 100)
@@ -786,6 +795,9 @@ class Compiler:
             spec = dict(p)
             spec.update(self.human_mouse_profile)
             spec.update(self.display_profile)
+            signature, tempo = integer(spec.get("handSignature"), -1), integer(spec.get("handTempoMs"), -1)
+            if 0 <= signature <= 65535 and 2 <= tempo <= 20:
+                spec.pop("handSample", None)
             spec["motionIntent"] = "targetRegion"
             x, y = integer(spec.get("x")), integer(spec.get("y"))
             w, h = integer(spec.get("w"), 1), integer(spec.get("h"), 1)

@@ -104,6 +104,8 @@ jobs:
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py
             python firmware/abvm/tests/test_abvm_mouse_speed_controls.py
+            python firmware/abvm/tests/test_abvm_flash_guard.py
+            python firmware/abvm/tests/test_abvm_uf2.py
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
@@ -277,6 +279,13 @@ jobs:
         with:
           name: ams-abvm-pico-bringup
           path: native-artifact
+      - name: Verify native templates stay below reserved Pico calibration flash
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse native-artifact -Filter '*.uf2' | ForEach-Object {
+            python tools/abvm_flash_guard.py $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Stage Windows test output
         if: success()
         shell: pwsh

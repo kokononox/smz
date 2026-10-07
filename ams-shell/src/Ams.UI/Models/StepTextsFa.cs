@@ -139,6 +139,15 @@ public static class StepTextsFa
     /// <summary>Step-specific overrides for keys that mean different things per step.</summary>
     private static readonly Dictionary<string, string> FaByStep = new(StringComparer.Ordinal)
     {
+        ["randomMousePosition:speedMode"] = "سرعت حرکت — حالت قبلی، پروفایل، آرام، معمولی، سریع، ترکیبی یا سفارشی",
+        ["randomMousePosition:handProfileSource"] = "منبع پروفایل — قبلی، اصلی یا نمونهٔ همین استپ",
+        ["randomMousePosition:speedCapPxPerSec"] = "سقف سرعت (px/s) — صفر = سقف پروفایل دست",
+        ["randomMousePosition:speedSlowWeight"] = "وزن حرکت آرام — سهم تعداد حرکت‌ها، ۰ تا ۱۰۰",
+        ["randomMousePosition:speedNormalWeight"] = "وزن حرکت معمولی — ۰ تا ۱۰۰",
+        ["randomMousePosition:speedFastWeight"] = "وزن حرکت سریع — ۰ تا ۱۰۰",
+        ["randomMousePosition:speedCustomMin"] = "سرعت سفارشی حداقل (px/s)",
+        ["randomMousePosition:speedCustomMax"] = "سرعت سفارشی حداکثر (px/s)",
+
         // "text" — typeText vs comment
         ["typeText:text"] = "متن",
         ["comment:text"] = "یادداشت",

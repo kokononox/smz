@@ -40,7 +40,7 @@ class MouseSpeedControlsTests(unittest.TestCase):
 
     def test_global_clears_stale_local_sample(self):
         spec = self.descriptor(self.source(handSample="stale"))
-        self.assertEqual(spec["handSample"], "")
+        self.assertEqual(spec.get("handSample", ""), "")
         self.assertEqual(spec["handProfileSourceId"], 0)
         self.assertEqual(spec["speedCap"], 500)
 
@@ -49,6 +49,26 @@ class MouseSpeedControlsTests(unittest.TestCase):
         spec = self.descriptor(self.source(handProfileSource="local", handSample=sample))
         self.assertEqual(spec["handProfileSourceId"], 1)
         self.assertEqual(spec["handSpeedMax"], 500)
+
+    def test_raw_hand_trace_is_removed_only_when_runtime_uses_compact_profile(self):
+        encoded = self.source()["humanMouseProfile"]["EncodedSample"]
+        spec = self.descriptor(self.source(handSample=encoded))
+        self.assertNotIn("handSample", spec)
+        self.assertIn("handSignature", spec)
+        self.assertIn("handTempoMs", spec)
+
+    def test_repeated_recorded_steps_fit_512k_slot(self):
+        source = self.source(speedMode="legacy", handProfileSource="legacy")
+        trace = source["humanMouseProfile"]["EncodedSample"]
+        base = source["pipelines"]["Game"][0]
+        source["pipelines"]["Game"] = []
+        for i in range(120):
+            node = copy.deepcopy(base)
+            node["Props"].update(handSample=trace, speedTestId=i)
+            source["pipelines"]["Game"].append(node)
+        program = abvm.Compiler().compile_amsj(source, ("Game",)).image
+        self.assertLess(len(program), 512*1024)
+        self.assertNotIn(trace.encode(), program)
 
     def test_rejects_invalid_cap_weights_custom_or_mode(self):
         for patch in ({"speedCapPxPerSec": 501}, {"speedSlowWeight": -1},
