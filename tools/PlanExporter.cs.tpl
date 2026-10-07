@@ -279,6 +279,8 @@ public static class PlanExporter
         private string Tuning(StepNode n, (int i0, int i1, int p0, int p1) idle)
         {
             var p = n.Props;
+            if (PropEx.GetString(p, "speedMode", "legacy") != "legacy" || PropEx.GetString(p, "handProfileSource", "legacy") != "legacy")
+                throw new InvalidOperationException("Mouse speed controls require Windows execution or Native Export, not legacy PLAN2.");
             var (b0, b1) = Pair(PropEx.GetInt(p, "pauseBeforeMin", 60), PropEx.GetInt(p, "pauseBeforeMax", 220));
             var (a0, a1) = Pair(PropEx.GetInt(p, "pauseAfterMin", 80), PropEx.GetInt(p, "pauseAfterMax", 280));
             var (c0, c1) = Pair(PropEx.GetInt(p, "curveMinPct", 20), PropEx.GetInt(p, "curveMaxPct", 40));

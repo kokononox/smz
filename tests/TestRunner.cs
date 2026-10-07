@@ -4837,6 +4837,25 @@ class TestRunner
 
         }
 
+        // Opt-in mouse speed policy: legacy compatibility, weighted choice and cap on final path.
+        var speedPolicyEncoded = "v1|10000|0,0|35,0|10,5,0;10,6,0;10,7,0;10,8,0;10,9,0";
+        const int speedPolicyMax = 800;
+        var speedPolicyProps = new Dictionary<string, object?> { ["speedMode"]="fast", ["handProfileSource"]="local", ["handSample"]=speedPolicyEncoded, ["speedCapPxPerSec"]=speedPolicyMax };
+        Assert(MouseSpeedPolicy.Validate(speedPolicyProps)==speedPolicyMax, "speed policy uses the recorded hand ceiling");
+        var speedPolicyCfg = HumanMouse.Config.FromProps(speedPolicyProps, 300, 2000);
+        var speedPolicyRng = new Random(7301);
+        var speedPolicyPlan = HumanMouse.PlanMove(100,100,500,350,speedPolicyCfg,new HumanMouse.PausePlanner(speedPolicyRng),speedPolicyRng,1920,1080);
+        int speedX=100,speedY=100;
+        bool capHeld=true;
+        foreach(var wp in speedPolicyPlan.Waypoints) {
+            double length=Math.Sqrt((wp.X-speedX)*(double)(wp.X-speedX)+(wp.Y-speedY)*(double)(wp.Y-speedY));
+            if(length>0 && (wp.DelayMs<=0 || length*1000/wp.DelayMs>speedPolicyMax+0.001))capHeld=false;
+            speedX=wp.X;speedY=wp.Y;
+        }
+        Assert(capHeld && speedPolicyPlan.SelectedSpeedMode=="fast", "speed policy caps final curved path segments");
+        var selectedMixed = MouseSpeedPolicy.Select("mixed", 250, 530, 0, 0, 100, 300, 530, new Random(1));
+        Assert(selectedMixed.selected=="fast" && selectedMixed.high==530, "100%-fast weighted selection resolves to fast");
+
         Console.WriteLine($"=== Results: {passed} passed, {failed} failed ===");
         Environment.Exit(failed > 0 ? 1 : 0);
     }
