@@ -62,4 +62,5 @@ bool arm_uart_mouse_ready(void);
 const char *arm_uart_mouse_version(void);
 bool arm_uart_host_usb_seen(void);
 ArmHostUsbState arm_uart_host_usb_state(void);
+void arm_uart_mouse_set_game_elapsed(uint32_t elapsed_ms);
 #endif

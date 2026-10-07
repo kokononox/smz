@@ -25,6 +25,23 @@ class TestRunner
     [STAThread]   // v0.8.0 — the accordion test builds a MainViewModel (WPF brushes)
     static void Main()
     {
+        var buffWorkspace = new PipelineWorkspace();
+        var testBuff = new StepNode { Type="keystroke", Name="tea", Delay=11000, DelayMax=16000,
+            Props=new() { ["key"]="9", ["holdMin"]=89, ["holdMax"]=210,
+                ["renewMinMinutes"]=54.0, ["renewMaxMinutes"]=56.0,
+                ["beforeMinMs"]=222, ["beforeMaxMs"]=666, ["keyboardBoard"]="pico" } };
+        GameBuffValidation.Validate(testBuff);
+        buffWorkspace.GameBuffs.Add(testBuff);
+        buffWorkspace.GameMouseFatigueMinutes=135;
+        var buffReload=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(buffWorkspace));
+        Assert(buffReload.GameBuffs.Count==1&&buffReload.GameBuffs[0].Delay==11000&&buffReload.GameBuffs[0].DelayMax==16000,
+            "Pico buffs round-trip food consumption delays");
+        Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
+            "Pico buffs round-trip configurable intervals and fatigue duration");
+        Assert(StepDefinitions.Get("buffCheckpoint").Fields.Count==0,"Pico buff safe boundary is a visible structural step");
+        testBuff.Props["renewMaxMinutes"]=53.0;
+        bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }
+        Assert(badBuff,"Pico buff validation rejects inverted intervals");
         // ── Step 1: StepDefinitions exist ────────────────────────────
         var errorDef = StepDefinitions.Get("raiseError");
         Assert(errorDef.Label == "Raise Error / Stop Macro" && errorDef.Fields.Any(f => f.Key == "message"),

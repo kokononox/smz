@@ -45,6 +45,10 @@ CONST_UTF8, CONST_TYPE, CONST_MOUSE, CONST_RANGES, CONST_SCOPE, CONST_SOUND, CON
 OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE, OP_BEEP = range(8)
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
+OP_BUFF = 31
+CONST_BUFF = 10
+BUFF_HEADER = struct.Struct("<4sBBH")
+BUFF_ROW = struct.Struct("<IB3xIIIIIIII")
 
 SCOPE_JOIN_ALL = 1
 SCOPE_CANCEL_ON_ANY = 2
@@ -117,13 +121,13 @@ OPCODES = {
     "RMOUSE": OP_RMOUSE, "BEEP": OP_BEEP, "LOOP_ENTER": OP_LOOP_ENTER,
     "LOOP_NEXT": OP_LOOP_NEXT, "RPKG_ENTER": OP_RPKG_ENTER,
     "ITEM_END": OP_ITEM_END, "SCOPE_BEGIN": OP_SCOPE_BEGIN,
-    "LANE_END": OP_LANE_END, "WATCH": OP_WATCH, "JUMP": OP_JUMP,
+    "LANE_END": OP_LANE_END, "WATCH": OP_WATCH, "JUMP": OP_JUMP, "BUFF": OP_BUFF,
 }
 
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
     "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
-    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD, "CYCLE": CONST_CYCLE,
+    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD, "CYCLE": CONST_CYCLE, "BUFF": CONST_BUFF,
 }
 
 
@@ -602,6 +606,35 @@ class Compiler:
         self.display_profile = self.compact_display_profile(source)
         self.compile_ambient_mouse(source)
         self.compile_global_whisper(source)
+        self.buff_constant = None
+        buffs = source.get("gameBuffs", [])
+        if not isinstance(buffs, list) or len(buffs) > 16:
+            raise AbvmError("gameBuffs must contain at most 16 buffs")
+        enabled = [n for n in buffs if not disabled(n)]
+        if enabled:
+            payload = bytearray(BUFF_HEADER.pack(b"GBF1", 1, len(enabled), 0))
+            for n in enabled:
+                if step_type(n) != "keystroke":
+                    raise AbvmError("buff must be a keystroke")
+                p = props(n)
+                keys = ([162] if p.get("modCtrl") else []) + ([160] if p.get("modShift") else []) + ([164] if p.get("modAlt") else []) + ([91] if p.get("modWin") else []) + [vk(p.get("key"))]
+                if len(keys) > 4 or len(set(keys)) != len(keys):
+                    raise AbvmError("buff combo must contain 1..4 distinct keys")
+                try:
+                    lo = round(float(p.get("renewMinMinutes", 54)) * 60000)
+                    hi = round(float(p.get("renewMaxMinutes", 56)) * 60000)
+                except (TypeError, ValueError, OverflowError):
+                    raise AbvmError("buff renewal interval is invalid")
+                values = [lo, hi, integer(p.get("beforeMinMs")), integer(p.get("beforeMaxMs")), integer(p.get("holdMin"), 90), integer(p.get("holdMax"), 200), integer(n.get("Delay")), (integer(n.get("DelayMax")) or integer(n.get("Delay")))]
+                for j in range(0, 8, 2):
+                    if not 0 <= values[j] <= values[j+1] <= 0x7fffffff or (j in (0,4) and values[j] == 0):
+                        raise AbvmError("invalid buff interval/hold/delay range")
+                payload.extend(BUFF_ROW.pack(sum(k << (8*i) for i,k in enumerate(keys)), len(keys), *values))
+            self.buff_constant = self.pool.add(CONST_BUFF, bytes(payload))
+        fatigue_minutes = integer(source.get("gameMouseFatigueMinutes"), 135)
+        if not 1 <= fatigue_minutes <= 1440:
+            raise AbvmError("mouse fatigue duration must be 1..1440 minutes")
+        self.game_fatigue_ms = fatigue_minutes * 60000 if enabled else 0
         for name in route_names:
             nodes = pipelines.get(name)
             if nodes is None:
@@ -614,6 +647,12 @@ class Compiler:
             self.current_route = name
             self.labels = {}
             self.gotos = []
+            if name == "Game" and self.buff_constant is not None:
+                self.emit(OP_BUFF, flags=1, a=self.buff_constant)
+                def checkpoint_present(items):
+                    return any(step_type(n) == "buffCheckpoint" or checkpoint_present(children(n)) for n in items if not disabled(n))
+                if not checkpoint_present(nodes):
+                    raise AbvmError("Game buffs require an explicit safe buffCheckpoint before casting")
             self.compile_nodes(nodes, 0, ())
             for pc, label in self.gotos:
                 if label not in self.labels:
@@ -718,11 +757,24 @@ class Compiler:
         if mode == "custom" and not 150 <= lo <= hi <= cap:
             raise AbvmError("custom speed must be ordered and inside the hand cap")
         spec["speedCustomMin"], spec["speedCustomMax"] = lo, hi
+        if self.current_route == "Game" and getattr(self, "game_fatigue_ms", 0) and mode == "mixed":
+            if weights[0] + 21 > 100 or weights[2] < 28:
+                raise AbvmError("initial mixed weights do not leave room for gradual mouse fatigue")
+            spec["fatigueDurationMs"] = self.game_fatigue_ms
+            spec["fatigueSlowEnd"] = weights[0] + 21
+            spec["fatigueFastEnd"] = weights[2] - 28
 
     def compile_node(self, node: dict[str, Any], depth: int,
                      path: tuple[int, ...]) -> None:
         kind, p = step_type(node), props(node)
-        if kind == "label":
+        if kind == "buffCheckpoint":
+            if self.current_route != "Game":
+                raise AbvmError("buffCheckpoint is only allowed in Game")
+            if self.buff_constant is not None:
+                self.emit(OP_BUFF, a=self.buff_constant)
+            else:
+                self.emit(OP_DELAY, b=0, c=0)
+        elif kind == "label":
             label = str(p.get("label") or "").strip()
             if not label or label in self.labels:
                 raise AbvmError("empty or duplicate Label: " + label)
@@ -1525,6 +1577,22 @@ class Verifier:
                 raise AbvmError("invalid Native Cycle descriptor")
             measured_flags |= FLAG_HAS_CYCLE
 
+        for kind, _, payload in image.constants:
+            if kind == CONST_BUFF:
+                if len(payload) < BUFF_HEADER.size:
+                    raise AbvmError("truncated buff descriptor")
+                magic, version, count, reserved = BUFF_HEADER.unpack_from(payload)
+                if magic != b"GBF1" or version != 1 or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
+                    raise AbvmError("invalid buff descriptor")
+                for index in range(count):
+                    packed, width, *values = BUFF_ROW.unpack_from(payload, BUFF_HEADER.size + index * BUFF_ROW.size)
+                    keys = [(packed >> (8*k)) & 255 for k in range(width)]
+                    if not 1 <= width <= 4 or 0 in keys or len(set(keys)) != width or (width < 4 and packed >> (width*8)):
+                        raise AbvmError("invalid buff key combo")
+                    for j in range(0,8,2):
+                        if not 0 <= values[j] <= values[j+1] <= 0x7fffffff or (j in (0,4) and values[j]==0):
+                            raise AbvmError("invalid buff timing range")
+
         def walk(start: int, end: int, depth: int, watch_depth: int = 0,
                  scope_depth: int = 0) -> None:
             nonlocal measured, measured_lanes, measured_flags
@@ -1536,6 +1604,10 @@ class Verifier:
                 if not 0 <= pc < len(image.instructions):
                     raise AbvmError("PC out of range")
                 ins = image.instructions[pc]
+                if ins.op == OP_BUFF:
+                    image.const(ins.a, CONST_BUFF)
+                    if ins.flags not in (0,1) or ins.b or ins.c or ins.d:
+                        raise AbvmError("invalid buff checkpoint")
                 if ins.op == OP_DELAY and ins.b > ins.c:
                     raise AbvmError("invalid Delay range")
                 if ins.op == OP_KEY and not 1 <= ins.flags <= 4:
@@ -1657,7 +1729,7 @@ class Verifier:
                         raise AbvmError("jump target out of range")
                 elif ins.op not in {
                     OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP,
-                    OP_BEEP, OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END,
+                    OP_BEEP, OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END, OP_BUFF,
                 }:
                     raise AbvmError("unknown opcode: " + str(ins.op))
                 pc += 1
@@ -1984,6 +2056,8 @@ class ReferenceVm:
             self.events.append(("BEEP", ins.a, ins.b))
             lane.pc += 1
             lane.due = self.now + ins.b
+        elif ins.op == OP_BUFF:
+            raise AbvmError("buff-enabled programs require the native Pico adapter; ReferenceVm does not simulate consumption")
         elif ins.op == OP_LOOP_ENTER:
             lane.frames.append({
                 "kind": "loop", "body": lane.pc + 1,

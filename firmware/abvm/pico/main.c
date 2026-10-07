@@ -15,6 +15,7 @@
 #include "calibration_store.h"
 #include "buzzer.h"
 #include "cycle_runtime.h"
+#include "game_buff_runtime.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
@@ -29,6 +30,12 @@ extern size_t abvm_program_size(void);
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
 static AbvmVm vm;
+static GameBuffRuntime game_buffs;
+static bool buff_checkpoint, buff_key_inflight;
+static uint8_t buff_lane;
+static uint32_t game_fishing_elapsed, game_age_at, buff_status_at, buff_generation;
+#define BUFF_KEY_LANE 253u
+
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
 static char command[256];
@@ -310,7 +317,19 @@ static void print_light_calibration_dump(void) {
            (unsigned long)calibration_store_revision(),mask,profiles);
 }
 static void release_all_actors(uint32_t now) {
-    hid_keyboard_release_all(); arm_uart_mouse_release_all(now);
+    if (buff_key_inflight) {
+        game_buff_key_cancelled(&game_buffs);
+        buff_key_inflight=false;
+        hid_keyboard_release_all();
+        hid_keyboard_discard_completion();
+    } else {
+        /* An optical route may interrupt eating after key release. Retry that
+         * unfinished buff, not already-completed entries in the shuffled batch. */
+        if (buff_checkpoint && vm.route_id!=GAME_ROUTE_ID &&
+            game_buffs.phase==GAME_BUFF_AFTER) game_buffs.phase=GAME_BUFF_REQUEST;
+        hid_keyboard_release_all();
+    }
+ arm_uart_mouse_release_all(now);
     light_sensor_cancel_watch(now);
     /* RELEASE_ALL is primarily an input/watch safety boundary.  Do not cut
      * short Guard/calibration feedback that was started immediately before
@@ -647,9 +666,15 @@ static void service_cdc(uint32_t now) {
 }
 static void service_keyboard(uint32_t now) {
     uint8_t lane;
-    if (hid_keyboard_service(now, &lane) &&
-        !abvm_complete_action(&vm, lane, now))
-        printf("ERR|HID|complete|lane=%u\n", lane);
+    if (hid_keyboard_service(now, &lane)) {
+        if (lane==BUFF_KEY_LANE) {
+            if (buff_key_inflight) {
+                buff_key_inflight=false;
+                (void)game_buff_key_finished(&game_buffs,now);
+            }
+        } else if (!abvm_complete_action(&vm,lane,now))
+            printf("ERR|HID|complete|lane=%u\n",lane);
+    }
     char reply[24];
     if(hid_keyboard_take_live_reply(reply,sizeof(reply)))printf("%s\n",reply);
 }
@@ -1005,7 +1030,66 @@ static void service_cycle(uint32_t now) {
         }
     }
 }
+static void service_game_buffs(uint32_t now) {
+    uint32_t delta=now-game_age_at;game_age_at=now;
+    if (buff_generation!=vm.route_generation) {
+        game_buff_end_game(&game_buffs);buff_checkpoint=false;
+        buff_generation=vm.route_generation;
+    }
+    bool live_game=vm.route_id==GAME_ROUTE_ID && vm.status==ABVM_STATUS_RUNNING;
+    bool saved_game=vm.suspended.valid && vm.suspended.route_id==GAME_ROUTE_ID;
+    if (live_game && !buff_checkpoint && game_buffs.session) {
+        if (delta<86400000u && game_fishing_elapsed<86400000u-delta)
+            game_fishing_elapsed+=delta;
+    }
+    arm_uart_mouse_set_game_elapsed(game_fishing_elapsed);
+    if (vm.status==ABVM_STATUS_IDLE || vm.status==ABVM_STATUS_FAULT ||
+        (!live_game && vm.status!=ABVM_STATUS_PAUSED && !saved_game)) {
+        if(game_buffs.session)game_buff_end_game(&game_buffs);
+        buff_checkpoint=false;return;
+    }
+    if (game_buffs.session && now-buff_status_at>=5000u) {
+        buff_status_at=now;
+        for(uint8_t i=0u;i<game_buffs.count;++i)
+            printf("EVT|BUFF|index=%u|remaining-ms=%lu|consumed=%u|pending=%u\n",
+                   i,(unsigned long)game_buff_remaining(&game_buffs,i,now),
+                   (game_buffs.consumed_mask&(1u<<i))?1u:0u,
+                   game_buff_pending(&game_buffs,now)?1u:0u);
+    }
+    if (!buff_checkpoint) return;
+    GameBuffGate gate={live_game,vm.status==ABVM_STATUS_PAUSED,
+        cycle_runtime_restart_critical(),!input_lock_active(),true};
+    /* Do not send while an interrupt has entered but RELEASE_ALL is pending. */
+    if(vm.pending_release)gate.optical_priority=true;
+    GameBuffEvent event=game_buff_service(&game_buffs,now,gate);
+    if(event.kind==GAME_BUFF_EVENT_CONSUMED)
+        printf("EVT|BUFF|index=%u|state=command-completed|next-ms=%lu\n",
+               event.index,(unsigned long)((int32_t)(event.next_due-now)>0?event.next_due-now:0u));
+    if(event.kind==GAME_BUFF_EVENT_KEY_REQUEST) {
+        const GameBuffConfig *c=&game_buffs.config[event.index];
+        AbvmEvent key={0};key.opcode=ABVM_OP_KEY;key.lane=BUFF_KEY_LANE;
+        key.flags=c->key_count;key.operand_c=key.operand_d=event.hold_ms;
+        for(uint8_t i=0u;i<c->key_count;++i)key.operand_b|=(uint32_t)c->keys[i]<<(8u*i);
+        HidKeyboardSubmit result=hid_keyboard_submit(&vm,&key,now);
+        if(result==HID_KEYBOARD_ACCEPTED) {
+            buff_key_inflight=game_buff_key_accepted(&game_buffs);
+            printf("EVT|BUFF|index=%u|state=key-accepted\n",event.index);
+        } else if(result!=HID_KEYBOARD_BUSY) {
+            printf("ERR|BUFF|key-submit=%u\n",result);
+            abvm_stop(&vm,now);release_all_actors(now);game_buff_end_game(&game_buffs);
+            buff_checkpoint=false;
+        }
+    }
+    if(live_game && !vm.pending_release && !game_buff_pending(&game_buffs,now)) {
+        buff_checkpoint=false;
+        if(!abvm_complete_action(&vm,buff_lane,now)) {
+            printf("ERR|BUFF|checkpoint-complete\n");abvm_stop(&vm,now);
+        }
+    }
+}
+
 static void service_vm(uint32_t now) {
+    if(buff_checkpoint && vm.route_id==GAME_ROUTE_ID && !vm.pending_release)return;
     /* Keep the foreground VM at its exact PC while Ambient owns the ARM mouse.
      * Route clocks remain wall-clock based, so overdue work resumes immediately
      * after the internal lane completes. */
@@ -1015,7 +1099,24 @@ static void service_vm(uint32_t now) {
     }
     AbvmEvent event = abvm_tick(&vm, now);
     switch (event.type) {
-        case ABVM_EVENT_ACTION: { ArmMouseSubmit mouse = arm_uart_mouse_submit(&vm, &event, now);
+        case ABVM_EVENT_ACTION: {
+            if(event.opcode==ABVM_OP_BUFF) {
+                const uint8_t *payload;uint32_t size;
+                if(vm.route_id!=GAME_ROUTE_ID || buff_checkpoint ||
+                    !abvm_constant(&vm,event.operand_a,ABVM_CONST_BUFF,&payload,&size) ||
+                    (event.flags && !game_buff_load(&game_buffs,payload,size,
+                        now^local_u32(vm.header.program_sha256))) ||
+                    (!event.flags && !game_buffs.session)) {
+                    printf("ERR|BUFF|checkpoint-invalid\n");abvm_stop(&vm,now);break;
+                }
+                if(event.flags) {
+                    game_buff_new_game(&game_buffs);game_fishing_elapsed=0u;
+                    arm_uart_mouse_set_game_elapsed(0u);game_age_at=now;
+                    printf("EVT|BUFF|state=new-game|count=%u\n",game_buffs.count);
+                }
+                buff_lane=event.lane;buff_checkpoint=true;break;
+            }
+            ArmMouseSubmit mouse = arm_uart_mouse_submit(&vm, &event, now);
             if(event.opcode==ABVM_OP_BEEP) {
                 if(buzzer_action_pending) {
                     printf("ERR|BUZZER|busy|lane=%u\n",event.lane);
@@ -1129,5 +1230,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

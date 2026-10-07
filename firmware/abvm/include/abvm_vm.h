@@ -121,6 +121,7 @@ typedef struct AbvmVm {
     AbvmContext suspended;
     uint32_t now;
     uint32_t paused_at;
+    uint32_t route_generation; /* fresh start/abort, never temporary interrupt */
     uint32_t prng;
     uint16_t route_id;
     uint16_t route_flags;

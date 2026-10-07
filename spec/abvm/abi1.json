@@ -1,5 +1,6 @@
 {
   "constantKinds": {
+    "BUFF": 10,
     "CYCLE": 9,
     "GUARD": 8,
     "LIGHT": 7,
@@ -25,6 +26,7 @@
   "magic": "ABP1",
   "opcodes": {
     "BEEP": 7,
+    "BUFF": 31,
     "DELAY": 1,
     "END": 0,
     "ITEM_END": 13,

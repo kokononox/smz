@@ -1,6 +1,7 @@
 
 #include "arm_uart_mouse.h"
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include "hardware/gpio.h"
@@ -183,6 +184,8 @@ static uint32_t read_u32_le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+static uint32_t game_elapsed_ms;
+void arm_uart_mouse_set_game_elapsed(uint32_t elapsed_ms) { game_elapsed_ms=elapsed_ms; }
 static bool json_int(const uint8_t *data, uint32_t size, const char *key, int32_t *out) {
     char pattern[24];
     int n = snprintf(pattern, sizeof(pattern), "\"%s\":", key);
@@ -194,8 +197,9 @@ static bool json_int(const uint8_t *data, uint32_t size, const char *key, int32_
         if (p >= size || data[p] < '0' || data[p] > '9') return false;
         int32_t value = 0;
         while (p < size && data[p] >= '0' && data[p] <= '9') {
-            if (value > 100000) return false;
-            value = value * 10 + (int32_t)(data[p++] - '0');
+            int32_t digit=(int32_t)(data[p++] - '0');
+            if (value > (INT32_MAX-digit)/10) return false;
+            value = value * 10 + digit;
         }
         *out = neg ? -value : value; return true;
     }
@@ -735,6 +739,16 @@ static bool human_path_begin(const uint8_t *payload, uint32_t size,
             uint32_t slow=(uint32_t)clamp_i32(json_int_or(payload,size,"speedSlowWeight",20),0,100);
             uint32_t normal=(uint32_t)clamp_i32(json_int_or(payload,size,"speedNormalWeight",50),0,100);
             uint32_t fast=(uint32_t)clamp_i32(json_int_or(payload,size,"speedFastWeight",30),0,100);
+            uint32_t duration=(uint32_t)clamp_i32(json_int_or(payload,size,"fatigueDurationMs",0),0,86400000);
+            if (duration) {
+                uint32_t age=game_elapsed_ms<duration?game_elapsed_ms:duration;
+                uint32_t end_slow=(uint32_t)clamp_i32(json_int_or(payload,size,"fatigueSlowEnd",(int32_t)slow),0,100);
+                uint32_t end_fast=(uint32_t)clamp_i32(json_int_or(payload,size,"fatigueFastEnd",(int32_t)fast),0,100);
+                slow=(uint32_t)((int64_t)slow+((int64_t)end_slow-slow)*age/duration);
+                fast=(uint32_t)((int64_t)fast+((int64_t)end_fast-fast)*age/duration);
+                if(slow+fast>100u)return false;
+                normal=100u-slow-fast;
+            }
             if(!slow&&!normal&&!fast)return false;
             uint32_t pick=random_next()%(slow+normal+fast);
             selected_speed_mode=pick<slow?2u:pick<slow+normal?3u:4u;
