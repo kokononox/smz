@@ -3968,6 +3968,7 @@ class TestRunner
                    && mainVmMouseSource.Contains("or \"mouseMove\") pickRegion = PickRegionOnScreen")
                    && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "w")
                    && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "h")
+                   && StepDefinitions.Get("mouseMove").Fields.First(f => f.Key == "moveMode").Default == "region"
                    && stepDialogSource.Contains("مقصد و هندسه همچنان تصادفی‌اند"),
                 "Move to Location exposes rectangle dimensions and a drag-to-select region picker");
 

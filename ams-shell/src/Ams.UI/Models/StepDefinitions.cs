@@ -88,7 +88,7 @@ public static class StepDefinitions
                 new("y", "Y", FieldKind.Int, "497"),
                 new("w", "Region width", FieldKind.Int, "100"),
                 new("h", "Region height", FieldKind.Int, "100"),
-                new("moveMode", "Movement source", FieldKind.Combo, "fixed", new[] { "fixed", "handSample" }),
+                new("moveMode", "Movement source", FieldKind.Combo, "region", new[] { "region", "fixed", "handSample" }),
                 new("handSample", "Recorded hand movement", FieldKind.Text, ""),
                 new("human", "Humanized movement (app-side WindMouse path + pauses — off = instant firmware move)", FieldKind.Check, "true"),
                 new("pauseBeforeMin", "Pause BEFORE move — min (ms)", FieldKind.Int, "60", HideWhenKey: "human", HideWhenValue: "false"),
