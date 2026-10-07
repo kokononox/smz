@@ -161,6 +161,8 @@ public static class ScriptGenerator
                 sb.AppendLine(pad + "# TODO: PC-side image search — run this script via the AMS app's Run for Find Image support");
                 break;
 
+            case "buffCheckpoint":
+                throw new InvalidOperationException("باف مستقل فقط در Native UF2 پشتیبانی می‌شود.");
             case "randomMousePosition":
             {
                 var (x, y, w, h) = (PropEx.GetInt(n.Props, "x"), PropEx.GetInt(n.Props, "y"),

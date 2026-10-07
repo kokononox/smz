@@ -66,6 +66,11 @@ public static class StepDefinitions
 
     private static readonly Dictionary<string, StepDefinition> Defs = new()
     {
+        ["buffCheckpoint"] = new StepDefinition {
+            Label = "Buff safe boundary / نقطهٔ امن باف", ColorResourceKey = "StepKeyboardBrush",
+            Fields = Array.Empty<FieldDef>(),
+            Summarize = s => "باف‌های موعدرسیده — پس از Catch/Timeout، پیش از پرتاب بعدی",
+        },
         ["mouseClick"] = new StepDefinition
         {
             Label = "Mouse Click", ColorResourceKey = "StepMouseBrush", DefaultDelay = 1000,

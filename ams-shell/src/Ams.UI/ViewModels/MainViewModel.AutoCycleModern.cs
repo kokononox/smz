@@ -45,6 +45,8 @@ public partial class MainViewModel
             staging = Path.Combine(Path.GetTempPath(), "ClassroomStudio-modern-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             var workspace = CapturePipelineWorkspaceForExport();
+            if(workspace.GameBuffs.Any(b=>!b.IsDisabled))
+                throw new InvalidOperationException("باف مستقل به خروجی Native UF2 نیاز دارد؛ این خروجی پشتیبانی نمی‌کند.");
             var files = ModernAutoCycleFirmwareBundle.ExportCurrentProject(
                     Path.Combine(staging, "code.py"), workspace, _settings, LightStateProfiles,
                     (int)SystemParameters.PrimaryScreenWidth, (int)SystemParameters.PrimaryScreenHeight,

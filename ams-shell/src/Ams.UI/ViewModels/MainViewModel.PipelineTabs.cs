@@ -185,6 +185,8 @@ public partial class MainViewModel
         OnPropertyChanged(nameof(IsLaunchPipeline));
         OnPropertyChanged(nameof(IsMainPipeline));
         NotifySoundProfilesChanged();
+        OnPropertyChanged(nameof(GameBuffs));
+        OnPropertyChanged(nameof(GameMouseFatigueMinutes));
         NotifyHumanMouseProfileChanged();
         NotifyDisplayProfileChanged();
         UpdateFileText();
@@ -219,7 +221,9 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(IsLaunchPipeline));
         OnPropertyChanged(nameof(IsMainPipeline));
             NotifySoundProfilesChanged();
-            NotifyHumanMouseProfileChanged();
+            OnPropertyChanged(nameof(GameBuffs));
+        OnPropertyChanged(nameof(GameMouseFatigueMinutes));
+        NotifyHumanMouseProfileChanged();
             NotifyDisplayProfileChanged();
             UpdateFileText();
             Log("pipeline workspace opened in " + targetKind + ": " + dialog.FileName + " — " + PipelineCounts());

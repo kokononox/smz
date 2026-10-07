@@ -1,3 +1,19 @@
+## Experimental: autonomous Pico Game buff renewal
+
+- Configurable buff editor in Status; project format 13 stores Keystroke-like
+  before/hold/after waits and random renewal bounds.
+- Pico consumes all enabled buffs before initial fishing, shuffles due batches,
+  starts each cooldown after its food wait, and keeps clocks running in Pause.
+- Explicit safe checkpoint before each cast renews buffs only after Catch and
+  response or Timeout. Guard/Whisper priorities retain unfinished batches.
+- Fresh Game runs reset cooldowns; restored interrupt contexts do not.
+- Mixed Game mouse speeds taper by active fishing time instead of fifteen
+  separate sections. Existing cycle/After/Startup/Finish behavior is retained.
+- New Native opcode/descriptor and matching templates are required. Old UF2
+  templates and unsupported Desktop/legacy exports are rejected for buff projects.
+- Firmware does not confirm in-game effects or keep RTC across power loss.
+- Experimental only; no stable merge, hardware flashing or personal data commit.
+
 ## Follow-up: Native footprint and 1024 KiB slot
 
 - Requested diagnostic slot expanded to 1024 KiB. The injector still enforces the actual capacity in the UF2 header; no safety check is removed. An old 512 KiB template is not enlarged by editing the app.

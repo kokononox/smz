@@ -14,6 +14,8 @@ public static class PipelineWorkspaceSerializer
         public List<SoundWatchProfile> soundProfiles { get; set; } = new();
         public HumanMouseProfile humanMouseProfile { get; set; } = new();
         public DisplayProfile displayProfile { get; set; } = new();
+        public List<StepNode> gameBuffs { get; set; } = new();
+        public int gameMouseFatigueMinutes { get; set; } = 135;
     }
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -27,6 +29,8 @@ public static class PipelineWorkspaceSerializer
             soundProfiles = workspace.SoundProfiles.Select(CloneSoundProfile).ToList(),
             humanMouseProfile = workspace.HumanMouseProfile,
             displayProfile = workspace.DisplayProfile,
+            gameBuffs = workspace.GameBuffs.ToList(),
+            gameMouseFatigueMinutes = workspace.GameMouseFatigueMinutes,
         };
         foreach (var tab in workspace.Tabs)
             envelope.pipelines[tab.Kind.ToString()] = tab.Steps.ToList();
@@ -44,10 +48,23 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
+        if (root.TryGetProperty("gameBuffs", out var buffs)) {
+            var list=buffs.Deserialize<List<StepNode>>() ?? new();
+            if(list.Count>16)throw new InvalidDataException("حداکثر ۱۶ باف مجاز است.");
+            foreach(var buff in list) {
+                GameBuffValidation.Validate(buff);
+                workspace.GameBuffs.Add(buff);
+            }
+        }
+        if(root.TryGetProperty("gameMouseFatigueMinutes",out var fatigue)) {
+            if(!fatigue.TryGetInt32(out var minutes)||minutes<1||minutes>1440)
+                throw new InvalidDataException("مدت افت تدریجی سرعت باید ۱ تا ۱۴۴۰ دقیقه باشد.");
+            workspace.GameMouseFatigueMinutes=minutes;
+        }
         if (version >= 8 && root.TryGetProperty("humanMouseProfile", out var humanProfile)
             && humanProfile.ValueKind == JsonValueKind.Object)
             workspace.HumanMouseProfile =

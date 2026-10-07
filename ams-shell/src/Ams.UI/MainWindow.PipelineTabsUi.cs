@@ -137,6 +137,30 @@ internal static class PipelineTabsUiBootstrap
         scroll.Content = body;
         root.Children.Add(scroll);
 
+        var buffBox = new StackPanel { Margin = new Thickness(0,0,0,18) };
+        buffBox.Children.Add(new TextBlock { Text="باف‌های محیط بازی — Pico", FontSize=20, Foreground=Brush("#F5F7FA") });
+        buffBox.Children.Add(new TextBlock {
+            Text="ترتیب تصادفی • مصرف اولیه قبل از ماهیگیری • تجدید پس از Catch/Timeout • Pause ساعت باف را متوقف نمی‌کند. تغییرات پس از Export Native UF2 اعمال می‌شوند.",
+            TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
+        var buffList = new WpfListBox { Height=150, DisplayMemberPath="Name", Background=Brush("#22262D"), Foreground=Brush("#F5F7FA") };
+        buffList.SetBinding(ItemsControl.ItemsSourceProperty,new Binding(nameof(MainViewModel.GameBuffs)) { Source=vm });
+        buffBox.Children.Add(buffList);
+        var actions = new StackPanel { Orientation=Orientation.Horizontal };
+        var addBuff = new Button { Content="افزودن باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        var editBuff = new Button { Content="ویرایش باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        var removeBuff = new Button { Content="حذف باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        addBuff.Click+=(_,_)=>vm.EditGameBuff(null);
+        editBuff.Click+=(_,_)=> { if(buffList.SelectedItem is StepNode buff)vm.EditGameBuff(buff); };
+        removeBuff.Click+=(_,_)=>vm.RemoveGameBuff(buffList.SelectedItem as StepNode);
+        actions.Children.Add(addBuff);actions.Children.Add(editBuff);actions.Children.Add(removeBuff);
+        buffBox.Children.Add(actions);
+        var fatigueRow=new StackPanel { Orientation=Orientation.Horizontal, Margin=new Thickness(0,8,0,8) };
+        fatigueRow.Children.Add(new TextBlock { Text="مدت افت تدریجی سرعت موس (دقیقهٔ ماهیگیری فعال): ", Foreground=Brush("#AAB3C2") });
+        var fatigueInput=new TextBox { Width=90 };
+        fatigueInput.SetBinding(TextBox.TextProperty,new Binding(nameof(MainViewModel.GameMouseFatigueMinutes)) { Source=vm, Mode=BindingMode.TwoWay, UpdateSourceTrigger=UpdateSourceTrigger.LostFocus, ValidatesOnExceptions=true });
+        fatigueRow.Children.Add(fatigueInput);buffBox.Children.Add(fatigueRow);
+        buffBox.Children.Add(Bound(nameof(MainViewModel.GameBuffStatusText),13));
+        body.Children.Add(buffBox);
         body.Children.Add(new TextBlock
         {
             Text = "وضعیت زنده‌ی سنسور نور",

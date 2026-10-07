@@ -165,6 +165,7 @@ public sealed class RunEngine
 
             try   // v0.8.3 — gotoLabel unwinds via GotoSignal to the level that owns the label
             {
+            if(s.Type=="buffCheckpoint")throw new InvalidOperationException("باف مستقل فقط در Native UF2 روی Pico اجرا می‌شود.");
             switch (s.Type)
             {
                 case "label":

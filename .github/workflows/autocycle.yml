@@ -102,6 +102,8 @@ jobs:
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/hid_keyboard.c \
               firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
+            python firmware/abvm/tests/test_game_buff_runtime.py
+            python firmware/abvm/tests/test_abvm_game_buffs.py
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py
             python firmware/abvm/tests/test_abvm_mouse_speed_controls.py
             python firmware/abvm/tests/test_abvm_flash_guard.py
@@ -407,5 +409,34 @@ jobs:
           path: |
             ClassroomStudio-LightState-MouseSpeed-TestBuild.zip
             mouse-speed-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  game-buff-test-package:
+    name: diagnostic / Pico game buff test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-game-buff-renewal'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-GameBuff-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-GameBuff-TestBuild.zip > game-buff-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-GameBuff-TestBuild
+          path: |
+            ClassroomStudio-LightState-GameBuff-TestBuild.zip
+            game-buff-sha256.txt
           if-no-files-found: error
           retention-days: 14

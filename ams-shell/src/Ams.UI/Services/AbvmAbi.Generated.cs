@@ -33,6 +33,7 @@ internal enum AbvmOpcode : byte
     LANE_END = 21,
     WATCH = 22,
     JUMP = 30,
+    BUFF = 31,
 }
 
 internal enum AbvmConstantKind : byte
@@ -46,6 +47,7 @@ internal enum AbvmConstantKind : byte
     LIGHT = 7,
     GUARD = 8,
     CYCLE = 9,
+    BUFF = 10,
 }
 
 internal enum AbvmScopePolicy : byte

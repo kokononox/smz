@@ -225,6 +225,7 @@ public partial class MainViewModel : ObservableObject
 
     {
 
+        UpdateGameBuffTelemetry(message);
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
 
         var d = System.Windows.Application.Current?.Dispatcher;
@@ -2036,6 +2037,8 @@ public partial class MainViewModel : ObservableObject
 
             // a thread-pool thread every 300 ms for the whole pause.
 
+            if(_pipelineWorkspace.GameBuffs.Any(b=>!b.IsDisabled))
+                throw new InvalidOperationException("پروژه دارای باف مستقل است؛ اجرای آن فقط با Export Native UF2 روی Pico پشتیبانی می‌شود.");
             engine.SetGlobalHandSample(_pipelineWorkspace.HumanMouseProfile.EncodedSample);
             engine.SetPauseCheck(async ct =>
 

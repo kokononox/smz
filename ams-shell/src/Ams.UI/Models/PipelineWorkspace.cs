@@ -77,7 +77,9 @@ public sealed class PipelineWorkspace
     // resumable_steps.txt is still emitted as an empty firmware compatibility file
     // alongside the current desktop/restart/DC route files. PipelineKind.Main is the
     // value-compatible name for Desktop in those documents.
-    public const int FormatVersion = 12;
+    public const int FormatVersion = 13;
+    public ObservableCollection<StepNode> GameBuffs { get; } = new();
+    public int GameMouseFatigueMinutes { get; set; } = 135;
     public HumanMouseProfile HumanMouseProfile { get; set; } = new();
     public DisplayProfile DisplayProfile { get; set; } = new();
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
