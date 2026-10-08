@@ -154,6 +154,8 @@ public static class StepTextsFa
         ["typeText:textDay"] = "متن شیفت روز — در حالت shift الزامی",
         ["typeText:textNight"] = "متن شیفت شب — در حالت shift الزامی",
         ["shiftCheck:key"] = "کلید میان‌بر اجرای بریج موقت؛ Modifierها بالاتر انتخاب می‌شوند",
+        ["shiftCheck:holdMin"] = "حداقل نگه‌داشتن کلید میان‌بر (ms)",
+        ["shiftCheck:holdMax"] = "حداکثر نگه‌داشتن کلید میان‌بر (ms)",
         ["shiftCheck:timeoutSeconds"] = "مهلت تأیید و بسته‌شدن اتصال بریج (۱ تا ۱۲۰ ثانیه)",
         ["comment:text"] = "یادداشت",
 
