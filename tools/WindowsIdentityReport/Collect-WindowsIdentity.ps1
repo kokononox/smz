@@ -1,5 +1,13 @@
 ﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest)
 $ErrorActionPreference='Stop'
+# An indirect launch from PowerShell 7 can inherit its module path; prefer Windows PS modules.
+$systemModules=Join-Path $PSHOME 'Modules'
+$env:PSModulePath=$systemModules+';'+$env:PSModulePath
+function Hash-File([string]$path) {
+    $sha=[Security.Cryptography.SHA256]::Create();$stream=[IO.File]::OpenRead($path)
+    try{return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','').ToLowerInvariant()}
+    finally{$stream.Dispose();$sha.Dispose()}
+}
 Add-Type -Path (Join-Path $PSScriptRoot 'RegistryNames.cs')
 function Invariant-Guid($value) {
     $g=[Guid]::Empty
@@ -45,14 +53,14 @@ if($SelfTest) {
         $k=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($testKey+'\ControlSet001\Control\ComputerName\ComputerName');$k.SetValue('ComputerName','TEST-PC');$k.Close()
         & "$env:SystemRoot\System32\reg.exe" save ('HKCU\'+$testKey) $fixture /y | Out-Null
         if($LASTEXITCODE -ne 0){throw 'Cannot save Windows test fixture.'}
-        $before=(Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash
+        $before=(Hash-File $fixture)
         $h=New-Object ReadOnlyHive $fixture
         try {
             $names=$h.Names('SAM\Domains\Account\Users\Names')
             if($names.Count -ne 2 -or $names -notcontains 'day-user' -or $names -notcontains 'کاربرشب'){throw 'Windows hive names mismatch.'}
             if($h.DwordValue('Select','Current') -ne 1 -or $h.StringValue('ControlSet001\Control\ComputerName\ComputerName','ComputerName') -ne 'TEST-PC'){throw 'Windows hive metadata mismatch.'}
         }finally{$h.Dispose()}
-        if((Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash -ne $before){throw 'Reader modified a hive.'}
+        if((Hash-File $fixture) -ne $before){throw 'Reader modified a hive.'}
     }finally{[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testKey,$false);Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue}
     Write-Output 'PASS: Windows fixture, Unicode names, DWORD/string values, read-only SHA256, drive/GUID mapping.' 
     exit 0

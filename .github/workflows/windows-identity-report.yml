@@ -53,6 +53,11 @@ jobs:
           # Do not print machine usernames or GUIDs into CI logs.
           $entries=([regex]::Matches($text,'GUID: \{[0-9a-f-]{36}\}')).Count
           Write-Output "Actual Windows report generated. Boot GUID mentions: $entries"
+          if($entries -lt 1){
+            $warning=($text -split "`n" | Where-Object {$_ -match '^هشدار:'}) -join "`n"
+            Set-Content "$env:GITHUB_WORKSPACE/WIR-failure.txt" ("Boot GUID extraction failed. Provider diagnostic: "+$warning) -Encoding utf8
+            throw 'Active boot store did not produce a valid GUID.'
+          }
           Remove-Item $out -Force
       - name: Package executable and Persian instructions
         shell: pwsh
