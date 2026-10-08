@@ -1,4 +1,4 @@
-﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest,[switch]$EditBootNames,[switch]$EditIdentity,[switch]$EditBootGuids)
+﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest,[switch]$EditBootNames,[switch]$EditIdentity,[switch]$EditBootGuids,[switch]$CleanDevices)
 $ErrorActionPreference='Stop'
 # An indirect launch from PowerShell 7 can inherit its module path; prefer Windows PS modules.
 $systemModules=Join-Path $PSHOME 'Modules'
@@ -41,6 +41,9 @@ function Device-Matches([string]$bcdPath,[string]$ntPath,[string]$drive) {
 . (Join-Path $PSScriptRoot 'BootNameEditor.ps1')
 . (Join-Path $PSScriptRoot 'IdentityEditor.ps1')
 . (Join-Path $PSScriptRoot 'BootGuidEditor.ps1')
+. (Join-Path $PSScriptRoot 'DeviceCleanup.ps1')
+if($CleanDevices -or $SelfTest){Add-Type -Path (Join-Path $PSScriptRoot 'DeviceCleanup.cs')}
+if($CleanDevices){$code=Show-DeviceCleanup;exit $code}
 if($EditIdentity -or $EditBootGuids -or $SelfTest){Add-Type -Path (Join-Path $PSScriptRoot 'BcdGuidStager.cs')}
 if($EditIdentity){$code=Show-IdentityEditor;exit $code}
 if($EditBootGuids){$code=Show-BootGuidEditor;exit $code}
@@ -72,6 +75,7 @@ if($SelfTest) {
     Test-BootNameEditor
     Test-IdentityEditor
     Test-IdentityMacInstanceBinding
+    Test-DeviceCleanup
     Test-BootGuidEditor
     Test-ActiveBootGuidExport
     Test-ActiveCurrentBootGuid
