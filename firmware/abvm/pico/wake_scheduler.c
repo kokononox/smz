@@ -47,16 +47,20 @@ void wake_scheduler_configure(WakeScheduler *w, bool enabled,
 void wake_scheduler_disarm(WakeScheduler *w) {
     if (!w) return;
     w->armed = false;
+    w->manual = false;
     w->deadline_ms = 0u;
 }
 
 bool wake_scheduler_armed(const WakeScheduler *w) {
-    return w && w->armed && w->enabled;
+    /* A WAKE! test arm is honoured even when the authored schedule is off,
+     * because it exists precisely to exercise the wake path on demand. */
+    return w && w->armed && (w->enabled || w->manual);
 }
 
 bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute) {
     if (!w) return false;
     wake_scheduler_disarm(w);
+    w->synced = true;
     w->synced_minute = minute;
     w->synced_at = now;
     if (!w->enabled || minute >= WAKE_MINUTES_PER_DAY) return false;
@@ -72,6 +76,37 @@ bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute) {
     w->deadline_ms = now + wait_ms;
     w->armed = true;
     return true;
+}
+
+bool wake_scheduler_arm_at(WakeScheduler *w, uint32_t now, uint32_t in_ms) {
+    if (!w || !in_ms) return false;
+    uint32_t at = now + in_ms;
+    wake_scheduler_disarm(w);
+    w->armed = true;
+    w->manual = true;
+    w->deadline_ms = at;
+    /* Label the test target in wall-clock terms when a sample already anchored
+     * the clock, so the log reads like a real window instead of a delta. */
+    uint16_t minute = 0u;
+    w->next_start = wake_scheduler_wall_minute(w, at, &minute) ? minute : 0u;
+    return true;
+}
+
+bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *minute) {
+    if (!w || !w->synced) return false;
+    uint32_t elapsed = (uint32_t)(now - w->synced_at);
+    uint32_t value = (uint32_t)w->synced_minute + elapsed / WAKE_MINUTE_MS;
+    if (minute) *minute = (uint16_t)(value % WAKE_MINUTES_PER_DAY);
+    return true;
+}
+
+/* The persisted decision the board needs after a reset: the host was asleep and
+ * a wake was still owed, so the board lost the only wall-clock reference it had.
+ * `maximum` bounds the recovery pulses so a brownout loop cannot become a wake
+ * storm; the counter is cleared by the next accepted bridge clock sample. */
+bool wake_scheduler_recovery_needed(bool host_asleep, bool pending,
+                                    uint8_t attempts, uint8_t maximum) {
+    return host_asleep && pending && attempts < maximum;
 }
 
 bool wake_scheduler_due(const WakeScheduler *w, uint32_t now) {

@@ -21,5 +21,19 @@ uint8_t calibration_store_shift_target(void);
 bool calibration_store_shift_begin(uint8_t target,uint8_t maximum);
 bool calibration_store_shift_complete(void);
 bool calibration_store_shift_clear(void);
+/* Shift-wake state.  The Pico owns no battery-backed clock, so the monotonic
+ * wake deadline itself cannot be persisted: what is persisted is the decision
+ * the board needs after a reset (was the host asleep, was a wake still owed, how
+ * many bounded recovery pulses were spent) plus the window start it was aiming
+ * at, which keeps the boot log readable. */
+typedef struct WakeStoreState {
+    bool host_asleep;
+    bool pending;
+    uint8_t recovery_attempts;
+    uint16_t next_start;
+} WakeStoreState;
+bool calibration_store_wake_get(WakeStoreState *state);
+bool calibration_store_wake_set(const WakeStoreState *state);
+bool calibration_store_wake_recovery_reset(void);
 uint32_t calibration_store_revision(void);
 #endif

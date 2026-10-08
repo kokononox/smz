@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 5u
+#define CAL_VERSION 6u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -35,7 +35,24 @@ typedef struct CalibrationPayload {
     uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
     uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
     uint8_t shift_attempts,shift_target;
+    /* bit0 host asleep at last observation, bit1 a wake was still owed */
+    uint8_t wake_flags;
+    uint8_t wake_recovery;
+    uint16_t wake_next_start;
 } CalibrationPayload;
+typedef struct LegacyCalibrationPayloadV5 {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
+} LegacyCalibrationPayloadV5;
+typedef struct LegacyCalibrationRecordV5 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV5 payload;
+} LegacyCalibrationRecordV5;
 typedef struct LegacyCalibrationRecordV4 {
     uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
     LegacyCalibrationPayloadV4 payload;
@@ -108,6 +125,12 @@ static bool legacy_v4_record_valid(const LegacyCalibrationRecordV4 *r,const uint
     memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
     return r->crc32==crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v5_record_valid(const LegacyCalibrationRecordV5 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=5u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -139,6 +162,19 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV5 *v5a=(const LegacyCalibrationRecordV5 *)a,*v5b=(const LegacyCalibrationRecordV5 *)b;
+        bool v5av=legacy_v5_record_valid(v5a,binding),v5bv=legacy_v5_record_valid(v5b,binding);
+        const LegacyCalibrationRecordV5 *v5=NULL;
+        if(v5av&&(!v5bv||(int32_t)(v5a->sequence-v5b->sequence)>0)){v5=v5a;active_offset=CAL_OFFSET_A;}
+        else if(v5bv){v5=v5b;active_offset=CAL_OFFSET_B;}
+        if(v5){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v5->sequence;
+            /* Wake fields follow v5's trailing padding; copy named common bytes
+             * only, so the migrated record starts with no wake history. */
+            memcpy(&current.payload,&v5->payload,offsetof(CalibrationPayload,wake_flags));
+            return;
+        }
         const LegacyCalibrationRecordV4 *v4a=(const LegacyCalibrationRecordV4 *)a,*v4b=(const LegacyCalibrationRecordV4 *)b;
         bool v4av=legacy_v4_record_valid(v4a,binding),v4bv=legacy_v4_record_valid(v4b,binding);
         const LegacyCalibrationRecordV4 *v4=NULL;
@@ -309,5 +345,41 @@ bool calibration_store_shift_clear(void){
     if(!current.payload.shift_target&&!current.payload.shift_attempts)return true;
     CalibrationRecord before=current;uint32_t offset=active_offset;
     current.payload.shift_target=0u;current.payload.shift_attempts=0u;
+    return persist_transaction(before,offset);
+}
+
+static uint8_t wake_flags_of(bool host_asleep,bool pending){
+    uint8_t flags=0u;
+    if(host_asleep)flags|=1u;
+    if(pending)flags|=2u;
+    return flags;
+}
+bool calibration_store_wake_get(WakeStoreState *state){
+    if(!state)return false;
+    state->host_asleep=(current.payload.wake_flags&1u)!=0u;
+    state->pending=(current.payload.wake_flags&2u)!=0u;
+    state->recovery_attempts=current.payload.wake_recovery;
+    state->next_start=current.payload.wake_next_start;
+    return true;
+}
+/* Called from the main loop, so it is deliberately write-free when nothing the
+ * recovery decision depends on has changed: a sector erase per loop iteration
+ * would wear the slot out in days. */
+bool calibration_store_wake_set(const WakeStoreState *state){
+    if(!state)return false;
+    uint8_t flags=wake_flags_of(state->host_asleep,state->pending);
+    if(current.payload.wake_flags==flags&&
+       current.payload.wake_recovery==state->recovery_attempts&&
+       current.payload.wake_next_start==state->next_start)return true;
+    CalibrationRecord before=current;uint32_t offset=active_offset;
+    current.payload.wake_flags=flags;
+    current.payload.wake_recovery=state->recovery_attempts;
+    current.payload.wake_next_start=state->next_start;
+    return persist_transaction(before,offset);
+}
+bool calibration_store_wake_recovery_reset(void){
+    if(!current.payload.wake_recovery)return true;
+    CalibrationRecord before=current;uint32_t offset=active_offset;
+    current.payload.wake_recovery=0u;
     return persist_transaction(before,offset);
 }

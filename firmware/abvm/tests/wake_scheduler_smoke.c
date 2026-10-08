@@ -100,7 +100,56 @@ int main(void) {
     assert(w.next_start == 480u);
     assert(w.deadline_ms == (540u - 2u) * MIN);
 
+    /* Wall anchor: unknown until a sample arrives, then it tracks the Pico clock
+     * across midnight and across days. */
+    WakeScheduler wall = make(2u);
+    uint16_t minute = 1234u;
+    assert(!wake_scheduler_wall_minute(&wall, 0u, &minute));
+    assert(wake_scheduler_sync(&wall, 10u * MIN, 1430u));
+    assert(wake_scheduler_wall_minute(&wall, 10u * MIN, &minute) && minute == 1430u);
+    /* 23:50 plus thirty minutes wraps to 00:20. */
+    assert(wake_scheduler_wall_minute(&wall, 40u * MIN, &minute) && minute == 20u);
+    assert(wake_scheduler_wall_minute(&wall, 40u * MIN + 3u * 24u * 60u * MIN, &minute) &&
+           minute == 20u);
+
+    /* A WAKE! test arm is honoured even while the authored schedule is off, and
+     * without an anchor it simply reports no target minute. */
+    WakeScheduler manual;
+    wake_scheduler_init(&manual, 2u);
+    wake_scheduler_configure(&manual, false, 480u, 1200u, 1320u, 360u);
+    assert(!wake_scheduler_arm_at(&manual, 0u, 0u));
+    assert(!wake_scheduler_armed(&manual));
+    assert(wake_scheduler_arm_at(&manual, 5u * MIN, 60u * 1000u));
+    assert(wake_scheduler_armed(&manual));
+    assert(manual.next_start == 0u);
+    assert(!wake_scheduler_due(&manual, 5u * MIN + 59999u));
+    assert(wake_scheduler_due(&manual, 6u * MIN));
+
+    /* With an anchor, a test arm labels a real minute of day. */
+    WakeScheduler labeled = make(2u);
+    assert(wake_scheduler_sync(&labeled, 0u, 60u));
+    assert(wake_scheduler_arm_at(&labeled, 0u, 30u * MIN));
+    assert(labeled.next_start == 90u);
+
+    /* A bridge sample always supersedes a test arm. */
+    assert(wake_scheduler_arm_at(&wall, 40u * MIN, 60u * 1000u));
+    assert(wall.manual);
+    assert(wake_scheduler_sync(&wall, 41u * MIN, 600u));
+    assert(!wall.manual);
+    assert(wall.next_start == 1320u);
+
+    /* Recovery is owed only for the combination a reset cannot undo: the host was
+     * asleep, a wake was still pending, and pulse budget is left. */
+    assert(wake_scheduler_recovery_needed(true, true, 0u, 3u));
+    assert(wake_scheduler_recovery_needed(true, true, 2u, 3u));
+    assert(!wake_scheduler_recovery_needed(true, true, 3u, 3u));
+    assert(!wake_scheduler_recovery_needed(true, true, 4u, 3u));
+    assert(!wake_scheduler_recovery_needed(true, false, 0u, 3u));
+    assert(!wake_scheduler_recovery_needed(false, true, 0u, 3u));
+    assert(!wake_scheduler_recovery_needed(false, false, 0u, 3u));
+
     puts("wake scheduler: nearest start, lead clamp, gaps, midnight wrap, "
-         "re-sync, disarm and malformed-minute paths passed");
+         "re-sync, disarm, malformed-minute, wall anchor, WAKE! arm and "
+         "bounded-recovery paths passed");
     return 0;
 }

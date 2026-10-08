@@ -98,19 +98,52 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   targets the other window.
 * The deadline is recomputed on every accepted `SHIFT2!` reply, so each round
   re-synchronises the clock and clears the wake attempt counter.
-* When the deadline expires while no round is running, the firmware sends one
-  authored `MMOVE|1,0,rel,2` on the internal lane. The Arduino core turns that
-  report into USB remote wake-up signalling, so the host resumes.
+* The same sample anchors the wall clock, so `wake_scheduler_wall_minute()` turns
+  any later instant back into a minute of day. Every pulse log therefore carries
+  both the wall time and the authored target (`wall=07:58|target=08:00`), which
+  is what makes a hardware bring-up readable instead of guesswork.
+* Two independent wake sources sit on the host bus, and one pulse fires both. The
+  Pico is itself a HID keyboard whose descriptor advertises remote wake-up, so
+  `tud_remote_wakeup()` resumes the bus directly. The Arduino board raises
+  `RMWKUP` from its own suspended mouse interface, using one authored
+  `MMOVE|1,0,rel,2` on the internal lane. `WAKE_USE_PICO_WAKEUP` and
+  `WAKE_USE_ARM_PULSE` isolate a single path during bring-up. The Pico path is
+  gated on `tud_suspend_cb(remote_wakeup_en)`, because driving resume on a bus the
+  host never armed would be a protocol violation; `STATUS` reports that verdict
+  as `pico-rw`.
 * The Arduino board reports `EVT|HOSTUSB|UP|SUSPEND|DOWN`, so the wake is
   verified rather than assumed: the board waits for `UP`, settles for
   `WAKE_SETTLE_MS`, and only then starts the authored Startup route. If the
   host never reports `UP` the attempt is retried after `WAKE_RETRY_MS`, up to
   `WAKE_MAX_ATTEMPTS`.
 * A host that is already awake skips the pulse and starts the round directly.
+* `WAKE!<seconds>` and `WAKE!OFF` arm or clear a one-shot deadline on demand, so
+  the whole path can be exercised without waiting for a real window. The next
+  accepted clock sample replaces it with the authored schedule.
 
-The deadline lives in RAM: it survives host sleep and reboot, but a Pico power
-loss clears it and the board waits for the next clock sample before it can wake
-anything again. Persisting it in the calibration store is a separate step.
+### After a board reset
+
+The monotonic deadline itself cannot be persisted: a reset restarts the Pico
+clock and the board owns no battery-backed RTC. What is persisted in the
+calibration record (version 6) is the *decision* a reset cannot undo — the host
+was asleep, a wake was still owed, and how many recovery pulses were already
+spent:
+
+* On boot `wake_scheduler_recovery_needed()` decides whether the clock is really
+  lost. A host that is already awake cancels the recovery.
+* Otherwise the board sends one pulse that is not meant to start a round: it
+  brings the host up so the bridge can hand the wall clock back. The authored
+  deadline is then re-armed and the machine is free to sleep again until the real
+  window. After a brownout the machine may therefore wake once, early.
+* The attempt counter is persisted *before* the pulse and bounded by
+  `WAKE_RECOVERY_MAX_ATTEMPTS`, so a brownout loop can never become a wake storm.
+  The next accepted clock sample clears it.
+* A recovery boot cannot wait for USB enumeration — a port the host suspended
+  never mounts — so the mount wait is bounded by `WAKE_MOUNT_TIMEOUT_MS` and the
+  recovery then runs from the normal service loop over the private UART link.
+* The record is written only when the recovery decision changes, and never more
+  often than `WAKE_STORE_MIN_INTERVAL_MS`, because every write erases a 4 KiB
+  sector.
 
 ## Build one identity
 
