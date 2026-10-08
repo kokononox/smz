@@ -17,6 +17,7 @@
 #include "cycle_runtime.h"
 #include "game_buff_runtime.h"
 #include "shift_identity_runtime.h"
+#include "wake_scheduler.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
@@ -27,6 +28,17 @@ extern size_t abvm_program_size(void);
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
 #define WHISPER_REPEAT_ROUTE_ID 12u
+/* Autonomous shift wake.  The Pico owns no RTC, so the bridge clock sample taken
+ * at each shift identity check is converted into a monotonic deadline.  A window
+ * start is therefore woken this many minutes early, and the machine is given a
+ * settle window before the authored Startup route starts driving the desktop. */
+#define WAKE_LEAD_MINUTES 2u
+#define WAKE_PULSE_COMMAND "MMOVE|1,0,rel,2"
+#define WAKE_PULSE_TIMEOUT_MS 5000u
+#define WAKE_RESUME_TIMEOUT_MS 60000u
+#define WAKE_SETTLE_MS 30000u
+#define WAKE_MAX_ATTEMPTS 3u
+#define WAKE_RETRY_MS 300000u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
@@ -41,6 +53,14 @@ static ShiftIdentityRuntime shift_identity;
 static bool shift_checkpoint,shift_key_inflight,shift_launch_pending,shift_cue_started,shift_failure_paused;
 static uint8_t shift_lane;
 static uint32_t shift_generation,shift_cue_until;
+
+typedef enum WakePhase { WAKE_PHASE_IDLE=0, WAKE_PHASE_PULSE, WAKE_PHASE_RESUME, WAKE_PHASE_SETTLE } WakePhase;
+static WakeScheduler wake_scheduler;
+static WakePhase wake_phase;
+static bool wake_pulse_inflight;
+static uint8_t wake_attempts;
+static uint32_t wake_deadline,wake_retry_at;
+static void wake_attempts_reset(void);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -489,10 +509,24 @@ static void execute_command(char *line, uint32_t now) {
                 unsigned long b=strtoul(pair,&end,16);valid=end&&end-pair==2&&b<=255u;hash[i]=(uint8_t)b;
             }
         }
-        if(valid&&shift_checkpoint&&(with_clock?
-           shift_identity_reply_clock(&shift_identity,nonce,hash,minute,tud_cdc_connected()):
-           shift_identity_reply(&shift_identity,nonce,hash,tud_cdc_connected())))
-            printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
+        bool accepted=false;
+        if(valid&&shift_checkpoint) {
+            accepted=with_clock?
+                shift_identity_reply_clock(&shift_identity,nonce,hash,minute,tud_cdc_connected()):
+                shift_identity_reply(&shift_identity,nonce,hash,tud_cdc_connected());
+            /* A fresh clock sample is the only wall-clock reference the portable
+             * build ever gets; re-arm the autonomous wake deadline from it. */
+            if(accepted&&with_clock) {
+                wake_attempts_reset();
+                if(wake_scheduler_sync(&wake_scheduler,now,minute))
+                    printf("OK|WAKE|armed|window=%02u:%02u|in=%lu|lead=%u\n",
+                           wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,
+                           (unsigned long)((wake_scheduler.deadline_ms-now)/60000u),
+                           wake_scheduler.lead_minutes);
+                else printf("EVT|WAKE|disarmed|reason=schedule-off\n");
+            }
+        }
+        if(accepted) printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
         else printf("ERR|SHIFT|invalid-or-unknown-user\n");
     }
     else if (!strcmp(line, "STATUS")) print_status();
@@ -889,8 +923,10 @@ static void service_light(uint32_t now) {
 static void service_mouse(uint32_t now) {
     uint8_t completed_lane;
     if (arm_uart_mouse_service(now, &completed_lane)) {
-        if(arm_uart_mouse_internal_completion(completed_lane))
+        if(arm_uart_mouse_internal_completion(completed_lane)) {
             ambient_mouse_complete(now);
+            wake_pulse_inflight=false;
+        }
         else if((vm.status == ABVM_STATUS_RUNNING ||
                  vm.status == ABVM_STATUS_PAUSED) &&
                 !abvm_complete_action(&vm, completed_lane, now))
@@ -1271,6 +1307,9 @@ static void service_vm(uint32_t now) {
                     printf("ERR|SHIFT|invalid-descriptor\n");abvm_stop(&vm,now);break;
                 }
                 shift_lane=event.lane;shift_checkpoint=true;
+                wake_scheduler_configure(&wake_scheduler,shift_identity.schedule_enabled,
+                                         shift_identity.day_start,shift_identity.day_end,
+                                         shift_identity.night_start,shift_identity.night_end);
                 shift_generation=vm.route_generation;launch_shift_check(now);break;
             }
             if(event.opcode==ABVM_OP_SHIFT_TYPE)event.opcode=ABVM_OP_TYPE;
@@ -1367,6 +1406,79 @@ static void service_vm(uint32_t now) {
         default: break;
     }
 }
+/* Hostless shift wake.  Runs only while no round is active: a running macro is
+ * already driving HID traffic, which keeps the host awake by itself.  The
+ * Arduino board reports the host's USB suspend state on the private UART link,
+ * so a wake is verified instead of assumed. */
+static void wake_attempts_reset(void) {
+    wake_attempts=0u;wake_retry_at=0u;
+}
+static void service_wake(uint32_t now) {
+    if(vm.status!=ABVM_STATUS_STOPPED) {
+        wake_phase=WAKE_PHASE_IDLE;wake_pulse_inflight=false;return;
+    }
+    if(wake_phase==WAKE_PHASE_PULSE) {
+        if(wake_pulse_inflight&&(int32_t)(now-wake_deadline)<0)return;
+        wake_pulse_inflight=false;wake_phase=WAKE_PHASE_RESUME;
+        wake_deadline=now+WAKE_RESUME_TIMEOUT_MS;
+        printf("EVT|WAKE|state=resume|wait-ms=%u\n",(unsigned)WAKE_RESUME_TIMEOUT_MS);
+        return;
+    }
+    if(wake_phase==WAKE_PHASE_RESUME) {
+        if(arm_uart_host_usb_state()==ARM_HOST_USB_UP) {
+            wake_phase=WAKE_PHASE_SETTLE;wake_deadline=now+WAKE_SETTLE_MS;
+            printf("EVT|WAKE|state=host-up|settle-ms=%u\n",(unsigned)WAKE_SETTLE_MS);
+            return;
+        }
+        if((int32_t)(now-wake_deadline)<0)return;
+        ++wake_attempts;
+        wake_phase=WAKE_PHASE_IDLE;
+        wake_retry_at=now+WAKE_RETRY_MS;
+        buzzer_play(BUZZER_CUE_ERROR,now);
+        printf("ERR|WAKE|no-resume|attempt=%u|usb=%u|retry-ms=%u\n",
+               wake_attempts,(unsigned)arm_uart_host_usb_state(),(unsigned)WAKE_RETRY_MS);
+        return;
+    }
+    if(wake_phase==WAKE_PHASE_SETTLE) {
+        if((int32_t)(now-wake_deadline)<0)return;
+        wake_phase=WAKE_PHASE_IDLE;
+        wake_scheduler_disarm(&wake_scheduler);
+        ++wake_attempts;
+        printf("EVT|WAKE|state=start|attempt=%u\n",wake_attempts);
+        start_control(now);
+        if(!guard_runtime_running()&&vm.status!=ABVM_STATUS_RUNNING) {
+            wake_retry_at=now+WAKE_RETRY_MS;
+            printf("ERR|WAKE|start|retry-ms=%u\n",(unsigned)WAKE_RETRY_MS);
+        }
+        return;
+    }
+    if(!wake_scheduler_armed(&wake_scheduler)||
+       !wake_scheduler_due(&wake_scheduler,now)) return;
+    if((int32_t)(now-wake_retry_at)<0) return;
+    if(wake_attempts>=WAKE_MAX_ATTEMPTS) {
+        wake_scheduler_disarm(&wake_scheduler);
+        printf("ERR|WAKE|attempt-limit|attempts=%u\n",wake_attempts);
+        return;
+    }
+    if(calibration_runtime_active()||!arm_uart_mouse_ready()||arm_uart_mouse_busy()) return;
+    if(arm_uart_host_usb_state()==ARM_HOST_USB_UP) {
+        /* The host is already awake: start the authored round without a pulse. */
+        wake_phase=WAKE_PHASE_SETTLE;wake_deadline=now+WAKE_SETTLE_MS;
+        printf("EVT|WAKE|state=host-awake|settle-ms=%u\n",(unsigned)WAKE_SETTLE_MS);
+        return;
+    }
+    ArmMouseSubmit result=arm_uart_mouse_submit_internal(WAKE_PULSE_COMMAND,now);
+    if(result==ARM_MOUSE_ACCEPTED) {
+        wake_pulse_inflight=true;wake_phase=WAKE_PHASE_PULSE;
+        wake_deadline=now+WAKE_PULSE_TIMEOUT_MS;
+        printf("EVT|WAKE|state=pulse|attempt=%u|start=%u|lead=%u|synced=%u|usb=%u\n",
+               wake_attempts+1u,wake_scheduler.next_start,wake_scheduler.lead_minutes,
+               wake_scheduler.synced_minute,(unsigned)arm_uart_host_usb_state());
+    } else if(result!=ARM_MOUSE_BUSY) {
+        wake_scheduler_disarm(&wake_scheduler);
+        printf("ERR|WAKE|pulse|reason=%u\n",result);
+    }
+}
 void tud_umount_cb(void) { shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u); release_all_actors(now_ms()); buzzer_silence(); }
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en; release_all_actors(now_ms()); buzzer_silence();
@@ -1393,6 +1505,7 @@ int main(void) {
         (void)cycle_runtime_init(&vm,now_ms());
         load_whisper_profile();
         ambient_mouse_init(now_ms());
+        wake_scheduler_init(&wake_scheduler,WAKE_LEAD_MINUTES);
     }
     /* Do not expose a half-ready USB device while a large patched ABP image is
      * being hashed and structurally verified. Attach only after boot work. */
@@ -1404,5 +1517,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

@@ -107,6 +107,7 @@ jobs:
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_shift_identity.py
             python firmware/abvm/tests/test_shift_schedule.py
+            python firmware/abvm/tests/test_abvm_shift_wake.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py

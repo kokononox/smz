@@ -85,6 +85,33 @@ this grace.
 
 Playback is allocation-free and nonblocking; no additional hardware is required.
 
+## Autonomous shift wake (hostless)
+
+A portable board has no clock and no host helper, yet the next shift still has
+to start by itself. The temporary Windows bridge already reports the local
+wall clock on every shift identity check, so the firmware converts that single
+sample into a monotonic deadline instead of asking for a battery-backed RTC:
+
+* `wake_scheduler_sync()` turns "the next window start is at minute X" into
+  `deadline = now + (X - minute - lead)`. The nearest of the two window starts
+  wins, gaps between windows are ignored, and a sample taken exactly on a start
+  targets the other window.
+* The deadline is recomputed on every accepted `SHIFT2!` reply, so each round
+  re-synchronises the clock and clears the wake attempt counter.
+* When the deadline expires while no round is running, the firmware sends one
+  authored `MMOVE|1,0,rel,2` on the internal lane. The Arduino core turns that
+  report into USB remote wake-up signalling, so the host resumes.
+* The Arduino board reports `EVT|HOSTUSB|UP|SUSPEND|DOWN`, so the wake is
+  verified rather than assumed: the board waits for `UP`, settles for
+  `WAKE_SETTLE_MS`, and only then starts the authored Startup route. If the
+  host never reports `UP` the attempt is retried after `WAKE_RETRY_MS`, up to
+  `WAKE_MAX_ATTEMPTS`.
+* A host that is already awake skips the pulse and starts the round directly.
+
+The deadline lives in RAM: it survives host sleep and reboot, but a Pico power
+loss clears it and the board waits for the next clock sample before it can wake
+anything again. Persisting it in the calibration store is a separate step.
+
 ## Build one identity
 
 ```bash
