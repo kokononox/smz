@@ -18,6 +18,13 @@ function Write-BootGuidManager($state,[string]$file='') {
     $read=Get-BootGuidManager $file
     if($read.Default -ne $state.Default -or ($read.Order -join ',') -ne ($state.Order -join ',')){throw 'Boot manager read-back mismatch.'}
 }
+function Restore-BootGuidManagerOwned($before,$owned,[string]$file='') {
+    $current=Get-BootGuidManager $file
+    if($current.Default -notin @($before.Default,$owned.Default) -or (($current.Order -join ',') -notin @(($before.Order -join ','),($owned.Order -join ',')))){
+        throw 'Boot manager changed outside this operation; automatic rollback will not overwrite it.'
+    }
+    Write-BootGuidManager $before $file
+}
 function New-BootGuidPlan($entries,$selected,$allIds) {
     $lookup=@{};foreach($e in $entries){$id=Invariant-Guid $e.Id;if(!$id -or $lookup.ContainsKey($id)){throw 'Invalid loader list.'};$lookup[$id]=$e}
     $seen=@{};foreach($id in $allIds){$normal=Invariant-Guid $id;if($normal){$seen[$normal]=$true}}
@@ -56,6 +63,8 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
     $backup=Join-Path $folder ($tag+'-backup.bcd');$mapPath=Join-Path $folder ($tag+'-map.json');$text=Join-Path $folder ($tag+'-map.txt')
     $stage=Join-Path $PSScriptRoot ($tag+'-stage.bcd');$verify=Join-Path $PSScriptRoot ($tag+'-verify.bcd')
     $before=Get-BootGuidManager $file;$ids=Get-AllBootGuidIds $file
+    $validLoaders=@((Get-BootNameEntries $file).Id);$seen=@{}
+    foreach($e in $plan){if($validLoaders -notcontains $e.Old -or !$e.New -or (Invariant-Guid $e.New) -cne $e.New -or $e.New[15] -ne '4' -or $seen.ContainsKey($e.New)){throw 'Invalid UUIDv4 clone proposal.'};$seen[$e.New]=$true}
     foreach($e in $plan){if($ids -notcontains $e.Old -or $ids -contains $e.New){throw 'Boot entries changed; regenerate the plan.'};if((Read-BootDescription $e.Old $file) -cne $e.Name){throw 'Boot name changed; reopen the editor.'}}
     Export-BootGuidStore $backup $file
     $backupHash=Hash-File $backup
@@ -83,9 +92,10 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
         $map.Status='Created';Save-BootGuidMap $mapPath $map;Write-BootGuidText $text $map
     }catch{
         $reason=$_.Exception.Message;$errors=@()
-        if($managerTouched){try{Write-BootGuidManager $before $file}catch{$errors+=$_.Exception.Message}}
+        if($managerTouched){try{Restore-BootGuidManagerOwned $before $next $file}catch{$errors+=$_.Exception.Message}}
         $store=Bcd-StoreReference $file
-        foreach($id in $created){try{if(!$store.DeleteObject($id).ReturnValue){throw 'Cannot remove newly-created entry.'}}catch{$errors+=$_.Exception.Message}}
+        # If the menu cannot be restored, keep new objects so a surviving menu/default never points at a deleted entry.
+        if(!$errors.Count){foreach($id in $created){try{if(!$store.DeleteObject($id).ReturnValue){throw 'Cannot remove newly-created entry.'}}catch{$errors+=$_.Exception.Message}}}
         $map.Status=if($errors.Count){'RollbackFailed'}else{'RolledBack'}
         try{Save-BootGuidMap $mapPath $map;Write-BootGuidText $text $map}catch{$errors+=$_.Exception.Message}
         if($errors.Count){throw ('ROLLBACK_FAILED: '+($errors -join ' | ')+' | Backup: '+$backup)}
@@ -167,7 +177,7 @@ function Invoke-BootGuidCleanup($path,$current,[string]$file='') {
     }catch{
         $reason=$_.Exception.Message;$errors=@();$store=Bcd-StoreReference $file
         foreach($id in $deleted){try{if(!$store.CopyObject($backup,$id,[uint32]0).ReturnValue){throw 'Cannot restore original loader.'}}catch{$errors+=$_.Exception.Message}}
-        if($managerTouched){try{Write-BootGuidManager $before $file}catch{$errors+=$_.Exception.Message}}
+        if($managerTouched){try{Restore-BootGuidManagerOwned $before $next $file}catch{$errors+=$_.Exception.Message}}
         if($errors.Count){throw ('ROLLBACK_FAILED: '+($errors -join ' | ')+' | Full backup: '+$backup)}
         throw ('حذف کامل نشد؛ ورودی‌های حذف‌شده و منوی قبلی بازگردانده شدند. '+$reason)
     }
@@ -238,6 +248,10 @@ function Test-BootGuidEditor {
         $blocked=$false;try{Assert-BootGuidCleanup $map $plan[0].New $fixture}catch{$blocked=$true};if(!$blocked){throw 'Untested cleanup accepted.'}
         $map.Entries[0].Tested=$true;$map.Entries[0].TestedUtc=[DateTime]::UtcNow.ToString('o');Save-BootGuidMap $mapPath $map
         $blocked=$false;try{Assert-BootGuidCleanup $map $id $fixture}catch{$blocked=$true};if(!$blocked){throw 'Current old loader deletion accepted.'}
+        $m=Bcd-EditableObject $managerId $fixture
+        if(!$m.SetObjectListElement([uint32]0x24000002,[string[]]@($id)).ReturnValue){throw 'BootSequence fixture failed.'}
+        $blocked=$false;try{Assert-BootGuidCleanup $map $plan[0].New $fixture}catch{$blocked=$true};if(!$blocked){throw 'Pending BootSequence deletion accepted.'}
+        if(!$m.DeleteElement([uint32]0x24000002).ReturnValue){throw 'Fixture BootSequence removal failed.'}
         Invoke-BootGuidCleanup $mapPath $plan[0].New $fixture
         $after=@(Get-BootNameEntries $fixture);if($after.Count -ne 1 -or $after[0].Id -ne $plan[0].New){throw 'Fixture cleanup failed.'}
         $state=Get-BootGuidManager $fixture;if($state.Default -ne $plan[0].New -or $state.Order.Count -ne 1){throw 'Fixture default migration failed.'}

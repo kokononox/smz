@@ -17,7 +17,7 @@ public static class BcdGuidStager {
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegQueryValueEx(IntPtr key,string name,IntPtr reserved,out uint type,byte[] data,ref uint size);
     [DllImport("advapi32.dll")] static extern int RegFlushKey(IntPtr key);
     [DllImport("advapi32.dll")] static extern int RegCloseKey(IntPtr key);
-    static void Check(int result) {if(result!=0)throw new Win32Exception(result);}
+    static void Check(int result,string operation="registry operation") {if(result!=0)throw new Win32Exception(result,operation+": "+new Win32Exception(result).Message);}
     static string GuidKey(string id) {Guid g;if(!Guid.TryParseExact(id,"B",out g)||g==Guid.Empty)throw new ArgumentException("Invalid BCD GUID.");return g.ToString("B");}
     static void CheckFile(string path) {
         path=Path.GetFullPath(path);
@@ -30,12 +30,12 @@ public static class BcdGuidStager {
         CheckFile(path);oldId=GuidKey(oldId);newId=GuidKey(newId);if(oldId==newId)throw new ArgumentException("Identifiers must differ.");
         IntPtr hive=IntPtr.Zero,source=IntPtr.Zero,dest=IntPtr.Zero;
         try{
-            Check(RegLoadAppKey(path,out hive,ReadWrite,1,0));Check(RegOpenKeyEx(hive,"Objects\\"+oldId,0,Read,out source));
-            int disposition;Check(RegCreateKeyEx(hive,"Objects\\"+newId,0,null,0,ReadWrite,IntPtr.Zero,out dest,out disposition));
+            Check(RegLoadAppKey(path,out hive,ReadWrite,1,0),"Clone: load private app hive ReadWrite");Check(RegOpenKeyEx(hive,"Objects\\"+oldId,0,Read,out source),"Clone: open original object");
+            int disposition;Check(RegCreateKeyEx(hive,"Objects\\"+newId,0,null,0,ReadWrite,IntPtr.Zero,out dest,out disposition),"Clone: create new object");
             if(disposition!=1)throw new InvalidOperationException("The new GUID already exists; refusing overwrite.");
             using(SafeRegistryHandle sourceHandle=new SafeRegistryHandle(source,false))
             using(RegistryKey sourceKey=RegistryKey.FromHandle(sourceHandle))CopyValuesAndKeys(sourceKey,dest);
-            Check(RegFlushKey(hive));
+            Check(RegFlushKey(hive),"Clone: flush private hive");
         }finally{if(dest!=IntPtr.Zero)RegCloseKey(dest);if(source!=IntPtr.Zero)RegCloseKey(source);if(hive!=IntPtr.Zero)RegCloseKey(hive);}
     }
     // RegCopyTree copies security descriptors and cannot be used on app hives.
@@ -46,12 +46,12 @@ public static class BcdGuidStager {
             Check(RegQueryValueEx(handle,name,IntPtr.Zero,out type,null,ref size));
             if(size>16*1024*1024)throw new InvalidDataException("Excessive BCD value size.");
             byte[] bytes=new byte[size];Check(RegQueryValueEx(handle,name,IntPtr.Zero,out type,bytes,ref size));
-            Check(RegSetValueEx(destination,name,0,type,bytes,size));
+            Check(RegSetValueEx(destination,name,0,type,bytes,size),"Clone: copy raw value");
         }
         foreach(string name in source.GetSubKeyNames()){
             IntPtr child=IntPtr.Zero;int disposition;
             try{
-                Check(RegCreateKeyEx(destination,name,0,null,0,ReadWrite,IntPtr.Zero,out child,out disposition));
+                Check(RegCreateKeyEx(destination,name,0,null,0,ReadWrite,IntPtr.Zero,out child,out disposition),"Clone: create child key");
                 if(disposition!=1)throw new InvalidOperationException("Staged child already exists.");
                 using(RegistryKey sub=source.OpenSubKey(name,false))CopyValuesAndKeys(sub,child);
             }finally{if(child!=IntPtr.Zero)RegCloseKey(child);}
