@@ -26,6 +26,22 @@ public static class BcdGuidStager {
         if(!File.Exists(path))throw new FileNotFoundException("Exported BCD copy not found.");
         if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)throw new ArgumentException("Reparse-point BCD copies are rejected.");
     }
+    public static void PopulateStage(string sourcePath,string destinationPath) {
+        CheckFile(sourcePath);CheckFile(destinationPath);
+        if(String.Equals(Path.GetFullPath(sourcePath),Path.GetFullPath(destinationPath),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Staging requires a separate hive.");
+        IntPtr source=IntPtr.Zero,destination=IntPtr.Zero;
+        try{
+            Check(RegLoadAppKey(sourcePath,out source,Read,1,0),"Stage: open exported source read-only");
+            Check(RegLoadAppKey(destinationPath,out destination,ReadWrite,1,0),"Stage: open owned empty hive");
+            using(SafeRegistryHandle sourceHandle=new SafeRegistryHandle(source,false))
+            using(SafeRegistryHandle destHandle=new SafeRegistryHandle(destination,false))
+            using(RegistryKey sourceRoot=RegistryKey.FromHandle(sourceHandle))
+            using(RegistryKey destRoot=RegistryKey.FromHandle(destHandle)){
+                if(destRoot.GetSubKeyNames().Length!=0 || destRoot.GetValueNames().Length!=0)throw new InvalidOperationException("Staging destination must be empty.");
+                CopyValuesAndKeys(sourceRoot,destination);Check(RegFlushKey(destination),"Stage: flush owned hive");
+            }
+        }finally{if(destination!=IntPtr.Zero)RegCloseKey(destination);if(source!=IntPtr.Zero)RegCloseKey(source);}
+    }
     public static void CloneObject(string path,string oldId,string newId) {
         CheckFile(path);oldId=GuidKey(oldId);newId=GuidKey(newId);if(oldId==newId)throw new ArgumentException("Identifiers must differ.");
         IntPtr hive=IntPtr.Zero,source=IntPtr.Zero,dest=IntPtr.Zero;

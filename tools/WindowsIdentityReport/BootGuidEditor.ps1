@@ -57,6 +57,26 @@ function Get-AllBootGuidIds([string]$file='') {
     if(!$objects.ReturnValue){throw 'Cannot enumerate complete BCD store.'}
     return @($objects.Objects|ForEach-Object{Invariant-Guid $_.Id})
 }
+function New-WritableBootGuidStage($source,$destination) {
+    if(Test-Path -LiteralPath $destination){throw 'New staging filename required.'}
+    # BCD exported hives can grant only direct read access. Build a disposable user-owned
+    # app hive; never change ACLs on the live store, exported backup, or Windows hives.
+    $keyName='Software\WIR-BcdStage-'+[Guid]::NewGuid().ToString('N')
+    $key=$null
+    try{
+        $acl=New-Object Security.AccessControl.RegistrySecurity
+        $acl.SetAccessRuleProtection($true,$false)
+        foreach($sid in @([Security.Principal.WindowsIdentity]::GetCurrent().User,(New-Object Security.Principal.SecurityIdentifier 'S-1-5-18'))){
+            $rule=New-Object Security.AccessControl.RegistryAccessRule($sid,[Security.AccessControl.RegistryRights]::FullControl,[Security.AccessControl.InheritanceFlags]::ContainerInherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
+            $acl.AddAccessRule($rule)
+        }
+        $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,$acl)
+        $key.Close();$key=$null
+        & "$env:SystemRoot\System32\reg.exe" save ('HKCU\'+$keyName) $destination |Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Cannot save disposable owned staging hive.'}
+        [BcdGuidStager]::PopulateStage($source,$destination)
+    }finally{if($key){$key.Dispose()};[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($keyName,$false)}
+}
 function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
     if(!(Test-Path -LiteralPath $folder -PathType Container)){throw 'Backup folder is absent.'}
     $tag='Boot-GUID-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8)
@@ -68,7 +88,7 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
     foreach($e in $plan){if($ids -notcontains $e.Old -or $ids -contains $e.New){throw 'Boot entries changed; regenerate the plan.'};if((Read-BootDescription $e.Old $file) -cne $e.Name){throw 'Boot name changed; reopen the editor.'}}
     Export-BootGuidStore $backup $file
     $backupHash=Hash-File $backup
-    [IO.File]::Copy($backup,$stage,$false)
+    New-WritableBootGuidStage $backup $stage
     $map=@{Schema='WIR-BootGuid-1';Status='Planned';Backup=[IO.Path]::GetFileName($backup);BackupSha256=$backupHash;CreatedUtc=[DateTime]::UtcNow.ToString('o');Manager=$before;Entries=@($plan)}
     foreach($e in $plan){$e.Fingerprint=[BcdGuidStager]::Fingerprint($stage,$e.Old);[BcdGuidStager]::CloneObject($stage,$e.Old,$e.New);if([BcdGuidStager]::Fingerprint($stage,$e.New) -ne $e.Fingerprint){throw 'Staging clone did not match original.'}}
     Save-BootGuidMap $mapPath $map -New;Write-BootGuidText $text $map
