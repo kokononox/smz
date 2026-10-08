@@ -139,16 +139,30 @@ function Read-BootGuidMap($path) {
     };if($e.Fingerprint -notmatch '^[0-9a-f]{64}$' -or [BcdGuidStager]::Fingerprint($backup,$e.Old) -ne $e.Fingerprint){throw 'Source configuration fingerprint does not match backup.'}}
     return $map
 }
+function Parse-BootCurrentGuid($lines) {
+    # /enum {current} /v returns ONE object. The first data field after its separator
+    # is the identifier; never select default/resume/inherit GUIDs further down.
+    $rows=@($lines|ForEach-Object{[string]$_})
+    $separators=@();for($i=0;$i -lt $rows.Count;$i++){if($rows[$i] -match '^\s*-{3,}\s*$'){$separators+=$i}}
+    if($separators.Count -ne 1){throw 'خروجی bcdedit برای بوت فعلی یکتا و قابل تشخیص نیست؛ ثبت تست و حذف مسدود شدند.'}
+    for($i=$separators[0]+1;$i -lt $rows.Count;$i++){
+        $line=$rows[$i];if(!$line.Trim()){continue}
+        if($line -notmatch '^\s*[^{}\r\n]+?\s+(\{[0-9a-fA-F-]{36}\})\s*$'){throw 'فیلد شناسهٔ بوت فعلی در خروجی bcdedit قابل تشخیص نیست.'}
+        $id=Invariant-Guid $matches[1]
+        if(!$id -or $id -in @('{00000000-0000-0000-0000-000000000000}','{fa926493-6f1c-4193-a414-58f0b2456d1e}')){throw 'bcdedit شناسهٔ واقعی بوت فعلی را برنگرداند.'}
+        return $id
+    }
+    throw 'شناسهٔ بوت فعلی در خروجی bcdedit وجود ندارد.'
+}
 function Get-CurrentBootGuid {
-    $class=[wmiclass]'root\WMI:BcdStore';$class.Scope.Options.EnablePrivileges=$true
-    $opened=$class.OpenStore('');if(!$opened.ReturnValue){throw 'Cannot resolve current boot loader.'}
-    $object=(Bcd-StoreReference '').OpenObject('{fa926493-6f1c-4193-a414-58f0b2456d1e}')
-    $id=if($object.ReturnValue){Invariant-Guid $object.Object.Id}else{$null}
-    if($id -and $id -ne '{fa926493-6f1c-4193-a414-58f0b2456d1e}'){return $id}
-    $lines=& "$env:SystemRoot\System32\bcdedit.exe" /enum '{current}' /v 2>&1
-    if($LASTEXITCODE -ne 0){throw 'Cannot resolve current boot loader.'}
-    foreach($line in $lines){if([string]$line -match '^\S+\s+(\{[0-9a-fA-F-]{36}\})\s*$'){return (Invariant-Guid $matches[1])}}
-    throw 'Current boot GUID could not be established; no test can be recorded.'
+    # WMI's current-object alias can disagree with native bcdedit for duplicate loader
+    # entries pointing at the same installation. NEVER accept that alias as authority.
+    $lines=@(& "$env:SystemRoot\System32\bcdedit.exe" /enum '{current}' /v 2>&1)
+    if($LASTEXITCODE -ne 0){throw 'خواندن GUID واقعی بوت با bcdedit شکست خورد؛ هیچ تست یا حذفی انجام نمی‌شود.'}
+    $id=Parse-BootCurrentGuid $lines
+    $loaders=@(Get-BootNameEntries '')
+    if(@($loaders|Where-Object{$_.Id -eq $id}).Count -ne 1){throw 'GUID خوانده‌شدهٔ بوت فعلی در فهرست Windows Boot Loader به‌صورت یکتا موجود نیست.'}
+    return $id
 }
 function Record-BootGuidTest($path,$current) {
     $map=Read-BootGuidMap $path;$entry=@($map.Entries|Where-Object{$_.New -eq $current})
@@ -181,6 +195,19 @@ function Assert-BootGuidCleanup($map,$current,[string]$file='') {
         }
     }
 }
+function New-BootGuidReplacementOrder($order,$replacement) {
+    $newIds=@($replacement.Values);$result=New-Object 'System.Collections.Generic.List[string]'
+    # Replace each old menu position with its new GUID, instead of leaving the new
+    # entry appended. When the old position exists, skip the temporary appended copy.
+    $oldPresent=@{};foreach($id in $order){if($replacement.ContainsKey($id)){$oldPresent[$replacement[$id]]=$true}}
+    foreach($id in $order){
+        if($replacement.ContainsKey($id)){$candidate=$replacement[$id]}
+        elseif($newIds -contains $id -and $oldPresent.ContainsKey($id)){continue}
+        else{$candidate=$id}
+        if(!$result.Contains($candidate)){$result.Add($candidate)}
+    }
+    return $result.ToArray()
+}
 function Invoke-BootGuidCleanup($path,$current,[string]$file='') {
     $map=Read-BootGuidMap $path;Assert-BootGuidCleanup $map $current $file
     $folder=[IO.Path]::GetDirectoryName($path);$backup=Join-Path $folder ('Boot-GUID-cleanup-'+[Guid]::NewGuid().ToString('N')+'.bcd')
@@ -188,7 +215,7 @@ function Invoke-BootGuidCleanup($path,$current,[string]$file='') {
     foreach($e in $map.Entries){foreach($id in @($e.Old,$e.New)){if([BcdGuidStager]::Fingerprint($backup,$id) -ne $e.Fingerprint){throw 'Boot configuration changed after creation; cleanup is blocked.'}}}
     $before=Get-BootGuidManager $file;$replacement=@{};foreach($e in $map.Entries){$replacement[$e.Old]=$e.New}
     $default=$before.Default;if($replacement.ContainsKey($default)){$default=$replacement[$default]}
-    $next=@{Default=$default;Order=@($before.Order|Where-Object{!$replacement.ContainsKey($_)})}
+    $next=@{Default=$default;Order=@(New-BootGuidReplacementOrder $before.Order $replacement)}
     if(!$next.Order.Count){throw 'Cannot empty boot menu.'}
     $deleted=New-Object 'System.Collections.Generic.List[string]';$managerTouched=$false
     try{
@@ -245,7 +272,7 @@ function Show-BootGuidEditor {
         $summary=($map.Entries|ForEach-Object{$_.Name+' | New: '+$_.New+' | Tested: '+$_.Tested}) -join "`r`n"
         $w.Status.Text=(@($map.Entries|Where-Object{$_.Tested}).Count.ToString()+' / '+@($map.Entries).Count+' تست ثبت‌شده — '+$path)
         if(@($map.Entries.New) -contains $current){if([Windows.Forms.MessageBox]::Show($w.Form,($summary+"`r`n`r`nویندوز فعلی از GUID جدید بوت شده. ورود و کارکرد آن موفق بود؟ ثبت تست؟"),'تأیید تست همین ویندوز','YesNo','Question') -eq 'Yes'){Record-BootGuidTest $path $current;$state.Exit=0;$w.Status.Text='تست همین ویندوز ثبت شد؛ باقی ویندوزها را جداگانه تست کنید.'}}
-        else{[void][Windows.Forms.MessageBox]::Show($w.Form,($summary+"`r`nبرای ثبت تست، از یکی از ورودی‌های NEW بوت شوید."),'وضعیت تست')}
+        else{[void][Windows.Forms.MessageBox]::Show($w.Form,($summary+"`r`n`r`nGUID واقعی بوت جاری از bcdedit:`r`n"+$current+"`r`nاین شناسه با ورودی NEW این نگاشت برابر نیست؛ هیچ تست یا حذفی انجام نشد."),'وضعیت تست — شناسهٔ شناسایی‌شده')}
     }catch{[void][Windows.Forms.MessageBox]::Show($w.Form,$_.Exception.Message,'خطای نگاشت','OK','Error')}}.GetNewClosure())
     $w.Buttons.cleanup.Add_Click({try{
         if(!$state.Path){throw 'ابتدا نگاشت JSON را باز کنید.'};if(!$w.Ack.Checked){throw 'هشدار را تأیید کنید.'}
@@ -256,6 +283,10 @@ function Show-BootGuidEditor {
     try{[void]$w.Form.ShowDialog()}finally{$w.Form.Dispose()};return $state.Exit
 }
 function Test-BootGuidEditor {
+    $a='{11111111-1111-1111-1111-111111111111}';$b='{22222222-2222-2222-2222-222222222222}';$c='{33333333-3333-3333-3333-333333333333}'
+    $n='{44444444-4444-4444-4444-444444444444}';$m='{55555555-5555-5555-5555-555555555555}'
+    $replace=@{};$replace[$a]=$n;$replace[$c]=$m
+    if((@(New-BootGuidReplacementOrder @($n,$a,$b,$c,$m) $replace) -join ',') -ne (@($n,$b,$m) -join ',')){throw 'Replacement must keep old menu positions without duplicate new entries.'}
     $id='{11111111-1111-1111-1111-111111111111}';$entry=[PSCustomObject]@{Id=$id;Name='Fixture'}
     $plan=@(New-BootGuidPlan @($entry) @($id) @($id));if($plan.Count -ne 1 -or $plan[0].Old -eq $plan[0].New -or $plan[0].New[15] -ne '4'){throw 'UUIDv4 clone plan is invalid.'}
     $blocked=$false;try{New-BootGuidPlan @($entry) @($id,$id) @($id)|Out-Null}catch{$blocked=$true};if(!$blocked){throw 'Duplicate GUID selection accepted.'}
@@ -308,4 +339,34 @@ function Test-ActiveBootGuidExport {
         Get-ChildItem $PSScriptRoot -Filter ([IO.Path]::GetFileName($path)+'.*') -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
     }
     Write-Output 'PASS: native embedded ExportStore static call on ACTIVE BCD; exported manager/loaders match, originals unchanged. Backup fixture removed; no identifiers logged.'
+}
+
+function Test-BootCurrentGuidParser {
+    $id='{11111111-1111-4111-8111-111111111111}'
+    $other='{22222222-2222-4222-8222-222222222222}'
+    foreach($label in @('identifier','Bezeichner','شناسهٔ فعلی','Identificateur')){
+        $lines=@('Windows Boot Loader','-------------------',($label+'    '+$id),('resumeobject   '+$other),('default   '+$other))
+        if((Parse-BootCurrentGuid $lines) -ne $id){throw 'Current parser confused the current identifier with another GUID.'}
+    }
+    foreach($bad in @(
+        @{Rows=@('Header','---','identifier {current}',('resumeobject '+$id))},
+        @{Rows=@('Header','---','description No identifier',('resumeobject '+$id))},
+        @{Rows=@('Header','---',('identifier '+$id),'Second','---',('identifier '+$other))},
+        @{Rows=@('Header','---','identifier {00000000-0000-0000-0000-000000000000}')},
+        @{Rows=@('Header','---','identifier {fa926493-6f1c-4193-a414-58f0b2456d1e}')}
+    )){
+        $blocked=$false;try{Parse-BootCurrentGuid $bad.Rows|Out-Null}catch{$blocked=$true}
+        if(!$blocked){throw 'Ambiguous/nonverbose current output was accepted.'}
+    }
+    Write-Output 'PASS: current-boot parser, localized field labels, identifier-only selection and ambiguous/alias output guards.'
+}
+function Test-ActiveCurrentBootGuid {
+    Test-BootCurrentGuidParser
+    $current=Get-CurrentBootGuid
+    # Independent first GUID extraction from a second native invocation for regression comparison.
+    $raw=@(& "$env:SystemRoot\System32\bcdedit.exe" /enum '{current}' /v 2>&1)
+    if($LASTEXITCODE -ne 0){throw 'Independent read-only current bcdedit invocation failed.'}
+    $ids=[regex]::Matches(($raw -join "`n"),'\{[0-9a-fA-F-]{36}\}')
+    if(!$ids.Count -or $current -ne (Invariant-Guid $ids[0].Value)){throw 'Current resolver differs from native bcdedit.'}
+    Write-Output 'PASS: native embedded current resolver matches actual bcdedit current GUID; WMI alias is not trusted; no identifiers logged.'
 }
