@@ -71,6 +71,7 @@ if($SelfTest) {
     }finally{[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testKey,$false);Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue}
     Test-BootNameEditor
     Test-IdentityEditor
+    Test-IdentityMacInstanceBinding
     Test-BootGuidEditor
     Test-ActiveBootGuidExport
     Test-ActiveCurrentBootGuid

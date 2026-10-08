@@ -68,7 +68,18 @@ function Get-IdentityMacProperty($guid) {
     $adapter=Get-IdentityAdapter $guid
     $props=@(Get-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -AllProperties -ErrorAction Stop |Where-Object{$_.RegistryKeyword -eq 'NetworkAddress'})
     if($props.Count -ne 1){throw 'درایور این کارت گزینهٔ NetworkAddress را ارائه نمی‌کند؛ تغییر MAC انجام نمی‌شود.'}
+    Assert-IdentityMacPropertyTarget $props[0] $guid
     return $props[0]
+}
+function Assert-IdentityMacPropertyTarget($property,$guid) {
+    $id=Invariant-Guid $guid;$parts=([string]$property.InstanceID) -split '::'
+    if(!$id -or $parts.Count -ne 2 -or (Invariant-Guid $parts[0]) -ne $id -or $parts[1] -ne 'NetworkAddress' -or $property.RegistryKeyword -ne 'NetworkAddress' -or $property.RegistryDataType -ne 1){throw 'ویژگی MAC به کارت انتخاب‌شده و مقدار متنی NetworkAddress متصل نیست؛ تغییر مسدود شد.'}
+}
+function Assert-IdentityMacRestorable($property) {
+    $v=@($property.RegistryValue);if($v.Count -gt 1){throw 'Unexpected multi-value MAC override.'}
+    $text=if($v.Count){[string]$v[0]}else{''}
+    if($text){if($text -notmatch '^[0-9a-fA-F]{12}$' -or (([Convert]::ToInt32($text.Substring(0,2),16) -band 1) -ne 0)){throw 'مقدار قبلی MAC برای بازگردانی ایمن قابل شناسایی نیست.'}}
+    elseif([string]::IsNullOrWhiteSpace([string]$property.DisplayName) -or $null -eq $property.DefaultRegistryValue){throw 'این ویژگی MAC مقدار قبلی یا پیش‌فرض قابل بازگردانی ندارد؛ تغییر برای ایمنی ارائه نمی‌شود.'}
 }
 function Get-IdentityMacOverride($guid) {
     $p=Get-IdentityMacProperty $guid
@@ -84,7 +95,7 @@ function Get-IdentityFields {
     $disk=Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='"+$drive+":'")
     $rows.Add([PSCustomObject]@{Kind='VolumeLabel';Target=$drive;Label=('برچسب پارتیشن ویندوز ('+$drive+':)');Value=[string]$disk.VolumeName;Warning='ویژگی پارتیشن است و از سایر ویندوزها هم دیده می‌شود؛ فقط پارتیشن همین ویندوز ویرایش می‌شود.';Advanced=$false})
     try{foreach($a in @(Get-NetAdapter -Physical -ErrorAction Stop)){
-        try{if($a.Status -eq 'Disabled'){continue};[void](Get-IdentityMacProperty $a.InterfaceGuid);$rows.Add([PSCustomObject]@{Kind='MacAddress';Target=(Invariant-Guid $a.InterfaceGuid);Label=('MAC مؤثر — '+$a.Name);Value=([string]$a.MacAddress).Replace('-','').Replace(':','');Warning='اتصال شبکه هنگام اعمال قطع می‌شود. MAC دائمی سخت‌افزار عوض نمی‌شود. مقدار مؤثر و override پس از تغییر بررسی می‌شوند.';Advanced=$true})}catch{}
+        try{if($a.Status -eq 'Disabled'){continue};$property=Get-IdentityMacProperty $a.InterfaceGuid;Assert-IdentityMacRestorable $property;$rows.Add([PSCustomObject]@{Kind='MacAddress';Target=(Invariant-Guid $a.InterfaceGuid);Label=('MAC مؤثر — '+$a.Name);Value=([string]$a.MacAddress).Replace('-','').Replace(':','');Warning='اتصال شبکه هنگام اعمال قطع می‌شود. MAC دائمی سخت‌افزار عوض نمی‌شود. مقدار مؤثر و override پس از تغییر بررسی می‌شوند.';Advanced=$true})}catch{}
     }}catch{}
     foreach($kind in @('MachineGuid','InstallDate')) {
         try{
@@ -124,9 +135,17 @@ function Set-IdentityState($kind,$target,$value) {
         'ComputerName' {Assert-IdentityValue $kind $value;Rename-Computer -NewName $value -Force -ErrorAction Stop |Out-Null}
         'VolumeLabel' {Assert-IdentityValue $kind $value;$drive=[IO.Path]::GetPathRoot($env:SystemRoot).Substring(0,1);if($target -ne $drive){throw 'Wrong Windows volume.'};Set-Volume -DriveLetter $drive -NewFileSystemLabel $value -ErrorAction Stop}
         'MacAddress' {
-            $adapter=Get-IdentityAdapter $target;[void](Get-IdentityMacProperty $target)
-            if($value){if($value -notmatch '^[0-9a-fA-F]{12}$' -or (([Convert]::ToInt32($value.Substring(0,2),16) -band 1) -ne 0)){throw 'Invalid MAC override.'};Set-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -RegistryKeyword NetworkAddress -RegistryValue $value -ErrorAction Stop}
-            else{Reset-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -RegistryKeyword NetworkAddress -ErrorAction Stop}
+            $adapter=Get-IdentityAdapter $target;$property=Get-IdentityMacProperty $target
+            Assert-IdentityMacPropertyTarget $property $target
+            if($value){
+                if($value -notmatch '^[0-9a-fA-F]{12}$' -or (([Convert]::ToInt32($value.Substring(0,2),16) -band 1) -ne 0)){throw 'Invalid MAC override.'}
+                # Bind the exact instance returned with AllProperties. A ByName query
+                # otherwise filters hidden/no-DisplayName values and reports no match.
+                Set-NetAdapterAdvancedProperty -InputObject $property -RegistryValue ([string[]]@($value)) -ErrorAction Stop
+            }else{
+                if([string]::IsNullOrWhiteSpace([string]$property.DisplayName) -or $null -eq $property.DefaultRegistryValue){throw 'برای این ویژگی پنهان، بازنشانی پیش‌فرض قابل اتکا نیست؛ هیچ نوشتنی انجام نشد.'}
+                Reset-NetAdapterAdvancedProperty -InputObject $property -ErrorAction Stop
+            }
         }
         default {Write-IdentityRegistry $kind $value}
     }
@@ -136,12 +155,17 @@ function Verify-IdentityState($kind,$target,$value,$expectedEffective='') {
         'ComputerName' {return ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName' -Name ComputerName).ComputerName -eq $value)}
         'VolumeLabel' {return ((Read-IdentityState ([PSCustomObject]@{Kind=$kind;Target=$target})).Value -ceq $value)}
         'MacAddress' {
-            for($i=0;$i -lt 15;$i++){
+            for($i=0;$i -lt 40;$i++){
                 Start-Sleep -Milliseconds 500
-                $a=Get-IdentityAdapter $target;$live=([string]$a.MacAddress).Replace('-','').Replace(':','').ToUpperInvariant()
-                $override=Get-IdentityMacOverride $target
-                $desired=if($value){$value}else{$expectedEffective}
-                if($override -eq $value -and $live -eq $desired){return $true}
+                try{
+                    $a=Get-IdentityAdapter $target;$live=([string]$a.MacAddress).Replace('-','').Replace(':','').ToUpperInvariant()
+                    $override=Get-IdentityMacOverride $target
+                    $desired=if($expectedEffective){$expectedEffective}else{$value}
+                    if($override -eq $value -and $live -eq $desired){return $true}
+                }catch{
+                    # NIC restart/provider refresh can temporarily hide the instance.
+                    # This is bounded read retry only; never retry a write blindly.
+                }
             };return $false
         }
         default {return (([string](Read-IdentityRegistry $kind).Value) -ceq ([string]$value))}
@@ -160,14 +184,18 @@ function Invoke-IdentityTransaction($record,$backup,[scriptblock]$read,[scriptbl
         if(!(& $verify $record.After)){throw 'مقدار پس از اعمال تأیید نشد.'}
     }catch{
         $errorText=$_.Exception.Message
+        $alreadyBefore=$false
+        try{$alreadyBefore=[bool](& $verify $record.Before.Value)}catch{}
+        if($alreadyBefore){throw ('تغییر تأیید نشد؛ وضعیت قبلی دوباره بررسی شد و همچنان برقرار است. نوشتنِ بازگردانی لازم نبود. علت: '+$errorText)}
         try{& $write $record.Before.Value;if(!(& $verify $record.Before.Value)){throw 'Read-back mismatch.'}}
-        catch{throw ('ROLLBACK_FAILED: تغییر یا بازگردانی کامل تأیید نشد. پشتیبان: '+$backup+' | '+$_.Exception.Message)}
+        catch{throw ('ROLLBACK_FAILED: تغییر یا بازگردانی کامل تأیید نشد. پشتیبان: '+$backup+' | Original: '+$errorText+' | Rollback: '+$_.Exception.Message)}
         throw ('تغییر تأیید نشد و مقدار قبلی بازگردانده شد. '+$errorText)
     }
 }
 function Apply-IdentityField($field,$value,$backup) {
     $value=Normalize-IdentityValue $field.Kind $value
     $before=Read-IdentityState $field
+    if($field.Kind -eq 'MacAddress'){Assert-IdentityMacRestorable (Get-IdentityMacProperty $field.Target)}
     $display=[string]$before.Value
     if($field.Kind -eq 'InstallDate'){$display=([datetime]'1970-01-01').AddSeconds([uint32]$before.Value).ToString('yyyy-MM-dd')}
     if($value -ceq $display){throw 'مقدار تغییر نکرده است.'}
@@ -176,7 +204,7 @@ function Apply-IdentityField($field,$value,$backup) {
     $record=@{Schema='WIR-Identity-1';WindowsKey=(Get-IdentityWindowsKey);Kind=$field.Kind;Target=$field.Target;Before=$before;After=$after;CreatedUtc=[DateTime]::UtcNow.ToString('o')}
     $read={Read-IdentityState $field}.GetNewClosure()
     $write={param($v)Set-IdentityState $field.Kind $field.Target $v}.GetNewClosure()
-    $verify={param($v)Verify-IdentityState $field.Kind $field.Target $v $before.Effective}.GetNewClosure()
+    $verify={param($v)$expected='';if($field.Kind -eq 'MacAddress' -and [string]$v -eq [string]$before.Value){$expected=$before.Effective};Verify-IdentityState $field.Kind $field.Target $v $expected}.GetNewClosure()
     Invoke-IdentityTransaction $record $backup $read $write $verify
 }
 function Restore-IdentityBackup($path,$newBackup) {
@@ -197,7 +225,7 @@ function Restore-IdentityBackup($path,$newBackup) {
     $reverse=@{Schema='WIR-Identity-1';WindowsKey=$record.WindowsKey;Kind=$field.Kind;Target=$field.Target;Before=$current;After=$record.Before.Value;CreatedUtc=[DateTime]::UtcNow.ToString('o')}
     $read={Read-IdentityState $field}.GetNewClosure()
     $write={param($v)Set-IdentityState $field.Kind $field.Target $v}.GetNewClosure()
-    $verify={param($v)Verify-IdentityState $field.Kind $field.Target $v $record.Before.Effective}.GetNewClosure()
+    $verify={param($v)$expected='';if($field.Kind -eq 'MacAddress'){if([string]$v -eq [string]$record.Before.Value){$expected=$record.Before.Effective}else{$expected=$current.Effective}};Verify-IdentityState $field.Kind $field.Target $v $expected}.GetNewClosure()
     Invoke-IdentityTransaction $reverse $newBackup $read $write $verify
 }
 function New-IdentityEditorWindow($fields) {
@@ -266,8 +294,35 @@ function Test-IdentityEditor {
         $state.Value='stale';$blocked=$false;try{Invoke-IdentityTransaction $record $path $read $write $verify}catch{$blocked=$true};if(!$blocked -or $state.Calls){throw 'Stale value overwritten.'}
         $state.Value='old';$state.Fail=$true;$blocked=$false;try{Invoke-IdentityTransaction $record $path $read $write $verify}catch{$blocked=$true};if(!$blocked -or $state.Value -ne 'old'){throw 'Transaction rollback failed.'}
         Remove-Item $path -Force;$state.Fail=$false;Invoke-IdentityTransaction $record $path $read $write $verify;if($state.Value -ne 'new'){throw 'Transaction read-back failed.'}
+        Remove-Item $path -Force;$state.Value='old';$state.Calls=0
+        $failNoChange={param($v)$state.Calls++;throw 'No matching property; no change.'}.GetNewClosure()
+        $blocked=$false;$message='';try{Invoke-IdentityTransaction $record $path $read $failNoChange $verify}catch{$blocked=$true;$message=$_.Exception.Message}
+        if(!$blocked -or $state.Value -ne 'old' -or $state.Calls -ne 1 -or $message -like '*ROLLBACK_FAILED*'){throw 'No-change failure caused false rollback or false success.'}
         $w=New-IdentityEditorWindow @([PSCustomObject]@{Label='Fixture';Value='old';Advanced=$false})
         try{if(!$w.Grid.ReadOnly -or $w.Grid.Rows.Count -ne 1){throw 'Identity grid is unsafe.'}}finally{$w.Form.Dispose()}
     }finally{Remove-Item $path -Force -ErrorAction SilentlyContinue}
     Write-Output 'PASS: identity input validation, UUIDv4/LAA generation, backup-before-write, stale guard, rollback and UI contract. No live identity writes.'
+}
+
+function Test-IdentityMacInstanceBinding {
+    # Scoped mocks exercise selection and safeguards. No real NIC write or restart.
+    $guid='{11111111-1111-4111-8111-111111111111}'
+    $property=[PSCustomObject]@{InstanceID=($guid+'::NetworkAddress');RegistryKeyword='NetworkAddress';RegistryDataType=1;RegistryValue=@('020000000001');DisplayName='';DefaultRegistryValue=$null}
+    Assert-IdentityMacPropertyTarget $property $guid;Assert-IdentityMacRestorable $property
+    $state=@{Property=$property;Calls=0;ResetCalls=0;Value='';Guid=$guid}
+    function Get-IdentityAdapter($target){return [PSCustomObject]@{Name='Fixture [literal]';InterfaceGuid=$state.Guid}}
+    function Get-IdentityMacProperty($target){return $state.Property}
+    function Set-NetAdapterAdvancedProperty {param($InputObject,$RegistryValue,$ErrorAction)
+        if(![object]::ReferenceEquals($InputObject,$state.Property)){throw 'Setter did not bind exact property instance.'}
+        $state.Calls++;$state.Value=[string]$RegistryValue[0]
+    }
+    function Reset-NetAdapterAdvancedProperty {param($InputObject,$ErrorAction)$state.ResetCalls++}
+    Set-IdentityState MacAddress $guid '020000000002'
+    if($state.Calls -ne 1 -or $state.Value -ne '020000000002'){throw 'Hidden MAC property setter failed.'}
+    $blocked=$false;try{Set-IdentityState MacAddress $guid ''}catch{$blocked=$true}
+    if(!$blocked -or $state.ResetCalls){throw 'Hidden property without defaults was reset.'}
+    $property.RegistryValue=@('');$blocked=$false;try{Assert-IdentityMacRestorable $property}catch{$blocked=$true};if(!$blocked){throw 'Nonrestorable hidden property was editable.'}
+    $property.InstanceID='{22222222-2222-4222-8222-222222222222}::NetworkAddress'
+    $blocked=$false;try{Set-IdentityState MacAddress $guid '020000000003'}catch{$blocked=$true};if(!$blocked -or $state.Calls -ne 1){throw 'Wrong adapter property was written.'}
+    Write-Output 'PASS: exact hidden MAC CIM-instance binding, target GUID/type guards and refusal of unsafe hidden default reset; no real NIC mutation.'
 }
