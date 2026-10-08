@@ -72,6 +72,7 @@ if($SelfTest) {
     Test-BootNameEditor
     Test-IdentityEditor
     Test-BootGuidEditor
+    Test-ActiveBootGuidExport
     Write-Output 'PASS: Windows fixture, Unicode names, DWORD/string values, read-only SHA256, drive/GUID mapping.' 
     exit 0
 }

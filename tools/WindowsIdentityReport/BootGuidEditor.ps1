@@ -2,7 +2,11 @@
 function Export-BootGuidStore($path,[string]$file='') {
     if(Test-Path -LiteralPath $path){throw 'A new backup filename is required.'}
     if($file){[IO.File]::Copy($file,$path,$false)}
-    elseif(!(Bcd-StoreReference '').ExportStore($path).ReturnValue){throw 'Full BCD export failed. No changes made.'}
+    else{
+        # ExportStore is STATIC. It belongs to ManagementClass, not the opened store instance.
+        $provider=[wmiclass]'root\WMI:BcdStore';$provider.Scope.Options.EnablePrivileges=$true
+        if(!$provider.ExportStore($path).ReturnValue){throw 'Full BCD export failed. No changes made.'}
+    }
     if(!(Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -lt 4096){throw 'BCD export is incomplete.'}
 }
 function Get-BootGuidManager([string]$file='') {
@@ -280,4 +284,28 @@ function Test-BootGuidEditor {
         $w=New-BootGuidWindow @($entry);try{if(!$w.Grid.Columns['old'].ReadOnly -or !$w.Grid.Columns['new'].ReadOnly){throw 'GUID columns must be read-only.'}}finally{$w.Form.Dispose()}
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue}
     Write-Output 'PASS: UUIDv4, exact raw BCD cloning/import, preserved original/default, full backups/maps, untested/current guards and cleanup on isolated BCD only.'
+}
+
+function Test-ActiveBootGuidExport {
+    $path=Join-Path $PSScriptRoot ('active-export-test-'+[Guid]::NewGuid().ToString('N')+'.bcd')
+    $before=Get-BootGuidManager ''
+    $loadersBefore=@(Get-BootNameEntries '')
+    try{
+        Export-BootGuidStore $path
+        $backup=Get-BootGuidManager $path
+        $loadersBackup=@(Get-BootNameEntries $path)
+        $after=Get-BootGuidManager ''
+        $loadersAfter=@(Get-BootNameEntries '')
+        foreach($state in @($backup,$after)){
+            if($state.Default -ne $before.Default -or ($state.Order -join ',') -ne ($before.Order -join ',')){throw 'Active BCD export manager read-back mismatch.'}
+        }
+        $expected=($loadersBefore|Sort-Object Id|ConvertTo-Json -Compress)
+        foreach($entries in @(@{Rows=$loadersBackup},@{Rows=$loadersAfter})){
+            if(($entries.Rows|Sort-Object Id|ConvertTo-Json -Compress) -cne $expected){throw 'Active BCD export loader read-back mismatch.'}
+        }
+    }finally{
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        Get-ChildItem $PSScriptRoot -Filter ([IO.Path]::GetFileName($path)+'.*') -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+    Write-Output 'PASS: native embedded ExportStore static call on ACTIVE BCD; exported manager/loaders match, originals unchanged. Backup fixture removed; no identifiers logged.'
 }
