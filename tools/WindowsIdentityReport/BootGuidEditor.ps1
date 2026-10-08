@@ -85,16 +85,18 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
     if(!(Test-Path -LiteralPath $folder -PathType Container)){throw 'Backup folder is absent.'}
     $tag='Boot-GUID-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8)
     $backup=Join-Path $folder ($tag+'-backup.bcd');$mapPath=Join-Path $folder ($tag+'-map.json');$text=Join-Path $folder ($tag+'-map.txt')
-    $stage=Join-Path $PSScriptRoot ($tag+'-stage.bcd');$verify=Join-Path $PSScriptRoot ($tag+'-verify.bcd')
+    $stage=Join-Path $PSScriptRoot ($tag+'-stage.bcd');$verify=Join-Path $PSScriptRoot ($tag+'-verify.bcd');$stageSource=Join-Path $PSScriptRoot ($tag+'-source.bcd')
     $before=Get-BootGuidManager $file;$ids=Get-AllBootGuidIds $file
     $validLoaders=@((Get-BootNameEntries $file).Id);$seen=@{}
     foreach($e in $plan){if($validLoaders -notcontains $e.Old -or !$e.New -or (Invariant-Guid $e.New) -cne $e.New -or $e.New[15] -ne '4' -or $seen.ContainsKey($e.New)){throw 'Invalid UUIDv4 clone proposal.'};$seen[$e.New]=$true}
     foreach($e in $plan){if($ids -notcontains $e.Old -or $ids -contains $e.New){throw 'Boot entries changed; regenerate the plan.'};if((Read-BootDescription $e.Old $file) -cne $e.Name){throw 'Boot name changed; reopen the editor.'}}
     Export-BootGuidStore $backup $file
     $backupHash=Hash-File $backup
-    New-WritableBootGuidStage $backup $stage
+    [IO.File]::Copy($backup,$stageSource,$false)
+    New-WritableBootGuidStage $stageSource $stage
+    if((Hash-File $backup) -ne $backupHash){throw 'Original backup changed during staging; no boot changes allowed.'}
     $map=@{Schema='WIR-BootGuid-1';Status='Planned';Backup=[IO.Path]::GetFileName($backup);BackupSha256=$backupHash;CreatedUtc=[DateTime]::UtcNow.ToString('o');Manager=$before;Entries=@($plan)}
-    foreach($e in $plan){$e.Fingerprint=[BcdGuidStager]::Fingerprint($stage,$e.Old);[BcdGuidStager]::CloneObject($stage,$e.Old,$e.New);if([BcdGuidStager]::Fingerprint($stage,$e.New) -ne $e.Fingerprint){throw 'Staging clone did not match original.'}}
+    foreach($e in $plan){$e.Fingerprint=(Read-BootGuidFingerprint $stage $e.Old);[BcdGuidStager]::CloneObject($stage,$e.Old,$e.New);if((Read-BootGuidFingerprint $stage $e.New) -ne $e.Fingerprint){throw 'Staging clone did not match original.'}}
     Save-BootGuidMap $mapPath $map -New;Write-BootGuidText $text $map
     $created=New-Object 'System.Collections.Generic.List[string]';$managerTouched=$false
     try{
@@ -109,7 +111,7 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
         }
         # Export after import and compare raw configuration, including unknown/device elements.
         Export-BootGuidStore $verify $file
-        foreach($e in $plan){if([BcdGuidStager]::Fingerprint($verify,$e.Old) -ne $e.Fingerprint -or [BcdGuidStager]::Fingerprint($verify,$e.New) -ne $e.Fingerprint){throw 'Imported boot configuration differs from source.'}}
+        foreach($e in $plan){if((Read-BootGuidFingerprint $verify $e.Old) -ne $e.Fingerprint -or (Read-BootGuidFingerprint $verify $e.New) -ne $e.Fingerprint){throw 'Imported boot configuration differs from source.'}}
         $current=Get-BootGuidManager $file
         if($current.Default -ne $before.Default -or ($current.Order -join ',') -ne ($before.Order -join ',')){throw 'Boot manager changed concurrently.'}
         $next=@{Default=$before.Default;Order=@($before.Order)+@($plan.New)};$managerTouched=$true;Write-BootGuidManager $next $file
@@ -124,20 +126,58 @@ function Invoke-BootGuidCreate($plan,$folder,[string]$file='') {
         try{Save-BootGuidMap $mapPath $map;Write-BootGuidText $text $map}catch{$errors+=$_.Exception.Message}
         if($errors.Count){throw ('ROLLBACK_FAILED: '+($errors -join ' | ')+' | Backup: '+$backup)}
         throw ('ساخت GUID تأیید نشد؛ ورودی‌های تازه حذف و تنظیمات قبلی بازگردانده شدند. '+$reason)
-    }finally{Remove-Item -LiteralPath $stage,$verify -Force -ErrorAction SilentlyContinue;Get-ChildItem $PSScriptRoot -Filter ($tag+'-*.*.LOG*') -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue}
+    }finally{Remove-Item -LiteralPath $stage,$verify,$stageSource -Force -ErrorAction SilentlyContinue;Get-ChildItem $PSScriptRoot -Filter ($tag+'-*.*.LOG*') -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue}
     return $mapPath
 }
-function Read-BootGuidMap($path) {
+function Read-BootGuidFingerprint($path,$id) {
+    $reader=New-Object ReadOnlyHive $path
+    try{return $reader.BcdObjectFingerprint($id)}finally{$reader.Dispose()}
+}
+function Read-BootGuidMapStructure($path) {
     if((Get-Item -LiteralPath $path).Length -gt 131072){throw 'Mapping too large.'}
     $map=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json
-    if($map.Schema -ne 'WIR-BootGuid-1' -or $map.Status -ne 'Created' -or !$map.Entries -or @($map.Entries).Count -gt 20){throw 'Only a completed creation mapping is accepted.'}
-    if($map.Backup -ne [IO.Path]::GetFileName($map.Backup) -or $map.Backup -notmatch '\.bcd$'){throw 'Invalid backup filename.'}
-    $backup=Join-Path ([IO.Path]::GetDirectoryName($path)) $map.Backup
-    if((Hash-File $backup) -ne $map.BackupSha256){throw 'Full BCD backup hash differs from mapping.'}
+    if($map.Schema -ne 'WIR-BootGuid-1' -or $map.Status -ne 'Created' -or !$map.Entries -or @($map.Entries).Count -gt 20){throw 'این نگاشت برای ادامهٔ عملیات ساختِ تکمیل‌شده نیست؛ فایل عملیات فعال را انتخاب کنید.'}
+    if($map.Backup -ne [IO.Path]::GetFileName($map.Backup) -or $map.Backup -notmatch '\.bcd$' -or $map.BackupSha256 -notmatch '^[0-9a-f]{64}$'){throw 'Invalid backup record.'}
     $seen=@{};foreach($e in $map.Entries){foreach($key in @('Old','New')){
         $id=Invariant-Guid $e.$key;if(!$id -or $id -ne $e.$key -or $seen.ContainsKey($id)){throw 'Invalid or duplicate mapped GUID.'};$seen[$id]=$true
-    };if($e.Fingerprint -notmatch '^[0-9a-f]{64}$' -or [BcdGuidStager]::Fingerprint($backup,$e.Old) -ne $e.Fingerprint){throw 'Source configuration fingerprint does not match backup.'}}
+    };if($e.Fingerprint -notmatch '^[0-9a-f]{64}$'){throw 'Invalid recorded object fingerprint.'}}
     return $map
+}
+function Read-BootGuidMap($path) {
+    $map=Read-BootGuidMapStructure $path
+    $backup=Join-Path ([IO.Path]::GetDirectoryName($path)) $map.Backup
+    if((Hash-File $backup) -ne $map.BackupSha256){throw 'هش کل پشتیبان با نگاشت برابر نیست. حذف مسدود است. از دکمهٔ بررسی / بازیابی نگاشت استفاده کنید؛ فایل‌ها را دستی تغییر ندهید.'}
+    foreach($e in $map.Entries){if((Read-BootGuidFingerprint $backup $e.Old) -ne $e.Fingerprint){throw 'Source configuration fingerprint does not match backup.'}}
+    # Byte identity is mandatory before and after verification; native hive loading is never used here.
+    if((Hash-File $backup) -ne $map.BackupSha256){throw 'Backup changed during verification; operation blocked.'}
+    return $map
+}
+function Recover-BootGuidMap($path,[string]$file='') {
+    $map=Read-BootGuidMapStructure $path
+    $folder=[IO.Path]::GetDirectoryName($path);$original=Join-Path $folder $map.Backup
+    $actualHash=Hash-File $original
+    if($actualHash -eq $map.BackupSha256){throw 'هش این پشتیبان صحیح است؛ بازیابی لازم نیست. از بازکردن نگاشت / ثبت تست استفاده کنید.'}
+    # Do not merely accept the changed file hash. Selected ORIGINAL configs must match
+    # recorded fingerprints, and BOTH old/new live configs must independently match too.
+    foreach($e in $map.Entries){if((Read-BootGuidFingerprint $original $e.Old) -ne $e.Fingerprint){throw 'تنظیمات ورودی قدیمی در پشتیبان تغییر کرده؛ بازیابی خودکار ممنوع است.'}}
+    if((Hash-File $original) -ne $actualHash){throw 'Original file changed while reading it.'}
+    $loaders=@(Get-BootNameEntries $file);$ids=@($loaders.Id)
+    foreach($e in $map.Entries){if($ids -notcontains $e.Old -or $ids -notcontains $e.New){throw 'Both mapped old/new Windows loaders must still exist for recovery.'}}
+    $fresh=Join-Path $folder ('Boot-GUID-recovery-current-'+[Guid]::NewGuid().ToString('N')+'.bcd')
+    Export-BootGuidStore $fresh $file
+    $freshHash=Hash-File $fresh
+    foreach($e in $map.Entries){foreach($id in @($e.Old,$e.New)){
+        if((Read-BootGuidFingerprint $fresh $id) -ne $e.Fingerprint){throw 'تنظیمات یکی از ورودی‌های زنده با رکورد ساخت برابر نیست؛ بازیابی متوقف شد. هیچ ورودی تغییر نکرد.'}
+    }}
+    if((Hash-File $fresh) -ne $freshHash){throw 'Fresh snapshot changed while verifying.'}
+    $audit=[PSCustomObject]@{Method='Recorded-old-and-live-old-new-config-revalidation';OriginalBackup=$map.Backup;OriginalExpectedSha256=$map.BackupSha256;OriginalObservedSha256=$actualHash;RecoveredUtc=[DateTime]::UtcNow.ToString('o');Baseline='CURRENT snapshot after creation, NOT original pre-creation full-store backup';RequiresRetest=$true}
+    $map|Add-Member NoteProperty RecoveryAudit $audit -Force
+    $map.Backup=[IO.Path]::GetFileName($fresh);$map.BackupSha256=$freshHash
+    foreach($e in $map.Entries){$e.Tested=$false;$e.TestedUtc=''}
+    Save-BootGuidMap $path $map
+    Write-BootGuidText ([IO.Path]::ChangeExtension($path,'.txt')) $map
+    [void](Read-BootGuidMap $path)
+    return $fresh
 }
 function Parse-BootCurrentGuid($lines) {
     # /enum {current} /v returns ONE object. The first data field after its separator
@@ -168,7 +208,7 @@ function Record-BootGuidTest($path,$current) {
     $map=Read-BootGuidMap $path;$entry=@($map.Entries|Where-Object{$_.New -eq $current})
     if($entry.Count -ne 1){throw 'این ویندوز از یکی از GUIDهای جدید این نگاشت بوت نشده است؛ تست ثبت نمی‌شود.'}
     $tmp=Join-Path $PSScriptRoot ('test-check-'+[Guid]::NewGuid().ToString('N')+'.bcd')
-    try{Export-BootGuidStore $tmp;if([BcdGuidStager]::Fingerprint($tmp,$current) -ne $entry[0].Fingerprint){throw 'Tested boot configuration differs from original.'}}
+    try{Export-BootGuidStore $tmp;if((Read-BootGuidFingerprint $tmp $current) -ne $entry[0].Fingerprint){throw 'Tested boot configuration differs from original.'}}
     finally{Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}
     $entry[0].Tested=$true;$entry[0].TestedUtc=[DateTime]::UtcNow.ToString('o');Save-BootGuidMap $path $map;Write-BootGuidText ([IO.Path]::ChangeExtension($path,'.txt')) $map
 }
@@ -212,7 +252,7 @@ function Invoke-BootGuidCleanup($path,$current,[string]$file='') {
     $map=Read-BootGuidMap $path;Assert-BootGuidCleanup $map $current $file
     $folder=[IO.Path]::GetDirectoryName($path);$backup=Join-Path $folder ('Boot-GUID-cleanup-'+[Guid]::NewGuid().ToString('N')+'.bcd')
     Export-BootGuidStore $backup $file
-    foreach($e in $map.Entries){foreach($id in @($e.Old,$e.New)){if([BcdGuidStager]::Fingerprint($backup,$id) -ne $e.Fingerprint){throw 'Boot configuration changed after creation; cleanup is blocked.'}}}
+    foreach($e in $map.Entries){foreach($id in @($e.Old,$e.New)){if((Read-BootGuidFingerprint $backup $id) -ne $e.Fingerprint){throw 'Boot configuration changed after creation; cleanup is blocked.'}}}
     $before=Get-BootGuidManager $file;$replacement=@{};foreach($e in $map.Entries){$replacement[$e.Old]=$e.New}
     $default=$before.Default;if($replacement.ContainsKey($default)){$default=$replacement[$default]}
     $next=@{Default=$default;Order=@(New-BootGuidReplacementOrder $before.Order $replacement)}
@@ -244,7 +284,7 @@ function New-BootGuidWindow($entries) {
     foreach($p in @(@('name','نام بوت',25),@('old','GUID فعلی',35),@('new','GUID پیشنهادی UUIDv4',35))){$c=New-Object Windows.Forms.DataGridViewTextBoxColumn;$c.Name=$p[0];$c.HeaderText=$p[1];$c.FillWeight=$p[2];$c.ReadOnly=$true;$c.SortMode='NotSortable';[void]$grid.Columns.Add($c)}
     $grid.Columns['selected'].SortMode='NotSortable';foreach($e in $entries){[void]$grid.Rows.Add([object[]]@($false,$e.Name,$e.Id,''))};$form.Controls.Add($grid)
     $ack=New-Object Windows.Forms.CheckBox;$ack.SetBounds(15,325,1030,42);$ack.RightToLeft='Yes';$ack.Text='ماکرو متوقف است و اگر BitLocker فعال باشد، کلید بازیابی آن را خارج از برنامه در دسترس دارم.';$form.Controls.Add($ack)
-    $buttons=@{};$specs=@(@('generate','تولید GUIDهای پیشنهادی',15,380,310),@('create','پشتیبان کامل و ساخت ورودی‌ها',345,380,330),@('open','بازکردن نگاشت / ثبت تست',695,380,350),@('cleanup','مرحلهٔ ۲: حذف قدیمی‌های تست‌شده',345,435,700))
+    $buttons=@{};$specs=@(@('generate','تولید GUIDهای پیشنهادی',15,380,310),@('create','پشتیبان کامل و ساخت ورودی‌ها',345,380,330),@('open','بازکردن نگاشت / ثبت تست',695,380,350),@('cleanup','مرحلهٔ ۲: حذف قدیمی‌های تست‌شده',345,435,700),@('recover','بررسی / بازیابی نگاشت',15,435,310))
     foreach($s in $specs){$b=New-Object Windows.Forms.Button;$b.Text=$s[1];$b.SetBounds($s[2],$s[3],$s[4],42);$buttons[$s[0]]=$b;$form.Controls.Add($b)}
     $status=New-Object Windows.Forms.Label;$status.SetBounds(15,490,1030,45);$status.TextAlign='MiddleRight';$status.Text='فایل نگاشت JSON و TXT و پشتیبان کامل BCD را در یک پوشهٔ قابل دسترسی از هر سه ویندوز نگه دارید.';$form.Controls.Add($status)
     return @{Form=$form;Grid=$grid;Ack=$ack;Buttons=$buttons;Status=$status}
@@ -274,6 +314,15 @@ function Show-BootGuidEditor {
         if(@($map.Entries.New) -contains $current){if([Windows.Forms.MessageBox]::Show($w.Form,($summary+"`r`n`r`nویندوز فعلی از GUID جدید بوت شده. ورود و کارکرد آن موفق بود؟ ثبت تست؟"),'تأیید تست همین ویندوز','YesNo','Question') -eq 'Yes'){Record-BootGuidTest $path $current;$state.Exit=0;$w.Status.Text='تست همین ویندوز ثبت شد؛ باقی ویندوزها را جداگانه تست کنید.'}}
         else{[void][Windows.Forms.MessageBox]::Show($w.Form,($summary+"`r`n`r`nGUID واقعی بوت جاری از bcdedit:`r`n"+$current+"`r`nاین شناسه با ورودی NEW این نگاشت برابر نیست؛ هیچ تست یا حذفی انجام نشد."),'وضعیت تست — شناسهٔ شناسایی‌شده')}
     }catch{[void][Windows.Forms.MessageBox]::Show($w.Form,$_.Exception.Message,'خطای نگاشت','OK','Error')}}.GetNewClosure())
+    $w.Buttons.recover.Add_Click({try{
+        $d=New-Object Windows.Forms.OpenFileDialog;$d.Filter='Boot GUID mapping (*.json)|*.json'
+        try{if($d.ShowDialog($w.Form) -ne 'OK'){return};$path=$d.FileName}finally{$d.Dispose()}
+        $notice='این عملیات GUID یا منوی بوت را تغییر نمی‌دهد. ابتدا تنظیمات قدیمی پشتیبان و هر دو نسخهٔ زنده با اثرانگشت ثبت‌شده تطبیق داده می‌شوند. فقط در صورت تطبیق کامل، پشتیبان تازه از وضعیت فعلی گرفته و نگاشت به آن متصل می‌شود. پشتیبان اولیه و نسخهٔ قبلی JSON حفظ می‌شوند. تست همهٔ NEWها باید دوباره ثبت شود. ادامه؟'
+        if([Windows.Forms.MessageBox]::Show($w.Form,$notice,'تأیید بررسی و بازیابی کنترل‌شده','YesNo','Warning') -ne 'Yes'){return}
+        $fresh=Recover-BootGuidMap $path;$state.Path=$path;$state.Exit=0
+        $w.Status.Text='بازیابی نگاشت تأیید شد؛ اکنون بازکردن نگاشت / ثبت تست را بزنید.'
+        [void][Windows.Forms.MessageBox]::Show($w.Form,('تنظیمات قدیم و جدید تأیید شدند. GUID و منوی بوت تغییر نکردند. پشتیبان تازه از وضعیت فعلی: '+$fresh+"`r`nهمین نگاشت را باز و بوت موفق هر NEW را دوباره ثبت کنید."),'نگاشت بازیابی شد')
+    }catch{[void][Windows.Forms.MessageBox]::Show($w.Form,$_.Exception.Message,'بازیابی مسدود / ناموفق','OK','Error')}}.GetNewClosure())
     $w.Buttons.cleanup.Add_Click({try{
         if(!$state.Path){throw 'ابتدا نگاشت JSON را باز کنید.'};if(!$w.Ack.Checked){throw 'هشدار را تأیید کنید.'}
         $map=Read-BootGuidMap $state.Path;$current=Get-CurrentBootGuid;Assert-BootGuidCleanup $map $current
@@ -288,7 +337,8 @@ function Test-BootGuidEditor {
     $replace=@{};$replace[$a]=$n;$replace[$c]=$m
     if((@(New-BootGuidReplacementOrder @($n,$a,$b,$c,$m) $replace) -join ',') -ne (@($n,$b,$m) -join ',')){throw 'Replacement must keep old menu positions without duplicate new entries.'}
     $id='{11111111-1111-1111-1111-111111111111}';$entry=[PSCustomObject]@{Id=$id;Name='Fixture'}
-    $plan=@(New-BootGuidPlan @($entry) @($id) @($id));if($plan.Count -ne 1 -or $plan[0].Old -eq $plan[0].New -or $plan[0].New[15] -ne '4'){throw 'UUIDv4 clone plan is invalid.'}
+    $id2='{66666666-6666-6666-6666-666666666666}';$entry2=[PSCustomObject]@{Id=$id2;Name='Fixture Two'}
+    $plan=@(New-BootGuidPlan @($entry,$entry2) @($id,$id2) @($id,$id2));if($plan.Count -ne 2 -or $plan[0].Old -eq $plan[0].New -or $plan[0].New[15] -ne '4'){throw 'UUIDv4 clone plan is invalid.'}
     $blocked=$false;try{New-BootGuidPlan @($entry) @($id,$id) @($id)|Out-Null}catch{$blocked=$true};if(!$blocked){throw 'Duplicate GUID selection accepted.'}
     $folder=Join-Path $PSScriptRoot ('guid-fixture-'+[Guid]::NewGuid().ToString('N'));[void][IO.Directory]::CreateDirectory($folder);$fixture=Join-Path $folder 'fixture.bcd'
     try{
@@ -297,24 +347,48 @@ function Test-BootGuidEditor {
         if(!(Write-BootDescription $id 'Fixture' $fixture)){throw 'Fixture description failed.'}
         $obj=Bcd-EditableObject $id $fixture;if(!$obj.SetStringElement([uint32]0x22000002,'\Windows').ReturnValue){throw 'Fixture Windows root failed.'}
         if(!$obj.SetIntegerElement([uint32]0x25000020,[uint64]3).ReturnValue){throw 'Fixture integer failed.'}
+        if(!$store.CreateObject($id2,[uint32]0x10200003).ReturnValue -or !(Write-BootDescription $id2 'Fixture Two' $fixture)){throw 'Second fixture loader creation failed.'}
+        $obj2=Bcd-EditableObject $id2 $fixture;if(!$obj2.SetStringElement([uint32]0x22000002,'\Windows').ReturnValue){throw 'Second fixture root failed.'}
         $managerId='{9dea862c-5cdd-4e70-acc1-f32b344d4795}';if(!$store.CreateObject($managerId,[uint32]0x10100002).ReturnValue){throw 'Fixture manager failed.'}
-        Write-BootGuidManager @{Default=$id;Order=@($id)} $fixture
+        Write-BootGuidManager @{Default=$id;Order=@($id,$id2)} $fixture
         $mapPath=Invoke-BootGuidCreate $plan $folder $fixture;$map=Read-BootGuidMap $mapPath
-        if(@(Get-BootNameEntries $fixture).Count -ne 2){throw 'New and old entries must coexist.'}
-        $state=Get-BootGuidManager $fixture;if($state.Default -ne $id -or $state.Order.Count -ne 2){throw 'Creation altered default or lost original menu entry.'}
+        if(@(Get-BootNameEntries $fixture).Count -ne 4){throw 'New and old entries must coexist.'}
+        $state=Get-BootGuidManager $fixture;if($state.Default -ne $id -or $state.Order.Count -ne 4){throw 'Creation altered default or lost original menu entry.'}
         $blocked=$false;try{Assert-BootGuidCleanup $map $plan[0].New $fixture}catch{$blocked=$true};if(!$blocked){throw 'Untested cleanup accepted.'}
-        $map.Entries[0].Tested=$true;$map.Entries[0].TestedUtc=[DateTime]::UtcNow.ToString('o');Save-BootGuidMap $mapPath $map
+        $backupPath=Join-Path $folder $map.Backup;$unchangedHash=Hash-File $backupPath
+        for($i=0;$i -lt 3;$i++){[void](Read-BootGuidMap $mapPath)}
+        if((Hash-File $backupPath) -ne $unchangedHash -or $unchangedHash -ne $map.BackupSha256){throw 'Two-entry backup mutated during staging or repeated reads.'}
+        # Differential proof on a disposable copy: pure fingerprints equal legacy native
+        # fingerprints, while any native mount side effects stay on that copy only.
+        $comparison=Join-Path $folder 'native-comparison.bcd';[IO.File]::Copy($backupPath,$comparison,$false)
+        foreach($e in $map.Entries){if([BcdGuidStager]::Fingerprint($comparison,$e.Old) -ne (Read-BootGuidFingerprint $backupPath $e.Old)){throw 'Pure/native fingerprint mismatch.'}}
+        # Model a legacy hive-header change without modifying any object payload.
+        $bytes=[IO.File]::ReadAllBytes($backupPath);$bytes[12]=$bytes[12] -bxor 1
+        [uint32]$crc=0;for($offset=0;$offset -lt 508;$offset+=4){$crc=$crc -bxor [BitConverter]::ToUInt32($bytes,$offset)}
+        if($crc -eq 0){$crc=1}elseif($crc -eq [uint32]::MaxValue){$crc=[uint32]::MaxValue-1}
+        [Array]::Copy([BitConverter]::GetBytes($crc),0,$bytes,508,4);[IO.File]::WriteAllBytes($backupPath,$bytes)
+        $blocked=$false;try{Read-BootGuidMap $mapPath|Out-Null}catch{$blocked=$true};if(!$blocked){throw 'Changed full backup hash was silently accepted.'}
+        $beforeRecovery=Get-BootGuidManager $fixture;$idsBefore=@(Get-AllBootGuidIds $fixture)|Sort-Object
+        # An unchanged-hash backup with a wrong recorded config must NEVER be recovered.
+        $badPath=Join-Path $folder 'invalid-recovery-map.json';$badMap=Read-BootGuidMapStructure $mapPath;$badMap.Entries[0].Fingerprint=('0'*64);Save-BootGuidMap $badPath $badMap -New
+        $blocked=$false;try{Recover-BootGuidMap $badPath $fixture|Out-Null}catch{$blocked=$true};if(!$blocked){throw 'Changed object config recovery was accepted.'}
+        [void](Recover-BootGuidMap $mapPath $fixture);$map=Read-BootGuidMap $mapPath
+        $afterRecovery=Get-BootGuidManager $fixture;$idsAfter=@(Get-AllBootGuidIds $fixture)|Sort-Object
+        if($beforeRecovery.Default -ne $afterRecovery.Default -or ($beforeRecovery.Order -join ',') -ne ($afterRecovery.Order -join ',') -or ($idsBefore -join ',') -ne ($idsAfter -join ',')){throw 'Recovery mutated fixture BCD.'}
+        if(!$map.RecoveryAudit -or @($map.Entries|Where-Object{$_.Tested}).Count){throw 'Recovery audit/reset missing.'}
+        foreach($e in $map.Entries){$e.Tested=$true;$e.TestedUtc=[DateTime]::UtcNow.ToString('o')};Save-BootGuidMap $mapPath $map
+
         $blocked=$false;try{Assert-BootGuidCleanup $map $id $fixture}catch{$blocked=$true};if(!$blocked){throw 'Current old loader deletion accepted.'}
         $m=Bcd-EditableObject $managerId $fixture
         if(!$m.SetObjectListElement([uint32]0x24000002,[string[]]@($id)).ReturnValue){throw 'BootSequence fixture failed.'}
         $blocked=$false;try{Assert-BootGuidCleanup $map $plan[0].New $fixture}catch{$blocked=$true};if(!$blocked){throw 'Pending BootSequence deletion accepted.'}
         if(!$m.DeleteElement([uint32]0x24000002).ReturnValue){throw 'Fixture BootSequence removal failed.'}
         Invoke-BootGuidCleanup $mapPath $plan[0].New $fixture
-        $after=@(Get-BootNameEntries $fixture);if($after.Count -ne 1 -or $after[0].Id -ne $plan[0].New){throw 'Fixture cleanup failed.'}
-        $state=Get-BootGuidManager $fixture;if($state.Default -ne $plan[0].New -or $state.Order.Count -ne 1){throw 'Fixture default migration failed.'}
+        $after=@(Get-BootNameEntries $fixture);if($after.Count -ne 2 -or @($after.Id) -notcontains $plan[0].New -or @($after.Id) -notcontains $plan[1].New){throw 'Fixture cleanup failed.'}
+        $state=Get-BootGuidManager $fixture;if($state.Default -ne $plan[0].New -or $state.Order.Count -ne 2){throw 'Fixture default migration failed.'}
         $w=New-BootGuidWindow @($entry);try{if(!$w.Grid.Columns['old'].ReadOnly -or !$w.Grid.Columns['new'].ReadOnly){throw 'GUID columns must be read-only.'}}finally{$w.Form.Dispose()}
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue}
-    Write-Output 'PASS: UUIDv4, exact raw BCD cloning/import, preserved original/default, full backups/maps, untested/current guards and cleanup on isolated BCD only.'
+    Write-Output 'PASS: TWO-entry UUIDv4 cloning, immutable original backups, repeated pure reads, legacy fingerprint compatibility, strict hash rejection, controlled snapshot recovery without BCD writes, audit/retest reset and guarded cleanup on isolated BCD only.'
 }
 
 function Test-ActiveBootGuidExport {

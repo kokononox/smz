@@ -92,10 +92,10 @@ public sealed class ReadOnlyHive : IDisposable
             bool compressed=(U16(v,16)&1)!=0;
             if(!String.Equals(NameText(v,20,nameSize,compressed),name,StringComparison.OrdinalIgnoreCase))continue;
             uint raw=U32(v,4),length=raw&0x7fffffffu;type=U32(v,12);
-            if(length>65536)throw new InvalidDataException("Value is too large for metadata.");
+            if(length>1048576)throw new InvalidDataException("Value is too large for safe metadata reading.");
             byte[] data=new byte[length];
             if((raw&0x80000000u)!=0){if(length>4)throw new InvalidDataException("Invalid inline value.");Array.Copy(v,8,data,0,(int)length);}
-            else {byte[] cell=Cell(U32(v,8));if(length>cell.Length)throw new InvalidDataException("Truncated value.");Array.Copy(cell,data,(int)length);}
+            else if(length!=0) {byte[] cell=Cell(U32(v,8));if(length>cell.Length)throw new InvalidDataException("Truncated value.");Array.Copy(cell,data,(int)length);}
             return data;
         }
         return null;
@@ -108,6 +108,41 @@ public sealed class ReadOnlyHive : IDisposable
     public uint DwordValue(string path,string name) {
         uint type;byte[] data=Value(path,name,out type);if(data==null||type!=4||data.Length!=4)throw new InvalidDataException("Not a DWORD metadata value.");
         return BitConverter.ToUInt32(data,0);
+    }
+    private string[] ValueNames(string path) {
+        byte[] nk=Cell(Find(path));uint count=U32(nk,36);
+        if(count>65536)throw new InvalidDataException("Excessive BCD values.");
+        if(count==0)return new string[0];byte[] list=Cell(U32(nk,40));
+        if(count>list.Length/4)throw new InvalidDataException("Truncated value list.");
+        List<string> names=new List<string>();
+        for(int i=0;i<count;i++){
+            byte[] v=Cell(U32(list,i*4));Signature(v,"vk");int size=U16(v,2);
+            if(size>v.Length-20)throw new InvalidDataException("Invalid BCD value name.");
+            bool compressed=(U16(v,16)&1)!=0;
+            if(!compressed && size%2!=0)throw new InvalidDataException("Invalid BCD Unicode name.");
+            names.Add(NameText(v,20,size,compressed));
+        }
+        names.Sort(StringComparer.OrdinalIgnoreCase);return names.ToArray();
+    }
+    private void FingerprintTree(string path,string relative,BinaryWriter writer,int depth) {
+        if(depth>64)throw new InvalidDataException("Excessive BCD nesting.");
+        if(String.Equals(relative,"Elements\\12000004",StringComparison.OrdinalIgnoreCase))return;
+        writer.Write(relative.ToLowerInvariant());
+        foreach(string name in ValueNames(path)){
+            uint type;byte[] bytes=Value(path,name,out type);
+            if(bytes==null)throw new InvalidDataException("Missing BCD value during fingerprint.");
+            writer.Write(name.ToLowerInvariant());writer.Write(type);writer.Write((uint)bytes.Length);writer.Write(bytes);
+        }
+        foreach(string child in Names(path))FingerprintTree(path+"\\"+child,relative.Length==0?child:relative+"\\"+child,writer,depth+1);
+    }
+    // BCD Objects subtree only. Pure file reads: no RegLoadAppKey, WMI mounting, recovery or writes.
+    public string BcdObjectFingerprint(string id) {
+        Guid guid;if(!Guid.TryParseExact(id,"B",out guid)||guid==Guid.Empty)throw new ArgumentException("Invalid BCD identifier.");
+        string path="Objects\\"+guid.ToString("B");Find(path);
+        using(MemoryStream memory=new MemoryStream()){
+            using(BinaryWriter writer=new BinaryWriter(memory,Encoding.UTF8,true)){FingerprintTree(path,"",writer,0);writer.Flush();}
+            using(var sha=System.Security.Cryptography.SHA256.Create())return BitConverter.ToString(sha.ComputeHash(memory.ToArray())).Replace("-","").ToLowerInvariant();
+        }
     }
     public void Dispose(){if(stream!=null)stream.Dispose();}
 }
