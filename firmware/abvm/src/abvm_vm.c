@@ -288,7 +288,9 @@ static int verify_image(AbvmVm *vm) {
         if(ins.opcode==ABVM_OP_SHIFT_CHECK) {
             if(ins.flags||ins.operand_b||ins.operand_c||ins.operand_d||
                !constant_at(vm,ins.operand_a,ABVM_CONST_SHIFT,&payload,&size)||
-               size!=88u||memcmp(payload,"SFT1",4u)||payload[4]!=1u||!payload[5]||payload[5]>4u||read_u16(payload+6u))
+               !((size==88u&&!memcmp(payload,"SFT1",4u)&&payload[4]==1u)||
+                 (size==104u&&!memcmp(payload,"SFT2",4u)&&payload[4]==2u))||
+               !payload[5]||payload[5]>4u||read_u16(payload+6u))
                 return fail(vm,"shift descriptor");
         }
         if (ins.opcode == ABVM_OP_BUFF) {

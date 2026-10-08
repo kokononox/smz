@@ -19,6 +19,9 @@ bool calibration_store_cycle_reset(void){
     marker_armed=false;marker_count=0u;return true;
 }
 
+uint8_t calibration_store_shift_target(void){return 0u;}
+bool calibration_store_shift_begin(uint8_t target,uint8_t maximum){(void)target;(void)maximum;return false;}
+bool calibration_store_shift_complete(void){return true;}
 static int require(int condition,const char *message){
     if(!condition)fprintf(stderr,"ABVM Cycle smoke failure: %s\n",message);
     return condition;

@@ -16,5 +16,10 @@ uint8_t calibration_store_cycle_count(void);
 bool calibration_store_cycle_arm_next(uint8_t maximum);
 bool calibration_store_cycle_clear_armed(void);
 bool calibration_store_cycle_reset(void);
+uint8_t calibration_store_shift_attempts(void);
+uint8_t calibration_store_shift_target(void);
+bool calibration_store_shift_begin(uint8_t target,uint8_t maximum);
+bool calibration_store_shift_complete(void);
+bool calibration_store_shift_clear(void);
 uint32_t calibration_store_revision(void);
 #endif

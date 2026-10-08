@@ -29,7 +29,7 @@ typedef struct CycleState {
     uint8_t phase;
     uint8_t max_restarts;
     uint8_t last_host_state;
-    uint16_t after_route;
+    uint16_t after_route,switch_route;
     uint16_t startup_route;
     uint16_t finish_route;
     uint32_t run_min_ms;
@@ -39,7 +39,7 @@ typedef struct CycleState {
     uint32_t up_since;
     uint32_t desktop_since;
     uint32_t held_remaining_ms;
-    uint32_t prng;
+    uint32_t prng,shift_wait_since;
     CycleEvent pending;
     bool event_pending;
 } CycleState;
@@ -111,8 +111,8 @@ bool cycle_runtime_init(const AbvmVm *vm,uint32_t now) {
        cycle.usb_stable_ms<250u)return false;
     cycle.available=true;
     cycle.prng=now^read_u32(vm->header.program_sha256);
-    if(cycle.auto_resume&&calibration_store_cycle_armed()){
-        cycle.phase=CYCLE_WAIT_USB;
+    if(cycle.auto_resume&&(calibration_store_cycle_armed()||calibration_store_shift_target())){
+        cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;
         cycle.down_seen=true; /* an armed marker present at Pico boot proves a reboot */
         emit(CYCLE_EVENT_ARMED_AT_BOOT);
     }
@@ -177,6 +177,8 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
     }
     if(cycle.phase!=CYCLE_AFTER&&cycle.phase!=CYCLE_WAIT_USB)
         return CYCLE_ACTION_NONE;
+    if(cycle.phase==CYCLE_WAIT_USB&&calibration_store_shift_target()&&
+       reached(now,cycle.shift_wait_since+180000u))return CYCLE_ACTION_SHIFT_STALLED;
     if(host_seen&&host_state!=ARM_HOST_USB_UNKNOWN){
         if(cycle.last_host_state!=(uint8_t)host_state){
             cycle.last_host_state=(uint8_t)host_state;
@@ -211,6 +213,21 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
     }
     return CYCLE_ACTION_NONE;
 }
+bool cycle_runtime_begin_shift(uint16_t route,uint8_t target,uint8_t maximum,uint32_t now) {
+    (void)now;
+    if(!cycle.available||!cycle.auto_resume||(route!=16u&&route!=17u)||
+       !calibration_store_shift_begin(target,maximum))return false;
+    cycle.switch_route=route;cycle.phase=CYCLE_AFTER;cycle.down_seen=false;
+    cycle.up_timing=false;cycle.desktop_timing=false;cycle.held=false;
+    cycle.last_host_state=ARM_HOST_USB_UNKNOWN;return true;
+}
+bool cycle_runtime_shift_confirmed(uint32_t now) {
+    if(!calibration_store_shift_target())return true;
+    if(!calibration_store_shift_complete())return false;
+    cycle.switch_route=0u;
+    if(cycle.phase==CYCLE_RUN)arm_run(now,false);
+    return true;
+}
 bool cycle_runtime_begin_after(uint32_t now) {
     (void)now;
     if(!cycle.available)return false;
@@ -234,9 +251,9 @@ void cycle_runtime_begin_finish(void) {
     emit(CYCLE_EVENT_FINISH_START);cycle.pending.route_id=cycle.finish_route;
 }
 bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
-    if(cycle.phase==CYCLE_AFTER&&route_id==cycle.after_route){
+    if(cycle.phase==CYCLE_AFTER&&route_id==(cycle.switch_route?cycle.switch_route:cycle.after_route)){
         if(cycle.auto_resume){
-            cycle.phase=CYCLE_WAIT_USB;
+            cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;
             emit(CYCLE_EVENT_AFTER_COMPLETE);
             cycle.pending.down_seen=cycle.down_seen?1u:0u;
         }else cycle.phase=CYCLE_IDLE;

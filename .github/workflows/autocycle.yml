@@ -106,6 +106,7 @@ jobs:
               firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_shift_identity.py
+            python firmware/abvm/tests/test_shift_schedule.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py
@@ -480,5 +481,34 @@ jobs:
           path: |
             ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip
             shift-identity-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  shift-schedule-test-package:
+    name: diagnostic / Pico shift schedule test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-shift-schedule'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/SHIFT-SCHEDULE-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip > shift-schedule-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-ShiftSchedule-TestBuild
+          path: |
+            ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip
+            shift-schedule-sha256.txt
           if-no-files-found: error
           retention-days: 14

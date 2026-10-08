@@ -41,6 +41,8 @@ public static class NativeUf2Exporter
             var patched = Path.Combine(staging, "project.uf2");
             var root = JsonNode.Parse(PipelineWorkspaceSerializer.Serialize(workspace))?.AsObject()
                 ?? throw new InvalidDataException("ساختار پروژه برای Native Guard معتبر نیست.");
+            if(workspace.ShiftSchedule.enabled&&!workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps)))
+                throw new InvalidDataException("بررسی ساعت به استپ تأیید شیفت در Desktop و Startup نیاز دارد.");
             if(workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps))) {
                 var hashes=ShiftTextValidation.UserHashes(settings);
                 root["nativeShift"]=new JsonObject { ["dayHash"]=hashes.day,["nightHash"]=hashes.night };
@@ -55,7 +57,7 @@ public static class NativeUf2Exporter
                 ["compile", source, program, "--routes",
                  "Desktop", "Restart", "Startup", "LoginOrDc", "Dc",
                  "CharacterDashboard", "EnteringGameLoading", "Game", "Targeted", "TargetedRepeat",
-                 "Whisper", "WhisperRepeat", "Finish"],
+                 "Whisper", "WhisperRepeat", "Finish", "SwitchToDay", "SwitchToNight"],
                 cancellationToken);
             if (!File.Exists(program) || new FileInfo(program).Length == 0)
                 throw new InvalidDataException("کامپایلر ABP فایل program.abp را نساخت.");

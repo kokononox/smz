@@ -11,6 +11,7 @@ typedef enum CycleAction {
     CYCLE_ACTION_EXPIRE = 1,
     CYCLE_ACTION_START_STARTUP = 2,
     CYCLE_ACTION_START_FINISH = 3,
+    CYCLE_ACTION_SHIFT_STALLED = 4,
 } CycleAction;
 
 typedef enum CycleEventType {
@@ -56,6 +57,8 @@ CycleAction cycle_runtime_service(uint32_t now, bool host_seen,
                                   ArmHostUsbState host_state,
                                   bool desktop_ready);
 bool cycle_runtime_begin_after(uint32_t now);
+bool cycle_runtime_begin_shift(uint16_t route,uint8_t target,uint8_t maximum,uint32_t now);
+bool cycle_runtime_shift_confirmed(uint32_t now);
 void cycle_runtime_begin_startup(void);
 void cycle_runtime_begin_finish(void);
 bool cycle_runtime_route_complete(uint16_t route_id, uint32_t now);

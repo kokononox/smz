@@ -356,6 +356,7 @@ static void release_all_actors(uint32_t now) {
 static void start_control(uint32_t now) {
     shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
     shift_checkpoint=false;shift_key_inflight=false;
+    if(!calibration_store_shift_clear()){printf("ERR|SHIFT|nvm-reset\n");return;}
 
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
     if (!arm_uart_mouse_ready()) {
@@ -388,6 +389,7 @@ static void stop_control(uint32_t now) {
     ui_sound_watch_pending=false;ui_buzzer_reply_pending=false;
     ui_buzzer_sequence_reply=false;
     cycle_runtime_manual_stop();
+    (void)calibration_store_shift_clear();
     printf("OK|GUARD|OFF\n"); buzzer_play(BUZZER_CUE_STOP, now);
 }
 static void toggle_pause(uint32_t now) {
@@ -418,9 +420,9 @@ static void toggle_pause(uint32_t now) {
             else printf("ERR|CONTROL|pause\n");
         }
     } else if (vm.status == ABVM_STATUS_PAUSED) {
-        if (abvm_resume(&vm, now)) { printf("CONTROL|resume\n"); buzzer_play(BUZZER_CUE_RESUME, now); } else printf("ERR|CONTROL|resume\n");
+        if (abvm_resume(&vm, now)) { cycle_runtime_continue(now);buzzer_watchdog_alarm_stop();printf("CONTROL|resume\n"); buzzer_play(BUZZER_CUE_RESUME, now); } else printf("ERR|CONTROL|resume\n");
     } else if (vm.status == ABVM_STATUS_RUNNING) {
-        if (abvm_pause(&vm, now)) { printf("CONTROL|pause\n"); buzzer_play(BUZZER_CUE_PAUSE, now); } else printf("ERR|CONTROL|pause\n");
+        if (abvm_pause(&vm, now)) { cycle_runtime_hold(now);printf("CONTROL|pause\n"); buzzer_play(BUZZER_CUE_PAUSE, now); } else printf("ERR|CONTROL|pause\n");
     } else printf("CONTROL|pause-ignored|state=%s\n", abvm_status_name(vm.status));
 }
 static ButtonEvent button_event(Button *button,uint32_t now) {
@@ -458,22 +460,38 @@ static void execute_command(char *line, uint32_t now) {
     if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 9u : 0u);
     else if (!strcmp(line,"SHIFT?")) {
         if(shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY)
-            printf("OK|SHIFT-CHALLENGE|%08lx\n",(unsigned long)shift_identity.nonce);
+            printf("OK|SHIFT-CHALLENGE|%08lx%s\n",(unsigned long)shift_identity.nonce,shift_identity.schedule_enabled?"|clock=1":"");
         else printf("ERR|SHIFT|not-waiting\n");
     }
-    else if (!strncmp(line,"SHIFT!|",7)) {
-        char *nonce_text=line+7,*hash_text=strchr(nonce_text,'|');
+    else if (!strncmp(line,"SHIFT!|",7)||!strncmp(line,"SHIFT2!|",8)) {
+        bool with_clock=!strncmp(line,"SHIFT2!|",8);
+        char *nonce_text=line+(with_clock?8:7),*hash_text=strchr(nonce_text,'|');
+        uint16_t minute=0xffffu;
         uint8_t hash[32];bool valid=hash_text&&hash_text-nonce_text==8;
         uint32_t nonce=0u;
         if(valid) {
             *hash_text++='\0';char *end=NULL;
+            if(with_clock){
+                char *clock=strchr(hash_text,'|');
+                if(!clock)valid=false;
+                else {
+                    *clock++='\0';size_t width=strlen(clock);
+                    if(!width||width>4u)valid=false;
+                    for(size_t i=0u;i<width;++i)if(clock[i]<'0'||clock[i]>'9')valid=false;
+                    unsigned long value=strtoul(clock,&end,10);
+                    if(!end||*end||value>=1440u)valid=false;else minute=(uint16_t)value;
+                }
+            }
+            if(!valid){printf("ERR|SHIFT|invalid-clock\n");return;}
             nonce=(uint32_t)strtoul(nonce_text,&end,16);valid=end&&!*end&&strlen(hash_text)==64u;
             for(uint8_t i=0u;valid&&i<32u;++i) {
                 char pair[3]={hash_text[i*2u],hash_text[i*2u+1u],0};
                 unsigned long b=strtoul(pair,&end,16);valid=end&&end-pair==2&&b<=255u;hash[i]=(uint8_t)b;
             }
         }
-        if(valid&&shift_checkpoint&&shift_identity_reply(&shift_identity,nonce,hash,tud_cdc_connected()))
+        if(valid&&shift_checkpoint&&(with_clock?
+           shift_identity_reply_clock(&shift_identity,nonce,hash,minute,tud_cdc_connected()):
+           shift_identity_reply(&shift_identity,nonce,hash,tud_cdc_connected())))
             printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
         else printf("ERR|SHIFT|invalid-or-unknown-user\n");
     }
@@ -1061,6 +1079,15 @@ static void service_cycle(uint32_t now) {
         } else {
             cycle_runtime_fail(2u);service_cycle_events();
         }
+    } else if(action==CYCLE_ACTION_SHIFT_STALLED) {
+        /* Never replay boot commands blindly if the authored restart did not
+         * produce a ready desktop. Resume performs Startup's identity check. */
+        release_all_actors(now);hid_keyboard_discard_completion();arm_uart_mouse_discard_completion();
+        if(abvm_start_route(&vm,cycle_runtime_startup_route(),now)) {
+            cycle_runtime_begin_startup();(void)abvm_pause(&vm,now);cycle_runtime_hold(now);
+            buzzer_watchdog_alarm_start(now);
+            printf("ERR|SHIFT|reason=switch-reboot-timeout|action=paused|resume=startup-recheck\n");
+        }else{cycle_runtime_fail(9u);buzzer_watchdog_alarm_start(now);}
     } else if(action==CYCLE_ACTION_START_FINISH) {
         pending_sound_whisper=false;
         guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
@@ -1117,6 +1144,37 @@ static void service_shift_check(uint32_t now) {
     ShiftPhase phase=shift_identity_tick(&shift_identity,now,tud_cdc_connected());
     if(phase==SHIFT_FAILED){fail_shift_check(now,shift_identity.reason?shift_identity.reason:"failed");return;}
     if(phase==SHIFT_OK&&!shift_key_inflight) {
+        if(!shift_cue_started&&shift_identity.schedule_enabled) {
+            ShiftKind expected=shift_identity_expected(&shift_identity);
+            if(expected!=SHIFT_GLOBAL&&expected!=shift_identity.selected) {
+                uint16_t route=expected==SHIFT_DAY?shift_identity.day_route:shift_identity.night_route;
+                if(calibration_store_shift_attempts()>=shift_identity.max_attempts){
+                    fail_shift_check(now,"switch-attempt-limit");return;
+                }
+                /* Persist attempt BEFORE executing any authored boot/restart steps. */
+                if(!cycle_runtime_begin_shift(route,(uint8_t)expected,shift_identity.max_attempts,now)){
+                    fail_shift_check(now,"switch-marker-write");return;
+                }
+                shift_checkpoint=false;guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
+                hid_keyboard_discard_completion();arm_uart_mouse_discard_completion();
+                hid_keyboard_set_shift(0u);shift_identity_forget(&shift_identity);
+                printf("EVT|SHIFT|state=switching|target=%s|attempt=%u|route=%u\n",
+                       expected==SHIFT_DAY?"day":"night",calibration_store_shift_attempts(),route);
+                if(!abvm_start_route(&vm,route,now)){cycle_runtime_fail(8u);buzzer_watchdog_alarm_start(now);}
+                return;
+            }
+            if(calibration_store_shift_target()) {
+                /* A gap ignores the schedule, but a pending corrective switch must
+                 * still land on its requested, known user before resetting rounds. */
+                if(expected==SHIFT_GLOBAL&&calibration_store_shift_target()!=(uint8_t)shift_identity.selected){
+                    fail_shift_check(now,"switch-target-not-reached");return;
+                }
+                if(!cycle_runtime_shift_confirmed(now)){fail_shift_check(now,"switch-reset-write");return;}
+                printf("EVT|SHIFT|state=switch-confirmed|round=1|attempts=0\n");
+            }
+            printf("OK|SHIFT-SCHEDULE|v=2|minute=%u|expected=%s\n",shift_identity.minute,
+                   expected==SHIFT_DAY?"day":expected==SHIFT_NIGHT?"night":"gap-ignored");
+        }
         if(!shift_cue_started) {
             BuzzerTone cue[2];
             bool day=shift_identity.selected==SHIFT_DAY;

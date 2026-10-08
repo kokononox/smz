@@ -21,6 +21,8 @@ public enum PipelineKind
     Splash,
     WhisperRepeat,
     Finish,
+    SwitchToDay,
+    SwitchToNight,
     // Resume is intentionally not a UI tab for now; keep the enum name only as a
     // source-compatibility alias for the old exporter.
 
@@ -80,6 +82,7 @@ public sealed class PipelineWorkspace
     public const int FormatVersion = 13;
     public ObservableCollection<StepNode> GameBuffs { get; } = new();
     public int GameMouseFatigueMinutes { get; set; } = 135;
+    public ShiftScheduleSettings ShiftSchedule { get; set; } = new();
     public HumanMouseProfile HumanMouseProfile { get; set; } = new();
     public DisplayProfile DisplayProfile { get; set; } = new();
     public ObservableCollection<PipelineTabDocument> Tabs { get; } = new()
@@ -97,6 +100,8 @@ public sealed class PipelineWorkspace
         new() { Kind = PipelineKind.Whisper, Title = "Whisper New", FileName = "whisper_steps.txt" },
         new() { Kind = PipelineKind.WhisperRepeat, Title = "Whisper Repeat", FileName = "whisper_repeat_steps.txt" },
         new() { Kind = PipelineKind.Finish, Title = "پایان / Finish", FileName = "finish_steps.txt" },
+        new() { Kind = PipelineKind.SwitchToDay, Title = "سوییچ به روز", FileName = "switch_to_day_steps.txt" },
+        new() { Kind = PipelineKind.SwitchToNight, Title = "سوییچ به شب", FileName = "switch_to_night_steps.txt" },
         // Compatibility storage only; hidden from PipelineTabs. New catch
         // actions are children of the explicit Game Wait For Sound step.
         new() { Kind = PipelineKind.Splash, Title = "Splash (legacy)", FileName = "splash_steps.txt" },

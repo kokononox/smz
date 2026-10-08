@@ -11,7 +11,9 @@ typedef struct ShiftIdentityRuntime {
     uint32_t timeout_ms, hold_min, hold_max, nonce, rng, deadline, closed_at;
     ShiftKind selected, candidate;
     ShiftPhase phase;
-    bool closing;
+    bool closing, schedule_enabled, clock_received;
+    uint8_t max_attempts;
+    uint16_t day_start, day_end, night_start, night_end, day_route, night_route, minute;
     const char *reason;
 } ShiftIdentityRuntime;
 bool shift_identity_load(ShiftIdentityRuntime *s, const uint8_t *data,
@@ -21,6 +23,11 @@ bool shift_identity_reply(ShiftIdentityRuntime *s, uint32_t nonce,
                           const uint8_t hash[32], bool connected);
 ShiftPhase shift_identity_tick(ShiftIdentityRuntime *s, uint32_t now,
                                bool connected);
+bool shift_identity_reply_clock(ShiftIdentityRuntime *s, uint32_t nonce,
+                                const uint8_t hash[32], uint16_t minute, bool connected);
+ShiftKind shift_identity_expected(const ShiftIdentityRuntime *s);
+bool shift_schedule_valid(uint16_t day_start, uint16_t day_end,
+                          uint16_t night_start, uint16_t night_end);
 void shift_identity_cancel(ShiftIdentityRuntime *s);
 void shift_identity_forget(ShiftIdentityRuntime *s);
 #endif

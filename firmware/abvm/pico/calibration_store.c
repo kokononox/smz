@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 4u
+#define CAL_VERSION 5u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -14,7 +14,7 @@
 #define CAL_OFFSET_A (PICO_FLASH_SIZE_BYTES - CAL_AREA_SIZE)
 #define CAL_OFFSET_B (PICO_FLASH_SIZE_BYTES - CAL_SLOT_SIZE)
 
-typedef struct CalibrationPayload {
+typedef struct LegacyCalibrationPayloadV4 {
     uint8_t binding[32];
     uint16_t light_mask;
     uint8_t sound_mask;
@@ -26,7 +26,20 @@ typedef struct CalibrationPayload {
     uint16_t sound_minimum[SOUND_PROFILE_COUNT];
     uint16_t sound_silence[SOUND_PROFILE_COUNT];
     uint16_t sound_peak[SOUND_PROFILE_COUNT];
+} LegacyCalibrationPayloadV4;
+typedef struct CalibrationPayload {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
 } CalibrationPayload;
+typedef struct LegacyCalibrationRecordV4 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV4 payload;
+} LegacyCalibrationRecordV4;
 
 typedef struct CalibrationRecord {
     uint32_t magic;
@@ -89,6 +102,12 @@ static uint32_t legacy_v3_record_crc(const LegacyCalibrationRecordV3 *record) {
     memcpy(bytes+sizeof(record->sequence),&record->payload,sizeof(record->payload));
     return crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v4_record_valid(const LegacyCalibrationRecordV4 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=4u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -120,6 +139,18 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV4 *v4a=(const LegacyCalibrationRecordV4 *)a,*v4b=(const LegacyCalibrationRecordV4 *)b;
+        bool v4av=legacy_v4_record_valid(v4a,binding),v4bv=legacy_v4_record_valid(v4b,binding);
+        const LegacyCalibrationRecordV4 *v4=NULL;
+        if(v4av&&(!v4bv||(int32_t)(v4a->sequence-v4b->sequence)>0)){v4=v4a;active_offset=CAL_OFFSET_A;}
+        else if(v4bv){v4=v4b;active_offset=CAL_OFFSET_B;}
+        if(v4){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v4->sequence;
+            /* New fields follow v4's trailing padding; copy named common bytes only. */
+            memcpy(&current.payload,&v4->payload,offsetof(CalibrationPayload,shift_attempts));
+            current.payload.shift_attempts=0u;current.payload.shift_target=0u;return;
+        }
         const LegacyCalibrationRecordV3 *v3a=(const LegacyCalibrationRecordV3 *)a;
         const LegacyCalibrationRecordV3 *v3b=(const LegacyCalibrationRecordV3 *)b;
         bool v3av=legacy_v3_record_valid(v3a,binding);
@@ -254,3 +285,29 @@ bool calibration_store_cycle_reset(void){
     return persist();
 }
 uint32_t calibration_store_revision(void){return current.sequence;}
+
+uint8_t calibration_store_shift_attempts(void){return current.payload.shift_attempts;}
+uint8_t calibration_store_shift_target(void){return current.payload.shift_target;}
+static bool persist_transaction(CalibrationRecord before,uint32_t offset){
+    if(persist())return true;
+    current=before;active_offset=offset;return false;
+}
+bool calibration_store_shift_begin(uint8_t target,uint8_t maximum){
+    if((target!=1u&&target!=2u)||!maximum||maximum>10u||current.payload.shift_attempts>=maximum)return false;
+    CalibrationRecord before=current;uint32_t offset=active_offset;
+    ++current.payload.shift_attempts;current.payload.shift_target=target;current.payload.cycle_armed=0xa5u;
+    return persist_transaction(before,offset);
+}
+bool calibration_store_shift_complete(void){
+    if(!current.payload.shift_target)return true;
+    CalibrationRecord before=current;uint32_t offset=active_offset;
+    current.payload.shift_target=0u;current.payload.shift_attempts=0u;
+    current.payload.cycle_count=0u;current.payload.cycle_armed=0u;
+    return persist_transaction(before,offset);
+}
+bool calibration_store_shift_clear(void){
+    if(!current.payload.shift_target&&!current.payload.shift_attempts)return true;
+    CalibrationRecord before=current;uint32_t offset=active_offset;
+    current.payload.shift_target=0u;current.payload.shift_attempts=0u;
+    return persist_transaction(before,offset);
+}

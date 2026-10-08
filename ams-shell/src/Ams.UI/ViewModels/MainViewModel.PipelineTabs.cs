@@ -187,6 +187,7 @@ public partial class MainViewModel
         NotifySoundProfilesChanged();
         OnPropertyChanged(nameof(GameBuffs));
         OnPropertyChanged(nameof(GameMouseFatigueMinutes));
+        RefreshShiftScheduleBindings();
         NotifyHumanMouseProfileChanged();
         NotifyDisplayProfileChanged();
         UpdateFileText();
@@ -223,6 +224,7 @@ public partial class MainViewModel
             NotifySoundProfilesChanged();
             OnPropertyChanged(nameof(GameBuffs));
         OnPropertyChanged(nameof(GameMouseFatigueMinutes));
+        RefreshShiftScheduleBindings();
         NotifyHumanMouseProfileChanged();
             NotifyDisplayProfileChanged();
             UpdateFileText();

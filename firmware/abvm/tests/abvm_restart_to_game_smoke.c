@@ -8,6 +8,9 @@
 static bool marker_armed;
 static uint8_t marker_count;
 
+uint8_t calibration_store_shift_target(void){return 0u;}
+bool calibration_store_shift_begin(uint8_t target,uint8_t maximum){(void)target;(void)maximum;return false;}
+bool calibration_store_shift_complete(void){return true;}
 bool calibration_store_cycle_armed(void){return marker_armed;}
 uint8_t calibration_store_cycle_count(void){return marker_count;}
 bool calibration_store_cycle_arm_next(uint8_t maximum){

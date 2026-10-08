@@ -39,6 +39,14 @@ static void buzzer_play_sequence(const BuzzerTone *cue,uint8_t count,uint8_t vol
     (void)volume;(void)envelope;(void)now;assert(count==2u);
     if(cue[0].hz==880u)++day_cues;else if(cue[1].hz==660u)++night_cues;else assert(false);
 }
+static uint8_t calibration_store_shift_attempts(void){return 0u;}
+static uint8_t calibration_store_shift_target(void){return 0u;}
+static bool cycle_runtime_begin_shift(uint16_t route,uint8_t target,uint8_t maximum,uint32_t now){(void)route;(void)target;(void)maximum;(void)now;return false;}
+static bool cycle_runtime_shift_confirmed(uint32_t now){(void)now;return true;}
+static void guard_runtime_stop(void){}
+static void release_all_actors(uint32_t now){(void)now;}
+static void arm_uart_mouse_discard_completion(void){}
+static void cycle_runtime_fail(uint8_t stage){(void)stage;}
 /* PRODUCTION_ADAPTER */
 int main(int argc,char **argv) {
     assert(argc==2);FILE *f=fopen(argv[1],"rb");assert(f);

@@ -147,6 +147,18 @@ internal static class PipelineTabsUiBootstrap
             input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2) { Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus });
             row.Children.Add(input);identity.Children.Add(row);
         }
+        var scheduleCheck=new CheckBox { Content="بررسی بازهٔ شیفت و سوییچ خودکار",Foreground=Brush("#F5F7FA"),Margin=new Thickness(0,8,0,8) };
+        scheduleCheck.SetBinding(CheckBox.IsCheckedProperty,new Binding(nameof(MainViewModel.ShiftScheduleEnabled)){Source=vm,Mode=BindingMode.TwoWay});
+        identity.Children.Add(scheduleCheck);
+        foreach(var entry in new[] { ("شروع روز",nameof(MainViewModel.ShiftDayStart)),("پایان روز",nameof(MainViewModel.ShiftDayEnd)),("شروع شب",nameof(MainViewModel.ShiftNightStart)),("پایان شب",nameof(MainViewModel.ShiftNightEnd)),("سقف تلاش سوییچ",nameof(MainViewModel.ShiftMaxAttempts)) }) {
+            var row=new StackPanel {Orientation=Orientation.Horizontal,Margin=new Thickness(0,3,0,3)};
+            row.Children.Add(new TextBlock {Text=entry.Item1,Width=140,Foreground=Brush("#F5F7FA")});
+            var input=new TextBox {Width=100,FlowDirection=FlowDirection.LeftToRight};
+            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2){Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus,ValidatesOnExceptions=true});
+            row.Children.Add(input);identity.Children.Add(row);
+        }
+        identity.Children.Add(new TextBlock {Text="ساعت‌ها به شکل HH:mm و ۲۴ ساعته؛ شروع شامل و پایان خارج از بازه است. روز متعلق به کاربر روز و شب متعلق به کاربر شبِ بالا است. استپ‌های تب‌های سوییچ به روز/شب را خودتان بچینید؛ ری‌استارت خودکار اضافه نمی‌شود.",TextWrapping=TextWrapping.Wrap,Foreground=Brush("#AAB3C2"),Margin=new Thickness(0,5,0,5)});
+        identity.Children.Add(Bound(nameof(MainViewModel.ShiftScheduleSummary),13));
         var addCheck=new Button { Content="افزودن استپ تأیید شیفت به Desktop / Startup",Margin=new Thickness(0,8,0,8),Padding=new Thickness(10,6,10,6) };
         addCheck.Click+=(_,_)=>vm.AddShiftCheck();identity.Children.Add(addCheck);
         identity.Children.Add(Bound(nameof(MainViewModel.ShiftStatusText),13));body.Children.Add(identity);

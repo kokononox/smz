@@ -16,6 +16,7 @@ public static class PipelineWorkspaceSerializer
         public DisplayProfile displayProfile { get; set; } = new();
         public List<StepNode> gameBuffs { get; set; } = new();
         public int gameMouseFatigueMinutes { get; set; } = 135;
+        public ShiftScheduleSettings shiftSchedule { get; set; } = new();
     }
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -23,6 +24,7 @@ public static class PipelineWorkspaceSerializer
     public static string Serialize(PipelineWorkspace workspace)
     {
         workspace.EnsureDcDefaults();
+        workspace.ShiftSchedule.Validate();
         foreach(var tab in workspace.Tabs)ShiftTextValidation.ValidateTree(tab.Steps);
         var envelope = new Envelope
         {
@@ -32,6 +34,7 @@ public static class PipelineWorkspaceSerializer
             displayProfile = workspace.DisplayProfile,
             gameBuffs = workspace.GameBuffs.ToList(),
             gameMouseFatigueMinutes = workspace.GameMouseFatigueMinutes,
+            shiftSchedule = workspace.ShiftSchedule,
         };
         foreach (var tab in workspace.Tabs)
             envelope.pipelines[tab.Kind.ToString()] = tab.Steps.ToList();
@@ -53,6 +56,10 @@ public static class PipelineWorkspaceSerializer
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
+        if(root.TryGetProperty("shiftSchedule",out var schedule)) {
+            workspace.ShiftSchedule=schedule.Deserialize<ShiftScheduleSettings>()??new();
+            workspace.ShiftSchedule.Validate();
+        }
         if (root.TryGetProperty("gameBuffs", out var buffs)) {
             var list=buffs.Deserialize<List<StepNode>>() ?? new();
             if(list.Count>16)throw new InvalidDataException("حداکثر ۱۶ باف مجاز است.");
@@ -191,6 +198,8 @@ public static class PipelineWorkspaceSerializer
         return name switch
         {
             "Desktop" => PipelineKind.Desktop,
+            "SwitchToDay" => PipelineKind.SwitchToDay,
+            "SwitchToNight" => PipelineKind.SwitchToNight,
             "Restart" or "After" => PipelineKind.Restart,
             "Startup" => PipelineKind.Startup,
             "LoginOrDc" or "Login" => PipelineKind.LoginOrDc,
