@@ -45,7 +45,7 @@ function Save-BootGuidMap($path,$map,[switch]$New) {
     if($New){Save-IdentityJsonNew $path $map;return}
     # Atomic same-directory replacement, never truncate the only mapping.
     $temp=$path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
-    try{Save-IdentityJsonNew $temp $map;[IO.File]::Replace($temp,$path,$null)}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+    try{Save-IdentityJsonNew $temp $map;[IO.File]::Replace($temp,$path,($path+'.previous-'+[Guid]::NewGuid().ToString('N')+'.bak'))}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
 }
 function Write-BootGuidText($path,$map) {
     $lines=@('Windows Identity Report — نگاشت GUID بوت','GUIDها مربوط به ورودی بوت هستند؛ نه کاربر، دیسک یا MachineGuid.','Status: '+$map.Status,'Full BCD backup: '+$map.Backup,'هیچ ری‌استارت خودکاری انجام نشده. ورودی‌های قدیمی تا تکمیل تست باقی می‌مانند.','پس از تست، میان‌برهای سوییچ را به GUID جدید تغییر دهید.','')
