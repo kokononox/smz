@@ -572,23 +572,33 @@ static void execute_command(char *line, uint32_t now) {
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strncmp(line, "WAKE!", 5)) {
         /* Operator hardware test: arm a one-shot deadline without waiting for a
-         * real window, so the wake path can be exercised on demand.  The next
-         * accepted bridge clock sample replaces it with the authored schedule. */
+         * real window, so the wake path can be exercised on demand.  The `!dry`
+         * form wakes the host but starts no round, which is the safe first test.
+         * The next accepted bridge clock sample replaces it with the schedule. */
         if (!strcmp(line + 5, "OFF")) {
             wake_scheduler_disarm(&wake_scheduler); wake_attempts_reset();
             wake_store_service(now, true);
             printf("OK|WAKE|manual|disarmed\n");
         } else {
-            char *end = NULL; unsigned long seconds = strtoul(line + 5, &end, 10);
-            if (!end || *end || !seconds || seconds > 86400ul)
+            char *argument = line + 5; bool dry = false;
+            char *bang = strchr(argument, '!');
+            if (bang) {
+                *bang = '\0';
+                if (!strcmp(bang + 1, "dry")) dry = true; else argument = NULL;
+            }
+            char *end = NULL;
+            unsigned long seconds = argument ? strtoul(argument, &end, 10) : 0ul;
+            if (!argument || !end || *end || !seconds || seconds > 86400ul)
                 printf("ERR|ARG|WAKE\n");
-            else if (!wake_scheduler_arm_at(&wake_scheduler, now, (uint32_t)seconds * 1000u))
+            else if (!(dry ? wake_scheduler_arm_dry(&wake_scheduler, now, (uint32_t)seconds * 1000u)
+                           : wake_scheduler_arm_at(&wake_scheduler, now, (uint32_t)seconds * 1000u)))
                 printf("ERR|ARG|WAKE\n");
             else {
                 wake_attempts_reset();
                 wake_store_service(now, true);
-                printf("OK|WAKE|manual|in=%lu|target=%02u:%02u\n", seconds,
-                       wake_scheduler.next_start / 60u, wake_scheduler.next_start % 60u);
+                printf("OK|WAKE|manual|in=%lu|target=%02u:%02u|dry=%u\n", seconds,
+                       wake_scheduler.next_start / 60u, wake_scheduler.next_start % 60u,
+                       dry ? 1u : 0u);
             }
         }
     }
@@ -1627,8 +1637,15 @@ static void service_wake(uint32_t now) {
     if(wake_phase==WAKE_PHASE_SETTLE) {
         if((int32_t)(now-wake_deadline)<0)return;
         wake_phase=WAKE_PHASE_IDLE;
+        bool dry=wake_scheduler.dry;
         wake_scheduler_disarm(&wake_scheduler);
         ++wake_attempts;
+        if(dry) {
+            /* WAKE!<seconds>!dry proves the resume and stops there: no authored
+             * round may start while nobody is watching the desktop. */
+            printf("EVT|WAKE|state=start|attempt=%u|skipped=manual-dry\n",wake_attempts);
+            return;
+        }
         printf("EVT|WAKE|state=start|attempt=%u\n",wake_attempts);
         start_control(now);
         if(!guard_runtime_running()&&vm.status!=ABVM_STATUS_RUNNING) {
@@ -1738,7 +1755,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,WAKE!s-WAKE!OFF\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,WAKE!s-WAKE!s!dry-WAKE!OFF\n");
     if (wake_recovery_phase!=WAKE_RECOVERY_IDLE)
         printf("EVT|WAKE|recovery|armed|target=%02u:%02u|attempts=%u\n",
                wake_store_last.next_start/60u,wake_store_last.next_start%60u,

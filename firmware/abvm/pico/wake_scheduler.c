@@ -48,6 +48,7 @@ void wake_scheduler_disarm(WakeScheduler *w) {
     if (!w) return;
     w->armed = false;
     w->manual = false;
+    w->dry = false;
     w->deadline_ms = 0u;
 }
 
@@ -78,18 +79,30 @@ bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute) {
     return true;
 }
 
-bool wake_scheduler_arm_at(WakeScheduler *w, uint32_t now, uint32_t in_ms) {
+static bool arm_manual(WakeScheduler *w, uint32_t now, uint32_t in_ms, bool dry) {
     if (!w || !in_ms) return false;
     uint32_t at = now + in_ms;
     wake_scheduler_disarm(w);
     w->armed = true;
     w->manual = true;
+    w->dry = dry;
     w->deadline_ms = at;
     /* Label the test target in wall-clock terms when a sample already anchored
      * the clock, so the log reads like a real window instead of a delta. */
     uint16_t minute = 0u;
     w->next_start = wake_scheduler_wall_minute(w, at, &minute) ? minute : 0u;
     return true;
+}
+
+bool wake_scheduler_arm_at(WakeScheduler *w, uint32_t now, uint32_t in_ms) {
+    return arm_manual(w, now, in_ms, false);
+}
+
+/* A dry arm proves the wake itself without starting the authored round, which is
+ * what a first hardware test needs: the machine must not begin driving the
+ * desktop while nobody is watching it. */
+bool wake_scheduler_arm_dry(WakeScheduler *w, uint32_t now, uint32_t in_ms) {
+    return arm_manual(w, now, in_ms, true);
 }
 
 bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *minute) {

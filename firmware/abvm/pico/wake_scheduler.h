@@ -25,6 +25,7 @@ typedef struct WakeScheduler {
     bool enabled;
     bool armed;
     bool manual;      /* armed by WAKE!, not by a bridge clock sample */
+    bool dry;         /* a WAKE! dry arm wakes the host but starts no round */
     bool synced;      /* a bridge clock sample anchored the wall clock */
     uint16_t lead_minutes;
     uint16_t day_start, day_end, night_start, night_end;
@@ -40,6 +41,7 @@ void wake_scheduler_configure(WakeScheduler *w, bool enabled,
                               uint16_t night_start, uint16_t night_end);
 bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute);
 bool wake_scheduler_arm_at(WakeScheduler *w, uint32_t now, uint32_t in_ms);
+bool wake_scheduler_arm_dry(WakeScheduler *w, uint32_t now, uint32_t in_ms);
 bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *minute);
 bool wake_scheduler_recovery_needed(bool host_asleep, bool pending,
                                     uint8_t attempts, uint8_t maximum);

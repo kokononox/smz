@@ -117,9 +117,12 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   host never reports `UP` the attempt is retried after `WAKE_RETRY_MS`, up to
   `WAKE_MAX_ATTEMPTS`.
 * A host that is already awake skips the pulse and starts the round directly.
-* `WAKE!<seconds>` and `WAKE!OFF` arm or clear a one-shot deadline on demand, so
-  the whole path can be exercised without waiting for a real window. The next
-  accepted clock sample replaces it with the authored schedule.
+* `WAKE!<seconds>`, `WAKE!<seconds>!dry` and `WAKE!OFF` arm, arm-without-starting
+  or clear a one-shot deadline on demand, so the path can be exercised without
+  waiting for a real window. The `!dry` form wakes the host and then stops, which
+  is the safe first hardware test: no authored round starts while nobody is
+  watching the desktop. The next accepted clock sample replaces either form with
+  the authored schedule.
 
 ### After a board reset
 

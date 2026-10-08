@@ -37,9 +37,20 @@ class ShiftWakeTests(unittest.TestCase):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('!strncmp(line, "WAKE!", 5)',main)
         self.assertIn('wake_scheduler_arm_at(&wake_scheduler, now,',main)
-        self.assertIn('WAKE!s-WAKE!OFF',main)
+        self.assertIn('wake_scheduler_arm_dry(&wake_scheduler, now,',main)
+        self.assertIn('if (!strcmp(bang + 1, "dry")) dry = true;',main)
+        self.assertIn('WAKE!s-WAKE!s!dry-WAKE!OFF',main)
         self.assertIn('|pico-usb=%u|pico-rw=%u|wake=%u',main)
         self.assertIn('|wake-recovery=%u|wake-host=%u',main)
+    def test_dry_test_arm_wakes_without_starting_a_round(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('bool dry=wake_scheduler.dry;',main)
+        self.assertIn('skipped=manual-dry',main)
+        block=re.search(r'if\(dry\) \{(.*?)\n        \}',main,re.S)
+        self.assertIsNotNone(block)
+        # The safe test path must leave before the authored round is started.
+        self.assertIn('return;',block.group(1))
+        self.assertNotIn('start_control',block.group(1))
     def test_persisted_wake_record_is_versioned(self):
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
         self.assertIn('#define CAL_VERSION 6u',store)

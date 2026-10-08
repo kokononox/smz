@@ -134,9 +134,22 @@ int main(void) {
     /* A bridge sample always supersedes a test arm. */
     assert(wake_scheduler_arm_at(&wall, 40u * MIN, 60u * 1000u));
     assert(wall.manual);
+    assert(!wall.dry);
     assert(wake_scheduler_sync(&wall, 41u * MIN, 600u));
     assert(!wall.manual);
     assert(wall.next_start == 1320u);
+
+    /* A dry test arm behaves identically as a deadline but flags itself so the
+     * caller can skip the authored round. */
+    WakeScheduler dry = make(2u);
+    assert(wake_scheduler_arm_dry(&dry, 0u, 60u * 1000u));
+    assert(dry.manual && dry.dry);
+    assert(wake_scheduler_armed(&dry));
+    assert(wake_scheduler_due(&dry, 60u * 1000u));
+    wake_scheduler_disarm(&dry);
+    assert(!dry.manual && !dry.dry);
+    assert(!wake_scheduler_armed(&dry));
+    assert(!wake_scheduler_arm_dry(&dry, 0u, 0u));
 
     /* Recovery is owed only for the combination a reset cannot undo: the host was
      * asleep, a wake was still pending, and pulse budget is left. */
