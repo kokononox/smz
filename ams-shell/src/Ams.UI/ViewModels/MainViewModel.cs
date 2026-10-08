@@ -226,6 +226,7 @@ public partial class MainViewModel : ObservableObject
     {
 
         UpdateGameBuffTelemetry(message);
+        UpdateShiftTelemetry(message);
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
 
         var d = System.Windows.Application.Current?.Dispatcher;

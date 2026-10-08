@@ -7,6 +7,7 @@
     "MOUSE": 3,
     "RANGES": 4,
     "SCOPE": 5,
+    "SHIFT": 11,
     "SOUND": 6,
     "TYPE": 2,
     "UTF8": 1
@@ -40,6 +41,8 @@
     "RMOUSE": 6,
     "RPKG_ENTER": 12,
     "SCOPE_BEGIN": 20,
+    "SHIFT_CHECK": 32,
+    "SHIFT_TYPE": 33,
     "TYPE": 5,
     "WATCH": 22
   },

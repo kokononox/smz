@@ -201,7 +201,7 @@ static int known_opcode(uint8_t opcode) {
         case ABVM_OP_RMOUSE: case ABVM_OP_BEEP: case ABVM_OP_LOOP_ENTER:
         case ABVM_OP_LOOP_NEXT: case ABVM_OP_RPKG_ENTER:
         case ABVM_OP_ITEM_END: case ABVM_OP_SCOPE_BEGIN:
-        case ABVM_OP_LANE_END: case ABVM_OP_WATCH: case ABVM_OP_JUMP: case ABVM_OP_BUFF:
+        case ABVM_OP_LANE_END: case ABVM_OP_WATCH: case ABVM_OP_JUMP: case ABVM_OP_BUFF: case ABVM_OP_SHIFT_CHECK: case ABVM_OP_SHIFT_TYPE:
             return 1;
         default: return 0;
     }
@@ -276,7 +276,7 @@ static int verify_image(AbvmVm *vm) {
         uint32_t size;
         if (!instruction_at(vm, pc, &ins) || !known_opcode(ins.opcode))
             return fail(vm, "opcode");
-        if ((ins.opcode == ABVM_OP_TYPE &&
+        if (((ins.opcode == ABVM_OP_TYPE || ins.opcode == ABVM_OP_SHIFT_TYPE) &&
              !constant_at(vm, ins.operand_a, ABVM_CONST_TYPE,&payload,&size)) ||
             (ins.opcode == ABVM_OP_RMOUSE &&
              !constant_at(vm, ins.operand_a,ABVM_CONST_MOUSE,&payload,&size)) ||
@@ -285,6 +285,12 @@ static int verify_image(AbvmVm *vm) {
             (ins.opcode == ABVM_OP_SCOPE_BEGIN &&
              !constant_at(vm, ins.operand_a,ABVM_CONST_SCOPE,&payload,&size)))
             return fail(vm, "constant reference");
+        if(ins.opcode==ABVM_OP_SHIFT_CHECK) {
+            if(ins.flags||ins.operand_b||ins.operand_c||ins.operand_d||
+               !constant_at(vm,ins.operand_a,ABVM_CONST_SHIFT,&payload,&size)||
+               size!=88u||memcmp(payload,"SFT1",4u)||payload[4]!=1u||!payload[5]||payload[5]>4u||read_u16(payload+6u))
+                return fail(vm,"shift descriptor");
+        }
         if (ins.opcode == ABVM_OP_BUFF) {
             if (ins.flags > 1u || ins.operand_b || ins.operand_c || ins.operand_d ||
                 !constant_at(vm,ins.operand_a,ABVM_CONST_BUFF,&payload,&size) ||
@@ -592,7 +598,7 @@ static int package_select(AbvmVm *vm, AbvmLane *lane, AbvmFrame *frame) {
 }
 
 static uint8_t action_actor(uint8_t opcode) {
-    if (opcode==ABVM_OP_BUFF || opcode==ABVM_OP_KEY || opcode==ABVM_OP_KDOWN ||
+    if (opcode==ABVM_OP_SHIFT_CHECK || opcode==ABVM_OP_SHIFT_TYPE || opcode==ABVM_OP_BUFF || opcode==ABVM_OP_KEY || opcode==ABVM_OP_KDOWN ||
         opcode==ABVM_OP_KUP || opcode==ABVM_OP_TYPE) return 1u;
     if (opcode==ABVM_OP_RMOUSE) return 2u;
     if (opcode==ABVM_OP_BEEP) return 3u;
@@ -712,7 +718,7 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 lane->due = now + random_range(vm,ins.operand_b,ins.operand_c);
                 break;
             case ABVM_OP_KEY: case ABVM_OP_KDOWN: case ABVM_OP_KUP:
-            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE: case ABVM_OP_BEEP: case ABVM_OP_BUFF: {
+            case ABVM_OP_TYPE: case ABVM_OP_RMOUSE: case ABVM_OP_BEEP: case ABVM_OP_BUFF: case ABVM_OP_SHIFT_CHECK: case ABVM_OP_SHIFT_TYPE: {
                 uint8_t actor=action_actor(ins.opcode);
                 if (action_actor_busy(vm,lane_index,actor)) continue;
                 lane->pc++;

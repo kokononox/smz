@@ -42,6 +42,19 @@ class TestRunner
         testBuff.Props["renewMaxMinutes"]=53.0;
         bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }
         Assert(badBuff,"Pico buff validation rejects inverted intervals");
+        var shiftValues = new Dictionary<string,object?> { ["textScope"]="shift",["text"]="G",["textDay"]="D",["textNight"]="N" };
+        ShiftTextValidation.ValidateText(shiftValues);
+        Assert(StepDefinitions.Get("typeText").Fields.Any(f=>f.Key=="textDay"&&f.HideUnlessValue=="shift")
+            &&StepDefinitions.Get("typeText").Fields.Any(f=>f.Key=="textNight"&&f.HideUnlessValue=="shift"),
+            "Shift text exposes separate conditional day/night fields");
+        Assert(StepDefinitions.Get("shiftCheck").Fields.Any(f=>f.Key=="key"&&f.Default=="4"),"Shift identity check has editable launch shortcut");
+        Assert(ClassroomShift.ShiftUserIdentity.Hash(" dayuser ")==ClassroomShift.ShiftUserIdentity.Hash("DAYUSER"),
+            "Host bridge and exporter share normalized username hashing");
+        shiftValues["textNight"]="";bool emptyShift=false;
+        try { ShiftTextValidation.ValidateText(shiftValues); } catch(FormatException) { emptyShift=true; }
+        Assert(emptyShift,"Empty shift text is rejected before save");
+        shiftValues["textScope"]="global";ShiftTextValidation.ValidateText(shiftValues);
+        Assert(PropEx.GetString(shiftValues,"text")=="G","Global fallback is retained when changing text scope");
         // ── Step 1: StepDefinitions exist ────────────────────────────
         var errorDef = StepDefinitions.Get("raiseError");
         Assert(errorDef.Label == "Raise Error / Stop Macro" && errorDef.Fields.Any(f => f.Key == "message"),

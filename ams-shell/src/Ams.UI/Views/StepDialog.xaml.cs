@@ -499,6 +499,10 @@ public partial class StepDialog : Window
         }
 
         var vals = ReadValues();
+        if(_stepType=="typeText") {
+            try { ShiftTextValidation.ValidateText(vals); }
+            catch(FormatException ex) { System.Windows.MessageBox.Show(this,ex.Message,"متن شیفتی نامعتبر");return; }
+        }
         if (_stepType == "randomMousePosition")
         {
             try { MouseSpeedPolicy.Validate(MouseSpeedPolicy.ResolveProfile(vals, _globalHandSample?.Invoke() ?? "")); }

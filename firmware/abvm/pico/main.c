@@ -16,6 +16,7 @@
 #include "buzzer.h"
 #include "cycle_runtime.h"
 #include "game_buff_runtime.h"
+#include "shift_identity_runtime.h"
 
 extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
@@ -35,6 +36,12 @@ static bool buff_checkpoint, buff_key_inflight;
 static uint8_t buff_lane;
 static uint32_t game_fishing_elapsed, game_age_at, buff_status_at, buff_generation;
 #define BUFF_KEY_LANE 253u
+#define SHIFT_KEY_LANE 252u
+static ShiftIdentityRuntime shift_identity;
+static bool shift_checkpoint,shift_key_inflight,shift_launch_pending,shift_cue_started,shift_failure_paused;
+static uint8_t shift_lane;
+static uint32_t shift_generation,shift_cue_until;
+
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
@@ -164,7 +171,7 @@ static bool whisper_interrupt_allowed(void) {
            !cycle_runtime_restart_critical();
 }
 static bool input_lock_active(void) {
-    return hid_keyboard_locked()||arm_uart_mouse_busy();
+    return shift_checkpoint||hid_keyboard_locked()||arm_uart_mouse_busy();
 }
 static bool ambient_mouse_route_allowed(uint8_t profile) {
     /* Ambient is the non-Game sidecar.  It may run while a foreground route
@@ -194,6 +201,7 @@ static void ambient_mouse_complete(uint32_t now) {
     if(ambient_mouse_available)ambient_mouse_arm_next(now);
 }
 static void service_ambient_mouse(uint32_t now) {
+    if(shift_checkpoint)return;
     if(!ambient_mouse_available)return;
     if(ambient_mouse_inflight) {
         uint8_t profile=guard_runtime_active_profile();
@@ -317,6 +325,12 @@ static void print_light_calibration_dump(void) {
            (unsigned long)calibration_store_revision(),mask,profiles);
 }
 static void release_all_actors(uint32_t now) {
+    if(shift_checkpoint && shift_identity.phase!=SHIFT_FAILED) {
+        shift_identity_cancel(&shift_identity);shift_failure_paused=true;
+    }
+    if(shift_key_inflight) {
+        shift_key_inflight=false;hid_keyboard_release_all();hid_keyboard_discard_completion();
+    }
     if (buff_key_inflight) {
         game_buff_key_cancelled(&game_buffs);
         buff_key_inflight=false;
@@ -340,6 +354,9 @@ static void release_all_actors(uint32_t now) {
     ui_buzzer_reply_pending=false;ui_buzzer_sequence_reply=false;
 }
 static void start_control(uint32_t now) {
+    shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
+    shift_checkpoint=false;shift_key_inflight=false;
+
     if (calibration_runtime_active()) { printf("ERR|GUARD|CALIBRATING\n"); return; }
     if (!arm_uart_mouse_ready()) {
         printf("ERR|GUARD|ARM|ready=0|version=%s|detail=%s\n", arm_uart_mouse_version(), arm_uart_mouse_fault());
@@ -362,6 +379,9 @@ static void start_control(uint32_t now) {
     else printf("ERR|CONTROL|start\n");
 }
 static void stop_control(uint32_t now) {
+    shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
+    shift_checkpoint=false;
+
     buzzer_watchdog_alarm_stop();
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
     pending_sound_whisper=false;
@@ -436,6 +456,27 @@ static void service_buttons(uint32_t now) {
 
 static void execute_command(char *line, uint32_t now) {
     if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 9u : 0u);
+    else if (!strcmp(line,"SHIFT?")) {
+        if(shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY)
+            printf("OK|SHIFT-CHALLENGE|%08lx\n",(unsigned long)shift_identity.nonce);
+        else printf("ERR|SHIFT|not-waiting\n");
+    }
+    else if (!strncmp(line,"SHIFT!|",7)) {
+        char *nonce_text=line+7,*hash_text=strchr(nonce_text,'|');
+        uint8_t hash[32];bool valid=hash_text&&hash_text-nonce_text==8;
+        uint32_t nonce=0u;
+        if(valid) {
+            *hash_text++='\0';char *end=NULL;
+            nonce=(uint32_t)strtoul(nonce_text,&end,16);valid=end&&!*end&&strlen(hash_text)==64u;
+            for(uint8_t i=0u;valid&&i<32u;++i) {
+                char pair[3]={hash_text[i*2u],hash_text[i*2u+1u],0};
+                unsigned long b=strtoul(pair,&end,16);valid=end&&end-pair==2&&b<=255u;hash[i]=(uint8_t)b;
+            }
+        }
+        if(valid&&shift_checkpoint&&shift_identity_reply(&shift_identity,nonce,hash,tud_cdc_connected()))
+            printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
+        else printf("ERR|SHIFT|invalid-or-unknown-user\n");
+    }
     else if (!strcmp(line, "STATUS")) print_status();
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -667,7 +708,9 @@ static void service_cdc(uint32_t now) {
 static void service_keyboard(uint32_t now) {
     uint8_t lane;
     if (hid_keyboard_service(now, &lane)) {
-        if (lane==BUFF_KEY_LANE) {
+        if(lane==SHIFT_KEY_LANE) {
+            shift_key_inflight=false;
+        } else if (lane==BUFF_KEY_LANE) {
             if (buff_key_inflight) {
                 buff_key_inflight=false;
                 (void)game_buff_key_finished(&game_buffs,now);
@@ -1030,6 +1073,69 @@ static void service_cycle(uint32_t now) {
         }
     }
 }
+static void fail_shift_check(uint32_t now,const char *reason) {
+    shift_identity_cancel(&shift_identity);shift_failure_paused=true;hid_keyboard_set_shift(0u);
+    (void)abvm_pause(&vm,now);
+    if(guard_runtime_running())(void)guard_runtime_pause();
+    cycle_runtime_hold(now);
+    buzzer_watchdog_alarm_start(now);
+    printf("ERR|SHIFT|reason=%s|action=paused|resume=recheck\n",reason);
+}
+static void launch_shift_check(uint32_t now) {
+    shift_identity_begin(&shift_identity,now);hid_keyboard_set_shift(0u);
+    shift_launch_pending=true;shift_cue_started=false;shift_failure_paused=false;
+    if(tud_cdc_connected())fail_shift_check(now,"serial-port-already-open");
+    else printf("EVT|SHIFT|state=checking\n");
+}
+static void service_shift_check(uint32_t now) {
+    /* A fresh Startup means the OS/round has changed. Temporary optical
+     * interrupts do not invalidate the current round's identity. */
+    if(vm.route_generation!=shift_generation) {
+        shift_generation=vm.route_generation;
+        if(vm.route_id==3u) {
+            shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
+        }
+        if(shift_checkpoint){shift_checkpoint=false;shift_identity_forget(&shift_identity);}
+    }
+    if(vm.status==ABVM_STATUS_STOPPED||vm.status==ABVM_STATUS_FAULT) {
+        shift_checkpoint=false;shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);return;
+    }
+    if(!shift_checkpoint||vm.status!=ABVM_STATUS_RUNNING||vm.pending_release)return;
+    if(shift_identity.phase==SHIFT_FAILED) {
+        if(!shift_failure_paused)fail_shift_check(now,shift_identity.reason?shift_identity.reason:"failed");
+        else { buzzer_watchdog_alarm_stop();launch_shift_check(now); }
+        return;
+    }
+    if(shift_launch_pending&&!hid_keyboard_locked()&&!arm_uart_mouse_busy()) {
+        AbvmEvent key={0};key.opcode=ABVM_OP_KEY;key.lane=SHIFT_KEY_LANE;
+        key.flags=shift_identity.key_count;key.operand_c=shift_identity.hold_min;key.operand_d=shift_identity.hold_max;
+        for(uint8_t i=0u;i<key.flags;++i)key.operand_b|=(uint32_t)shift_identity.keys[i]<<(8u*i);
+        HidKeyboardSubmit result=hid_keyboard_submit(&vm,&key,now);
+        if(result==HID_KEYBOARD_ACCEPTED){shift_launch_pending=false;shift_key_inflight=true;}
+        else if(result!=HID_KEYBOARD_BUSY){fail_shift_check(now,"hotkey-submit");return;}
+    }
+    ShiftPhase phase=shift_identity_tick(&shift_identity,now,tud_cdc_connected());
+    if(phase==SHIFT_FAILED){fail_shift_check(now,shift_identity.reason?shift_identity.reason:"failed");return;}
+    if(phase==SHIFT_OK&&!shift_key_inflight) {
+        if(!shift_cue_started) {
+            BuzzerTone cue[2];
+            bool day=shift_identity.selected==SHIFT_DAY;
+            cue[0]=(BuzzerTone){day?880u:1320u,180u,80u};
+            cue[1]=(BuzzerTone){day?1320u:660u,260u,80u};
+            buzzer_play_sequence(cue,2u,100u,0u,now);
+            shift_cue_started=true;shift_cue_until=now+600u;
+            hid_keyboard_set_shift((uint8_t)shift_identity.selected);
+            printf("EVT|SHIFT|state=verified|shift=%s|bridge=closed\n",day?"day":"night");
+        }
+        if((int32_t)(now-shift_cue_until)>=0) {
+            shift_checkpoint=false;
+            if(!abvm_complete_action(&vm,shift_lane,now)) {
+                printf("ERR|SHIFT|checkpoint-completion\n");abvm_stop(&vm,now);
+            }
+        }
+    }
+}
+
 static void service_game_buffs(uint32_t now) {
     uint32_t delta=now-game_age_at;game_age_at=now;
     if (buff_generation!=vm.route_generation) {
@@ -1089,6 +1195,7 @@ static void service_game_buffs(uint32_t now) {
 }
 
 static void service_vm(uint32_t now) {
+    if(shift_checkpoint&&!vm.pending_release)return;
     if(buff_checkpoint && vm.route_id==GAME_ROUTE_ID && !vm.pending_release)return;
     /* Keep the foreground VM at its exact PC while Ambient owns the ARM mouse.
      * Route clocks remain wall-clock based, so overdue work resumes immediately
@@ -1100,6 +1207,17 @@ static void service_vm(uint32_t now) {
     AbvmEvent event = abvm_tick(&vm, now);
     switch (event.type) {
         case ABVM_EVENT_ACTION: {
+            if(event.opcode==ABVM_OP_SHIFT_CHECK) {
+                const uint8_t *payload;uint32_t size;
+                if((vm.route_id!=1u&&vm.route_id!=3u)||shift_checkpoint||
+                   !abvm_constant(&vm,event.operand_a,ABVM_CONST_SHIFT,&payload,&size)||
+                   !shift_identity_load(&shift_identity,payload,size,now^local_u32(vm.header.program_sha256))) {
+                    printf("ERR|SHIFT|invalid-descriptor\n");abvm_stop(&vm,now);break;
+                }
+                shift_lane=event.lane;shift_checkpoint=true;
+                shift_generation=vm.route_generation;launch_shift_check(now);break;
+            }
+            if(event.opcode==ABVM_OP_SHIFT_TYPE)event.opcode=ABVM_OP_TYPE;
             if(event.opcode==ABVM_OP_BUFF) {
                 const uint8_t *payload;uint32_t size;
                 if(vm.route_id!=GAME_ROUTE_ID || buff_checkpoint ||
@@ -1193,7 +1311,7 @@ static void service_vm(uint32_t now) {
         default: break;
     }
 }
-void tud_umount_cb(void) { release_all_actors(now_ms()); buzzer_silence(); }
+void tud_umount_cb(void) { shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u); release_all_actors(now_ms()); buzzer_silence(); }
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en; release_all_actors(now_ms()); buzzer_silence();
 }
@@ -1230,5 +1348,5 @@ int main(void) {
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
     printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id\n");
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

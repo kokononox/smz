@@ -46,6 +46,9 @@ OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP, OP_TYPE, OP_RMOUSE, OP_BEEP = range(
 OP_LOOP_ENTER, OP_LOOP_NEXT, OP_RPKG_ENTER, OP_ITEM_END = 10, 11, 12, 13
 OP_SCOPE_BEGIN, OP_LANE_END, OP_WATCH, OP_JUMP = 20, 21, 22, 30
 OP_BUFF = 31
+OP_SHIFT_CHECK, OP_SHIFT_TYPE = 32, 33
+CONST_SHIFT = 11
+SHIFT_CONFIG = struct.Struct("<4sBBHIII4B32s32s")
 CONST_BUFF = 10
 BUFF_HEADER = struct.Struct("<4sBBH")
 BUFF_ROW = struct.Struct("<IB3xIIIIIIII")
@@ -121,13 +124,13 @@ OPCODES = {
     "RMOUSE": OP_RMOUSE, "BEEP": OP_BEEP, "LOOP_ENTER": OP_LOOP_ENTER,
     "LOOP_NEXT": OP_LOOP_NEXT, "RPKG_ENTER": OP_RPKG_ENTER,
     "ITEM_END": OP_ITEM_END, "SCOPE_BEGIN": OP_SCOPE_BEGIN,
-    "LANE_END": OP_LANE_END, "WATCH": OP_WATCH, "JUMP": OP_JUMP, "BUFF": OP_BUFF,
+    "LANE_END": OP_LANE_END, "WATCH": OP_WATCH, "JUMP": OP_JUMP, "BUFF": OP_BUFF, "SHIFT_CHECK": OP_SHIFT_CHECK, "SHIFT_TYPE": OP_SHIFT_TYPE,
 }
 
 CONSTANT_KINDS = {
     "UTF8": CONST_UTF8, "TYPE": CONST_TYPE, "MOUSE": CONST_MOUSE,
     "RANGES": CONST_RANGES, "SCOPE": CONST_SCOPE, "SOUND": CONST_SOUND,
-    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD, "CYCLE": CONST_CYCLE, "BUFF": CONST_BUFF,
+    "LIGHT": CONST_LIGHT, "GUARD": CONST_GUARD, "CYCLE": CONST_CYCLE, "BUFF": CONST_BUFF, "SHIFT": CONST_SHIFT,
 }
 
 
@@ -635,6 +638,7 @@ class Compiler:
         if not 1 <= fatigue_minutes <= 1440:
             raise AbvmError("mouse fatigue duration must be 1..1440 minutes")
         self.game_fatigue_ms = fatigue_minutes * 60000 if enabled else 0
+        self.shift_config = source.get("nativeShift") or {}
         for name in route_names:
             nodes = pipelines.get(name)
             if nodes is None:
@@ -767,7 +771,24 @@ class Compiler:
     def compile_node(self, node: dict[str, Any], depth: int,
                      path: tuple[int, ...]) -> None:
         kind, p = step_type(node), props(node)
-        if kind == "buffCheckpoint":
+        if kind == "shiftCheck":
+            if self.current_route not in ("Desktop", "Startup"):
+                raise AbvmError("shiftCheck is only allowed in Desktop or Startup")
+            try:
+                day = bytes.fromhex(self.shift_config.get("dayHash", ""))
+                night = bytes.fromhex(self.shift_config.get("nightHash", ""))
+            except ValueError:
+                raise AbvmError("invalid shift username hashes")
+            if len(day) != 32 or len(night) != 32 or day == night or not any(day) or not any(night):
+                raise AbvmError("configure two distinct Windows shift usernames before Native export")
+            keys = ([162] if p.get("modCtrl") else []) + ([160] if p.get("modShift") else []) + ([164] if p.get("modAlt") else []) + ([91] if p.get("modWin", True) else []) + [vk(p.get("key", "4"))]
+            lo, hi = integer(p.get("holdMin"),90), integer(p.get("holdMax"),160)
+            timeout = integer(p.get("timeoutSeconds"),60) * 1000
+            if not 1 <= len(keys) <= 4 or len(set(keys)) != len(keys) or not 1 <= lo <= hi <= 10000 or not 1000 <= timeout <= 120000:
+                raise AbvmError("invalid shift check hotkey/hold/timeout")
+            packed = SHIFT_CONFIG.pack(b"SFT1",1,len(keys),0,timeout,lo,hi,*(keys+[0]*(4-len(keys))),day,night)
+            self.emit(OP_SHIFT_CHECK,a=self.pool.add(CONST_SHIFT,packed))
+        elif kind == "buffCheckpoint":
             if self.current_route != "Game":
                 raise AbvmError("buffCheckpoint is only allowed in Game")
             if self.buff_constant is not None:
@@ -803,7 +824,20 @@ class Compiler:
             self.flags |= FLAG_HAS_TYPE
             spec = dict(p)
             spec["text"] = str(p.get("text") or "")
-            self.emit(OP_TYPE, a=self.pool.obj(CONST_TYPE, spec))
+            scope = str(p.get("textScope") or "global")
+            if scope not in ("global", "shift"):
+                raise AbvmError("unknown Type Text scope")
+            if scope == "shift":
+                if spec.get("secret") or spec.get("mode") == "clipboard":
+                    raise AbvmError("Native shift text requires non-secret keystrokes mode")
+                for field in ("textDay", "textNight"):
+                    if not str(spec.get(field) or "").strip():
+                        raise AbvmError("both day and night text are required")
+                for field in ("text", "textDay", "textNight"):
+                    value = str(spec.get(field) or "")
+                    if any(not (32 <= ord(c) <= 126 or c in "\n\r") for c in value):
+                        raise AbvmError("Native shift text requires ASCII keyboard characters")
+            self.emit(OP_SHIFT_TYPE if scope == "shift" else OP_TYPE, a=self.pool.obj(CONST_TYPE, spec))
         elif kind == "randomMousePosition":
             spec = dict(p)
             spec.update(self.human_mouse_profile)
@@ -1604,6 +1638,14 @@ class Verifier:
                 if not 0 <= pc < len(image.instructions):
                     raise AbvmError("PC out of range")
                 ins = image.instructions[pc]
+                if ins.op == OP_SHIFT_CHECK:
+                    payload = image.const(ins.a,CONST_SHIFT)
+                    if len(payload) != SHIFT_CONFIG.size or ins.flags or ins.b or ins.c or ins.d:
+                        raise AbvmError("invalid shift check descriptor")
+                    magic,version,width,reserved,timeout,lo,hi,*tail=SHIFT_CONFIG.unpack(payload)
+                    keys=tail[:4];day,night=tail[4:]
+                    if magic!=b"SFT1" or version!=1 or reserved or not 1<=width<=4 or 0 in keys[:width] or any(keys[width:]) or len(set(keys[:width]))!=width or not 1000<=timeout<=120000 or not 1<=lo<=hi<=10000 or day==night or not any(day) or not any(night):
+                        raise AbvmError("invalid shift identity configuration")
                 if ins.op == OP_BUFF:
                     image.const(ins.a, CONST_BUFF)
                     if ins.flags not in (0,1) or ins.b or ins.c or ins.d:
@@ -1717,7 +1759,7 @@ class Verifier:
                          watch_depth + 1, scope_depth)
                     pc = ins.d
                     continue
-                if ins.op == OP_TYPE:
+                if ins.op in (OP_TYPE, OP_SHIFT_TYPE):
                     measured_flags |= FLAG_HAS_TYPE
                     image.const(ins.a, CONST_TYPE)
                     if not image.flags & FLAG_HAS_TYPE:
@@ -1729,7 +1771,7 @@ class Verifier:
                         raise AbvmError("jump target out of range")
                 elif ins.op not in {
                     OP_END, OP_DELAY, OP_KEY, OP_KDOWN, OP_KUP,
-                    OP_BEEP, OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END, OP_BUFF,
+                    OP_BEEP, OP_LOOP_NEXT, OP_ITEM_END, OP_LANE_END, OP_BUFF, OP_SHIFT_CHECK,
                 }:
                     raise AbvmError("unknown opcode: " + str(ins.op))
                 pc += 1
@@ -2056,6 +2098,8 @@ class ReferenceVm:
             self.events.append(("BEEP", ins.a, ins.b))
             lane.pc += 1
             lane.due = self.now + ins.b
+        elif ins.op in (OP_SHIFT_CHECK,OP_SHIFT_TYPE):
+            raise AbvmError("shift programs require the native Pico identity adapter")
         elif ins.op == OP_BUFF:
             raise AbvmError("buff-enabled programs require the native Pico adapter; ReferenceVm does not simulate consumption")
         elif ins.op == OP_LOOP_ENTER:

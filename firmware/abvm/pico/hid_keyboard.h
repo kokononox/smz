@@ -15,6 +15,7 @@ typedef enum HidKeyboardSubmit {
 } HidKeyboardSubmit;
 
 void hid_keyboard_init(void);
+void hid_keyboard_set_shift(uint8_t shift);
 HidKeyboardSubmit hid_keyboard_submit(const AbvmVm *vm, const AbvmEvent *event, uint32_t now);
 HidKeyboardSubmit hid_keyboard_submit_live(const char *command, uint32_t now);
 HidKeyboardSubmit hid_keyboard_submit_trigger(uint8_t vk, uint32_t hold_min,

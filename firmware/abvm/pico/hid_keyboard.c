@@ -268,12 +268,19 @@ static bool next_json_char(const uint8_t **cursor, const uint8_t *end, uint8_t *
     *out=value; return true;
 }
 
+static uint8_t current_shift;
+void hid_keyboard_set_shift(uint8_t shift) { current_shift=shift<=2u?shift:0u; }
 static bool type_configure(const AbvmVm *vm, uint16_t constant_id, uint32_t now) {
     const uint8_t *data, *text, *end;
     uint32_t size;
     if (!abvm_constant(vm, constant_id, ABVM_CONST_TYPE, &data, &size) ||
         json_true(data,size,"secret") || json_string_equals(data,size,"mode","clipboard")) return false;
-    text = json_field(data,size,"text"); end = data + size;
+    const char *field="text";
+    if(json_string_equals(data,size,"textScope","shift")) {
+        if(current_shift==1u)field="textDay";
+        else if(current_shift==2u)field="textNight";
+    }
+    text = json_field(data,size,field); end = data + size;
     if (!text || text >= end || *text++ != '"') return false;
     const uint8_t *close=text; bool escaped=false;
     while (close<end) { uint8_t v=*close; if (!escaped && v=='"') break; escaped=!escaped && v=='\\'; if (v!='\\') escaped=false; ++close; }

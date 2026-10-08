@@ -66,10 +66,14 @@ def inject(template:bytes,program:bytes):
     blocks=parse(template); memory=_address_map(blocks); address,capacity,_=locate_slot(blocks)
     if len(program)>=128 and struct.unpack_from("<HH",program,4)==(2,1):
         try:
-            from tools.abvm import Verifier,OP_BUFF
+            from tools.abvm import Verifier,OP_BUFF,OP_SHIFT_CHECK,OP_SHIFT_TYPE
         except ModuleNotFoundError:
-            from abvm import Verifier,OP_BUFF
+            from abvm import Verifier,OP_BUFF,OP_SHIFT_CHECK,OP_SHIFT_TYPE
         verified=Verifier.verify(program)
+        flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
+        if any(i.op in (OP_SHIFT_CHECK,OP_SHIFT_TYPE) for i in verified.instructions):
+            if b"OK|SHIFT-CHALLENGE|" not in flash:
+                raise Uf2Error("UF2 template lacks the Pico shift identity runtime; choose a matching Shift test-build template")
         if any(i.op==OP_BUFF for i in verified.instructions):
             flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
             if b"EVT|BUFF|state=new-game|count=%u" not in flash:

@@ -38,6 +38,8 @@ typedef enum AbvmOpcode {
     ABVM_OP_WATCH = 22,
     ABVM_OP_JUMP = 30,
     ABVM_OP_BUFF = 31,
+    ABVM_OP_SHIFT_CHECK = 32,
+    ABVM_OP_SHIFT_TYPE = 33,
 } AbvmOpcode;
 
 typedef enum AbvmConstantKind {
@@ -51,6 +53,7 @@ typedef enum AbvmConstantKind {
     ABVM_CONST_GUARD = 8,
     ABVM_CONST_CYCLE = 9,
     ABVM_CONST_BUFF = 10,
+    ABVM_CONST_SHIFT = 11,
 } AbvmConstantKind;
 
 typedef enum AbvmScopePolicy {
