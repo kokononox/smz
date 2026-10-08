@@ -29,7 +29,9 @@ function Get-DeviceCleanupDecision($row,$rows) {
         $parent=$index[$at]
         if($parent.Present -and (Test-PeripheralDeviceId $parent.Id)){return 'عضو خانوادهٔ دستگاه متصل — محافظت‌شده'}
         # A present host controller/root hub is normal and is never itself removed.
-        if($parent.Present){return ''};$at=$parent.Parent
+        if($parent.Present){return ''}
+        if(!$parent.ParentKnown -or !$parent.Parent){return 'زنجیرهٔ والد غیرمتصل قابل تأیید نیست — محافظت‌شده'}
+        $at=$parent.Parent
     }
     if($at){return 'زنجیرهٔ والد طولانی — محافظت‌شده'}
     return ''
@@ -149,6 +151,7 @@ function Test-DeviceCleanup {
     $child.Present=$false;if(!(Get-DeviceCleanupDecision $ghost @($hub,$ghost,$child))){throw 'Non-leaf parent was eligible.'}
     if((Get-DeviceCleanupDecision $child @($hub,$ghost,$child))){throw 'Disconnected leaf child was blocked.'}
     $ghost.Present=$true;if(!(Get-DeviceCleanupDecision $child @($hub,$ghost,$child))){throw 'Child of present peripheral was eligible.'};$ghost.Present=$false
+    $ghost.ParentKnown=$false;if(!(Get-DeviceCleanupDecision $child @($hub,$ghost,$child))){throw 'Uncertain non-present ancestor was eligible.'};$ghost.ParentKnown=$true
     foreach($id in @("USB\VID_1\bad`nline",'USB\VID_1\"quote','USB\VID_1\;cmd')){$blocked=$false;try{Assert-DeviceInstanceId $id}catch{$blocked=$true};if(!$blocked){throw 'Unsafe device argument accepted.'}}
     $folder=Join-Path $PSScriptRoot ('device-fixture-'+[Guid]::NewGuid().ToString('N'));[void][IO.Directory]::CreateDirectory($folder)
     $state=@{Rows=@($hub,$ghost);ExportCalls=0;RemoveCalls=0;ExportFails=$false;Reconnect=$false;PresentAtStart=$false;KeepAfter=$false}
