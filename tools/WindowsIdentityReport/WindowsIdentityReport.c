@@ -15,10 +15,11 @@
 #include "embedded_sources.h"
 #define BTN_SCAN 100
 #define BTN_DETECT 101
+#define BTN_EDIT 102
 #define WM_DONE (WM_APP+1)
-static HWND input_box,status_box,scan_button,detect_button,main_window;
+static HWND input_box,status_box,scan_button,detect_button,edit_button,main_window;
 static HFONT ui_font;
-static BOOL busy,test_mode;
+static BOOL busy,test_mode,edit_mode;
 static wchar_t input_text[16384],output_path[32768],failure_text[2048];
 static DWORD result_code;
 static void set_font(HWND h){SendMessageW(h,WM_SETFONT,(WPARAM)ui_font,TRUE);}
@@ -45,12 +46,13 @@ static BOOL make_private_dir(wchar_t *folder,size_t capacity){
  if(sd)LocalFree(sd);if(sid)LocalFree(sid);HeapFree(GetProcessHeap(),0,user);CloseHandle(token);(void)capacity;return ok;
 }
 static DWORD WINAPI collect_thread(void *unused){
- (void)unused;wchar_t dir[MAX_PATH]={0},script[MAX_PATH],source[MAX_PATH],paths[MAX_PATH],log[MAX_PATH];
+ (void)unused;wchar_t dir[MAX_PATH]={0},script[MAX_PATH],source[MAX_PATH],editor[MAX_PATH],paths[MAX_PATH],log[MAX_PATH];
  HANDLE log_handle=INVALID_HANDLE_VALUE;PROCESS_INFORMATION pi={0};result_code=1;failure_text[0]=0;
  if(!make_private_dir(dir,MAX_PATH)){wcscpy(failure_text,L"ساخت پوشهٔ موقت خصوصی ناموفق بود.");goto done;}
  _snwprintf(script,MAX_PATH,L"%ls\\Collect-WindowsIdentity.ps1",dir);_snwprintf(source,MAX_PATH,L"%ls\\RegistryNames.cs",dir);
+ _snwprintf(editor,MAX_PATH,L"%ls\\BootNameEditor.ps1",dir);
  _snwprintf(paths,MAX_PATH,L"%ls\\paths.txt",dir);_snwprintf(log,MAX_PATH,L"%ls\\engine.log",dir);
- if(!write_bytes(script,embedded_script,(DWORD)sizeof(embedded_script))||!write_bytes(source,embedded_cs,(DWORD)sizeof(embedded_cs))){wcscpy(failure_text,L"نوشتن موتور گزارش ناموفق بود.");goto cleanup;}
+ if(!write_bytes(script,embedded_script,(DWORD)sizeof(embedded_script))||!write_bytes(source,embedded_cs,(DWORD)sizeof(embedded_cs))||!write_bytes(editor,embedded_editor,(DWORD)sizeof(embedded_editor))){wcscpy(failure_text,L"نوشتن موتور گزارش ناموفق بود.");goto cleanup;}
  int size=WideCharToMultiByte(CP_UTF8,0,input_text,-1,NULL,0,NULL,NULL);
  char *utf8=(char*)HeapAlloc(GetProcessHeap(),0,(SIZE_T)size+3);
  if(!utf8){wcscpy(failure_text,L"حافظه کافی نیست.");goto cleanup;}
@@ -67,11 +69,12 @@ static DWORD WINAPI collect_thread(void *unused){
  STARTUPINFOW si={0};si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;si.wShowWindow=SW_HIDE;
  si.hStdOutput=log_handle;si.hStdError=log_handle;si.hStdInput=nul;
  _snwprintf(command,34000,L"\"%ls\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%ls\" -InputFile \"%ls\" -OutputFile \"%ls\"",powershell,script,paths,output_path);
+ if(edit_mode){si.dwFlags=STARTF_USESTDHANDLES;_snwprintf(command,34000,L"\"%ls\" -NoProfile -STA -ExecutionPolicy Bypass -File \"%ls\" -EditBootNames",powershell,script);}
  if(test_mode)_snwprintf(command,34000,L"\"%ls\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%ls\" -SelfTest",powershell,script);
  BOOL launched=CreateProcessW(powershell,command,NULL,NULL,TRUE,CREATE_NO_WINDOW,NULL,dir,&si,&pi);
  if(nul!=INVALID_HANDLE_VALUE)CloseHandle(nul);CloseHandle(log_handle);log_handle=INVALID_HANDLE_VALUE;
  if(!launched){wcscpy(failure_text,L"اجرای موتور گزارش ناموفق بود؛ محدودیت اجرای اسکریپت را بررسی کنید.");goto cleanup;}
- DWORD waited=WaitForSingleObject(pi.hProcess,180000);
+ DWORD waited=WaitForSingleObject(pi.hProcess,edit_mode?INFINITE:180000);
  if(waited==WAIT_TIMEOUT){TerminateProcess(pi.hProcess,10);WaitForSingleObject(pi.hProcess,5000);result_code=10;wcscpy(failure_text,L"زمان بررسی تمام شد؛ گزارش ممکن است ناقص باشد.");}
  else GetExitCodeProcess(pi.hProcess,&result_code);
  CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
@@ -83,7 +86,7 @@ static DWORD WINAPI collect_thread(void *unused){
  }
 cleanup:
  if(log_handle!=INVALID_HANDLE_VALUE)CloseHandle(log_handle);
- DeleteFileW(script);DeleteFileW(source);DeleteFileW(paths);DeleteFileW(log);RemoveDirectoryW(dir);
+ DeleteFileW(script);DeleteFileW(source);DeleteFileW(editor);DeleteFileW(paths);DeleteFileW(log);RemoveDirectoryW(dir);
 done:
  PostMessageW(main_window,WM_DONE,0,0);return 0;
 }
@@ -98,15 +101,23 @@ static void detect_paths(void){
  SetWindowTextW(input_box,text);
 }
 static void start_collect(void){
- if(busy)return;GetWindowTextW(input_box,input_text,16384);
+ if(busy)return;edit_mode=FALSE;GetWindowTextW(input_box,input_text,16384);
  if(wcslen(input_text)==0){MessageBoxW(main_window,L"حداقل یک مسیر ویندوز وارد کنید.",L"مسیر خالی",MB_ICONWARNING);return;}
  wcscpy(output_path,L"Windows-Identity-Report.txt");wchar_t desktop[MAX_PATH]={0};SHGetFolderPathW(NULL,CSIDL_DESKTOPDIRECTORY,NULL,SHGFP_TYPE_CURRENT,desktop);
  OPENFILENAMEW ofn={0};ofn.lStructSize=sizeof(ofn);ofn.hwndOwner=main_window;ofn.lpstrFilter=L"Text report (*.txt)\0*.txt\0\0";ofn.lpstrFile=output_path;
  ofn.nMaxFile=32768;ofn.lpstrDefExt=L"txt";ofn.lpstrInitialDir=desktop;ofn.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
- if(!GetSaveFileNameW(&ofn))return;busy=TRUE;EnableWindow(scan_button,FALSE);EnableWindow(detect_button,FALSE);EnableWindow(input_box,FALSE);
+ if(!GetSaveFileNameW(&ofn))return;busy=TRUE;EnableWindow(scan_button,FALSE);EnableWindow(detect_button,FALSE);EnableWindow(edit_button,FALSE);EnableWindow(input_box,FALSE);
  SetWindowTextW(status_box,L"در حال خواندن اطلاعات؛ تنظیمات بوت تغییر نمی‌کند...");
  HANDLE thread=CreateThread(NULL,0,collect_thread,NULL,0,NULL);
- if(thread)CloseHandle(thread);else{busy=FALSE;EnableWindow(scan_button,TRUE);EnableWindow(detect_button,TRUE);EnableWindow(input_box,TRUE);SetWindowTextW(status_box,L"شروع بررسی ناموفق بود.");}
+ if(thread)CloseHandle(thread);else{busy=FALSE;EnableWindow(scan_button,TRUE);EnableWindow(detect_button,TRUE);EnableWindow(edit_button,TRUE);EnableWindow(input_box,TRUE);SetWindowTextW(status_box,L"شروع بررسی ناموفق بود.");}
+}
+static void start_boot_editor(void){
+ if(busy)return;edit_mode=TRUE;input_text[0]=0;output_path[0]=0;busy=TRUE;
+ EnableWindow(scan_button,FALSE);EnableWindow(detect_button,FALSE);EnableWindow(edit_button,FALSE);EnableWindow(input_box,FALSE);
+ SetWindowTextW(status_box,L"پنجرهٔ ویرایش نام بوت باز می‌شود؛ تغییر فقط پس از تأیید و ذخیرهٔ پشتیبان است.");
+ HANDLE thread=CreateThread(NULL,0,collect_thread,NULL,0,NULL);
+ if(thread)CloseHandle(thread);
+ else{busy=FALSE;EnableWindow(scan_button,TRUE);EnableWindow(detect_button,TRUE);EnableWindow(edit_button,TRUE);EnableWindow(input_box,TRUE);SetWindowTextW(status_box,L"بازکردن ویرایشگر ناموفق بود.");}
 }
 static LRESULT CALLBACK window_proc(HWND h,UINT message,WPARAM w,LPARAM l){
  switch(message){
@@ -117,10 +128,17 @@ static LRESULT CALLBACK window_proc(HWND h,UINT message,WPARAM w,LPARAM l){
   input_box=control(h,WS_EX_CLIENTEDGE,L"EDIT",L"",ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_WANTRETURN,20,110,660,190,0);SendMessageW(input_box,EM_SETLIMITTEXT,16000,0);
   detect_button=control(h,0,L"BUTTON",L"یافتن درایوهای ویندوز",BS_PUSHBUTTON,20,315,230,40,BTN_DETECT);
   scan_button=control(h,0,L"BUTTON",L"بررسی و ذخیرهٔ فایل TXT",BS_DEFPUSHBUTTON,370,315,310,40,BTN_SCAN);
-  status_box=control(h,WS_EX_RTLREADING,L"STATIC",L"فقط خواندنی؛ نام کاربر هدف و نقش روز/شب را خودتان انتخاب کنید.",SS_RIGHT,20,375,660,60,0);detect_paths();return 0;
- case WM_COMMAND:if(LOWORD(w)==BTN_SCAN)start_collect();else if(LOWORD(w)==BTN_DETECT&&!busy)detect_paths();return 0;
+  edit_button=control(h,0,L"BUTTON",L"ویرایش نام‌های منوی بوت",BS_PUSHBUTTON,20,370,660,40,BTN_EDIT);
+  status_box=control(h,WS_EX_RTLREADING,L"STATIC",L"گزارش فقط خواندنی است؛ دکمهٔ ویرایش صرفاً نام نمایشی بوت را با تأیید شما تغییر می‌دهد.",SS_RIGHT,20,425,660,60,0);detect_paths();return 0;
+ case WM_COMMAND:if(LOWORD(w)==BTN_EDIT)start_boot_editor();else if(LOWORD(w)==BTN_SCAN)start_collect();else if(LOWORD(w)==BTN_DETECT&&!busy)detect_paths();return 0;
  case WM_DONE:
-  busy=FALSE;EnableWindow(scan_button,TRUE);EnableWindow(detect_button,TRUE);EnableWindow(input_box,TRUE);
+  busy=FALSE;EnableWindow(scan_button,TRUE);EnableWindow(detect_button,TRUE);EnableWindow(edit_button,TRUE);EnableWindow(input_box,TRUE);
+  if(edit_mode){
+   if(result_code==0)SetWindowTextW(status_box,L"نام‌های بوت ذخیره شدند؛ برای مشاهدهٔ نام‌های تازه، گزارش TXT جدید بگیرید.");
+   else if(result_code==22||result_code==23)SetWindowTextW(status_box,L"نام‌های بوت تغییر نکردند؛ پنجرهٔ ویرایش بسته شد.");
+   else{SetWindowTextW(status_box,L"ویرایش کامل نشد؛ پیام خطا و فایل پشتیبان را بررسی کنید.");MessageBoxW(h,failure_text,L"خطای ویرایش بوت",MB_ICONERROR);}
+   edit_mode=FALSE;return 0;
+  }
   if(result_code==0){SetWindowTextW(status_box,L"گزارش TXT ذخیره شد؛ موارد نامشخص را داخل ویندوز مربوط بررسی کنید.");
    if(MessageBoxW(h,L"گزارش ذخیره شد. فایل متنی باز شود؟",L"پایان بررسی",MB_YESNO|MB_ICONINFORMATION)==IDYES)ShellExecuteW(h,L"open",output_path,NULL,NULL,SW_SHOWNORMAL);
   }else{SetWindowTextW(status_box,L"بررسی کامل نشد؛ اگر گزارشی ساخته شده، ممکن است ناقص باشد.");MessageBoxW(h,failure_text,L"خطای بررسی",MB_ICONERROR);}
@@ -157,7 +175,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE previous,PWSTR args,int show){
  cls.hCursor=LoadCursorW(NULL,IDC_ARROW);cls.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);
  if(!RegisterClassW(&cls))return 1;
  main_window=CreateWindowExW(0,cls.lpszClassName,L"Windows Identity Report — گزارش کمکی شیفت",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
- CW_USEDEFAULT,CW_USEDEFAULT,720,490,NULL,NULL,instance,NULL);
+ CW_USEDEFAULT,CW_USEDEFAULT,720,540,NULL,NULL,instance,NULL);
  if(!main_window)return 1;ShowWindow(main_window,show);UpdateWindow(main_window);
  MSG msg;while(GetMessageW(&msg,NULL,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}return 0;
 }

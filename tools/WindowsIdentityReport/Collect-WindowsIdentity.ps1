@@ -1,4 +1,4 @@
-﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest)
+﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest,[switch]$EditBootNames)
 $ErrorActionPreference='Stop'
 # An indirect launch from PowerShell 7 can inherit its module path; prefer Windows PS modules.
 $systemModules=Join-Path $PSHOME 'Modules'
@@ -38,6 +38,8 @@ function Device-Matches([string]$bcdPath,[string]$ntPath,[string]$drive) {
     if($value.StartsWith('partition=',[StringComparison]::OrdinalIgnoreCase)){$value=$value.Substring(10)}
     return ($ntPath -and $value.Equals($ntPath,[StringComparison]::OrdinalIgnoreCase)) -or $value.Equals($drive,[StringComparison]::OrdinalIgnoreCase) -or $value.Equals('\??\'+$drive,[StringComparison]::OrdinalIgnoreCase)
 }
+. (Join-Path $PSScriptRoot 'BootNameEditor.ps1')
+if($EditBootNames){$code=Show-BootNameEditor;exit $code}
 if($SelfTest) {
     if((Normal-WindowsPath 'd:') -ne 'D:\Windows'){throw 'Drive normalization failed.'}
     if((Invariant-Guid '{9dea862c-5cdd-4e70-acc1-f32b344d4795}') -ne '{9dea862c-5cdd-4e70-acc1-f32b344d4795}'){throw 'GUID normalization failed.'}
@@ -62,6 +64,7 @@ if($SelfTest) {
         }finally{$h.Dispose()}
         if((Hash-File $fixture) -ne $before){throw 'Reader modified a hive.'}
     }finally{[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testKey,$false);Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue}
+    Test-BootNameEditor
     Write-Output 'PASS: Windows fixture, Unicode names, DWORD/string values, read-only SHA256, drive/GUID mapping.' 
     exit 0
 }
