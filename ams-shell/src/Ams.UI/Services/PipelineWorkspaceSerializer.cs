@@ -37,9 +37,32 @@ public static class PipelineWorkspaceSerializer
             shiftSchedule = workspace.ShiftSchedule,
         };
         foreach (var tab in workspace.Tabs)
-            envelope.pipelines[tab.Kind.ToString()] = tab.Steps.ToList();
+            envelope.pipelines[CanonicalName(tab.Kind)] = tab.Steps.ToList();
         return JsonSerializer.Serialize(envelope, Options);
     }
+
+    // Enum aliases share values; Enum.ToString() is not a stable persistence contract.
+    // Always write the canonical route names requested by the Native exporter.
+    public static string CanonicalName(PipelineKind kind) => kind switch
+    {
+        PipelineKind.Desktop => "Desktop",
+        PipelineKind.Restart => "Restart",
+        PipelineKind.Startup => "Startup",
+        PipelineKind.LoginOrDc => "LoginOrDc",
+        PipelineKind.Dc => "Dc",
+        PipelineKind.CharacterDashboard => "CharacterDashboard",
+        PipelineKind.EnteringGameLoading => "EnteringGameLoading",
+        PipelineKind.Game => "Game",
+        PipelineKind.Targeted => "Targeted",
+        PipelineKind.TargetedRepeat => "TargetedRepeat",
+        PipelineKind.Whisper => "Whisper",
+        PipelineKind.Splash => "Splash",
+        PipelineKind.WhisperRepeat => "WhisperRepeat",
+        PipelineKind.Finish => "Finish",
+        PipelineKind.SwitchToDay => "SwitchToDay",
+        PipelineKind.SwitchToNight => "SwitchToNight",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown pipeline route."),
+    };
 
     public static PipelineWorkspace Deserialize(string json)
     {

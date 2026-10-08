@@ -1,3 +1,10 @@
+# Native export route-name fix — experimental
+
+- Always serialize canonical workflow names; duplicate legacy enum values can no longer turn DC into MainRecovery during Native export.
+- Accept LaunchRecovery, MainRecovery and DC as old DC keys; preserve canonical-key precedence and keep the required-route safety check.
+- Preserve authored roots/children while migrating old macros. Do not change firmware, guard policy, buff timing, shift schedule, cycle count or calibrated settings.
+- Add actual serializer migration/regression tests and Native compiler alias tests. Experimental branch only; hardware flash/testing remains manual.
+
 # ShiftSchedule experimental build
 
 - Independent day/night HH:mm ranges, midnight crossing and deliberate gap ignore; Windows username mapping remains explicit in Status settings.

@@ -25,6 +25,42 @@ class TestRunner
     [STAThread]   // v0.8.0 — the accordion test builds a MainViewModel (WPF brushes)
     static void Main()
     {
+        // Native route IDs must not depend on .NET's choice among enum aliases.
+        var routeWorkspace = new PipelineWorkspace();
+        var dcRoute = routeWorkspace[PipelineKind.Dc];
+        dcRoute.Steps.Add(new StepNode { Type="delay", Name="custom-dc-delay", Props=new(){["minMs"]=88,["maxMs"]=188} });
+        var dcLoop = new StepNode { Type="forLoop", Name="custom-dc-loop", Props=new(){["count"]=2} };
+        dcLoop.Children.Add(new StepNode { Type="delay", Name="nested-dc-delay", Props=new(){["minMs"]=10,["maxMs"]=20} });
+        dcRoute.Steps.Add(dcLoop);
+        dcRoute.Steps.Add(new StepNode { Type="comment", Name="custom-dc-comment" });
+        dcRoute.Steps.Add(new StepNode { Type="keystroke", Name="custom-dc-key", Props=new(){["key"]="ESC"} });
+        var routeJson = PipelineWorkspaceSerializer.Serialize(routeWorkspace);
+        using (var routeDocument = JsonDocument.Parse(routeJson))
+        {
+            var routeKeys = routeDocument.RootElement.GetProperty("pipelines").EnumerateObject().Select(p=>p.Name).ToArray();
+            var expectedRouteKeys = new[]{"Desktop","Restart","Startup","LoginOrDc","Dc","CharacterDashboard","EnteringGameLoading","Game","Targeted","TargetedRepeat","Whisper","Splash","WhisperRepeat","Finish","SwitchToDay","SwitchToNight"};
+            Assert(routeKeys.OrderBy(n=>n).SequenceEqual(expectedRouteKeys.OrderBy(n=>n)),
+                "Native serialization uses canonical route names for every tab, never enum aliases");
+        }
+        Assert(PipelineWorkspaceSerializer.CanonicalName(PipelineKind.MainRecovery)=="Dc"
+            &&PipelineWorkspaceSerializer.CanonicalName(PipelineKind.LaunchRecovery)=="Dc"
+            &&PipelineWorkspaceSerializer.CanonicalName(PipelineKind.Launch)=="Restart",
+            "Canonical names are stable for shared legacy enum values");
+        foreach(var dcAlias in new[]{"MainRecovery","LaunchRecovery","DC"})
+        {
+            var legacyRouteJson = routeJson.Replace("\"Dc\":", "\""+dcAlias+"\":").Replace("\"Restart\":", "\"Launch\":");
+            var migratedRoute = PipelineWorkspaceSerializer.Deserialize(legacyRouteJson);
+            Assert(migratedRoute[PipelineKind.Dc].Steps.Count==4
+                &&migratedRoute[PipelineKind.Dc].Steps[1].Children.Count==1
+                &&migratedRoute[PipelineKind.Dc].Steps[3].Name=="custom-dc-key",
+                "Legacy "+dcAlias+" migration preserves authored DC roots and children");
+            using var migratedDocument = JsonDocument.Parse(PipelineWorkspaceSerializer.Serialize(migratedRoute));
+            var migratedPipelines = migratedDocument.RootElement.GetProperty("pipelines");
+            Assert(migratedPipelines.TryGetProperty("Dc",out var migratedDc)&&migratedDc.GetArrayLength()==4
+                &&!migratedPipelines.TryGetProperty("MainRecovery",out _)
+                &&migratedPipelines.TryGetProperty("Restart",out _),
+                "Legacy "+dcAlias+" resave writes Native-compatible Dc and Restart keys");
+        }
         var shiftSchedule=new ShiftScheduleSettings {enabled=true,dayStart=480,dayEnd=1080,nightStart=1200,nightEnd=360,maxAttempts=2};
         shiftSchedule.Validate();
         Assert(true,"Shift schedule permits gaps and midnight crossing");

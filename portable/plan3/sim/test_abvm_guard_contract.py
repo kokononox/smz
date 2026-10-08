@@ -90,6 +90,30 @@ legacy["pipelines"]["LaunchRecovery"] = legacy["pipelines"].pop("Dc")
 legacy_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(legacy, routes).image)
 assert {route.route_id for route in legacy_image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14}
 
+# Enum.ToString() can serialize the shared DC value as MainRecovery. Cover
+# every supported legacy spelling and verify canonical routes win over aliases.
+for dc_alias in ("LaunchRecovery", "MainRecovery", "DC"):
+    alias_source = json.loads(json.dumps(source))
+    alias_source["pipelines"][dc_alias] = alias_source["pipelines"].pop("Dc")
+    alias_source["pipelines"]["Launch"] = alias_source["pipelines"].pop("Restart")
+    alias_image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(alias_source, routes).image)
+    assert len([route for route in alias_image.routes if route.route_id == 5]) == 1
+    assert {route.route_id for route in alias_image.routes} >= {1, 2, 3, 4, 5, 6, 7, 8}
+
+canonical_wins = json.loads(json.dumps(source))
+# If accidentally chosen, this unsupported step would make the compile fail.
+canonical_wins["pipelines"]["MainRecovery"] = [{"Type": "invalidLegacyAlias"}]
+abvm.Verifier.verify(abvm.Compiler().compile_amsj(canonical_wins, routes).image)
+
+missing_dc = json.loads(json.dumps(source))
+missing_dc["pipelines"].pop("Dc")
+try:
+    abvm.Compiler().compile_amsj(missing_dc, routes)
+except abvm.AbvmError as exc:
+    assert str(exc) == "Native Guard routes are missing: 5"
+else:
+    raise AssertionError("A genuinely missing DC route bypassed the guard check")
+
 bad = json.loads(json.dumps(source))
 bad["nativeGuard"]["profiles"][5]["luxCenter"] = 200
 try:
