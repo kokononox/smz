@@ -75,7 +75,7 @@ class ScheduleTests(unittest.TestCase):
    exe=self.build(d,c,[ROOT/'firmware/abvm/src/abvm_vm.c',ROOT/'firmware/abvm/pico/hid_keyboard.c',ROOT/'firmware/abvm/pico/shift_identity_runtime.c'],[ROOT/'firmware/abvm/tests/pico_stub'])
    data=source();data['pipelines']['Desktop']=data['pipelines']['Desktop'][:1]+[{'Type':'typeText','Props':{'text':'Q','hmin':10,'hmax':10},'Children':[]}]
    p=d/'p.abp';p.write_bytes(abvm.Compiler().compile_amsj(data,ROUTES).image)
-   for mode in range(6):subprocess.run([str(exe),str(p),str(mode)],check=True)
+   for mode in range(7):subprocess.run([str(exe),str(p),str(mode)],check=True)
  def test_old_identity_template_cannot_run_schedule(self):
   sys.path.insert(0,str(ROOT/'firmware/abvm/tests'));from test_abvm_uf2 import make_uf2
   from abvm_uf2 import inject,Uf2Error

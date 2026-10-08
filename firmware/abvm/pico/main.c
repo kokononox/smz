@@ -1163,12 +1163,10 @@ static void service_shift_check(uint32_t now) {
                 if(!abvm_start_route(&vm,route,now)){cycle_runtime_fail(8u);buzzer_watchdog_alarm_start(now);}
                 return;
             }
-            if(calibration_store_shift_target()) {
-                /* A gap ignores the schedule, but a pending corrective switch must
-                 * still land on its requested, known user before resetting rounds. */
-                if(expected==SHIFT_GLOBAL&&calibration_store_shift_target()!=(uint8_t)shift_identity.selected){
-                    fail_shift_check(now,"switch-target-not-reached");return;
-                }
+            if(calibration_store_shift_target()&&
+               (expected!=SHIFT_GLOBAL||calibration_store_shift_target()==(uint8_t)shift_identity.selected)) {
+                /* A gap NEVER blocks a known user. Preserve the old round count
+                 * if a pending destination has not been reached yet. */
                 if(!cycle_runtime_shift_confirmed(now)){fail_shift_check(now,"switch-reset-write");return;}
                 printf("EVT|SHIFT|state=switch-confirmed|round=1|attempts=0\n");
             }

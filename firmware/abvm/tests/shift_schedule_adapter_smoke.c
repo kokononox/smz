@@ -50,14 +50,14 @@ int main(int argc,char **argv){
  uint8_t *image=malloc((size_t)size);assert(image);assert(fread(image,1,(size_t)size,f)==(size_t)size);fclose(f);
  assert(abvm_init(&vm,image,(size_t)size));hid_keyboard_init();assert(abvm_start_route(&vm,1u,0u));
  if(mode==3)attempt_count=2;
- if(mode==4){pending_target=1;attempt_count=2;}
+ if(mode==4||mode==6){pending_target=1;attempt_count=2;}
  bool replied=false;uint32_t reply_at=0;
  for(uint32_t now=0;now<10000;++now){
   uint8_t lane;if(hid_keyboard_service(now,&lane)){
    if(lane==SHIFT_KEY_LANE)shift_key_inflight=false;else assert(abvm_complete_action(&vm,lane,now));
   }
   if(shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY&&!shift_key_inflight&&!replied){
-   connected=true;uint16_t minute=mode==1?1200u:mode==2?1140u:480u;
+   connected=true;uint16_t minute=mode==1?1200u:(mode==2||mode==6)?1140u:480u;
    const uint8_t *hash=(mode==1||mode==4)?shift_identity.day_hash:shift_identity.night_hash;
    uint8_t unknown[32]={0x55};if(mode==5)hash=unknown;
    bool accepted=shift_identity_reply_clock(&shift_identity,shift_identity.nonce,hash,minute,true);
@@ -79,7 +79,7 @@ int main(int argc,char **argv){
  }
  assert(replied);
  if(mode==0||mode==1){assert(switch_calls==1&&switched_route==(mode==0?16:17)&&typed==0&&!reset_calls&&!day_cues&&!night_cues);}
- else if(mode==2){assert(!switch_calls&&!reset_calls&&typed==1&&night_cues==1&&!alarm);}
+ else if(mode==2||mode==6){assert(!switch_calls&&!reset_calls&&typed==1&&night_cues==1&&!alarm);if(mode==6)assert(pending_target==1&&attempt_count==2);}
  else if(mode==3||mode==5){assert(vm.status==ABVM_STATUS_PAUSED&&alarm&&!switch_calls&&!typed&&!reset_calls);}
  else{assert(mode==4&&!switch_calls&&reset_calls==1&&typed==1&&day_cues==1&&!pending_target&&!attempt_count);}
  free(image);printf("actual schedule adapter mode %d passed\n",mode);return 0;
