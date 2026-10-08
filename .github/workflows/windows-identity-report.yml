@@ -1,0 +1,61 @@
+name: Windows Identity Report validation
+on:
+  pull_request:
+    paths:
+      - 'tools/WindowsIdentityReport/**'
+      - '.github/workflows/windows-identity-report.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-report:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build native small Windows executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location tools/WindowsIdentityReport
+          python generate_embedded.py
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          rc /nologo /fo app.res app.rc
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          cl /nologo /utf-8 /std:c11 /O2 /MT /D_CRT_SECURE_NO_WARNINGS WindowsIdentityReport.c app.res /Fe:WindowsIdentityReport.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comdlg32.lib shell32.lib advapi32.lib
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Execute embedded engine and real Windows hive fixture tests
+        shell: pwsh
+        run: |
+          $exe=(Resolve-Path tools/WindowsIdentityReport/WindowsIdentityReport.exe).Path
+          $p=Start-Process $exe -ArgumentList '--self-test' -PassThru -Wait
+          if($p.ExitCode -ne 0){throw "Native report engine self-test failed: $($p.ExitCode)"}
+      - name: Read actual runner Windows and active boot store without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=(Resolve-Path tools/WindowsIdentityReport).Path
+          $exe=Join-Path $root 'WindowsIdentityReport.exe'
+          $out=Join-Path $env:TEMP 'WIR-smoke-report.txt'
+          $p=Start-Process $exe -ArgumentList @('--scan',('"'+$env:SystemRoot+'"'),('"'+$out+'"')) -PassThru -Wait
+          if($p.ExitCode -ne 0){throw "Report execution failed: $($p.ExitCode)"}
+          $text=Get-Content $out -Raw -Encoding utf8
+          if(!$text.Contains('Username') -or !$text.Contains('GUID') -or !$text.Contains($env:SystemRoot)){throw 'Report fields are missing'}
+          # Do not print machine usernames or GUIDs into CI logs.
+          $entries=([regex]::Matches($text,'GUID: \{[0-9a-f-]{36}\}')).Count
+          Write-Output "Actual Windows report generated. Boot GUID mentions: $entries"
+          Remove-Item $out -Force
+      - name: Package executable and Persian instructions
+        shell: pwsh
+        run: |
+          Set-Location tools/WindowsIdentityReport
+          $hash=(Get-FileHash WindowsIdentityReport.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content SHA256.txt "$hash  WindowsIdentityReport.exe" -Encoding ascii
+          Compress-Archive -Path WindowsIdentityReport.exe,README-FA.txt,SHA256.txt -DestinationPath WindowsIdentityReport-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WindowsIdentityReport-Windows-x64
+          path: tools/WindowsIdentityReport/WindowsIdentityReport-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
