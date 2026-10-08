@@ -161,6 +161,8 @@ public static class ScriptGenerator
                 sb.AppendLine(pad + "# TODO: PC-side image search — run this script via the AMS app's Run for Find Image support");
                 break;
 
+            case "shiftCheck":
+                throw new InvalidOperationException("تأیید شیفت به Native UF2 نیاز دارد.");
             case "buffCheckpoint":
                 throw new InvalidOperationException("باف مستقل فقط در Native UF2 پشتیبانی می‌شود.");
             case "randomMousePosition":

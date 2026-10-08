@@ -137,6 +137,19 @@ internal static class PipelineTabsUiBootstrap
         scroll.Content = body;
         root.Children.Add(scroll);
 
+        var identity = new StackPanel { Margin=new Thickness(0,0,0,18) };
+        identity.Children.Add(new TextBlock { Text="تنظیمات کلی — کاربران ویندوز شیفت‌ها", FontSize=20, Foreground=Brush("#F5F7FA") });
+        identity.Children.Add(new TextBlock { Text="نام Username ویندوز را وارد کنید، نه Display name. تغییر نام‌ها با Export Native UF2 روی برد اعمال می‌شود. ClassroomStudio هنگام اجرای بریج موقت باید Disconnect باشد.", TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
+        foreach(var entry in new[] { ("کاربر روز",nameof(MainViewModel.DayWindowsUser)),("کاربر شب",nameof(MainViewModel.NightWindowsUser)) }) {
+            var row=new StackPanel { Orientation=Orientation.Horizontal,Margin=new Thickness(0,4,0,4) };
+            row.Children.Add(new TextBlock { Text=entry.Item1,Width=90,Foreground=Brush("#F5F7FA") });
+            var input=new TextBox { Width=260,FlowDirection=FlowDirection.LeftToRight };
+            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2) { Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus });
+            row.Children.Add(input);identity.Children.Add(row);
+        }
+        var addCheck=new Button { Content="افزودن استپ تأیید شیفت به Desktop / Startup",Margin=new Thickness(0,8,0,8),Padding=new Thickness(10,6,10,6) };
+        addCheck.Click+=(_,_)=>vm.AddShiftCheck();identity.Children.Add(addCheck);
+        identity.Children.Add(Bound(nameof(MainViewModel.ShiftStatusText),13));body.Children.Add(identity);
         var buffBox = new StackPanel { Margin = new Thickness(0,0,0,18) };
         buffBox.Children.Add(new TextBlock { Text="باف‌های محیط بازی — Pico", FontSize=20, Foreground=Brush("#F5F7FA") });
         buffBox.Children.Add(new TextBlock {

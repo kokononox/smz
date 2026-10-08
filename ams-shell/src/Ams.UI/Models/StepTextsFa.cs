@@ -149,7 +149,12 @@ public static class StepTextsFa
         ["randomMousePosition:speedCustomMax"] = "سرعت سفارشی حداکثر (px/s)",
 
         // "text" — typeText vs comment
-        ["typeText:text"] = "متن",
+        ["typeText:text"] = "متن Global؛ پیش از تأیید شیفت نیز همین متن اجرا می‌شود",
+        ["typeText:textScope"] = "منبع متن (global = مشترک · shift = روز/شب)",
+        ["typeText:textDay"] = "متن شیفت روز — در حالت shift الزامی",
+        ["typeText:textNight"] = "متن شیفت شب — در حالت shift الزامی",
+        ["shiftCheck:key"] = "کلید میان‌بر اجرای بریج موقت؛ Modifierها بالاتر انتخاب می‌شوند",
+        ["shiftCheck:timeoutSeconds"] = "مهلت تأیید و بسته‌شدن اتصال بریج (۱ تا ۱۲۰ ثانیه)",
         ["comment:text"] = "یادداشت",
 
         // v0.9.46 — per-step keyboard executor (default falls back to Options)

@@ -66,6 +66,20 @@ public static class StepDefinitions
 
     private static readonly Dictionary<string, StepDefinition> Defs = new()
     {
+        ["shiftCheck"] = new StepDefinition {
+            Label = "Shift identity / تأیید شیفت", ColorResourceKey = "StepKeyboardBrush",
+            Fields = new FieldDef[] {
+                new("modCtrl", "Ctrl", FieldKind.Check, "false"),
+                new("modShift", "Shift", FieldKind.Check, "false"),
+                new("modAlt", "Alt", FieldKind.Check, "false"),
+                new("modWin", "Win", FieldKind.Check, "true"),
+                new("key", "Launch bridge key", FieldKind.Combo, "4", KeyMap.KeyNames.ToArray()),
+                new("holdMin", "Hold min (ms)", FieldKind.Int, "90"),
+                new("holdMax", "Hold max (ms)", FieldKind.Int, "160"),
+                new("timeoutSeconds", "Bridge timeout (seconds)", FieldKind.Int, "60"),
+            },
+            Summarize = s => "تأیید شیفت ویندوز — بریج موقت؛ خطا = آژیر و Pause",
+        },
         ["buffCheckpoint"] = new StepDefinition {
             Label = "Buff safe boundary / نقطهٔ امن باف", ColorResourceKey = "StepKeyboardBrush",
             Fields = Array.Empty<FieldDef>(),
@@ -206,7 +220,10 @@ public static class StepDefinitions
             Label = "Type Text", ColorResourceKey = "StepKeyboardBrush", DefaultDelay = 1000,
             Fields = new FieldDef[]
             {
-                new("text", "Text", FieldKind.Multiline, ""),
+                new("textScope", "Text scope", FieldKind.Combo, "global", new[] { "global", "shift" }),
+                new("text", "Global text / fallback", FieldKind.Multiline, "", HideWhenKey:"textScope", HideWhenValue:"shift"),
+                new("textDay", "Day text", FieldKind.Multiline, "", HideWhenKey:"textScope", HideUnlessValue:"shift"),
+                new("textNight", "Night text", FieldKind.Multiline, "", HideWhenKey:"textScope", HideUnlessValue:"shift"),
                 new("mode", "Mode", FieldKind.Combo, "keystrokes", new[] { "keystrokes", "clipboard" }),
                 new("keyboardBoard", "Keyboard executor — default uses Options; Pico executes locally; Pro Micro uses the UART arm", FieldKind.Combo, "default", new[] { "default", "pico", "promicro" }),
                 new("secret", "Sensitive (password) — masked in logs, pasted via clipboard (§17.6)", FieldKind.Check, "false"),
@@ -229,6 +246,8 @@ public static class StepDefinitions
             {
                 if (PropEx.GetBool(s.Props, "secret"))
                     return "Type text · SECRET (masked) · clipboard" + KeyboardBoardHint(s.Props);
+                if(PropEx.GetString(s.Props,"textScope","global")=="shift")
+                    return "Type text · Shift (روز/شب؛ پیش از تأیید = Global)" + KeyboardBoardHint(s.Props);
                 var t = PropEx.GetString(s.Props, "text").Replace('\n', ' ');
                 if (t.Length > 30) t = t[..30] + "…";
                 string hint = PropEx.GetString(s.Props, "mode", "keystrokes");
@@ -901,6 +920,8 @@ public static class StepDefinitions
     /// </summary>
     public static IReadOnlyList<string> TypeTextCommands(IReadOnlyDictionary<string, object?> p)
     {
+        if(PropEx.GetString(p,"textScope","global")=="shift")
+            throw new FormatException("متن شیفتی فقط در Native UF2 روی Pico پشتیبانی می‌شود.");
         var text = PropEx.GetString(p, "text");
         bool secret = PropEx.GetBool(p, "secret");
         string mode = PropEx.GetString(p, "mode", "keystrokes");

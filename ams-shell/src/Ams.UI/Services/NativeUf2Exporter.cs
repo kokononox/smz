@@ -41,6 +41,10 @@ public static class NativeUf2Exporter
             var patched = Path.Combine(staging, "project.uf2");
             var root = JsonNode.Parse(PipelineWorkspaceSerializer.Serialize(workspace))?.AsObject()
                 ?? throw new InvalidDataException("ساختار پروژه برای Native Guard معتبر نیست.");
+            if(workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps))) {
+                var hashes=ShiftTextValidation.UserHashes(settings);
+                root["nativeShift"]=new JsonObject { ["dayHash"]=hashes.day,["nightHash"]=hashes.night };
+            }
             root["nativeGuard"] = BuildNativeGuard();
             root["nativeCycle"] = BuildNativeCycle(settings);
             await File.WriteAllTextAsync(source, root.ToJsonString(
@@ -75,6 +79,9 @@ public static class NativeUf2Exporter
             try { Directory.Delete(staging, true); } catch { }
         }
     }
+
+    private static bool ContainsShiftCheck(IEnumerable<StepNode> nodes)
+        => nodes.Any(n=>!n.IsDisabled&&(n.Type=="shiftCheck"||ContainsShiftCheck(n.Children)));
 
     private static JsonObject BuildNativeGuard()
     {

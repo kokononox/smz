@@ -23,6 +23,7 @@ public static class PipelineWorkspaceSerializer
     public static string Serialize(PipelineWorkspace workspace)
     {
         workspace.EnsureDcDefaults();
+        foreach(var tab in workspace.Tabs)ShiftTextValidation.ValidateTree(tab.Steps);
         var envelope = new Envelope
         {
             pipelineVersion = PipelineWorkspace.FormatVersion,

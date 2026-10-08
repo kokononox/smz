@@ -34,6 +34,8 @@ internal enum AbvmOpcode : byte
     WATCH = 22,
     JUMP = 30,
     BUFF = 31,
+    SHIFT_CHECK = 32,
+    SHIFT_TYPE = 33,
 }
 
 internal enum AbvmConstantKind : byte
@@ -48,6 +50,7 @@ internal enum AbvmConstantKind : byte
     GUARD = 8,
     CYCLE = 9,
     BUFF = 10,
+    SHIFT = 11,
 }
 
 internal enum AbvmScopePolicy : byte

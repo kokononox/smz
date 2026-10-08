@@ -1,3 +1,22 @@
+## Experimental: temporary Windows shift identity bridge
+
+- Editable Native-only identity checkpoint in Desktop/Startup launches a chosen
+  Pico hotkey (default Win+4), checks the process Windows username, then requires
+  stable COM/DTR closure before continuing. Day/night have distinct buzzer cues.
+- Unknown user, timeout, or a bridge left connected causes siren and Pause.
+  Resume retries the same checkpoint with a new request. No cached reply grants
+  a later check. This is accidental-system checking, not security authentication.
+- Global Windows day/night usernames are editable in Status and stored in app
+  settings. Export hashes use the exact same shared normalizer as the helper.
+- Type Text has Global/Shift scope, preserves Global fallback and chooses the
+  day/night input on Pico. Missing day/night input is rejected at edit/save.
+- Temporary self-contained Windows x64 helper exits after releasing COM; no
+  background service, autorun or username override. Existing five-round cycle,
+  Game buff scheduler and mouse fatigue are retained. Pro Micro is unchanged.
+- Matching new Native templates required; old templates explicitly rejected.
+  No personal macro/recording/configuration data committed to the repository.
+- Hardware testing on both actual Windows installations is still required.
+
 ## Experimental: autonomous Pico Game buff renewal
 
 - Configurable buff editor in Status; project format 13 stores Keystroke-like

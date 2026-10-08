@@ -165,6 +165,7 @@ public sealed class RunEngine
 
             try   // v0.8.3 — gotoLabel unwinds via GotoSignal to the level that owns the label
             {
+            if(s.Type=="shiftCheck")throw new InvalidOperationException("تأیید شیفت فقط روی Pico با Native UF2 اجرا می‌شود.");
             if(s.Type=="buffCheckpoint")throw new InvalidOperationException("باف مستقل فقط در Native UF2 روی Pico اجرا می‌شود.");
             switch (s.Type)
             {

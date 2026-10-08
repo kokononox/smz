@@ -102,6 +102,7 @@ jobs:
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/hid_keyboard.c \
               firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
+            python firmware/abvm/tests/test_shift_identity.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py
             python firmware/abvm/tests/test_abvm_human_mouse_motion.py
@@ -288,6 +289,15 @@ jobs:
             python tools/abvm_flash_guard.py $_.FullName
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Publish and test temporary shift identity bridge
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows/shift-bridge'
+          dotnet publish tools/ShiftIdentityBridge/ShiftIdentityBridge.csproj -c Release -r win-x64 --self-contained true -o $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $test = Start-Process "$out/ClassroomShiftBridge.exe" -ArgumentList '--self-test' -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw 'Shift bridge self-test failed' }
+          Copy-Item docs/shift-identity-guide-fa.txt "$out/README-FA.txt"
       - name: Stage Windows test output
         if: success()
         shell: pwsh
@@ -438,5 +448,34 @@ jobs:
           path: |
             ClassroomStudio-LightState-GameBuff-TestBuild.zip
             game-buff-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  shift-identity-test-package:
+    name: diagnostic / Pico shift identity test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-shift-identity'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/SHIFT-IDENTITY-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip > shift-identity-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-ShiftIdentity-TestBuild
+          path: |
+            ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip
+            shift-identity-sha256.txt
           if-no-files-found: error
           retention-days: 14
