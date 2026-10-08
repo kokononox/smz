@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: write
 jobs:
   windows-report:
     runs-on: windows-latest
@@ -30,7 +31,12 @@ jobs:
         run: |
           $exe=(Resolve-Path tools/WindowsIdentityReport/WindowsIdentityReport.exe).Path
           $p=Start-Process $exe -ArgumentList '--self-test' -PassThru -Wait
-          if($p.ExitCode -ne 0){throw "Native report engine self-test failed: $($p.ExitCode)"}
+          if($p.ExitCode -ne 0){
+            $detail=& "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/WindowsIdentityReport/Collect-WindowsIdentity.ps1 -SelfTest 2>&1
+            $summary="Native exit=$($p.ExitCode); diagnostic="+($detail | Out-String)
+            Set-Content "$env:GITHUB_WORKSPACE/WIR-failure.txt" $summary -Encoding utf8
+            throw "Native report engine self-test failed: $($p.ExitCode)"
+          }
       - name: Read actual runner Windows and active boot store without mutation
         shell: pwsh
         run: |
@@ -59,3 +65,14 @@ jobs:
           path: tools/WindowsIdentityReport/WindowsIdentityReport-Windows-x64.zip
           if-no-files-found: error
           retention-days: 14
+
+      - name: Report non-secret fixture failure details
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs=require('fs');
+            if(fs.existsSync('WIR-failure.txt')) {
+              const detail=fs.readFileSync('WIR-failure.txt','utf8').slice(0,7000);
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'Windows report helper fixture failure (test data only):\n```text\n'+detail+'\n```'});
+            }
