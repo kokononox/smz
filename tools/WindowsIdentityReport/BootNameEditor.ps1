@@ -1,4 +1,4 @@
-﻿# Only the Description string (0x12000004) can be written by this editor.
+# Only the Description string (0x12000004) can be written by this editor.
 function Bcd-StoreReference([string]$file) {
     $class=[wmiclass]'root\WMI:BcdStore';$class.Scope.Options.EnablePrivileges=$true
     $opened=$class.OpenStore($file);if(!$opened.ReturnValue){throw 'Cannot open selected store.'}
@@ -166,6 +166,13 @@ function Test-BootNameEditor {
     $memory=@{};foreach($entry in $entries){$memory[$entry.Id]=$entry.Name};$state=@{Calls=0;FailSecond=$false}
     $read={param($id)$memory[$id]}.GetNewClosure()
     $write={param($id,$name)$state.Calls++;if($state.FailSecond -and $state.Calls -eq 2){return $false};$memory[$id]=$name;return $true}.GetNewClosure()
+    $blocked=$false
+    try{Invoke-BootRenamePlan $plan (Join-Path $PSScriptRoot 'missing-directory\backup.txt') $read $write}catch{$blocked=$true}
+    if(!$blocked -or $state.Calls -ne 0){throw 'Writes occurred without a completed backup.'}
+    $memory[$ids[0]]='Changed elsewhere';$blocked=$false
+    try{Invoke-BootRenamePlan $plan (Join-Path $PSScriptRoot 'stale.txt') $read $write}catch{$blocked=$true}
+    if(!$blocked -or $state.Calls -ne 0){throw 'Stale UI was allowed to overwrite current names.'}
+    $memory[$ids[0]]=$entries[0].Name
     $backup=Join-Path $PSScriptRoot 'rename-success.txt'
     try{Invoke-BootRenamePlan $plan $backup $read $write;for($i=0;$i -lt 3;$i++){if($memory[$ids[$i]] -ne $wanted[$ids[$i]]){throw 'Fake rename mismatch.'}}}finally{Remove-Item $backup -Force -ErrorAction SilentlyContinue}
     foreach($entry in $entries){$memory[$entry.Id]=$entry.Name};$state.Calls=0;$state.FailSecond=$true
@@ -178,12 +185,21 @@ function Test-BootNameEditor {
         if(!$class.CreateStore($fixture).ReturnValue){throw 'Could not create isolated BCD fixture.'}
         $store=Bcd-StoreReference $fixture
         foreach($entry in $entries){if(!$store.CreateObject($entry.Id,[uint32]0x10200003).ReturnValue){throw 'Could not create test loader.'};if(!(Write-BootDescription $entry.Id $entry.Name $fixture)){throw 'Could not seed test description.'}}
+        $managerId='{9dea862c-5cdd-4e70-acc1-f32b344d4795}'
+        if(!$store.CreateObject($managerId,[uint32]0x10100002).ReturnValue){throw 'Could not create test manager.'}
+        $manager=Bcd-EditableObject $managerId $fixture
+        if(!$manager.SetObjectElement([uint32]0x23000003,$ids[0]).ReturnValue){throw 'Could not seed default fixture.'}
+        if(!$manager.SetObjectListElement([uint32]0x24000001,[string[]]$ids).ReturnValue){throw 'Could not seed menu order fixture.'}
         $before=@(Get-BootNameEntries $fixture);if($before.Count -ne 3){throw 'Isolated loader enumeration failed.'}
         $realRead={param($id)Read-BootDescription $id $fixture}.GetNewClosure()
         $realWrite={param($id,$name)Write-BootDescription $id $name $fixture}.GetNewClosure()
         Invoke-BootRenamePlan $plan $backup $realRead $realWrite
         $after=@(Get-BootNameEntries $fixture)
         foreach($entry in $after){if($entry.Name -ne $wanted[$entry.Id]){throw 'Isolated BCD read-back mismatch.'}}
+        if((Get-BcdElement $manager ([uint32]0x23000003)).Id -ne $ids[0]){throw 'Boot default changed during rename.'}
+        if(((Get-BcdElement $manager ([uint32]0x24000001)).Ids -join ',') -ne ($ids -join ',')){throw 'Boot order changed during rename.'}
+        if((($after.Id|Sort-Object) -join ',') -ne (($ids|Sort-Object) -join ',')){throw 'Boot GUID set changed during rename.'}
+
         $window=New-BootEditorWindow $after
         try{if($window.Grid.Rows.Count -ne 3 -or !$window.Grid.Columns['id'].ReadOnly -or !$window.Grid.Columns['old'].ReadOnly -or $window.Grid.Columns['new'].ReadOnly){throw 'Editor column safety contract failed.'}}finally{$window.Form.Dispose()}
     }finally{Remove-Item $fixture,$backup -Force -ErrorAction SilentlyContinue}
