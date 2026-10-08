@@ -38,7 +38,7 @@ static BOOL make_private_dir(wchar_t *folder,size_t capacity){
  BOOL ok=GetTokenInformation(token,TokenUser,user,needed,&needed);LPWSTR sid=NULL;PSECURITY_DESCRIPTOR sd=NULL;
  wchar_t sddl[1024];
  if(ok&&ConvertSidToStringSidW(user->User.Sid,&sid)){
-  _snwprintf(sddl,1024,L"D:P(A;;FA;;;%ls)(A;;FA;;;SY)",sid);
+  _snwprintf(sddl,1024,L"D:P(A;OICI;FA;;;%ls)(A;OICI;FA;;;SY)",sid);
   ok=ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl,SDDL_REVISION_1,&sd,NULL);
  }else ok=FALSE;
  if(ok){SECURITY_ATTRIBUTES sa={sizeof(sa),sd,FALSE};ok=CreateDirectoryW(folder,&sa);}
@@ -139,7 +139,13 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE previous,PWSTR args,int show){
   if(test_mode){GetWindowsDirectoryW(input_text,16384);output_path[0]=0;}
   else if(argc==4&&wcslen(argv[2])<16384&&wcslen(argv[3])<32768){wcscpy(input_text,argv[2]);wcscpy(output_path,argv[3]);}
   else{LocalFree(argv);return 21;}
-  LocalFree(argv);collect_thread(NULL);return (int)result_code;
+  LocalFree(argv);collect_thread(NULL);
+  if(result_code!=0&&failure_text[0]){
+   char diagnostic[8192];int n=WideCharToMultiByte(CP_UTF8,0,failure_text,-1,diagnostic,8192,NULL,NULL);
+   HANDLE error=GetStdHandle(STD_ERROR_HANDLE);DWORD wrote=0;
+   if(n>0&&error&&error!=INVALID_HANDLE_VALUE)WriteFile(error,diagnostic,(DWORD)n-1,&wrote,NULL);
+  }
+  return (int)result_code;
  }
  if(argv)LocalFree(argv);
  if(!IsUserAnAdmin()){

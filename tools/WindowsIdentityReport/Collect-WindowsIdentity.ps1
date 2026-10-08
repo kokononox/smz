@@ -138,7 +138,7 @@ foreach($inputLine in $inputs) {
             Line ('نام در منوی بوت: '+(Safe $boot.Name));Line ('GUID: '+$boot.Id)
             Line ('پیش‌فرض بوت: '+$boot.Default+' | در DisplayOrder منوی بوت: '+$boot.Displayed)
             Line ('فرمان کمکی — اجرا نشده: bcdedit /default '+$boot.Id)
-            Line ('هدف میان‌بر نمونه — اجرا نشده: C:\Windows\System32\cmd.exe /c "bcdedit /default '+$boot.Id+' && bcdedit /timeout 10"')
+            Line ('هدف میان‌بر نمونه — اجرا نشده: %SystemRoot%\System32\cmd.exe /c "bcdedit /default '+$boot.Id+' && bcdedit /timeout 10"')
         }
     }catch{Line ('خطا در این مسیر: '+(Safe $_.Exception.Message))}
 }

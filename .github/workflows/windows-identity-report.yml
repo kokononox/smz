@@ -30,10 +30,12 @@ jobs:
         shell: pwsh
         run: |
           $exe=(Resolve-Path tools/WindowsIdentityReport/WindowsIdentityReport.exe).Path
-          $p=Start-Process $exe -ArgumentList '--self-test' -PassThru -Wait
+          $nativeError=Join-Path $env:GITHUB_WORKSPACE 'WIR-native-error.txt'
+          $p=Start-Process $exe -ArgumentList '--self-test' -RedirectStandardError $nativeError -PassThru -Wait
           if($p.ExitCode -ne 0){
             $detail=& "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/WindowsIdentityReport/Collect-WindowsIdentity.ps1 -SelfTest 2>&1
-            $summary="Native exit=$($p.ExitCode); diagnostic="+($detail | Out-String)
+            $native=Get-Content $nativeError -Raw -Encoding utf8
+            $summary="Native exit=$($p.ExitCode); native diagnostic=$native; direct fixture="+($detail | Out-String)
             Set-Content "$env:GITHUB_WORKSPACE/WIR-failure.txt" $summary -Encoding utf8
             throw "Native report engine self-test failed: $($p.ExitCode)"
           }
