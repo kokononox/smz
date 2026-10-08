@@ -1,4 +1,4 @@
-﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest,[switch]$EditBootNames)
+﻿param([string]$InputFile,[string]$OutputFile,[switch]$SelfTest,[switch]$EditBootNames,[switch]$EditIdentity,[switch]$EditBootGuids)
 $ErrorActionPreference='Stop'
 # An indirect launch from PowerShell 7 can inherit its module path; prefer Windows PS modules.
 $systemModules=Join-Path $PSHOME 'Modules'
@@ -39,6 +39,11 @@ function Device-Matches([string]$bcdPath,[string]$ntPath,[string]$drive) {
     return ($ntPath -and $value.Equals($ntPath,[StringComparison]::OrdinalIgnoreCase)) -or $value.Equals($drive,[StringComparison]::OrdinalIgnoreCase) -or $value.Equals('\??\'+$drive,[StringComparison]::OrdinalIgnoreCase)
 }
 . (Join-Path $PSScriptRoot 'BootNameEditor.ps1')
+. (Join-Path $PSScriptRoot 'IdentityEditor.ps1')
+. (Join-Path $PSScriptRoot 'BootGuidEditor.ps1')
+if($EditIdentity -or $EditBootGuids -or $SelfTest){Add-Type -Path (Join-Path $PSScriptRoot 'BcdGuidStager.cs')}
+if($EditIdentity){$code=Show-IdentityEditor;exit $code}
+if($EditBootGuids){$code=Show-BootGuidEditor;exit $code}
 if($EditBootNames){$code=Show-BootNameEditor;exit $code}
 if($SelfTest) {
     if((Normal-WindowsPath 'd:') -ne 'D:\Windows'){throw 'Drive normalization failed.'}
@@ -65,6 +70,8 @@ if($SelfTest) {
         if((Hash-File $fixture) -ne $before){throw 'Reader modified a hive.'}
     }finally{[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testKey,$false);Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue}
     Test-BootNameEditor
+    Test-IdentityEditor
+    Test-BootGuidEditor
     Write-Output 'PASS: Windows fixture, Unicode names, DWORD/string values, read-only SHA256, drive/GUID mapping.' 
     exit 0
 }
@@ -153,6 +160,10 @@ foreach($inputLine in $inputs) {
         }
     }catch{Line ('خطا در این مسیر: '+(Safe $_.Exception.Message))}
 }
+Line '';Line '================ مشخصه‌های نرم‌افزاری ویندوز فعال ================'
+Line 'این مقادیر برای ویندوز فعال‌اند، نه تمام مسیرهای بالا. برای هر نصب، ابزار را داخل همان ویندوز اجرا کنید.'
+try{foreach($field in @(Get-IdentityFields)){Line ($field.Label+': '+(Safe $field.Value));Line ('توضیح: '+$field.Warning)}}catch{Line ('خطای خواندن مشخصه‌ها: '+(Safe $_.Exception.Message))}
+Line 'MAC مؤثر با آدرس دائمی سخت‌افزار یکی نیست؛ MachineGuid با GUID بوت متفاوت است.'
 Line '';Line '================ همهٔ ورودی‌های Windows Boot Loader در BCD فعال ================'
 if($boots.Count -eq 0){Line 'نامشخص / ورودی قابل‌خواندن وجود ندارد.'}
 foreach($boot in $boots) {Line ('Name: '+(Safe $boot.Name));Line ('GUID: '+$boot.Id);Line ('OS device: '+$boot.OsDevice+' | Windows root: '+$boot.Root+' | Application device: '+$boot.Device);Line ('Default: '+$boot.Default+' | Boot menu: '+$boot.Displayed);Line ''}
