@@ -198,6 +198,8 @@ function Invoke-BootGuidCleanup($path,$current,[string]$file='') {
         $reason=$_.Exception.Message;$errors=@();$store=Bcd-StoreReference $file
         foreach($id in $deleted){try{if(!$store.CopyObject($backup,$id,[uint32]0).ReturnValue){throw 'Cannot restore original loader.'}}catch{$errors+=$_.Exception.Message}}
         if($managerTouched){try{Restore-BootGuidManagerOwned $before $next $file}catch{$errors+=$_.Exception.Message}}
+        $map.Status=if($errors.Count){'RollbackFailed'}else{'Created'}
+        try{Save-BootGuidMap $path $map;Write-BootGuidText ([IO.Path]::ChangeExtension($path,'.txt')) $map}catch{$errors+=$_.Exception.Message}
         if($errors.Count){throw ('ROLLBACK_FAILED: '+($errors -join ' | ')+' | Full backup: '+$backup)}
         throw ('حذف کامل نشد؛ ورودی‌های حذف‌شده و منوی قبلی بازگردانده شدند. '+$reason)
     }

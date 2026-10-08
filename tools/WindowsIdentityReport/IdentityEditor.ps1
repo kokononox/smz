@@ -66,7 +66,7 @@ function Get-IdentityAdapter($guid) {
 }
 function Get-IdentityMacProperty($guid) {
     $adapter=Get-IdentityAdapter $guid
-    $props=@(Get-NetAdapterAdvancedProperty -Name $adapter.Name -AllProperties -ErrorAction Stop |Where-Object{$_.RegistryKeyword -eq 'NetworkAddress'})
+    $props=@(Get-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -AllProperties -ErrorAction Stop |Where-Object{$_.RegistryKeyword -eq 'NetworkAddress'})
     if($props.Count -ne 1){throw 'درایور این کارت گزینهٔ NetworkAddress را ارائه نمی‌کند؛ تغییر MAC انجام نمی‌شود.'}
     return $props[0]
 }
@@ -84,7 +84,7 @@ function Get-IdentityFields {
     $disk=Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='"+$drive+":'")
     $rows.Add([PSCustomObject]@{Kind='VolumeLabel';Target=$drive;Label=('برچسب پارتیشن ویندوز ('+$drive+':)');Value=[string]$disk.VolumeName;Warning='ویژگی پارتیشن است و از سایر ویندوزها هم دیده می‌شود؛ فقط پارتیشن همین ویندوز ویرایش می‌شود.';Advanced=$false})
     try{foreach($a in @(Get-NetAdapter -Physical -ErrorAction Stop)){
-        try{[void](Get-IdentityMacProperty $a.InterfaceGuid);$rows.Add([PSCustomObject]@{Kind='MacAddress';Target=(Invariant-Guid $a.InterfaceGuid);Label=('MAC مؤثر — '+$a.Name);Value=([string]$a.MacAddress).Replace('-','').Replace(':','');Warning='اتصال شبکه هنگام اعمال قطع می‌شود. MAC دائمی سخت‌افزار عوض نمی‌شود. مقدار مؤثر و override پس از تغییر بررسی می‌شوند.';Advanced=$true})}catch{}
+        try{if($a.Status -eq 'Disabled'){continue};[void](Get-IdentityMacProperty $a.InterfaceGuid);$rows.Add([PSCustomObject]@{Kind='MacAddress';Target=(Invariant-Guid $a.InterfaceGuid);Label=('MAC مؤثر — '+$a.Name);Value=([string]$a.MacAddress).Replace('-','').Replace(':','');Warning='اتصال شبکه هنگام اعمال قطع می‌شود. MAC دائمی سخت‌افزار عوض نمی‌شود. مقدار مؤثر و override پس از تغییر بررسی می‌شوند.';Advanced=$true})}catch{}
     }}catch{}
     foreach($kind in @('MachineGuid','InstallDate')) {
         try{
@@ -113,6 +113,7 @@ function Read-IdentityState($field) {
         }
         'MacAddress' {
             $a=Get-IdentityAdapter $field.Target
+            if($a.Status -eq 'Disabled'){throw 'ابتدا کارت شبکه را دستی فعال کنید؛ ابزار وضعیت فعال/غیرفعال کارت را عوض نمی‌کند.'}
             return @{Value=(Get-IdentityMacOverride $field.Target);Effective=([string]$a.MacAddress).Replace('-','').Replace(':','').ToUpperInvariant();Target=(Invariant-Guid $a.InterfaceGuid);Pnp=[string]$a.PnPDeviceID}
         }
         default {return (Read-IdentityRegistry $field.Kind)}
@@ -124,8 +125,8 @@ function Set-IdentityState($kind,$target,$value) {
         'VolumeLabel' {Assert-IdentityValue $kind $value;$drive=[IO.Path]::GetPathRoot($env:SystemRoot).Substring(0,1);if($target -ne $drive){throw 'Wrong Windows volume.'};Set-Volume -DriveLetter $drive -NewFileSystemLabel $value -ErrorAction Stop}
         'MacAddress' {
             $adapter=Get-IdentityAdapter $target;[void](Get-IdentityMacProperty $target)
-            if($value){if($value -notmatch '^[0-9a-fA-F]{12}$' -or (([Convert]::ToInt32($value.Substring(0,2),16) -band 1) -ne 0)){throw 'Invalid MAC override.'};Set-NetAdapterAdvancedProperty -Name $adapter.Name -RegistryKeyword NetworkAddress -RegistryValue $value -ErrorAction Stop}
-            else{Reset-NetAdapterAdvancedProperty -Name $adapter.Name -RegistryKeyword NetworkAddress -ErrorAction Stop}
+            if($value){if($value -notmatch '^[0-9a-fA-F]{12}$' -or (([Convert]::ToInt32($value.Substring(0,2),16) -band 1) -ne 0)){throw 'Invalid MAC override.'};Set-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -RegistryKeyword NetworkAddress -RegistryValue $value -ErrorAction Stop}
+            else{Reset-NetAdapterAdvancedProperty -Name ([WildcardPattern]::Escape($adapter.Name)) -RegistryKeyword NetworkAddress -ErrorAction Stop}
         }
         default {Write-IdentityRegistry $kind $value}
     }
