@@ -9,11 +9,11 @@ using Microsoft.Win32.SafeHandles;
 
 // App-hive operations are restricted to exported disposable copies. Never pass the live BCD path.
 public static class BcdGuidStager {
-    const int Read=0x20019, All=0xf003f;
+    const int Read=0x20019, Write=0x20006, ReadWrite=Read|Write;
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegLoadAppKey(string file,out IntPtr key,int access,int options,int reserved);
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegOpenKeyEx(IntPtr key,string path,int options,int access,out IntPtr result);
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegCreateKeyEx(IntPtr key,string path,int reserved,string cls,int options,int access,IntPtr security,out IntPtr result,out int disposition);
-    [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegCopyTree(IntPtr source,string subkey,IntPtr destination);
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegSetValueEx(IntPtr key,string name,int reserved,uint type,byte[] data,uint size);
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegQueryValueEx(IntPtr key,string name,IntPtr reserved,out uint type,byte[] data,ref uint size);
     [DllImport("advapi32.dll")] static extern int RegFlushKey(IntPtr key);
     [DllImport("advapi32.dll")] static extern int RegCloseKey(IntPtr key);
@@ -30,11 +30,32 @@ public static class BcdGuidStager {
         CheckFile(path);oldId=GuidKey(oldId);newId=GuidKey(newId);if(oldId==newId)throw new ArgumentException("Identifiers must differ.");
         IntPtr hive=IntPtr.Zero,source=IntPtr.Zero,dest=IntPtr.Zero;
         try{
-            Check(RegLoadAppKey(path,out hive,All,1,0));Check(RegOpenKeyEx(hive,"Objects\\"+oldId,0,Read,out source));
-            int disposition;Check(RegCreateKeyEx(hive,"Objects\\"+newId,0,null,0,All,IntPtr.Zero,out dest,out disposition));
+            Check(RegLoadAppKey(path,out hive,ReadWrite,1,0));Check(RegOpenKeyEx(hive,"Objects\\"+oldId,0,Read,out source));
+            int disposition;Check(RegCreateKeyEx(hive,"Objects\\"+newId,0,null,0,ReadWrite,IntPtr.Zero,out dest,out disposition));
             if(disposition!=1)throw new InvalidOperationException("The new GUID already exists; refusing overwrite.");
-            Check(RegCopyTree(source,null,dest));Check(RegFlushKey(hive));
+            using(SafeRegistryHandle sourceHandle=new SafeRegistryHandle(source,false))
+            using(RegistryKey sourceKey=RegistryKey.FromHandle(sourceHandle))CopyValuesAndKeys(sourceKey,dest);
+            Check(RegFlushKey(hive));
         }finally{if(dest!=IntPtr.Zero)RegCloseKey(dest);if(source!=IntPtr.Zero)RegCloseKey(source);if(hive!=IntPtr.Zero)RegCloseKey(hive);}
+    }
+    // RegCopyTree copies security descriptors and cannot be used on app hives.
+    // Copy raw values/types and subkeys only; WMI imports the object into the target store.
+    static void CopyValuesAndKeys(RegistryKey source,IntPtr destination) {
+        foreach(string name in source.GetValueNames()){
+            uint type,size=0;IntPtr handle=source.Handle.DangerousGetHandle();
+            Check(RegQueryValueEx(handle,name,IntPtr.Zero,out type,null,ref size));
+            if(size>16*1024*1024)throw new InvalidDataException("Excessive BCD value size.");
+            byte[] bytes=new byte[size];Check(RegQueryValueEx(handle,name,IntPtr.Zero,out type,bytes,ref size));
+            Check(RegSetValueEx(destination,name,0,type,bytes,size));
+        }
+        foreach(string name in source.GetSubKeyNames()){
+            IntPtr child=IntPtr.Zero;int disposition;
+            try{
+                Check(RegCreateKeyEx(destination,name,0,null,0,ReadWrite,IntPtr.Zero,out child,out disposition));
+                if(disposition!=1)throw new InvalidOperationException("Staged child already exists.");
+                using(RegistryKey sub=source.OpenSubKey(name,false))CopyValuesAndKeys(sub,child);
+            }finally{if(child!=IntPtr.Zero)RegCloseKey(child);}
+        }
     }
     static void HashTree(RegistryKey key,string relative,BinaryWriter writer) {
         // A description rename is allowed between creation and cleanup; all other bytes must match.

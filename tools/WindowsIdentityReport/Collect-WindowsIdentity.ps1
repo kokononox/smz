@@ -163,6 +163,7 @@ foreach($inputLine in $inputs) {
 Line '';Line '================ مشخصه‌های نرم‌افزاری ویندوز فعال ================'
 Line 'این مقادیر برای ویندوز فعال‌اند، نه تمام مسیرهای بالا. برای هر نصب، ابزار را داخل همان ویندوز اجرا کنید.'
 try{foreach($field in @(Get-IdentityFields)){Line ($field.Label+': '+(Safe $field.Value));Line ('توضیح: '+$field.Warning)}}catch{Line ('خطای خواندن مشخصه‌ها: '+(Safe $_.Exception.Message))}
+try{$profile=(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\IDConfigDB\Hardware Profiles\0001' -Name HwProfileGuid -ErrorAction Stop).HwProfileGuid;Line ('HwProfileGuid (فقط نمایش): '+(Safe $profile))}catch{Line 'HwProfileGuid (فقط نمایش): در دسترس نیست'}
 Line 'MAC مؤثر با آدرس دائمی سخت‌افزار یکی نیست؛ MachineGuid با GUID بوت متفاوت است.'
 Line '';Line '================ همهٔ ورودی‌های Windows Boot Loader در BCD فعال ================'
 if($boots.Count -eq 0){Line 'نامشخص / ورودی قابل‌خواندن وجود ندارد.'}
