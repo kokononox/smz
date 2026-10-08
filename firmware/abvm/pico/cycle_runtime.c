@@ -188,8 +188,11 @@ CycleAction cycle_runtime_service(uint32_t now,bool host_seen,
         if(host_state==ARM_HOST_USB_DOWN||host_state==ARM_HOST_USB_SUSPEND){
             cycle.down_seen=true;cycle.up_timing=false;
             cycle.desktop_timing=false;
+        /* A freshly armed warm corrective switch is NOT evidence of a reboot.
+         * Only observed USB down/suspend (or the marker restored at Pico boot,
+         * where switch_route is zero) authorizes Startup. */
         }else if(host_state==ARM_HOST_USB_UP&&
-                 (cycle.down_seen||calibration_store_cycle_armed())){
+                 (cycle.down_seen||(!cycle.switch_route&&calibration_store_cycle_armed()))){
             if(!cycle.up_timing){cycle.up_timing=true;cycle.up_since=now;}
             if(!desktop_ready)cycle.desktop_timing=false;
             else if(!cycle.desktop_timing){
