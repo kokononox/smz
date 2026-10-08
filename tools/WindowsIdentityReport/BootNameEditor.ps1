@@ -1,4 +1,4 @@
-# Only the Description string (0x12000004) can be written by this editor.
+﻿# Only the Description string (0x12000004) can be written by this editor.
 function Bcd-StoreReference([string]$file) {
     $class=[wmiclass]'root\WMI:BcdStore';$class.Scope.Options.EnablePrivileges=$true
     $opened=$class.OpenStore($file);if(!$opened.ReturnValue){throw 'Cannot open selected store.'}
