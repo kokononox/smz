@@ -25,6 +25,24 @@ class TestRunner
     [STAThread]   // v0.8.0 — the accordion test builds a MainViewModel (WPF brushes)
     static void Main()
     {
+        var shiftSchedule=new ShiftScheduleSettings {enabled=true,dayStart=480,dayEnd=1080,nightStart=1200,nightEnd=360,maxAttempts=2};
+        shiftSchedule.Validate();
+        Assert(true,"Shift schedule permits gaps and midnight crossing");
+        shiftSchedule.nightStart=1000;bool shiftOverlap=false;
+        try{shiftSchedule.Validate();}catch(FormatException){shiftOverlap=true;}
+        Assert(shiftOverlap,"Shift schedule rejects overlapping users' intervals");
+        shiftSchedule.nightStart=1200;shiftSchedule.maxAttempts=0;bool shiftAttempts=false;
+        try{shiftSchedule.Validate();}catch(FormatException){shiftAttempts=true;}
+        Assert(shiftAttempts,"Shift schedule rejects an unlimited attempt budget");
+        var scheduleWorkspace=new PipelineWorkspace();
+        scheduleWorkspace.ShiftSchedule=new ShiftScheduleSettings {enabled=true,dayStart=480,dayEnd=1080,nightStart=1200,nightEnd=360,maxAttempts=2};
+        scheduleWorkspace[PipelineKind.SwitchToDay].Steps.Add(new StepNode{Type="keystroke",Props=new(){["key"]="5",["modWin"]=true}});
+        scheduleWorkspace[PipelineKind.SwitchToNight].Steps.Add(new StepNode{Type="keystroke",Props=new(){["key"]="6",["modWin"]=true}});
+        var scheduleRoundtrip=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(scheduleWorkspace));
+        Assert(scheduleRoundtrip.ShiftSchedule.enabled&&scheduleRoundtrip.ShiftSchedule.nightEnd==360
+            &&scheduleRoundtrip[PipelineKind.SwitchToDay].Steps.Count==1&&scheduleRoundtrip[PipelineKind.SwitchToNight].Steps.Count==1,
+            "Shift schedule and separate editable switch routes survive macro save/load");
+        Assert(!new PipelineWorkspace().ShiftSchedule.enabled,"Old macro defaults to identity-only behavior");
         var buffWorkspace = new PipelineWorkspace();
         var testBuff = new StepNode { Type="keystroke", Name="tea", Delay=11000, DelayMax=16000,
             Props=new() { ["key"]="9", ["holdMin"]=89, ["holdMax"]=210,

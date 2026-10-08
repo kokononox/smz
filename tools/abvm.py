@@ -49,6 +49,7 @@ OP_BUFF = 31
 OP_SHIFT_CHECK, OP_SHIFT_TYPE = 32, 33
 CONST_SHIFT = 11
 SHIFT_CONFIG = struct.Struct("<4sBBHIII4B32s32s")
+SHIFT_SCHEDULE = struct.Struct("<BB7H") # enabled/attempts/day and night minutes/route ids/reserved
 CONST_BUFF = 10
 BUFF_HEADER = struct.Struct("<4sBBH")
 BUFF_ROW = struct.Struct("<IB3xIIIIIIII")
@@ -91,7 +92,7 @@ ROUTE_IDS = {
     "CharacterDashboard": 6,
     "EnteringGameLoading": 7, "Game": 8, "Targeted": 9,
     "Whisper": 10, "Splash": 11, "WhisperRepeat": 12,
-    "Finish": 13, "TargetedRepeat": 14,
+    "Finish": 13, "TargetedRepeat": 14, "SwitchToDay": 16, "SwitchToNight": 17,
 }
 
 ROUTE_POLICY_BY_NAME = {
@@ -111,6 +112,7 @@ ROUTE_POLICY_BY_NAME = {
     "WhisperRepeat": ROUTE_INTERRUPT_AND_RESUME,
     "Splash": ROUTE_CANCEL_SCOPE_AND_CONTINUE,
     "Finish": ROUTE_ABORT_AND_START,
+    "SwitchToDay": ROUTE_ABORT_AND_START, "SwitchToNight": ROUTE_ABORT_AND_START,
 }
 
 # Real-time routes keep absolute deadlines while paused and while an interrupt
@@ -240,6 +242,23 @@ class Program:
     source_sha256: str
     program_sha256: str
 
+
+def validate_shift_schedule(config):
+    values=[]
+    for field in ("dayStart","dayEnd","nightStart","nightEnd"):
+        raw=config.get(field)
+        if type(raw) is not int or not 0<=raw<1440:
+            raise AbvmError("shift time must be an integer minute 0..1439")
+        values.append(raw)
+    ds,de,ns,ne=values
+    if ds==de or ns==ne: raise AbvmError("shift interval cannot be empty or 24 hours")
+    def contains(m,s,e): return s<=m<e if s<e else m>=s or m<e
+    if any(contains(m,ds,de) and contains(m,ns,ne) for m in range(1440)):
+        raise AbvmError("day and night shift intervals overlap")
+    attempts=config.get("maxAttempts",2)
+    if type(attempts) is not int or not 1<=attempts<=10:
+        raise AbvmError("shift switch attempt limit must be 1..10")
+    return ds,de,ns,ne,attempts
 
 class Pool:
     def __init__(self) -> None:
@@ -639,6 +658,23 @@ class Compiler:
             raise AbvmError("mouse fatigue duration must be 1..1440 minutes")
         self.game_fatigue_ms = fatigue_minutes * 60000 if enabled else 0
         self.shift_config = source.get("nativeShift") or {}
+        self.shift_schedule = source.get("shiftSchedule") or {}
+        if self.shift_schedule.get("enabled",False):
+            validate_shift_schedule(self.shift_schedule)
+            if not source.get("nativeCycle",{}).get("autoResume",True) or not source.get("nativeCycle",{}).get("enabled",False):
+                raise AbvmError("shift switching requires Native Cycle auto-resume")
+            if not source.get("nativeGuard",{}).get("enabled",False):
+                raise AbvmError("shift switching requires Native Guard")
+            for tab in ("Desktop","Startup"):
+                roots=pipelines.get(tab,[])
+                # Identity must be an unconditional root before OS launch actions.
+                checks=[i for i,n in enumerate(roots) if not disabled(n) and step_type(n)=="shiftCheck"]
+                if len(checks)!=1 or any(not disabled(n) and step_type(n) not in ("delay","randomMousePosition","comment") for n in roots[:checks[0]]):
+                    raise AbvmError("scheduled shifts need one early root shiftCheck in Desktop and Startup")
+            for tab in ("SwitchToDay","SwitchToNight"):
+                roots=pipelines.get(tab,[])
+                if tab not in route_names or not any(not disabled(n) and step_type(n) not in ("delay","comment") for n in roots):
+                    raise AbvmError("configure both nonempty shift switch routes before enabling schedule")
         for name in route_names:
             nodes = pipelines.get(name)
             if nodes is None:
@@ -787,6 +823,9 @@ class Compiler:
             if not 1 <= len(keys) <= 4 or len(set(keys)) != len(keys) or not 1 <= lo <= hi <= 10000 or not 1000 <= timeout <= 120000:
                 raise AbvmError("invalid shift check hotkey/hold/timeout")
             packed = SHIFT_CONFIG.pack(b"SFT1",1,len(keys),0,timeout,lo,hi,*(keys+[0]*(4-len(keys))),day,night)
+            if self.shift_schedule.get("enabled",False):
+                ds,de,ns,ne,attempts=validate_shift_schedule(self.shift_schedule)
+                packed=b"SFT2"+bytes([2])+packed[5:]+SHIFT_SCHEDULE.pack(1,attempts,ds,de,ns,ne,16,17,0)
             self.emit(OP_SHIFT_CHECK,a=self.pool.add(CONST_SHIFT,packed))
         elif kind == "buffCheckpoint":
             if self.current_route != "Game":
@@ -1640,12 +1679,17 @@ class Verifier:
                 ins = image.instructions[pc]
                 if ins.op == OP_SHIFT_CHECK:
                     payload = image.const(ins.a,CONST_SHIFT)
-                    if len(payload) != SHIFT_CONFIG.size or ins.flags or ins.b or ins.c or ins.d:
+                    if len(payload) not in (SHIFT_CONFIG.size,SHIFT_CONFIG.size+SHIFT_SCHEDULE.size) or ins.flags or ins.b or ins.c or ins.d:
                         raise AbvmError("invalid shift check descriptor")
-                    magic,version,width,reserved,timeout,lo,hi,*tail=SHIFT_CONFIG.unpack(payload)
+                    magic,version,width,reserved,timeout,lo,hi,*tail=SHIFT_CONFIG.unpack(payload[:SHIFT_CONFIG.size])
                     keys=tail[:4];day,night=tail[4:]
-                    if magic!=b"SFT1" or version!=1 or reserved or not 1<=width<=4 or 0 in keys[:width] or any(keys[width:]) or len(set(keys[:width]))!=width or not 1000<=timeout<=120000 or not 1<=lo<=hi<=10000 or day==night or not any(day) or not any(night):
+                    if (magic,version) not in ((b"SFT1",1),(b"SFT2",2)) or ((version==2)!=(len(payload)==104)) or reserved or not 1<=width<=4 or 0 in keys[:width] or any(keys[width:]) or len(set(keys[:width]))!=width or not 1000<=timeout<=120000 or not 1<=lo<=hi<=10000 or day==night or not any(day) or not any(night):
                         raise AbvmError("invalid shift identity configuration")
+                    if version==2:
+                        enabled,attempts,ds,de,ns,ne,day_route,night_route,pad=SHIFT_SCHEDULE.unpack(payload[88:])
+                        if enabled!=1 or pad or (day_route,night_route)!=(16,17) or not {1,3,16,17}.issubset({r.route_id for r in image.routes}):
+                            raise AbvmError("invalid shift schedule routes")
+                        validate_shift_schedule({"dayStart":ds,"dayEnd":de,"nightStart":ns,"nightEnd":ne,"maxAttempts":attempts})
                 if ins.op == OP_BUFF:
                     image.const(ins.a, CONST_BUFF)
                     if ins.flags not in (0,1) or ins.b or ins.c or ins.d:

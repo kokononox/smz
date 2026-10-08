@@ -74,6 +74,9 @@ def inject(template:bytes,program:bytes):
         if any(i.op in (OP_SHIFT_CHECK,OP_SHIFT_TYPE) for i in verified.instructions):
             if b"OK|SHIFT-CHALLENGE|" not in flash:
                 raise Uf2Error("UF2 template lacks the Pico shift identity runtime; choose a matching Shift test-build template")
+        if any(i.op==OP_SHIFT_CHECK and verified.const(i.a,11)[:4]==b"SFT2" for i in verified.instructions):
+            if b"OK|SHIFT-SCHEDULE|v=2" not in flash:
+                raise Uf2Error("UF2 template lacks scheduled shift switching; choose a ShiftSchedule test-build template")
         if any(i.op==OP_BUFF for i in verified.instructions):
             flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
             if b"EVT|BUFF|state=new-game|count=%u" not in flash:

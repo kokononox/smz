@@ -30,7 +30,7 @@ internal static class Program
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed < TimeSpan.FromSeconds(30))
             {
-                var candidates = new List<(SerialPort port, string nonce)>();
+                var candidates = new List<(SerialPort port, string nonce, bool clock)>();
                 try
                 {
                     foreach (var name in known)
@@ -52,11 +52,13 @@ internal static class Program
                                 try { line = port.ReadLine().Trim(); }
                                 catch (TimeoutException) { continue; }
                                 if (!line.StartsWith("OK|SHIFT-CHALLENGE|", StringComparison.Ordinal)) continue;
-                                string nonce = line["OK|SHIFT-CHALLENGE|".Length..];
-                                if (nonce.Length == 8 && uint.TryParse(nonce,
+                                var challenge=line["OK|SHIFT-CHALLENGE|".Length..].Split('|');
+                                string nonce=challenge[0];
+                                bool needsClock=challenge.Length==2&&challenge[1]=="clock=1";
+                                if ((challenge.Length==1||needsClock) && nonce.Length == 8 && uint.TryParse(nonce,
                                     System.Globalization.NumberStyles.HexNumber, null, out _))
                                 {
-                                    candidates.Add((port, nonce)); port = null; break;
+                                    candidates.Add((port, nonce, needsClock)); port = null; break;
                                 }
                             }
                         }
@@ -68,8 +70,11 @@ internal static class Program
                     if (candidates.Count > 1) return 4;
                     if (candidates.Count == 1)
                     {
-                        var (port, nonce) = candidates[0];
-                        port.WriteLine($"SHIFT!|{nonce}|{ShiftUserIdentity.Hash(Environment.UserName)}");
+                        var (port, nonce, needsClock) = candidates[0];
+                        var localNow=DateTime.Now;
+                        port.WriteLine(needsClock
+                            ? $"SHIFT2!|{nonce}|{ShiftUserIdentity.Hash(Environment.UserName)}|{localNow.Hour*60+localNow.Minute}"
+                            : $"SHIFT!|{nonce}|{ShiftUserIdentity.Hash(Environment.UserName)}");
                         var acknowledgement = Stopwatch.StartNew();
                         while (acknowledgement.ElapsedMilliseconds < 3000)
                         {
@@ -86,7 +91,7 @@ internal static class Program
                 {
                     // Runs before Main returns. DTR falls and COM is released;
                     // Pico independently waits for a stable DTR-off interval.
-                    foreach (var (port, _) in candidates) Close(port);
+                    foreach (var (port, _, _) in candidates) Close(port);
                 }
                 Thread.Sleep(200);
                 known = KnownPorts();
