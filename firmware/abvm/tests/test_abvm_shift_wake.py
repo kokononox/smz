@@ -83,21 +83,28 @@ class ShiftWakeTests(unittest.TestCase):
     def test_wake_clears_the_windows_lock_screen(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_DISMISS_ENABLED 1',main)
-        self.assertIn('#define WAKE_DISMISS_CLICK_COMMAND "MCLICK|left,1"',main)
         self.assertIn('#define WAKE_DISMISS_KEY 13u',main)
-        self.assertIn('arm_uart_mouse_submit_internal(WAKE_DISMISS_CLICK_COMMAND,now)',main)
+        self.assertIn('#define WAKE_DISMISS_PRESSES 2u',main)
         self.assertIn('hid_keyboard_submit_trigger(WAKE_DISMISS_KEY,40u,90u,now)',main)
+        # The lock screen goes away on Enter alone: no pointer click, because the
+        # authored macro language has no click opcode and the mouse must not move.
+        self.assertNotIn('WAKE_DISMISS_CLICK_COMMAND',main)
+        self.assertIn('if(wake_dismiss_step<WAKE_DISMISS_PRESSES)',main)
+        self.assertIn('wake_dismiss_step++;',main)
+        dismiss=main[main.index('if(wake_phase==WAKE_PHASE_DISMISS) {'):
+                    main.index('wake_phase=WAKE_PHASE_SETTLE;wake_deadline=now;',
+                               main.index('if(wake_phase==WAKE_PHASE_DISMISS) {'))]
+        self.assertNotIn('arm_uart_mouse',dismiss)
+        self.assertNotIn('MCLICK',dismiss)
         # The dismiss is only ever reached for a host this board actually woke, and
         # it runs before the authored round takes over.
         self.assertIn('if(wake_woke_host&&!wake_dismiss_done)',main)
         self.assertIn('wake_woke_host=false;wake_dismiss_done=false;wake_dismiss_step=0u;',main)
         self.assertLess(main.index('if(wake_woke_host&&!wake_dismiss_done)'),
                         main.index('printf("EVT|WAKE|state=start|attempt=%u\\n",wake_attempts);'))
-        # Click then Enter, and neither may hold up the shift.
-        self.assertLess(main.index('EVT|WAKE|state=dismiss|step=click'),
-                        main.index('EVT|WAKE|state=dismiss|step=enter'))
-        self.assertIn('ERR|WAKE|dismiss|click=%u',main)
-        self.assertIn('ERR|WAKE|dismiss|key=%u',main)
+        # Every Enter is logged, and none may hold up the shift.
+        self.assertIn('EVT|WAKE|state=dismiss|step=enter|n=%u',main)
+        self.assertIn('ERR|WAKE|dismiss|key=%u|n=%u',main)
         self.assertIn('wake_dismiss_done=true;',main)
     def test_wake_code_stays_out_of_the_adapter_slices(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()

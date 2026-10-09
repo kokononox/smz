@@ -41,14 +41,14 @@ extern size_t abvm_program_size(void);
 #define WAKE_RETRY_MS 300000u
 /* A verified wake leaves the host on the Windows lock screen, and the authored
  * macro language has no click opcode at all (ABVM knows motion, keys and typing
- * only), so nothing in the project can dismiss it.  One click drops the lock
- * screen and Enter signs the machine in, which puts the authored round on the
- * desktop instead of on a lock screen.  It only ever runs on a host this board
- * actually woke, and it is never allowed to hold up the shift: a click or key
- * that will not go out is logged and skipped. */
+ * only), so nothing in the project can dismiss it.  Two paced Enters clear the
+ * lock screen and sign the machine in without touching the pointer, which puts
+ * the authored round on the desktop instead of on a lock screen.  It only ever
+ * runs on a host this board actually woke, and it is never allowed to hold up
+ * the shift: a key that will not go out is logged and skipped. */
 #define WAKE_DISMISS_ENABLED 1
-#define WAKE_DISMISS_CLICK_COMMAND "MCLICK|left,1"
 #define WAKE_DISMISS_KEY 13u /* VK_RETURN */
+#define WAKE_DISMISS_PRESSES 2u
 #define WAKE_DISMISS_GAP_MS 1200u
 /* Two independent wake sources sit on the host bus: the Pico is itself a HID
  * keyboard whose descriptor advertises remote wake-up, and the Arduino board
@@ -1678,31 +1678,20 @@ static void service_wake(uint32_t now) {
         return;
     }
 #if WAKE_DISMISS_ENABLED
-    /* Two paced steps, both fire-and-forget with a fixed gap: the click drops the
-     * lock screen, Enter signs the machine in.  Neither may block the shift, so a
-     * refusal is logged and the sequence moves on. */
+    /* Paced Enter presses, both fire-and-forget with a fixed gap: the first
+     * drops the lock screen, the second signs the machine in.  Neither may block
+     * the shift, so a refusal is logged and the sequence moves on. */
     if(wake_phase==WAKE_PHASE_DISMISS) {
         if((int32_t)(now-wake_deadline)<0)return;
-        if(wake_dismiss_step==0u) {
-            if(!arm_uart_mouse_ready()||arm_uart_mouse_busy())return;
-            ArmMouseSubmit result=arm_uart_mouse_submit_internal(WAKE_DISMISS_CLICK_COMMAND,now);
-            if(result==ARM_MOUSE_BUSY)return;
-            if(result==ARM_MOUSE_ACCEPTED) {
-                printf("EVT|WAKE|state=dismiss|step=click\n");
-                wake_dismiss_step=1u;
-            } else {
-                printf("ERR|WAKE|dismiss|click=%u\n",(unsigned)result);
-                wake_dismiss_step=2u;
-            }
-            wake_deadline=now+WAKE_DISMISS_GAP_MS;
-            return;
-        }
-        if(wake_dismiss_step==1u) {
+        if(wake_dismiss_step<WAKE_DISMISS_PRESSES) {
             HidKeyboardSubmit key=hid_keyboard_submit_trigger(WAKE_DISMISS_KEY,40u,90u,now);
             if(key==HID_KEYBOARD_BUSY)return;
-            if(key==HID_KEYBOARD_ACCEPTED) printf("EVT|WAKE|state=dismiss|step=enter\n");
-            else printf("ERR|WAKE|dismiss|key=%u\n",(unsigned)key);
-            wake_dismiss_step=2u;
+            if(key==HID_KEYBOARD_ACCEPTED)
+                printf("EVT|WAKE|state=dismiss|step=enter|n=%u\n",(unsigned)(wake_dismiss_step+1u));
+            else
+                printf("ERR|WAKE|dismiss|key=%u|n=%u\n",
+                       (unsigned)key,(unsigned)(wake_dismiss_step+1u));
+            wake_dismiss_step++;
             wake_deadline=now+WAKE_DISMISS_GAP_MS;
             return;
         }
