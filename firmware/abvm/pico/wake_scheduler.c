@@ -153,7 +153,21 @@ bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *
  * storm; the counter is cleared by the next accepted bridge clock sample. */
 bool wake_scheduler_recovery_needed(bool host_asleep, bool pending,
                                     uint8_t attempts, uint8_t maximum) {
-    return host_asleep && pending && attempts < maximum;
+    return host_asleep && pending && wake_scheduler_pulse_budget_left(attempts, maximum);
+}
+
+bool wake_scheduler_pulse_budget_left(uint8_t attempts, uint8_t maximum) {
+    return attempts < maximum;
+}
+
+/* The second way a board can come back without a clock.  Nothing is owed here --
+ * the brownout landed mid-shift, or the board had already handed its deadline
+ * back -- so there is no persisted wake to point at.  What is certain is that the
+ * schedule travelled inside the flashed program, that no sample has anchored the
+ * clock since boot, and that the host holding the only clock may be asleep. */
+bool wake_scheduler_boot_clock_needed(bool enabled, bool synced,
+                                      uint8_t attempts, uint8_t maximum) {
+    return enabled && !synced && wake_scheduler_pulse_budget_left(attempts, maximum);
 }
 
 bool wake_scheduler_due(const WakeScheduler *w, uint32_t now) {

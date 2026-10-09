@@ -73,11 +73,12 @@ extern size_t abvm_program_size(void);
  * a hardware bring-up can isolate one of them. */
 #define WAKE_USE_PICO_WAKEUP 1
 #define WAKE_USE_ARM_PULSE 1
-/* A board reset loses the RAM deadline.  The persisted record still says whether
- * the host was asleep and whether a wake was owed, and that combination is
- * enough to recover: one pulse brings the host back, the bridge re-sends the wall
- * clock, and the real deadline is re-armed.  The attempt counter bounds this so a
- * brownout loop can never turn into a wake storm. */
+/* A board reset loses the RAM deadline, and a power cut loses the wall anchor
+ * with it.  Two boot states need the same medicine: the persisted record says the
+ * host was asleep with a wake still owed, or the board came back with a schedule
+ * and no clock at all.  In both cases one pulse brings the host back, the bridge
+ * re-sends the sample, and the real deadline is re-armed.  The attempt counter
+ * bounds both so a brownout loop can never turn into a wake storm. */
 #define WAKE_RECOVERY_MAX_ATTEMPTS 3u
 #define WAKE_RECOVERY_TIMEOUT_MS 120000u
 /* How long a recovery boot waits for the first host-USB sample before it stops
@@ -108,9 +109,15 @@ static uint32_t shift_generation,shift_cue_until;
 
 typedef enum WakePhase { WAKE_PHASE_IDLE=0, WAKE_PHASE_PULSE, WAKE_PHASE_RESUME, WAKE_PHASE_SETTLE, WAKE_PHASE_DISMISS } WakePhase;
 typedef enum WakeRecoveryPhase { WAKE_RECOVERY_IDLE=0, WAKE_RECOVERY_PULSE, WAKE_RECOVERY_WAIT } WakeRecoveryPhase;
+/* Why a recovery boot is running.  An owed wake is recovered from the persisted
+ * decision; a clockless power-on has no persisted deadline to point at, yet the
+ * same pulse is the only route back to a wall clock.  Both spend one budget, and
+ * the reason is logged so an operator can tell the two apart. */
+typedef enum WakeRecoveryReason { WAKE_RECOVERY_REASON_NONE=0, WAKE_RECOVERY_REASON_OWED, WAKE_RECOVERY_REASON_CLOCK } WakeRecoveryReason;
 static WakeScheduler wake_scheduler;
 static WakePhase wake_phase;
 static WakeRecoveryPhase wake_recovery_phase;
+static WakeRecoveryReason wake_recovery_reason;
 static bool wake_pulse_inflight;
 static bool wake_woke_host,wake_dismiss_done;
 static uint8_t wake_dismiss_step;
@@ -127,6 +134,7 @@ static void wake_attempts_reset(void);
 static void wake_store_service(uint32_t now,bool force);
 static void print_wake_state(void);
 static void wake_report_blocked(const char *reason,uint32_t now);
+static const char *wake_recovery_reason_text(void);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -1237,18 +1245,24 @@ static const char *cycle_host_name(uint8_t state) {
     if(state==ARM_HOST_USB_DOWN)return "DOWN";
     return "UNKNOWN";
 }
+static const char *wake_recovery_reason_text(void) {
+    if(wake_recovery_reason==WAKE_RECOVERY_REASON_CLOCK) return "clock";
+    if(wake_recovery_reason==WAKE_RECOVERY_REASON_OWED) return "owed";
+    return "none";
+}
 /* Everything the wake decision reads, in one reply, so an operator can see why
  * a deadline is still pending instead of inferring it from STATUS fields. */
 static void print_wake_state(void) {
     bool armed=wake_scheduler_armed(&wake_scheduler);
     long due_ms=armed?(long)(int32_t)(wake_scheduler.deadline_ms-now_ms()):0l;
-    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u\n",
+    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s\n",
            armed?1u:0u,wake_scheduler.manual?1u:0u,wake_scheduler.dry?1u:0u,
            wake_scheduler.synced?1u:0u,wake_scheduler.enabled?1u:0u,
            wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,due_ms,
            (unsigned)wake_attempts,(unsigned)wake_phase,(unsigned)wake_recovery_phase,
            cycle_host_name(arm_uart_host_usb_state()),
-           pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u);
+           pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u,
+           wake_recovery_reason_text());
 }
 static void service_cycle_events(void) {
     CycleEvent event;
@@ -1707,11 +1721,22 @@ static void wake_report_blocked(const char *reason,uint32_t now) {
            (unsigned)wake_recovery_phase);
 }
 static void service_wake_recovery(uint32_t now) {
+    /* A clock acquisition ends the moment the sample it was pulsing for arrives:
+     * the host that can send it is up by definition, and the deadline it re-arms
+     * is the real one.  Checked before the phase dispatch so a board that only
+     * needed the clock never spends a pulse on a host that already answered. */
+    if(wake_recovery_reason==WAKE_RECOVERY_REASON_CLOCK&&wake_scheduler.synced) {
+        wake_recovery_phase=WAKE_RECOVERY_IDLE;
+        wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
+        printf("EVT|WAKE|recovery|skipped|reason=clock\n");
+        return;
+    }
     if(wake_recovery_phase==WAKE_RECOVERY_PULSE) {
         if(!arm_uart_host_usb_seen()&&!pico_usb_suspended&&
            (int32_t)(now-wake_recovery_deadline)<0) return;
         if(wake_host_up()) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("EVT|WAKE|recovery|skipped|reason=host-up\n");
             return;
         }
@@ -1722,6 +1747,7 @@ static void service_wake_recovery(uint32_t now) {
              * after the deadline instead of parking the wake machine. */
             if((int32_t)(now-wake_recovery_deadline)<0) return;
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("ERR|WAKE|recovery|skipped|reason=arm|ready=%u|busy=%u\n",
                    arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u);
             return;
@@ -1729,12 +1755,21 @@ static void service_wake_recovery(uint32_t now) {
         WakeStoreState state;
         if(!calibration_store_wake_get(&state)) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("ERR|WAKE|recovery|skipped|reason=store\n");
             return;
         }
-        if(!wake_scheduler_recovery_needed(state.host_asleep,state.pending,
-                                           state.recovery_attempts,WAKE_RECOVERY_MAX_ATTEMPTS)) {
+        /* An owed wake is confirmed against the persisted decision it was
+         * triggered from.  A clock acquisition has no deadline in that record --
+         * that is exactly what a brownout mid-shift leaves behind -- so only the
+         * shared pulse budget bounds it. */
+        bool allowed=wake_recovery_reason==WAKE_RECOVERY_REASON_CLOCK
+            ? wake_scheduler_pulse_budget_left(state.recovery_attempts,WAKE_RECOVERY_MAX_ATTEMPTS)
+            : wake_scheduler_recovery_needed(state.host_asleep,state.pending,
+                                             state.recovery_attempts,WAKE_RECOVERY_MAX_ATTEMPTS);
+        if(!allowed) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                    (unsigned)state.recovery_attempts);
             return;
@@ -1742,6 +1777,7 @@ static void service_wake_recovery(uint32_t now) {
         state.recovery_attempts=(uint8_t)(state.recovery_attempts+1u);
         if(!calibration_store_wake_set(&state)) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("ERR|WAKE|recovery|store\n");
             return;
         }
@@ -1752,11 +1788,12 @@ static void service_wake_recovery(uint32_t now) {
         wake_recovery_phase=WAKE_RECOVERY_WAIT;
         wake_recovery_deadline=now+WAKE_RECOVERY_TIMEOUT_MS;
         char clock[16];
-        printf("EVT|WAKE|recovery=pulse|attempt=%u|target=%02u:%02u|pico-rw=%u|arm=%u|usb=%u|wall=%s\n",
+        printf("EVT|WAKE|recovery=pulse|attempt=%u|target=%02u:%02u|pico-rw=%u|arm=%u|usb=%u|wall=%s|reason=%s\n",
                (unsigned)state.recovery_attempts,
                state.next_start/60u,state.next_start%60u,pico?1u:0u,
                arm_result==ARM_MOUSE_ACCEPTED?1u:0u,
-               (unsigned)arm_uart_host_usb_state(),wake_clock_text(clock,sizeof(clock)));
+               (unsigned)arm_uart_host_usb_state(),wake_clock_text(clock,sizeof(clock)),
+               wake_recovery_reason_text());
         if(!pico&&arm_result!=ARM_MOUSE_ACCEPTED)
             printf("ERR|WAKE|recovery=no-pulse|reason=%u\n",(unsigned)arm_result);
         return;
@@ -1764,11 +1801,13 @@ static void service_wake_recovery(uint32_t now) {
     if(wake_recovery_phase==WAKE_RECOVERY_WAIT) {
         if(wake_host_up()) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
             printf("EVT|WAKE|recovery=host-up|settled\n");
             return;
         }
         if((int32_t)(now-wake_recovery_deadline)<0) return;
         wake_recovery_phase=WAKE_RECOVERY_IDLE;
+        wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
         buzzer_play(BUZZER_CUE_ERROR,now);
         printf("ERR|WAKE|recovery=no-resume|usb=%u\n",(unsigned)arm_uart_host_usb_state());
     }
@@ -2055,13 +2094,30 @@ int main(void) {
         }
         /* A board reset loses the RAM deadline but not the decision behind it:
          * the persisted record still knows whether the host was asleep with a
-         * wake owed, and that is enough to recover the clock. */
+         * wake owed, and that is enough to recover the clock.  A power cut loses
+         * the anchor itself and leaves no decision at all, which is why the
+         * second reason exists. */
         (void)calibration_store_wake_get(&wake_store_last);
         if(wake_scheduler_recovery_needed(wake_store_last.host_asleep,
                                           wake_store_last.pending,
                                           wake_store_last.recovery_attempts,
                                           WAKE_RECOVERY_MAX_ATTEMPTS)) {
             wake_recovery_phase=WAKE_RECOVERY_PULSE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_OWED;
+            wake_recovery_deadline=now_ms()+WAKE_HOST_SAMPLE_TIMEOUT_MS;
+        } else if(wake_scheduler_boot_clock_needed(wake_scheduler.enabled,
+                                                   wake_scheduler.synced,
+                                                   wake_store_last.recovery_attempts,
+                                                   WAKE_RECOVERY_MAX_ATTEMPTS)) {
+            /* Power came back and the RAM anchor is gone with it.  The schedule
+             * survived inside the flashed program, so the windows are known, but
+             * no window can be armed without a clock sample -- and the only
+             * source of that sample is a host that may be asleep.  Bring it up
+             * once so its bridge can hand the clock over; the same persisted
+             * budget bounds the pulses, so a brownout loop still cannot turn into
+             * a wake storm. */
+            wake_recovery_phase=WAKE_RECOVERY_PULSE;
+            wake_recovery_reason=WAKE_RECOVERY_REASON_CLOCK;
             wake_recovery_deadline=now_ms()+WAKE_HOST_SAMPLE_TIMEOUT_MS;
         }
     }
@@ -2095,8 +2151,15 @@ int main(void) {
     else
         printf("EVT|WAKE|schedule|source=none|enabled=0\n");
     if (wake_recovery_phase!=WAKE_RECOVERY_IDLE)
-        printf("EVT|WAKE|recovery|armed|target=%02u:%02u|attempts=%u\n",
+        printf("EVT|WAKE|recovery|armed|reason=%s|target=%02u:%02u|attempts=%u\n",
+               wake_recovery_reason_text(),
                wake_store_last.next_start/60u,wake_store_last.next_start%60u,
+               (unsigned)wake_store_last.recovery_attempts);
+    else if (wake_scheduler.enabled&&!wake_scheduler.synced)
+        /* A schedule that needs a clock, no clock, and no pulse budget left to
+         * fetch one with.  Say so: a board that will never arm its first window
+         * otherwise looks exactly like a healthy one. */
+        printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                (unsigned)wake_store_last.recovery_attempts);
     while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

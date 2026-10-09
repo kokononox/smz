@@ -187,6 +187,21 @@ int main(void) {
     assert(!wake_scheduler_recovery_needed(false, true, 0u, 3u));
     assert(!wake_scheduler_recovery_needed(false, false, 0u, 3u));
 
+    /* The second boot state that needs the same pulse: a board that came back
+     * from a power cut with a schedule and no clock at all.  Nothing is owed, so
+     * the persisted decision cannot speak for it; the boot state can, and both
+     * reasons spend the same budget. */
+    assert(wake_scheduler_pulse_budget_left(0u, 3u));
+    assert(wake_scheduler_pulse_budget_left(2u, 3u));
+    assert(!wake_scheduler_pulse_budget_left(3u, 3u));
+    assert(wake_scheduler_boot_clock_needed(true, false, 0u, 3u));
+    assert(wake_scheduler_boot_clock_needed(true, false, 2u, 3u));
+    /* Exhausted budget, an anchored clock or a schedule that is off all mean the
+     * board has nothing to fetch a clock for. */
+    assert(!wake_scheduler_boot_clock_needed(true, false, 3u, 3u));
+    assert(!wake_scheduler_boot_clock_needed(true, true, 0u, 3u));
+    assert(!wake_scheduler_boot_clock_needed(false, false, 0u, 3u));
+
     /* A consumed test arm hands the deadline back to the authored windows, so one
      * WAKE! run cannot leave the board unarmed for the real window. */
     WakeScheduler handed = make(2u);
@@ -229,6 +244,7 @@ int main(void) {
 
     puts("wake scheduler: nearest start, lead clamp, gaps, midnight wrap, "
          "re-sync, disarm, malformed-minute, wall anchor, WAKE! arm, "
-         "manual-arm survival, re-arm handback and bounded-recovery paths passed");
+         "manual-arm survival, re-arm handback, owed-wake recovery and "
+         "clockless-boot recovery paths passed");
     return 0;
 }

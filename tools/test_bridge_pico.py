@@ -227,4 +227,65 @@ check("9b: retry keeps the same COM port and needs no close/reopen cycle",
       dev5 == "COM31" and not busy_pico.closed)
 link5.close()
 
+# ── scenario 10-13: the clock stamp after a power cut ────────────────
+# A board that lost power keeps the schedule from the flashed program but owns no
+# wall anchor, so no window can be armed and its own wake can never fire.  The app
+# is what runs on the host afterwards, so the stamp has to come from here -- and
+# only to a board that reports it has none.
+NATIVE_PONG = ("OK|PONG|combined-pico-guard-executor|native=abvm|abi=3|format=13|"
+               "hid=on|uart=on|arm-ready=1|arm-usb=3|arm-ver=2.8.3-S5|profiles=9|"
+               "buzzer=legacy-calibration-gp6|role=brain")
+WAKE_NO_CLOCK = ("OK|WAKE|armed=0|manual=0|dry=0|synced=0|schedule=1|target=18:30|"
+                 "due-ms=0|attempts=0|phase=0|recovery=0|host=UNKNOWN|pico-usb=0|"
+                 "pico-rw=0|recovery-reason=none")
+
+
+def stamps(port):
+    return [w.decode().strip() for w in port.written if w.startswith(b"TIME!")]
+
+
+# ── scenario 10: a clockless native board gets its clock back ────────
+cold = FakePort([("PING", [NATIVE_PONG]), ("WAKE?", [WAKE_NO_CLOCK])])
+before = time.strftime("TIME!|%H:%M")
+br6 = fresh_bridge(cold)
+link6, _ = br6.open_link("COM7")
+after = time.strftime("TIME!|%H:%M")
+written = stamps(cold)
+check("10a: a board with no wall clock is stamped exactly once",
+      len(written) == 1 and written[0] in (before, after))
+check("10b: the stamp follows the board's own verdict, not a guess",
+      cold.written.index(b"WAKE?\n") < cold.written.index(written[0].encode() + b"\n"))
+link6.close()
+
+# ── scenario 11: a board that still has its anchor is left alone ─────
+warm = FakePort([("PING", [NATIVE_PONG]),
+                 ("WAKE?", [WAKE_NO_CLOCK.replace("synced=0", "synced=1")])])
+br7 = fresh_bridge(warm)
+link7, _ = br7.open_link("COM7")
+# Re-arming a healthy board would move a real deadline, and a stamp taken inside
+# the lead time falls back to "one minute from now".
+check("11: a board that still holds its clock is never stamped", stamps(warm) == [])
+link7.close()
+
+# ── scenario 12: no native clock capability, no probe ────────────────
+light = FakePort([("PING", [BRAIN_PONG])])
+br8 = fresh_bridge(light)
+link8, _ = br8.open_link("COM5")
+check("12: a board without the native clock capability is never asked",
+      not [w for w in light.written if w.startswith(b"WAKE?") or w.startswith(b"TIME!")])
+link8.close()
+
+# ── scenario 13: firmware that predates the probe ────────────────────
+legacy = FakePort([("PING", [NATIVE_PONG]),
+                   ("WAKE?", ["ERR|COMMAND|unknown=WAKE?"]),
+                   ("STATUS", ["OK|STATUS|state=idle"])])
+br9 = fresh_bridge(legacy)
+link9, _ = br9.open_link("COM7")
+check("13a: firmware that predates WAKE? is not stamped", stamps(legacy) == [])
+# The refusal must be consumed by the probe: a stale ERR left in the buffer would
+# be mispaired with the next command the app sends.
+check("13b: the probe leaves no stale line behind",
+      link9.command("STATUS", timeout=1.0) == "OK|STATUS|state=idle")
+link9.close()
+
 print("=== bridge pico transport: %d checks passed, 0 failed ===" % PASSED)

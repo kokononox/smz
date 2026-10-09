@@ -150,6 +150,42 @@ class ShiftWakeTests(unittest.TestCase):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_MOUNT_TIMEOUT_MS 5000u',main)
         self.assertIn('(int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;',main)
+    def test_a_clockless_power_on_brings_the_host_up_once(self):
+        # A power cut loses the wall anchor *and* leaves no owed wake behind, so
+        # the persisted decision cannot speak for it: the board would come back
+        # with a schedule it can never arm, and the silence would be
+        # indistinguishable from a healthy board.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        sched=(ROOT/'firmware/abvm/pico/wake_scheduler.c').read_text()
+        self.assertIn('bool wake_scheduler_boot_clock_needed(bool enabled, bool synced,',sched)
+        self.assertIn('return enabled && !synced && wake_scheduler_pulse_budget_left(',sched)
+        self.assertIn('wake_scheduler_boot_clock_needed(wake_scheduler.enabled,',main)
+        self.assertIn('WAKE_RECOVERY_REASON_CLOCK',main)
+        # Both reasons spend one persisted budget, and the pulse line names the
+        # reason so the operator can tell a power cut from an owed wake.
+        self.assertIn('wake_scheduler_pulse_budget_left(state.recovery_attempts,'
+                      'WAKE_RECOVERY_MAX_ATTEMPTS)',main)
+        self.assertIn('|wall=%s|reason=%s',main)
+        self.assertIn('EVT|WAKE|recovery|armed|reason=%s|target=%02u:%02u|attempts=%u',main)
+        self.assertIn('|recovery-reason=%s',main)
+        # The decision is taken where the schedule is already known and before USB
+        # attaches, exactly like the owed-wake recovery it sits beside.
+        boot=main.index('wake_scheduler_boot_clock_needed(wake_scheduler.enabled,')
+        self.assertLess(main.index('abvm_find_constant(&vm,ABVM_CONST_SHIFT'),boot)
+        self.assertLess(boot,main.index('tusb_init();'))
+        # A clock acquisition ends on the sample it was pulsing for: the host that
+        # can send it is up by definition, so it never spends a pulse on it.
+        self.assertIn('if(wake_recovery_reason==WAKE_RECOVERY_REASON_CLOCK&&'
+                      'wake_scheduler.synced) {',main)
+        self.assertIn('EVT|WAKE|recovery|skipped|reason=clock',main)
+        # A schedule that needs a clock with no budget left to fetch one must say
+        # so at boot; a board that can never arm its first window otherwise looks
+        # exactly like a healthy one.
+        self.assertIn('else if (wake_scheduler.enabled&&!wake_scheduler.synced)',main)
+        # Every exit from the phase clears the reason, so a stale reason can never
+        # be reported against a later recovery.
+        self.assertEqual(main.count('wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;'),
+                         main.count('wake_recovery_phase=WAKE_RECOVERY_IDLE;'))
     def test_wake_clears_the_windows_lock_screen(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_DISMISS_ENABLED 1',main)
