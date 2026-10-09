@@ -3,7 +3,9 @@ name: Classroom Studio current branch
 on:
   workflow_dispatch:
   push:
-    branches: [feat/after-startup-cycle-nvm, feat/dc-auto-esc-88-188, fix/cursor-origin-sync, fix/portable-relative-mouse, feat/build50-human-mouse-final, stable/natural-mouse-v1]
+    # The active hardware branch is the top of the stacked PR chain; keep this
+    # list in step with README.md ("Active hardware branch").
+    branches: [feat/after-startup-cycle-nvm, feat/dc-auto-esc-88-188, fix/cursor-origin-sync, fix/portable-relative-mouse, feat/build50-human-mouse-final, stable/natural-mouse-v1, feat/pico-shift-wake]
     paths:
       - 'ams-shell/**'
       - 'tests/**'
