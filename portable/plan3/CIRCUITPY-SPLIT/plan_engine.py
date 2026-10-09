@@ -368,7 +368,7 @@ def parse_plan(text):
                 if 'text' not in prm:
                     raise ValueError('line %d: TYPE needs text=' % line_no)
                 prm['text'] = pct_dec(prm['text'])
-                for k in ('h', 'w', 'p', 'typo'):
+                for k in ('h', 'w', 'p', 'typo', 'typos'):
                     if k in prm:
                         prm[k] = _pair(prm[k], k, line_no)
                 if 'think' in prm:

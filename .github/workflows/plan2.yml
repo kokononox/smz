@@ -25,15 +25,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify recovered source hashes
+      - name: Verify Golden-100 manifest hashes
         if: matrix.check == 'hashes'
         shell: bash
         run: |
           set -euo pipefail
-          echo 'cd2ac8d509c0e46d3b6921fdea8002d05f5ea582592a0ab31d086d794f45a1fe  portable/plan3/CIRCUITPY/plan_engine.py' | sha256sum -c -
-          echo '5aaddc4125c3c42dcb521f057c632338a9c26baa38b4b73305e0979e207a6d52  portable/plan3/tools/winr.py' | sha256sum -c -
-          echo '481014a11f085820ad9a4bc259d4bd592f1e325f663d80b8585eb7a4dd891cc8  portable/plan3/sim/sim_plan2.py' | sha256sum -c -
-          echo 'edbb1439d5eb1ae8df96921cccc6e580b924360e8fec4eb39e734335ee2ac76f  portable/plan3/sim/sim_plan3.py' | sha256sum -c -
+          cd portable/plan3/CIRCUITPY
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 25
+          test "$(grep -cve '^$' SHA256SUMS.txt)" -eq 21
+          sha256sum -c SHA256SUMS.txt
       - name: Compile Python sources
         if: matrix.check == 'compile'
         run: python -m py_compile portable/plan3/CIRCUITPY/plan_engine.py portable/plan3/tools/*.py portable/plan3/sim/*.py

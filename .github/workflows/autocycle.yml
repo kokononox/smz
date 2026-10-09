@@ -6,8 +6,15 @@ on:
     paths:
       - 'ams-shell/**'
       - 'firmware/arm26/**'
+      - 'firmware/arm28/**'
       - 'firmware/autocycle-hostusb-v5/**'
       - 'portable/plan3/**'
+      - 'tools/abvm*.py'
+      - 'tools/ShiftIdentityBridge/**'
+      - 'shared/**'
+      - 'docs/shift-identity-guide-fa.txt'
+      - 'spec/abvm/**'
+      - 'firmware/abvm/**'
       - 'tests/LightTelemetryTests/**'
       - '.github/workflows/autocycle.yml'
 
@@ -16,8 +23,34 @@ permissions:
   pull-requests: write
 
 jobs:
+  arm28-compile:
+    name: modern-autocycle / ARM 2.8 compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install AVR core
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Compile Pro Micro firmware with a non-secret test key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ams_board28
+          cp firmware/arm28/ams_board28.ino \
+             firmware/arm28/ams_board26_impl.h \
+             firmware/arm28/human_mouse_v3.h \
+             firmware/arm28/portable_relative_mouse.h \
+             /tmp/ams_board28/
+          cp firmware/arm28/ams_key.example.h /tmp/ams_board28/ams_key.h
+          arduino-cli compile --fqbn arduino:avr:leonardo /tmp/ams_board28
+
   portable-contracts:
-    name: autocycle / portable contracts
+    name: modern-autocycle / portable contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -30,9 +63,57 @@ jobs:
         run: |
           set -euo pipefail
           {
+            # Modern AutoCycle contracts historically import these helpers from
+            # CIRCUITPY. Overlay them only in the CI checkout; Golden-100 and
+            # the flashable Golden inventory remain byte-for-byte untouched.
+            for name in plan_cycle.py cycle_runtime.py restart_windows.py auto_resume_boot.py resume_essentials_runtime.py recovery_runtime.py; do
+              cp "portable/plan3/CIRCUITPY-SPLIT/$name" "portable/plan3/CIRCUITPY/$name"
+            done
             python -m py_compile portable/plan3/CIRCUITPY/*.py
+            python -m py_compile portable/plan3/CIRCUITPY-MODERN/*.py
             python -m py_compile portable/plan3/CIRCUITPY-SPLIT/*.py
-            python -m py_compile portable/plan3/tools/*.py portable/plan3/sim/*.py
+            python -m py_compile portable/plan3/tools/*.py portable/plan3/sim/*.py tools/abvm.py tools/generate_abvm_abi.py
+            python tools/generate_abvm_abi.py --check
+            python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj /tmp/abvm-native-smoke.abp --routes Game Whisper
+            cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_vm_smoke.c -o /tmp/abvm-native-smoke
+            /tmp/abvm-native-smoke /tmp/abvm-native-smoke.abp
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/tests/pico_stub -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/light_sensor.c \
+              firmware/abvm/tests/abvm_light_sensor_smoke.c -o /tmp/abvm-light-sensor-smoke
+            /tmp/abvm-light-sensor-smoke /tmp/abvm-native-smoke.abp
+            python tools/abvm.py compile firmware/abvm/tests/abvm_guard_smoke.amsj /tmp/abvm-guard-smoke.abp --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted TargetedRepeat Whisper WhisperRepeat Finish
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/guard_runtime.c \
+              firmware/abvm/tests/abvm_guard_runtime_smoke.c -o /tmp/abvm-guard-runtime-smoke
+            /tmp/abvm-guard-runtime-smoke /tmp/abvm-guard-smoke.abp
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/cycle_runtime.c \
+              firmware/abvm/tests/abvm_cycle_runtime_smoke.c -o /tmp/abvm-cycle-runtime-smoke
+            /tmp/abvm-cycle-runtime-smoke /tmp/abvm-guard-smoke.abp
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/guard_runtime.c \
+              firmware/abvm/pico/cycle_runtime.c \
+              firmware/abvm/tests/abvm_restart_to_game_smoke.c \
+              -o /tmp/abvm-restart-to-game-smoke
+            /tmp/abvm-restart-to-game-smoke /tmp/abvm-guard-smoke.abp
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/tests/pico_stub -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/hid_keyboard.c \
+              firmware/abvm/tests/abvm_hid_type_smoke.c -o /tmp/abvm-hid-type-smoke
+            /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
+            python firmware/abvm/tests/test_shift_identity.py
+            python firmware/abvm/tests/test_shift_schedule.py
+            python firmware/abvm/tests/test_abvm_shift_wake.py
+            python firmware/abvm/tests/test_game_buff_runtime.py
+            python firmware/abvm/tests/test_abvm_game_buffs.py
+            python firmware/abvm/tests/test_abvm_human_mouse_motion.py
+            python firmware/abvm/tests/test_abvm_mouse_speed_controls.py
+            python firmware/abvm/tests/test_abvm_flash_guard.py
+            python firmware/abvm/tests/test_abvm_uf2.py
             count=0
             for test in portable/plan3/sim/test_*.py; do
               echo "=== $test ==="
@@ -52,8 +133,125 @@ jobs:
             const tail = log.split('\n').slice(-80).join('\n');
             await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'<!-- autocycle-portable-failure -->\n**AutoCycle portable failure tail**\n```\n'+tail+'\n```'});
 
+  abvm-pico:
+    name: ABVM / Pico UF2 bring-up
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: 2.1.1
+          path: pico-sdk
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore ARM GNU Toolchain cache
+        id: arm-toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1
+          key: arm-gnu-toolchain-14.2.rel1-${{ runner.os }}-${{ runner.arch }}
+      - name: Download ARM GNU Toolchain 14.2
+        if: steps.arm-toolchain-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
+          install_dir="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1"
+          curl --fail --location \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
+            --output "$archive" \
+            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
+          mkdir -p "$install_dir"
+          tar -xJf "$archive" -C "$install_dir" --strip-components=1
+          test -x "$install_dir/bin/arm-none-eabi-gcc"
+      - name: Add and verify ARM toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain_bin="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1/bin"
+          echo "$toolchain_bin" >> "$GITHUB_PATH"
+          "$toolchain_bin/arm-none-eabi-gcc" --version
+          command -v ninja
+      - name: Compile ABP and build UF2
+        shell: bash
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
+        run: |
+          set -euo pipefail
+          exec > >(tee "$RUNNER_TEMP/abvm-pico-build.log") 2>&1
+          python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj "$RUNNER_TEMP/program.abp" --routes Game Whisper
+          cmake -S firmware/abvm/pico -B "$RUNNER_TEMP/abvm-pico" -G Ninja \
+            -DPICO_BOARD=pico \
+            -DABVM_PROGRAM="$RUNNER_TEMP/program.abp"
+          cmake --build "$RUNNER_TEMP/abvm-pico" --parallel
+          test -s "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.uf2"
+          arm-none-eabi-size "$RUNNER_TEMP/abvm-pico/ams_abvm_pico.elf"
+      - name: Report Pico build failure tail
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.RUNNER_TEMP + '/abvm-pico-build.log';
+            const log = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '(no log)';
+            const tail = log.split('\n').slice(-120).join('\n');
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'<!-- abvm-pico-failure -->\n**ABVM Pico build failure tail**\n```\n'+tail+'\n```'});
+      - name: Build and flatten 30 patchable identity templates
+        shell: bash
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
+        run: |
+          set -euo pipefail
+          bash firmware/abvm/pico/build_batch.sh \
+            "$RUNNER_TEMP/program.abp" firmware/abvm/pico/batch30.json \
+            "$RUNNER_TEMP/abvm-templates" "$RUNNER_TEMP/abvm-pico/_deps/pico1-src"
+          mkdir -p "$RUNNER_TEMP/native-runtime"
+          python - <<'PY'
+          import hashlib, json, os, pathlib, shutil
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          root = temp / "abvm-templates"
+          out = temp / "native-runtime"
+          batch = json.loads(pathlib.Path("firmware/abvm/pico/batch30.json").read_text())
+          index = []
+          for profile in batch["profiles"]:
+              board = profile["target_board"]
+              code = profile["serial_prefix"].rstrip("-")
+              source = root / board / f"{board}.uf2"
+              target = out / f"runtime-{code}.uf2"
+              shutil.copy2(source, target)
+              index.append({
+                  "code": code, "file": target.name, "target_board": board,
+                  "manufacturer": profile["usb_manufacturer"],
+                  "product": profile["usb_product"],
+                  "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+              })
+          (out / "index.json").write_text(json.dumps({"schema": 1, "templates": index}, indent=2) + "\n")
+          assert len(index) == 30
+          PY
+          python tools/abvm_uf2.py \
+            "$RUNNER_TEMP/native-runtime/runtime-NB01.uf2" \
+            "$RUNNER_TEMP/program.abp" "$RUNNER_TEMP/template-selftest.uf2"
+          test -s "$RUNNER_TEMP/template-selftest.uf2"
+      - name: Upload bring-up UF2 and native templates
+        uses: actions/upload-artifact@v4
+        with:
+          name: ams-abvm-pico-bringup
+          path: |
+            ${{ runner.temp }}/abvm-pico/ams_abvm_pico.uf2
+            ${{ runner.temp }}/abvm-pico/ams_abvm_pico.elf
+            ${{ runner.temp }}/program.abp
+            ${{ runner.temp }}/native-runtime/**
+          retention-days: 14
+          if-no-files-found: error
+
   windows-app:
-    name: autocycle / Windows app build-test
+    name: modern-autocycle / Windows TestRunner
+    needs: [abvm-pico]
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -84,11 +282,34 @@ jobs:
           dotnet run --project tests/LightTelemetryTests/LightTelemetryTests.csproj -c Release 2>&1 | Tee-Object light-telemetry-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path light-telemetry-tests.log -Pattern '([1-9][0-9]*) failed' -Quiet) { exit 1 }
+      - name: Download native UF2 templates
+        uses: actions/download-artifact@v4
+        with:
+          name: ams-abvm-pico-bringup
+          path: native-artifact
+      - name: Verify native templates stay below reserved Pico calibration flash
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse native-artifact -Filter '*.uf2' | ForEach-Object {
+            python tools/abvm_flash_guard.py $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Publish and test temporary shift identity bridge
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows/shift-bridge'
+          dotnet publish tools/ShiftIdentityBridge/ShiftIdentityBridge.csproj -c Release -r win-x64 --self-contained true -o $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $test = Start-Process "$out/ClassroomShiftBridge.exe" -ArgumentList '--self-test' -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw 'Shift bridge self-test failed' }
+          Copy-Item docs/shift-identity-guide-fa.txt "$out/README-FA.txt"
       - name: Stage Windows test output
         if: success()
         shell: pwsh
         run: |
           $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          New-Item -ItemType Directory -Force "$out/native-runtime" | Out-Null
+          Copy-Item -Recurse -Force 'native-artifact/native-runtime/*' "$out/native-runtime/"
           Remove-Item -Recurse -Force "$out/bridge/__pycache__" -ErrorAction SilentlyContinue
           @(
             'Classroom Studio — Light State Profiles test build',
@@ -122,8 +343,8 @@ jobs:
             await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:'<!-- autocycle-windows-failure -->\n**AutoCycle Windows failure diagnostics**\n```\n'+report+'\n```'});
 
   test-package:
-    name: autocycle / downloadable test package
-    if: github.event_name == 'pull_request' && github.head_ref == 'feature/light-state-profiles'
+    name: modern-autocycle / diagnostic package
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feature/light-state-profiles' || github.head_ref == 'arch/abvm-phase0')
     needs: [portable-contracts, windows-app]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -137,42 +358,158 @@ jobs:
         run: |
           set -euo pipefail
           cd staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows
-          zip -qr ../../../../../../../Classroom-Studio-light-state-test.zip .
+          zip -qr ../../../../../../../Classroom-Studio-native-guard-test.zip .
           cd ../../../../../../../
-          sha256sum Classroom-Studio-light-state-test.zip | awk '{print toupper($1)}' > light-state-test-sha256.txt
+          sha256sum Classroom-Studio-native-guard-test.zip | awk '{print toupper($1)}' > native-guard-test-sha256.txt
           cat > TEST-GUIDE-FA.md <<'EOF'
-          # راهنمای تست مرحله اول
+          # راهنمای تست Native Global Guard
 
           1. فایل ZIP را Extract کنید؛ برنامه را از داخل ZIP اجرا نکنید.
           2. `ClassroomStudio.exe` را اجرا کنید.
-          3. وارد تب «وضعیت» شوید.
-          4. فعلاً برد را وصل نکنید؛ ظاهر RTL و نمایش شش پروفایل را بررسی کنید.
-          5. نتیجه مرحله اول را گزارش کنید تا تست اتصال و Live Watch را ادامه دهیم.
+          3. پروژهٔ فعلی را باز کنید.
+          4. گزینهٔ «ساخت Native UF2 پروژهٔ فعلی» را بزنید.
+          5. قالب هویت برد خود را انتخاب کنید و UF2 خروجی را روی Pico فلش کنید.
+          6. مسیر شش پروفایل Guard را اجرا و لاگ GuardHardwareMonitor را ارسال کنید.
 
-          این نسخه آزمایشی است و گیت اجرایی Launch/Auto Resume خاموش می‌ماند.
+          این نسخه فقط برای تست سخت‌افزاری Native Global Guard است.
           EOF
           {
-            echo '# Light State Profiles — test build'
+            echo '# Native Global Guard — hardware test build'
             echo
-            echo 'Source PR: #158'
+            echo 'Source PR: #${{ github.event.pull_request.number }}'
             echo
             echo "Source commit: ${{ github.event.pull_request.head.sha }}"
             echo
-            echo "SHA-256: $(cat light-state-test-sha256.txt)"
+            echo "SHA-256: $(cat native-guard-test-sha256.txt)"
             echo
             echo 'All portable, Windows, TestRunner and typed light-profile gates passed before packaging.'
           } > release-body.md
       - name: Publish prerelease test build
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: light-state-test-${{ github.run_number }}
+          tag_name: native-guard-test-${{ github.run_number }}
           target_commitish: ${{ github.event.pull_request.head.sha }}
-          name: "Light State Profiles test #${{ github.run_number }}"
+          name: "Native Global Guard test #${{ github.run_number }}"
           prerelease: true
           body_path: release-body.md
           files: |
-            Classroom-Studio-light-state-test.zip
-            light-state-test-sha256.txt
+            Classroom-Studio-native-guard-test.zip
+            native-guard-test-sha256.txt
             TEST-GUIDE-FA.md
             staged/windows-tests.log
             staged/light-telemetry-tests.log
+
+  mouse-speed-test-package:
+    name: diagnostic / mouse speed test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/game-mouse-speed-controls'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/MOUSE-SPEED-TEST.md
+          zip -qr ClassroomStudio-LightState-MouseSpeed-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-MouseSpeed-TestBuild.zip > mouse-speed-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-MouseSpeed-TestBuild
+          path: |
+            ClassroomStudio-LightState-MouseSpeed-TestBuild.zip
+            mouse-speed-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  game-buff-test-package:
+    name: diagnostic / Pico game buff test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-game-buff-renewal'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-GameBuff-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-GameBuff-TestBuild.zip > game-buff-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-GameBuff-TestBuild
+          path: |
+            ClassroomStudio-LightState-GameBuff-TestBuild.zip
+            game-buff-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  shift-identity-test-package:
+    name: diagnostic / Pico shift identity test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-shift-identity'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/SHIFT-IDENTITY-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip > shift-identity-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-ShiftIdentity-TestBuild
+          path: |
+            ClassroomStudio-LightState-ShiftIdentity-TestBuild.zip
+            shift-identity-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  shift-schedule-test-package:
+    name: diagnostic / Pico shift schedule test package
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/pico-shift-schedule'
+    needs: [arm28-compile, portable-contracts, windows-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: light-state-windows-output
+          path: staged
+      - name: Package matching app and newly built native Pico firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R staged/ams-shell/src/Ams.UI/bin/Release/net8.0-windows ClassroomStudio-LightState-TestBuild
+          cp CHANGELOG-CURRENT.md ClassroomStudio-LightState-TestBuild/SHIFT-SCHEDULE-TEST.md
+          cp docs/game-buff-renewal.md ClassroomStudio-LightState-TestBuild/GAME-BUFF-GUIDE.md
+          zip -qr ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip ClassroomStudio-LightState-TestBuild
+          sha256sum ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip > shift-schedule-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-LightState-ShiftSchedule-TestBuild
+          path: |
+            ClassroomStudio-LightState-ShiftSchedule-TestBuild.zip
+            shift-schedule-sha256.txt
+          if-no-files-found: error
+          retention-days: 14

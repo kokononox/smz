@@ -1,0 +1,500 @@
+{
+  "pipelineVersion": 7,
+  "nativeGuard": {
+    "enabled": true,
+    "sampleMode": "hires",
+    "sensorTimeoutMs": 1500,
+    "stageWatchdogMinutes": 1,
+    "profiles": [
+      {
+        "id": "desktop",
+        "enabled": true,
+        "luxCenter": 100,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 8,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "900:120,45;1200:200",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "login-or-dc",
+        "enabled": true,
+        "luxCenter": 200,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 7,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "700:100,30;900:160",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "character-dashboard",
+        "enabled": true,
+        "luxCenter": 300,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 6,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "523:120,40;659:180",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "entering-game-loading",
+        "enabled": true,
+        "luxCenter": 400,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 5,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "392:100,25;523:150",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "game",
+        "enabled": true,
+        "luxCenter": 500,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 4,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "784:100,30;988:180",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "targeted",
+        "enabled": true,
+        "luxCenter": 600,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 3,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "330:120,40;440:180",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "whisper",
+        "enabled": true,
+        "luxCenter": 700,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 2,
+        "lightCooldownMs": 0,
+        "calibrationCuePattern": "1175:100,25;1397:180",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "whisper-repeat",
+        "enabled": true,
+        "luxCenter": 800,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 1,
+        "lightCooldownMs": 1000,
+        "calibrationCuePattern": "262:120,40;392:180",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100
+      },
+      {
+        "id": "targeted-repeat",
+        "enabled": true,
+        "luxCenter": 900,
+        "luxTolerance": 5,
+        "stableDurationMs": 100,
+        "hysteresisLux": 2,
+        "calibrationCue": 9,
+        "lightCooldownMs": 9000,
+        "calibrationCuePattern": "988:90,30;1319:190",
+        "calibrationCueVolume": 100,
+        "calibrationCueEnvelope": "sharp",
+        "calibrationCueTempo": 100,
+        "name": "Targeted Repeat"
+      }
+    ],
+    "buzzerCues": [
+      {
+        "id": 1,
+        "pattern": "450:80,20;670:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 2,
+        "pattern": "460:80,20;680:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 3,
+        "pattern": "470:80,20;690:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 4,
+        "pattern": "480:80,20;700:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 5,
+        "pattern": "490:80,20;710:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 6,
+        "pattern": "500:80,20;720:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 7,
+        "pattern": "510:80,20;730:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 8,
+        "pattern": "520:80,20;740:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 9,
+        "pattern": "530:80,20;750:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 10,
+        "pattern": "540:80,20;760:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 11,
+        "pattern": "550:80,20;770:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 12,
+        "pattern": "560:80,20;780:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 13,
+        "pattern": "570:80,20;790:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 14,
+        "pattern": "580:80,20;800:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 15,
+        "pattern": "590:80,20;810:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 16,
+        "pattern": "600:80,20;820:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 17,
+        "pattern": "610:80,20;830:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 18,
+        "pattern": "620:80,20;840:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 19,
+        "pattern": "630:80,20;850:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 20,
+        "pattern": "640:80,20;860:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 21,
+        "pattern": "650:80,20;870:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 22,
+        "pattern": "660:80,20;880:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      },
+      {
+        "id": 23,
+        "pattern": "670:80,20;890:120",
+        "volume": 100,
+        "envelope": "sharp",
+        "tempo": 100
+      }
+    ]
+  },
+  "nativeCycle": {
+    "enabled": true,
+    "autoResume": true,
+    "runMinSeconds": 1,
+    "runMaxSeconds": 1,
+    "maxRestarts": 5,
+    "usbStableMs": 2000
+  },
+  "pipelines": {
+    "Desktop": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Restart": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Startup": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "LoginOrDc": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Dc": [
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "ESC",
+          "holdMin": 1,
+          "holdMax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "CharacterDashboard": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "EnteringGameLoading": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Game": [
+      {
+        "Type": "gotoLabel",
+        "Props": {
+          "label": "after"
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "X",
+          "holdMin": 1,
+          "holdMax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "label",
+        "Props": {
+          "label": "after"
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 1,
+          "maxMs": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Targeted": [
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "E",
+          "holdMin": 1,
+          "holdMax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Whisper": [
+      {
+        "Type": "typeText",
+        "Props": {
+          "text": "guard",
+          "hmin": 1,
+          "hmax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "WhisperRepeat": [
+      {
+        "Type": "typeText",
+        "Props": {
+          "text": "repeat",
+          "hmin": 1,
+          "hmax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Finish": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 25,
+          "maxMs": 25
+        },
+        "Children": [],
+        "Delay": 0
+      }
+    ],
+    "TargetedRepeat": [
+      {
+        "Type": "keystroke",
+        "Props": {
+          "key": "R",
+          "holdMin": 1,
+          "holdMax": 1
+        },
+        "Children": [],
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ]
+  }
+}

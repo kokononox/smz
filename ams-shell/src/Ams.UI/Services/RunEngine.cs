@@ -95,12 +95,24 @@ public sealed class RunEngine
     /// <summary>Human-like mouse speed range (ms) injected by MainViewModel. 0 = disabled.</summary>
     public void SetMouseSpeedRange(int min, int max) { _mouseSpeedMin = min; _mouseSpeedMax = max; }
     private int _mouseSpeedMin, _mouseSpeedMax;
+    private string _globalHandSample = "";
+    public void SetGlobalHandSample(string encoded) => _globalHandSample = encoded;
 
     public async Task RunAsync(IEnumerable<StepNode> roots, CancellationToken ct)
     {
-        _mouseAnchor = System.Windows.Forms.Cursor.Position;   // v0.9.20 — anchor syncs at run start
         _parallelKeySeq = 0; _lastParallelKeyTick = 0; _mouseRestAtSeq = -1;   // v0.9.23 — reset typing signal
         await Send($"SETRES|{_screenW},{_screenH}", ct);
+        // SETRES updates the display bounds, not the Pro Micro's tracked cursor.
+        // The host cursor may have moved with a physical mouse since the board last
+        // emitted HID, so anchor the board at the live Windows position before any
+        // absolute human path. abs,0 is a no-op when both positions already agree.
+        var liveCursor = System.Windows.Forms.Cursor.Position;
+        _mouseAnchor = liveCursor;
+        if (liveCursor.X >= 0 && liveCursor.X < _screenW && liveCursor.Y >= 0 && liveCursor.Y < _screenH)
+        {
+            await SendMmoveAbsAsync(liveCursor.X, liveCursor.Y, ct);
+            _log($"mouse: board cursor synchronized to live position ({liveCursor.X},{liveCursor.Y})");
+        }
         // v0.9.28 — prime the vision hot path (tier-1 JIT + pooled allocators) BEFORE the first
         // findImage: a cold first entireScreen poll round took ~15 s once, so playAudio fired ~15 s
         // after the image was already visible. One small synthetic match here makes round 1 fast.
@@ -153,6 +165,8 @@ public sealed class RunEngine
 
             try   // v0.8.3 — gotoLabel unwinds via GotoSignal to the level that owns the label
             {
+            if(s.Type=="shiftCheck")throw new InvalidOperationException("تأیید شیفت فقط روی Pico با Native UF2 اجرا می‌شود.");
+            if(s.Type=="buffCheckpoint")throw new InvalidOperationException("باف مستقل فقط در Native UF2 روی Pico اجرا می‌شود.");
             switch (s.Type)
             {
                 case "label":
@@ -287,6 +301,10 @@ public sealed class RunEngine
                     }
                     break;
                 }
+
+                case "splashListener":
+                    _log("Splash Listener is executed only by the portable Pico runtime; use Export to Pico.");
+                    break;
 
                 case "openFile":
                 {
@@ -461,34 +479,63 @@ public sealed class RunEngine
                     //  • WindMouse trail (gravity + wind, ease-in-out timing, overshoot & correct)
                     //  • complete pause management: reaction / hesitation / settle pauses and a
                     //    long 0–5000 ms "distraction" break every N moves — all step fields
-                    var cfg = HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax);
+                    var cfg = HumanMouse.Config.FromProps(MouseSpeedPolicy.ResolveProfile(s.Props, _globalHandSample), _mouseSpeedMin, _mouseSpeedMax);
+                    var intent = PropEx.GetString(s.Props, "motionIntent", "targetRegion");
                     var (x, y, w, h) = (PropEx.GetInt(s.Props, "x"), PropEx.GetInt(s.Props, "y"),
                                         Math.Max(1, PropEx.GetInt(s.Props, "w", 100)), Math.Max(1, PropEx.GetInt(s.Props, "h", 100)));
                     int destX, destY;
-                    lock (_rngLock) { destX = x + Rng.Next(w); destY = y + Rng.Next(h); }   // v0.9.15 — parallel-safe
+                    if (intent is "microTwitch" or "mediumTwitch")
+                    {
+                        var current = System.Windows.Forms.Cursor.Position;
+                        var defaultMin = intent == "microTwitch" ? 2 : 20;
+                        var defaultMax = intent == "microTwitch" ? 12 : 80;
+                        var r0 = Math.Max(1, PropEx.GetInt(s.Props, "twitchMinPx", defaultMin));
+                        var r1 = Math.Max(r0, PropEx.GetInt(s.Props, "twitchMaxPx", defaultMax));
+                        lock (_rngLock)
+                        {
+                            var radius = Rng.Next(r0, r1 + 1);
+                            var angle = Rng.NextDouble() * Math.PI * 2;
+                            destX = current.X + (int)Math.Round(Math.Cos(angle) * radius);
+                            destY = current.Y + (int)Math.Round(Math.Sin(angle) * radius);
+                        }
+                    }
+                    else lock (_rngLock)
+                    {
+                        destX = x + Rng.Next(w); destY = y + Rng.Next(h);
+                    }   // v0.9.15 — parallel-safe
                     await HumanMoveToAsync(destX, destY, cfg, ct);
                     break;
                 }
 
                 case "mouseMove":
                 {
-                    // v0.9.0 — "human" checked → the same app-side humanized path with the Gentle
-                    // preset (human trail + light pauses, NO long idle breaks). Unchecked → raw MMOVE.
-                    if (PropEx.GetBool(s.Props, "human", true))
+                    // handSample is a relative gesture from the cursor's current position.
+                    // There is deliberately no absolute destination: a bare HID device cannot
+                    // know the host cursor origin without a Windows-side bridge.
+                    if (PropEx.GetString(s.Props, "moveMode", "fixed") == "handSample")
                     {
-                        // v0.9.14 — tunable per step (dialog fields, Gentle defaults) instead of
-                        // the fixed preset; every cursor move in the app is now configurable.
-                        await HumanMoveToAsync(PropEx.GetInt(s.Props, "x", 600), PropEx.GetInt(s.Props, "y", 497),
-                                               HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax, gentleDefaults: true), ct);
+                        if (!HandMovementSample.TryDecode(PropEx.GetString(s.Props, "handSample"), out var handSample))
+                            throw new InvalidOperationException("mouseMove handSample mode needs a valid recorded movement.");
+                        await ReplayHandMovementAsync(handSample, ct);
                     }
                     else
                     {
-                        string rawCmd = StepDefinitions.GetCommands(s)[0];
-                        await Send(rawCmd, ct);
-                        // v0.9.20 — keep the cursor anchor in sync (format: MMOVE|x,y,abs,h)
-                        var parts = rawCmd.Split('|', ',');
-                        if (parts.Length >= 3 && int.TryParse(parts[1], out int ax) && int.TryParse(parts[2], out int ay))
-                            _mouseAnchor = new System.Drawing.Point(ax, ay);
+                        var (x, y, w, h) = GetMouseMoveRegion(s);
+                        int destX, destY;
+                        lock (_rngLock)
+                        {
+                            // Sample a new point on every execution; the region is a target
+                            // surface, not a point that merely needs to be entered.
+                            destX = x + Rng.Next(w);
+                            destY = y + Rng.Next(h);
+                        }
+                        // v0.9.14 — tunable per step (dialog fields, Gentle defaults) instead of
+                        // the fixed preset; every cursor move in the app is now configurable.
+                        if (PropEx.GetBool(s.Props, "human", true))
+                            await HumanMoveToAsync(destX, destY,
+                                HumanMouse.Config.FromProps(s.Props, _mouseSpeedMin, _mouseSpeedMax, gentleDefaults: true), ct);
+                        else
+                            await SendMmoveAbsAsync(destX, destY, ct);
                     }
                     break;
                 }
@@ -805,36 +852,142 @@ public sealed class RunEngine
         await RunStepsAsync(pool, ct);
     }
 
-    /// <summary>v0.9.15 — Parallel Group: the children run CONCURRENTLY on the same board and the
-    /// group completes when the LONGEST branch completes (the next step after the group runs after
-    /// the join — the user's requested semantics). One serial channel is shared: the bridge
-    /// serializes each individual command, so inside the group the mouse switches to app-paced
-    /// per-point streaming and keyboard chunks shrink to 8 chars — typing and mouse movement
-    /// visibly interleave instead of blocking each other. Pause/Stop propagate to every branch;
-    /// the first fault cancels the rest. Avoid gotoLabel jumps across the group boundary.</summary>
+    /// <summary>Parallel Group completion is explicit:
+    /// waitAll joins every lane; watchLane resumes as soon as the single Watch/Catch lane ends;
+    /// firstCompleted resumes when any lane ends; timeBudget keeps the scope alive for its exact
+    /// wall-clock budget, even if one worker finishes early, then cancels all remaining workers.
+    /// Projects saved before completionPolicy existed keep their legacy behavior: a single Watch
+    /// lane wins, otherwise all lanes are joined.</summary>
     private async Task RunParallelGroupAsync(StepNode s, CancellationToken ct)
     {
-        var children = s.Children.Where(c => !c.IsDisabled).ToList();
-        if (children.Count == 0) { _log("parallel group: empty — skipped"); return; }
-        if (children.Count == 1) { await RunStepsAsync(children, ct); return; }
-        _log($"⚡ parallel group: {children.Count} branches start together (join on the longest)");
+        static bool IsNextMarker(StepNode node)
+            => node.Type == "comment"
+               && string.Equals(PropEx.GetString(node.Props, "text").Trim(),
+                   "next", StringComparison.OrdinalIgnoreCase);
+
+        static bool HasWatch(StepNode node)
+            => node.Type is "waitForSound" or "waitForLight"
+               || node.Children.Any(HasWatch);
+
+        var enabled = s.Children.Where(c => !c.IsDisabled).ToList();
+        if (enabled.Count == 0) { _log("parallel group: empty — skipped"); return; }
+
+        // Native plans delimit lanes with comment "Next". Keep the older desktop shape
+        // (one direct child per lane) when no delimiters are present.
+        var lanes = new List<List<StepNode>>();
+        if (enabled.Any(IsNextMarker))
+        {
+            var lane = new List<StepNode>();
+            foreach (var child in enabled)
+            {
+                if (IsNextMarker(child))
+                {
+                    if (lane.Count > 0) { lanes.Add(lane); lane = new(); }
+                }
+                else lane.Add(child);
+            }
+            if (lane.Count > 0) lanes.Add(lane);
+        }
+        else
+        {
+            lanes.AddRange(enabled.Select(child => new List<StepNode> { child }));
+        }
+
+        if (lanes.Count == 0) { _log("parallel group: no runnable lanes — skipped"); return; }
+        if (lanes.Count == 1) { await RunStepsAsync(lanes[0], ct); return; }
+
+        var watchLanes = lanes.Select((lane, index) => new { lane, index })
+            .Where(x => x.lane.Any(HasWatch)).Select(x => x.index).ToList();
+        var configured = PropEx.GetString(s.Props, "completionPolicy", "").Trim();
+        var policy = string.IsNullOrWhiteSpace(configured)
+            ? (watchLanes.Count == 1 ? "watchLane" : "waitAll")
+            : configured;
+        if (policy == "watchLane" && watchLanes.Count != 1)
+            throw new InvalidOperationException(
+                "Parallel Group watchLane requires exactly one lane containing Wait For Sound/Light.");
+        if (policy is not ("waitAll" or "watchLane" or "firstCompleted" or "timeBudget"))
+            throw new InvalidOperationException(
+                $"Unknown Parallel Group completion policy: {policy}");
+
+        _log($"⚡ parallel group: {lanes.Count} lanes start together ({policy})");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var faultSignal = new TaskCompletionSource<Exception>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         _parallelDepth++;
         try
         {
-            var tasks = children.Select(c => Task.Run(async () =>
+            var tasks = lanes.Select(lane => Task.Run(async () =>
             {
-                try { await RunStepsAsync(new[] { c }, linked.Token); }
-                catch { linked.Cancel(); throw; }   // first fault stops the sibling branches
+                try { await RunStepsAsync(lane, linked.Token); }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    faultSignal.TrySetResult(ex);
+                    linked.Cancel();
+                    throw;
+                }
             })).ToList();
-            await Task.WhenAll(tasks);
-            _log("⚡ parallel group: all branches finished (joined on the longest)");
+
+            if (policy == "timeBudget")
+            {
+                long budgetMs = Math.Max(1, PropEx.GetInt(s.Props, "budgetValue", 10))
+                    * UnitMs(PropEx.GetString(s.Props, "budgetUnit", "minute"));
+                _log($"⚡ timeBudget: {budgetMs / 1000}s; completed lanes stay finished, other lanes continue");
+                var timer = Task.Delay(TimeSpan.FromMilliseconds(budgetMs), ct);
+                var completed = await Task.WhenAny(timer, faultSignal.Task);
+                if (completed == faultSignal.Task)
+                {
+                    var failure = await faultSignal.Task;
+                    linked.Cancel();
+                    throw failure;
+                }
+                await timer;              // propagate an external Stop/cancellation
+                linked.Cancel();          // the budget is authoritative
+                foreach (var task in tasks)
+                {
+                    try { await task; }
+                    catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
+                }
+                _log("⚡ timeBudget elapsed; all remaining lanes cancelled");
+                return;
+            }
+
+            if (policy == "waitAll")
+            {
+                await Task.WhenAll(tasks);
+                _log("⚡ parallel group: all lanes finished");
+                return;
+            }
+
+            var winner = policy == "watchLane"
+                ? tasks[watchLanes[0]]
+                : await Task.WhenAny(tasks);
+            await winner;                 // propagate a real winner fault
+            linked.Cancel();              // stop delays/mouse work in sibling lanes immediately
+            foreach (var sibling in tasks.Where(task => task != winner))
+            {
+                try { await sibling; }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
+            }
+            _log($"⚡ parallel group: {policy} winner finished; siblings cancelled");
         }
         finally { _parallelDepth--; }
     }
 
     /// <summary>v0.9.15 — thread-safe inclusive random (Parallel Group branches share Rng).</summary>
     private int NextRandom(int min, int max) { lock (_rngLock) return Rng.Next(min, max + 1); }
+
+    private (int X, int Y, int W, int H) GetMouseMoveRegion(StepNode step)
+    {
+        int x = PropEx.GetInt(step.Props, "x", 600);
+        int y = PropEx.GetInt(step.Props, "y", 497);
+        int w = PropEx.GetInt(step.Props, "w", 1);
+        int h = PropEx.GetInt(step.Props, "h", 1);
+        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + (long)w > _screenW || y + (long)h > _screenH)
+            throw new InvalidOperationException(
+                $"mouseMove rectangle [{x},{y} {w}x{h}] must be inside the configured display {_screenW}x{_screenH}.");
+        return (x, y, w, h);
+    }
 
     /// <summary>v0.9.21 — split a KTEXT op into one INSTANT op per character ("KTEXT|0,0,&lt;c&gt;",
     /// no board-side per-key delay), so a Parallel Group's keyboard branch holds the single
@@ -947,14 +1100,15 @@ public sealed class RunEngine
     /// every-N-moves break when the planner says one is due.</summary>
     private async Task HumanMoveToAsync(int tx, int ty, HumanMouse.Config cfg, CancellationToken ct)
     {
-        // v0.9.20 — plan from the app-side cursor anchor, not the racy OS read: with parallel
-        // branches the OS position can lag the commands we have already issued, which made the
-        // next path start from a stale point and the cursor visibly jump back mid-run.
-        var start = _mouseAnchor ?? System.Windows.Forms.Cursor.Position;   // v0.8.5 — anchor, never the region corner
+        // v0.9.20 — plan from the app-side cursor anchor, updated by every move in
+        // this run. RunAsync synchronizes it with Windows and the board before steps begin.
+        var start = _mouseAnchor ?? System.Windows.Forms.Cursor.Position;   // never the region corner
         HumanMouse.Plan plan;
         lock (_rngLock)   // v0.9.15 — shared RNG + pause planner are not thread-safe (Parallel Group)
             plan = HumanMouse.PlanMove(start.X, start.Y, tx, ty, cfg, MousePauses, Rng, _screenW, _screenH);
 
+        var mouseClock = System.Diagnostics.Stopwatch.StartNew();
+        _log($"mouse policy: mode={plan.SelectedSpeedMode} cap={plan.SpeedCap}px/s source={cfg.ProfileSource}; planned pauses before={plan.BeforeMs} after={plan.AfterMs} idle={plan.LongPauseMs}");
         if (plan.BeforeMs > 0) await PausableDelay(plan.BeforeMs, ct);
         int pathMs = 0;
         foreach (var w in plan.Waypoints) pathMs += w.DelayMs;
@@ -964,7 +1118,7 @@ public sealed class RunEngine
                  ? $" · curve fixed {plan.CurveMinPct}%"
                  : $" · curve continuously {plan.CurveMinPct}–{plan.CurveMaxPct}%") +
              (plan.TargetMoveMs > 0 ? $" · move-time {plan.TargetMoveMs}ms target" : ""));
-        if (_parallelDepth > 0)
+        if (_parallelDepth > 0 || cfg.SpeedCap > 0)
         {
             // v0.9.15 — inside a Parallel Group the monolithic send_path would monopolize the bridge
             // worker for the whole path (concurrent typing would freeze). Pace each micro-step
@@ -973,9 +1127,11 @@ public sealed class RunEngine
             foreach (var w in plan.Waypoints)
             {
                 ct.ThrowIfCancellationRequested();
+                // New policy delays BEFORE the incoming delta; bypass legacy 25ms path thinning.
+                if (cfg.SpeedCap > 0) await PausableDelay(w.DelayMs, ct);
                 await Send($"MMOVE|{w.X},{w.Y},abs,0", ct, quiet: true);
                 _mouseAnchor = new System.Drawing.Point(w.X, w.Y);   // v0.9.20 — anchor tracks every issued point
-                int dly = w.DelayMs;
+                int dly = cfg.SpeedCap > 0 ? 0 : w.DelayMs;
                 // v0.9.23 — two-handed human pattern: while a sibling branch types, the mouse
                 // slows to half speed and takes irregular micro-rests (v0.9.21 kept it 100%
                 // active; the recorded human mostly rests the mouse during fast typing).
@@ -1021,12 +1177,37 @@ public sealed class RunEngine
             }
         }
         }
+        mouseClock.Stop();
+        double measuredLength = 0; int mx = start.X, my = start.Y;
+        foreach (var wp in plan.Waypoints) { measuredLength += Math.Sqrt((wp.X-mx)*(double)(wp.X-mx)+(wp.Y-my)*(double)(wp.Y-my)); mx=wp.X; my=wp.Y; }
+        long actualMotionMs = Math.Max(1, mouseClock.ElapsedMilliseconds-plan.BeforeMs);
+        _log($"mouse actual: path={measuredLength:F1}px planned={pathMs}ms elapsed={actualMotionMs}ms average={measuredLength*1000/actualMotionMs:F1}px/s (includes transport, pauses during movement and any user pause)");
         if (plan.AfterMs > 0) await PausableDelay(plan.AfterMs, ct);
         if (plan.LongPauseMs > 0)
         {
             _log($"mouse: idle break {plan.LongPauseMs} ms (human every-N-moves pause)");
             await PausableDelay(plan.LongPauseMs, ct);
         }
+    }
+
+    private async Task ReplayHandMovementAsync(HandMovementSample.Sample sample, CancellationToken ct)
+    {
+        var path = HandMovementSample.Compact(sample.Segments, HandMovementSample.ReplaySegmentLimit);
+        var delta = HandMovementSample.Displacement(sample);
+        _log($"mouse: relative 10s hand gesture Δ({delta.X},{delta.Y}) · {path.Count} segments");
+        foreach (var segment in path)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_pauseCheck is not null) await _pauseCheck(ct);
+            // DelayMs was measured from the previous captured position to this
+            // one, so it belongs before the corresponding relative report.
+            if (segment.DelayMs > 0) await PausableDelay(segment.DelayMs, ct);
+            if (segment.Dx != 0 || segment.Dy != 0)
+                await Send($"MMOVE|{segment.Dx},{segment.Dy},rel,2", ct, quiet: true);
+        }
+        // Windows can report the real post-HID position. Do not invent it by adding raw HID
+        // deltas: pointer acceleration means a report delta is not guaranteed to equal pixels.
+        _mouseAnchor = System.Windows.Forms.Cursor.Position;
     }
 
     /// <summary>v0.9.0 — a delay that respects Pause: time spent paused does NOT count down the

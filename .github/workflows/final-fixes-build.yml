@@ -35,11 +35,11 @@ jobs:
               s=add(s,'                new("pattern", "Custom sequence — freq:duration,pause;... (example 900:150,80;1200:250)", FieldKind.Text,\n                    "900:150,80;1200:250", HideWhenKey: "preset", HideUnlessValue: "custom"),', '                new("pattern", "Custom sequence — freq:duration,pause;... (example 900:150,80;1200:250)", FieldKind.Text,\n                    "900:150,80;1200:250", HideWhenKey: "preset", HideUnlessValue: "custom"),\n                new("speedPct", "Playback speed % (100 = normal)", FieldKind.Int, "100"),', 'buzzer speed field')
               marker='    public static StepDefinition Get'
               method=r'''    public static string BuildBuzzerSequenceCommand(IReadOnlyDictionary<string, object?> p)
-    {
-        int speed = Math.Clamp(PropEx.GetInt(p, "speedPct", 100), 25, 400);
-        var notes = new List<string>();
-        foreach (var cmd in BuildBuzzerCommands(p))
-        {
+              {
+                  int speed = Math.Clamp(PropEx.GetInt(p, "speedPct", 100), 25, 400);
+                  var notes = new List<string>();
+                  foreach (var cmd in BuildBuzzerCommands(p))
+                  {
             var a = cmd.Split('|', 2);
             if (a[0] == "BEEP")
             {
@@ -53,11 +53,11 @@ jobs:
                 x[2] = Math.Max(0, (int)Math.Round(int.Parse(a[1]) * 100.0 / speed, MidpointRounding.AwayFromZero)).ToString();
                 notes[^1] = string.Join(',', x);
             }
-        }
-        return "BEEPSEQ|" + string.Join(';', notes);
-    }
+                  }
+                  return "BEEPSEQ|" + string.Join(';', notes);
+              }
 
-'''
+          '''
               return add(s,marker,method+marker,'buzzer sequence method')
           rw(p,step)
 
@@ -125,14 +125,14 @@ jobs:
           def footer(s):
               needle='        MoveChildren(connection, connectionWrap);\n        Grid.SetRow(connectionWrap, 0);'
               ins='''        MoveChildren(connection, connectionWrap);
-        var copy = new Button { Content = "📋 کپی مشخصات اتصال", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(8, 3, 4, 3), ToolTip = "کپی متن کامل وضعیت اتصال" };
-        copy.Click += (_, _) =>
-        {
+                  var copy = new Button { Content = "📋 کپی مشخصات اتصال", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(8, 3, 4, 3), ToolTip = "کپی متن کامل وضعیت اتصال" };
+                  copy.Click += (_, _) =>
+                  {
             var text = string.Join(Environment.NewLine, connectionWrap.Children.OfType<TextBlock>().Select(x => x.Text).Where(x => !string.IsNullOrWhiteSpace(x)));
             if (!string.IsNullOrWhiteSpace(text)) Clipboard.SetText(text);
-        };
-        connectionWrap.Children.Add(copy);
-        Grid.SetRow(connectionWrap, 0);'''
+                  };
+                  connectionWrap.Children.Add(copy);
+                  Grid.SetRow(connectionWrap, 0);'''
               return add(s,needle,ins,'footer copy')
           rw(p,footer)
 

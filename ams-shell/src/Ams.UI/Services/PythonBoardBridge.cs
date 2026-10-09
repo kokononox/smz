@@ -361,9 +361,28 @@ public sealed class PythonBoardBridge : IBoardBridge
 
                 case "error":
                     var msg = root.TryGetProperty("message", out var m) ? m.GetString() ?? "unknown error" : "unknown error";
+                    var op = root.TryGetProperty("op", out var operation) ? operation.GetString() ?? "" : "";
                     _connectTcs.TrySetException(new InvalidOperationException(msg));
                     _replyTcs?.TrySetException(new InvalidOperationException(msg));
-                    if (State == BridgeState.Connecting) SetState(BridgeState.Disconnected);
+                    if (State == BridgeState.Connecting
+                        || (State == BridgeState.Connected && op is ("send" or "send_path")))
+                    {
+                        // Do not reuse a sidecar that may still own the failed
+                        // COM handle. The next Connect creates a clean process.
+                        var failed = _proc;
+                        _proc = null;
+                        _readerCts?.Cancel();
+                        try { failed?.StandardInput.Close(); } catch { }
+                        try
+                        {
+                            if (failed is { HasExited: false })
+                                failed.Kill(entireProcessTree: true);
+                        }
+                        catch { }
+                        FirmwareVersion = null;
+                        Port = null;
+                        SetState(BridgeState.Disconnected);
+                    }
                     break;
             }
         }

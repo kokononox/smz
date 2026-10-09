@@ -47,24 +47,24 @@ jobs:
                 'step dialog height')
           p=root/'ams-shell/src/Ams.UI/MainWindow.FooterUi.cs'; s=p.read_text(encoding='utf-8')
           old='''        var layout = new Grid { FlowDirection = FlowDirection.RightToLeft };
-        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });'''
+                  layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                  layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });'''
           new='''        var layout = new Grid { FlowDirection = FlowDirection.LeftToRight };
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });'''
+                  layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                  layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });'''
           if new not in s:
               if s.count(old)!=1: raise SystemExit(f'footer grid anchor: {s.count(old)}')
               s=s.replace(old,new,1)
           old='''        Grid.SetRow(connectionWrap, 0);
-        layout.Children.Add(Card("بردها و اتصال", connectionWrap));'''
+                  layout.Children.Add(Card("بردها و اتصال", connectionWrap));'''
           new='''        Grid.SetColumn(connectionWrap, 0);
-        layout.Children.Add(Card("بردها و اتصال", connectionWrap));'''
+                  layout.Children.Add(Card("بردها و اتصال", connectionWrap));'''
           if old in s: s=s.replace(old,new,1)
           old='''        Grid.SetRow(actionWrap, 1);
-        layout.Children.Add(Card("کنترل اجرا", actionWrap));'''
+                  layout.Children.Add(Card("کنترل اجرا", actionWrap));'''
           new='''        Grid.SetColumn(actionWrap, 1);
-        actionWrap.HorizontalAlignment = HorizontalAlignment.Right;
-        layout.Children.Add(Card("کنترل اجرا", actionWrap));'''
+                  actionWrap.HorizontalAlignment = HorizontalAlignment.Right;
+                  layout.Children.Add(Card("کنترل اجرا", actionWrap));'''
           if old in s: s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
           print('visual corrections applied')

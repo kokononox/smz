@@ -965,7 +965,22 @@ public static class PicoFirmwareExporter
             try:
         
         
-                notes = [tuple(int(x) for x in part.split(",")) for part in line.split("|", 1)[1].split(";")]
+                fields = line.split("|", 2)
+
+
+                if len(fields) != 3:
+
+
+                    return "ERR|ARG|BEEPSEQ"
+
+
+                style = fields[1].split(",", 1)
+
+
+                volume = max(1, min(100, int(style[0])))
+
+
+                notes = [tuple(int(x) for x in part.split(",")) for part in fields[2].split(";")]
         
         
                 tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=notes[0][0], variable_frequency=True)
@@ -974,7 +989,7 @@ public static class PicoFirmwareExporter
                 for freq, duration, pause in notes:
         
         
-                    tone.frequency = freq; tone.duty_cycle = 32768
+                    tone.frequency = freq; tone.duty_cycle = int(32768 * volume / 100)
         
         
                     time.sleep(duration / 1000.0)
@@ -1045,13 +1060,33 @@ public static class PicoFirmwareExporter
             if line.startswith("BEEP|"):
                 try:
                     import pwmio
-                    a = ints(line.split("|", 1)[1].split(","), 2)
-                    if not 30 <= a[0] <= 20000 or a[1] <= 0:
+                    fields = line.split("|", 1)[1].split(",")
+                    if len(fields) < 2 or len(fields) > 4:
+                        return "ERR|ARG|BEEP"
+                    frequency, duration = int(fields[0]), int(fields[1])
+                    volume = int(fields[2]) if len(fields) > 2 else 100
+                    envelope = fields[3] if len(fields) > 3 else "sharp"
+                    if (not 30 <= frequency <= 20000 or duration <= 0 or
+                            not 1 <= volume <= 100 or
+                            envelope not in ("sharp", "smooth", "fade-in", "fade-out")):
                         return "ERR|RANGE|BEEP"
-                    tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=a[0], variable_frequency=True)
+                    tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=frequency, variable_frequency=True)
                     try:
-                        tone.duty_cycle = 32768
-                        time.sleep(a[1] / 1000)
+                        target = int(32768 * volume / 100)
+                        total = duration / 1000
+                        edge = min(.08, total / 3)
+                        started = time.monotonic()
+                        while True:
+                            elapsed = time.monotonic() - started
+                            if elapsed >= total:
+                                break
+                            level = 1.0
+                            if envelope in ("smooth", "fade-in") and elapsed < edge:
+                                level = elapsed / edge
+                            if envelope in ("smooth", "fade-out") and elapsed > total - edge:
+                                level = min(level, (total - elapsed) / edge)
+                            tone.duty_cycle = max(0, min(32768, int(target * level)))
+                            time.sleep(.004 if envelope != "sharp" else total)
                     finally:
                         tone.duty_cycle = 0
                         tone.deinit()

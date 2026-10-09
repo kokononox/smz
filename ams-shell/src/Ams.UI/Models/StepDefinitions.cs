@@ -1,6 +1,8 @@
+
 using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Ams.UI.Services;
 
 namespace Ams.UI.Models;
 
@@ -64,6 +66,25 @@ public static class StepDefinitions
 
     private static readonly Dictionary<string, StepDefinition> Defs = new()
     {
+        ["shiftCheck"] = new StepDefinition {
+            Label = "Shift identity / تأیید شیفت", ColorResourceKey = "StepKeyboardBrush",
+            Fields = new FieldDef[] {
+                new("modCtrl", "Ctrl", FieldKind.Check, "false"),
+                new("modShift", "Shift", FieldKind.Check, "false"),
+                new("modAlt", "Alt", FieldKind.Check, "false"),
+                new("modWin", "Win", FieldKind.Check, "true"),
+                new("key", "Launch bridge key", FieldKind.Combo, "4", KeyMap.KeyNames.ToArray()),
+                new("holdMin", "Hold min (ms)", FieldKind.Int, "90"),
+                new("holdMax", "Hold max (ms)", FieldKind.Int, "160"),
+                new("timeoutSeconds", "Bridge timeout (seconds)", FieldKind.Int, "60"),
+            },
+            Summarize = s => "تأیید شیفت ویندوز — بریج موقت؛ خطا = آژیر و Pause",
+        },
+        ["buffCheckpoint"] = new StepDefinition {
+            Label = "Buff safe boundary / نقطهٔ امن باف", ColorResourceKey = "StepKeyboardBrush",
+            Fields = Array.Empty<FieldDef>(),
+            Summarize = s => "باف‌های موعدرسیده — پس از Catch/Timeout، پیش از پرتاب بعدی",
+        },
         ["mouseClick"] = new StepDefinition
         {
             Label = "Mouse Click", ColorResourceKey = "StepMouseBrush", DefaultDelay = 1000,
@@ -79,11 +100,15 @@ public static class StepDefinitions
         },
         ["mouseMove"] = new StepDefinition
         {
-            Label = "Mouse Position", ColorResourceKey = "StepMouseBrush", DefaultDelay = 1000,
+            Label = "Mouse Movement", ColorResourceKey = "StepMouseBrush", DefaultDelay = 1000,
             Fields = new FieldDef[]
             {
                 new("x", "X", FieldKind.Int, "600"),
                 new("y", "Y", FieldKind.Int, "497"),
+                new("w", "Region width", FieldKind.Int, "100"),
+                new("h", "Region height", FieldKind.Int, "100"),
+                new("moveMode", "Movement source", FieldKind.Combo, "region", new[] { "region", "fixed", "handSample" }),
+                new("handSample", "Recorded hand movement", FieldKind.Text, ""),
                 new("human", "Humanized movement (app-side WindMouse path + pauses — off = instant firmware move)", FieldKind.Check, "true"),
                 new("pauseBeforeMin", "Pause BEFORE move — min (ms)", FieldKind.Int, "60", HideWhenKey: "human", HideWhenValue: "false"),
                 new("pauseBeforeMax", "Pause BEFORE move — max (ms)", FieldKind.Int, "220", HideWhenKey: "human", HideWhenValue: "false"),
@@ -98,7 +123,20 @@ public static class StepDefinitions
                 new("moveTimeMin", "Move duration — min (ms) · 0/0 = speed-based (Options)", FieldKind.Int, "0", HideWhenKey: "human", HideWhenValue: "false"),
                 new("moveTimeMax", "Move duration — max (ms)", FieldKind.Int, "0", HideWhenKey: "human", HideWhenValue: "false"),
             },
-            Summarize = s => $"Mouse Position ({PropEx.GetInt(s.Props, "x")}, {PropEx.GetInt(s.Props, "y")})",
+            Summarize = s =>
+            {
+                if (PropEx.GetString(s.Props, "moveMode", "fixed") == "handSample")
+                {
+                    if (HandMovementSample.TryDecode(PropEx.GetString(s.Props, "handSample"), out var sample))
+                    {
+                        var delta = HandMovementSample.Displacement(sample);
+                        return $"Replay Relative Hand Gesture Δ({delta.X}, {delta.Y})";
+                    }
+                    return "Replay Relative Hand Gesture · sample required";
+                }
+                return $"Move to random point in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} " +
+                       $"{Math.Max(1, PropEx.GetInt(s.Props, "w", 1))}x{Math.Max(1, PropEx.GetInt(s.Props, "h", 1))}]";
+            },
             Commands = s => new[] { $"MMOVE|{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")},abs,{(PropEx.GetBool(s.Props, "human", true) ? 1 : 0)}" },
         },
         ["mouseScroll"] = new StepDefinition
@@ -113,10 +151,25 @@ public static class StepDefinitions
             Label = "Random Mouse Position", ColorResourceKey = "StepMouseBrush", DefaultDelay = 55,
             Fields = new FieldDef[]
             {
+                new("motionIntent", "Motion intent", FieldKind.Combo, "targetRegion",
+                    new[] { "targetRegion", "microTwitch", "mediumTwitch" }),
+                new("speedMode", "سرعت حرکت — legacy: قبلی، profile: پروفایل، slow: آرام، normal: معمولی، fast: سریع، mixed: ترکیبی، custom: سفارشی", FieldKind.Combo, "legacy", new[] { "legacy", "profile", "slow", "normal", "fast", "mixed", "custom" }),
+                new("handProfileSource", "منبع پروفایل — legacy: قبلی، global: پروفایل اصلی، local: نمونهٔ همین استپ", FieldKind.Combo, "legacy", new[] { "legacy", "global", "local" }),
+                new("speedCapPxPerSec", "سقف سرعت (px/s) — صفر = سقف پروفایل دست", FieldKind.Int, "0"),
+                new("speedSlowWeight", "وزن حرکت آرام — سهم تعداد حرکت‌ها، ۰ تا ۱۰۰", FieldKind.Int, "20", HideWhenKey: "speedMode", HideUnlessValue: "mixed"),
+                new("speedNormalWeight", "وزن حرکت معمولی — ۰ تا ۱۰۰", FieldKind.Int, "50", HideWhenKey: "speedMode", HideUnlessValue: "mixed"),
+                new("speedFastWeight", "وزن حرکت سریع — ۰ تا ۱۰۰", FieldKind.Int, "30", HideWhenKey: "speedMode", HideUnlessValue: "mixed"),
+                new("speedCustomMin", "سرعت سفارشی حداقل (px/s)", FieldKind.Int, "300", HideWhenKey: "speedMode", HideUnlessValue: "custom"),
+                new("speedCustomMax", "سرعت سفارشی حداکثر (px/s)", FieldKind.Int, "530", HideWhenKey: "speedMode", HideUnlessValue: "custom"),
+                new("twitchMinPx", "Relative twitch radius MIN (px)", FieldKind.Int, "2"),
+                new("twitchMaxPx", "Relative twitch radius MAX (px)", FieldKind.Int, "12"),
                 new("x", "Region X", FieldKind.Int, "1301"),
                 new("y", "Region Y", FieldKind.Int, "0"),
                 new("w", "Region width", FieldKind.Int, "378"),
                 new("h", "Region height", FieldKind.Int, "1049"),
+                // Captured style source for the sampled-RMOUSE profile. The
+                // dialog owns this opaque payload; it is never hand-edited.
+                new("handSample", "Recorded hand movement", FieldKind.Text, ""),
                 new("pauseBeforeMin", "Reaction pause BEFORE the move — min (ms)", FieldKind.Int, "120"),
                 new("pauseBeforeMax", "Reaction pause BEFORE the move — max (ms)", FieldKind.Int, "450"),
                 new("pauseAfterMin", "Settle pause AFTER arrival — min (ms)", FieldKind.Int, "150"),
@@ -134,10 +187,15 @@ public static class StepDefinitions
                 new("moveTimeMin", "Movement duration — min (ms) · 0/0 = use global speed range (Options)", FieldKind.Int, "0"),
                 new("moveTimeMax", "Movement duration — max (ms) · fresh random target per move; floor ≈ 1ms per micro-step", FieldKind.Int, "0"),
             },
-            Summarize = s => $"Random Mouse Position in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} {PropEx.GetInt(s.Props, "w", 100)}x{PropEx.GetInt(s.Props, "h", 100)}]" +
+            Summarize = s => PropEx.GetString(s.Props, "motionIntent", "targetRegion") switch
+            {
+                "microTwitch" => $"Human Micro Twitch · {PropEx.GetInt(s.Props, "twitchMinPx", 2)}–{PropEx.GetInt(s.Props, "twitchMaxPx", 12)} px",
+                "mediumTwitch" => $"Human Medium Twitch · {PropEx.GetInt(s.Props, "twitchMinPx", 20)}–{PropEx.GetInt(s.Props, "twitchMaxPx", 80)} px",
+                _ => $"Random Mouse Position in region [{PropEx.GetInt(s.Props, "x")},{PropEx.GetInt(s.Props, "y")} {PropEx.GetInt(s.Props, "w", 100)}x{PropEx.GetInt(s.Props, "h", 100)}]" +
                 (PropEx.GetInt(s.Props, "idlePauseMax", 3000) > 0
                     ? $" · break {PropEx.GetInt(s.Props, "idlePauseMin", 800)}–{PropEx.GetInt(s.Props, "idlePauseMax", 3000)}ms / {PropEx.GetInt(s.Props, "idleEveryMin", 5)}–{PropEx.GetInt(s.Props, "idleEveryMax", 12)} moves"
                     : ""),
+            },
             // v0.9.0 — WindMouse path + full pause manager: see HumanMouse / RunEngine / ScriptGenerator
         },
         ["keystroke"] = new StepDefinition
@@ -162,7 +220,10 @@ public static class StepDefinitions
             Label = "Type Text", ColorResourceKey = "StepKeyboardBrush", DefaultDelay = 1000,
             Fields = new FieldDef[]
             {
-                new("text", "Text", FieldKind.Multiline, ""),
+                new("textScope", "Text scope", FieldKind.Combo, "global", new[] { "global", "shift" }),
+                new("text", "Global text / fallback", FieldKind.Multiline, "", HideWhenKey:"textScope", HideWhenValue:"shift"),
+                new("textDay", "Day text", FieldKind.Multiline, "", HideWhenKey:"textScope", HideUnlessValue:"shift"),
+                new("textNight", "Night text", FieldKind.Multiline, "", HideWhenKey:"textScope", HideUnlessValue:"shift"),
                 new("mode", "Mode", FieldKind.Combo, "keystrokes", new[] { "keystrokes", "clipboard" }),
                 new("keyboardBoard", "Keyboard executor — default uses Options; Pico executes locally; Pro Micro uses the UART arm", FieldKind.Combo, "default", new[] { "default", "pico", "promicro" }),
                 new("secret", "Sensitive (password) — masked in logs, pasted via clipboard (§17.6)", FieldKind.Check, "false"),
@@ -176,13 +237,17 @@ public static class StepDefinitions
                 new("thinkChance", "Thinking pause chance % per word (0 = off · humans pause to think)", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
                 new("thinkMin", "Thinking pause — min (ms)", FieldKind.Int, "800", HideWhenKey: "mode", HideWhenValue: "clipboard"),
                 new("thinkMax", "Thinking pause — max (ms)", FieldKind.Int, "2200", HideWhenKey: "mode", HideWhenValue: "clipboard"),
-                new("typoEveryMin", "Typo every N words — min N · 0/0 = off (slip + backspace correction)", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
-                new("typoEveryMax", "Typo every N words — max N · cadence re-rolled after each correction (e.g. 8–20 looks real)", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
+                // Keep the persisted property names for old .amsj files, but their user-facing
+                // meaning is the eligible-character interval between corrected slips.
+                new("typoEveryMin", "Typing-error interval — minimum eligible characters · 0/0 = off", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
+                new("typoEveryMax", "Typing-error interval — maximum eligible characters · re-rolled after each correction", FieldKind.Int, "0", HideWhenKey: "mode", HideWhenValue: "clipboard"),
             },
             Summarize = s =>
             {
                 if (PropEx.GetBool(s.Props, "secret"))
                     return "Type text · SECRET (masked) · clipboard" + KeyboardBoardHint(s.Props);
+                if(PropEx.GetString(s.Props,"textScope","global")=="shift")
+                    return "Type text · Shift (روز/شب؛ پیش از تأیید = Global)" + KeyboardBoardHint(s.Props);
                 var t = PropEx.GetString(s.Props, "text").Replace('\n', ' ');
                 if (t.Length > 30) t = t[..30] + "…";
                 string hint = PropEx.GetString(s.Props, "mode", "keystrokes");
@@ -192,7 +257,7 @@ public static class StepDefinitions
                 if (PropEx.GetInt(s.Props, "pmax") > 0) hint += " · punct";
                 if (PropEx.GetInt(s.Props, "thinkChance") > 0) hint += $" · think {PropEx.GetInt(s.Props, "thinkChance")}%";
                 int tyMax = PropEx.GetInt(s.Props, "typoEveryMax");
-                if (tyMax > 0) hint += $" · typo every {PropEx.GetInt(s.Props, "typoEveryMin")}–{tyMax} words";
+                if (tyMax > 0) hint += $" · typo every {PropEx.GetInt(s.Props, "typoEveryMin")}–{tyMax} chars";
                 else if (PropEx.GetInt(s.Props, "typoChance") > 0) hint += $" · typos {PropEx.GetInt(s.Props, "typoChance")}%";
                 return $"Type text · {hint} · \"{t}\"" + KeyboardBoardHint(s.Props);
             },
@@ -280,16 +345,45 @@ public static class StepDefinitions
                 : $"Random Package · all {s.Children.Count} step(s), shuffled",
             // container — the runner shuffles/picks children per pass (v0.7.8)
         },
+        ["splashListener"] = new StepDefinition
+        {
+            // Load-only compatibility for Build 95-118 documents. The serializer
+            // migrates this marker to an explicit Wait For Sound node.
+            Label = "Splash Listener (Legacy)", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0,
+            Fields = Array.Empty<FieldDef>(),
+            Summarize = _ => "Splash Listener · Timeout از پروفایل Splash · تشخیص/Timeout → پرتاب بعدی",
+            // Portable-only marker. PipelinePlanBundle supplies the profile timeout values.
+            Commands = _ => new[] { "WPROFILE|splash,18000,22000" },
+        },
         ["waitForSound"] = new StepDefinition
         {
-            Label = "Wait For Sound", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,   // v0.9.34 — the If-structure needs the accordion/scope visuals (findImage parity)
+            Label = "Wait For Sound", ColorResourceKey = "StepFindImageBrush", DefaultDelay = 0, IsContainer = true, IsScopeContainer = true,
             Fields = new FieldDef[]
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
-                new("threshold", "Threshold (sensor units — use Calibrate, field default 90)", FieldKind.Int, "90"),
+                new("calibrationId", "Portable sound-step calibration ID", FieldKind.Combo, "1", new[] { "1", "2" }),
+                new("threshold", "Threshold (sensor units — use Calibrate; 0 = saved physical profile)", FieldKind.Int, "90"),
+                new("peakMin", "Peak range minimum (0 = calibrated threshold)", FieldKind.Int, "0"),
+                new("peakMax", "Peak range maximum", FieldKind.Int, "511"),
+                new("soundPriority", "Priority when ranges overlap", FieldKind.Int, "0"),
                 new("minDurationMs", "Min duration (ms) — splash is a 1.5–2.2s event, 60–100 is safe (§16.2)", FieldKind.Int, "60"),
-                new("timeoutMs", "Timeout (ms) — legacy system used 20000 (§17.2)", FieldKind.Int, "20000"),
+                new("cooldownMs", "Cooldown after detection (ms)", FieldKind.Int, "900"),
+                new("timeoutMs", "Legacy timeout (ms)", FieldKind.Int, "20000"),
+                new("responseRoute", "Detection behavior", FieldKind.Combo, "inline", new[] { "inline", "splash" }),
+                new("timeoutMinSec", "Splash timeout minimum (seconds)", FieldKind.Int, "18"),
+                new("timeoutMaxSec", "Splash timeout maximum (seconds)", FieldKind.Int, "22"),
                 new("onTimeout", "On timeout", FieldKind.Combo, "global", new[] { "global", "stopWithAlarm", "stopQuiet", "continue" }),
+                new("armCuePreset", "Buzzer feedback after a successful Catch", FieldKind.Combo, "off", new[]
+                    { "off", "short", "double", "notification", "warning", "success", "error", "rising", "falling", "custom" }),
+                new("armCueVolume", "Catch feedback volume (1–100%)", FieldKind.Int, "60",
+                    HideWhenKey: "armCuePreset", HideWhenValue: "off"),
+                new("armCueEnvelope", "Catch feedback tone edge", FieldKind.Combo, "smooth",
+                    new[] { "sharp", "smooth", "fade-in", "fade-out" },
+                    HideWhenKey: "armCuePreset", HideWhenValue: "off"),
+                new("armCueTempo", "Catch feedback note speed (25–400%; 100 = normal)", FieldKind.Int, "100",
+                    HideWhenKey: "armCuePreset", HideWhenValue: "off"),
+                new("armCuePattern", "Custom Catch feedback — freq:duration,pause;...", FieldKind.Text,
+                    "880:100,40;1175:150", HideWhenKey: "armCuePreset", HideUnlessValue: "custom"),
                 new("insertIfElse", "Insert If-Else (children = Then — heard · Else — not heard; §3.3.1)", FieldKind.Check, "false"),   // v0.9.31
                 new("armed", "Armed reaction: board clicks by itself on detection (TRGSND)", FieldKind.Check, "false", HideWhenKey: "insertIfElse", HideWhenValue: "true"),
                 new("act", "Armed click button", FieldKind.Combo, "left", new[] { "left", "right", "middle" }, HideWhenKey: "insertIfElse", HideWhenValue: "true"),
@@ -299,10 +393,12 @@ public static class StepDefinitions
                 new("holdMax", "Hold max (ms)", FieldKind.Int, "90", HideWhenKey: "insertIfElse", HideWhenValue: "true"),
             },
             Summarize = s => PropEx.GetBool(s.Props, "insertIfElse")
-                ? $"If Sound ≥{PropEx.GetInt(s.Props, "threshold", 90)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}"   // v0.9.31
+                ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · If Sound ≥{PropEx.GetInt(s.Props, "threshold", 90)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}"   // v0.9.31
                 : PropEx.GetBool(s.Props, "armed")
-                    ? $"Sound trigger ≥{PropEx.GetInt(s.Props, "threshold", 90)} → {PropEx.GetString(s.Props, "act", "left")} click (armed)"
-                    : $"Wait for sound ≥{PropEx.GetInt(s.Props, "threshold", 90)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
+                    ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · trigger ≥{PropEx.GetInt(s.Props, "threshold", 90)} → {PropEx.GetString(s.Props, "act", "left")} click (armed)"
+                    : PropEx.GetString(s.Props, "responseRoute", "inline") == "splash"
+                        ? $"Catch sound ID {PropEx.GetInt(s.Props, "calibrationId", 2)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · timeout {PropEx.GetInt(s.Props, "timeoutMinSec", 18)}–{PropEx.GetInt(s.Props, "timeoutMaxSec", 22)}s · detected → child response"
+                        : $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · P{PropEx.GetInt(s.Props, "soundPriority", 0)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
             Commands = s =>
             {
                 int thr = PropEx.GetInt(s.Props, "threshold", 90);
@@ -406,9 +502,27 @@ public static class StepDefinitions
             Fields = new FieldDef[]
             {
                 new("title", "Group title (blank = default name)", FieldKind.Text, ""),
+                new("completionPolicy", "Completion priority", FieldKind.Combo, "waitAll",
+                    new[] { "waitAll", "watchLane", "firstCompleted", "timeBudget" }),
+                new("budgetValue", "Time budget value (used by timeBudget)", FieldKind.Int, "10"),
+                new("budgetUnit", "Time budget unit (used by timeBudget)", FieldKind.Combo, "minute",
+                    new[] { "second", "minute", "hour" }),
             },
-            Summarize = s => $"⚡ Parallel Group · {s.Children.Count} step(s) run simultaneously · next step waits for the longest",
-            // v0.9.15 — structural: the runner executes children concurrently and joins on the longest
+            Summarize = s => {
+                var configured = PropEx.GetString(s.Props, "completionPolicy", "");
+                var hasWatch = ContainsWatch(s);
+                var policy = string.IsNullOrWhiteSpace(configured)
+                    ? (hasWatch ? "watchLane" : "waitAll") : configured;
+                var text = policy switch
+                {
+                    "watchLane" => "Watch/Catch lane wins; sibling lanes are cancelled",
+                    "firstCompleted" => "first completed lane wins; siblings are cancelled",
+                    "timeBudget" => $"run for {PropEx.GetInt(s.Props, "budgetValue", 10)} {PropEx.GetString(s.Props, "budgetUnit", "minute")}(s); then cancel all lanes",
+                    _ => "wait for all lanes",
+                };
+                return $"⚡ Parallel Group · {s.Children.Count} step(s) · {text}";
+            },
+            // Explicit completion policy: waitAll, watchLane, firstCompleted, or timeBudget.
         },
         ["comment"] = new StepDefinition
         {
@@ -442,11 +556,16 @@ public static class StepDefinitions
             Label = "Buzzer Beep", ColorResourceKey = "StepFlowBrush", DefaultDelay = 0,
             Fields = new FieldDef[]
             {
-                new("preset", "Tone pattern", FieldKind.Combo, "short", new[] { "short", "double", "warning", "success", "custom" }),
+                new("preset", "Tone pattern", FieldKind.Combo, "short", new[]
+                    { "short", "double", "notification", "warning", "success", "error", "rising", "falling", "custom" }),
+                new("volume", "Volume (1–100%)", FieldKind.Int, "80"),
+                new("envelope", "Tone edge", FieldKind.Combo, "smooth",
+                    new[] { "sharp", "smooth", "fade-in", "fade-out" }),
+                new("tempo", "Note speed (25–400%; 100 = normal)", FieldKind.Int, "100"),
                 new("pattern", "Custom sequence — freq:duration,pause;... (example 900:150,80;1200:250)", FieldKind.Text,
                     "900:150,80;1200:250", HideWhenKey: "preset", HideUnlessValue: "custom"),
             },
-            Summarize = s => "Buzzer · " + (PropEx.GetString(s.Props, "preset", "short") == "custom"
+            Summarize = s => $"Buzzer {PropEx.GetInt(s.Props, "volume", 100)}% · " + (PropEx.GetString(s.Props, "preset", "short") == "custom"
                 ? PropEx.GetString(s.Props, "pattern", "900:150")
                 : PropEx.GetString(s.Props, "preset", "short")),
             Commands = s => BuildBuzzerCommands(s.Props),
@@ -525,11 +644,22 @@ public static class StepDefinitions
         {
             "short" => "1000:180",
             "double" => "1000:140,100;1000:140",
+            "notification" => "880:110,45;1175:170",
             "warning" => "700:180,90;700:180,90;700:300",
             "success" => "900:120,70;1300:220",
+            "error" => "440:180,70;330:240",
+            "rising" => "523:90,35;659:90,35;784:160",
+            "falling" => "784:90,35;659:90,35;523:160",
             "custom" => PropEx.GetString(p, "pattern", "900:150"),
             _ => throw new FormatException("unknown buzzer preset '" + preset + "'"),
         };
+        int volume = PropEx.GetInt(p, "volume", 100);
+        if (volume is < 1 or > 100) throw new FormatException("buzzer volume must be 1..100 percent");
+        int tempo = PropEx.GetInt(p, "tempo", 100);
+        if (tempo is < 25 or > 400) throw new FormatException("buzzer note speed must be 25..400 percent");
+        string envelope = PropEx.GetString(p, "envelope", "sharp").Trim().ToLowerInvariant();
+        if (envelope is not ("sharp" or "smooth" or "fade-in" or "fade-out"))
+            throw new FormatException("unknown buzzer envelope '" + envelope + "'");
         var commands = new List<string>();
         foreach (var raw in pattern.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -542,11 +672,68 @@ public static class StepDefinitions
             int pause = timing.Length == 2 ? int.Parse(timing[1]) : 0;
             if (freq is < 30 or > 20000) throw new FormatException("buzzer frequency must be 30..20000 Hz");
             if (duration <= 0 || pause < 0) throw new FormatException("buzzer duration must be positive and pause non-negative");
-            commands.Add($"BEEP|{freq},{duration}");
+            duration = Math.Max(1, (int)Math.Round(duration * 100.0 / tempo, MidpointRounding.AwayFromZero));
+            if (pause > 0)
+                pause = Math.Max(1, (int)Math.Round(pause * 100.0 / tempo, MidpointRounding.AwayFromZero));
+            commands.Add(volume == 100 && envelope == "sharp"
+                ? $"BEEP|{freq},{duration}"
+                : $"BEEP|{freq},{duration},{volume},{envelope}");
             if (pause > 0) commands.Add($"DLY|{pause}");
         }
         if (commands.Count == 0) throw new FormatException("buzzer pattern is empty");
         return commands;
+    }
+
+    /// <summary>
+    /// Packs a validated BEEP/DLY list into one board-owned sequence.  The
+    /// board schedules every note locally, removing USB round-trip jitter
+    /// between notes during preview.
+    /// </summary>
+    public static (string Command, int TotalDurationMs) BuildBuzzerSequenceCommand(
+        IReadOnlyList<string> commands)
+    {
+        var notes = new List<(int Hz, int Duration, int Gap)>();
+        var volume = 100;
+        var envelope = "sharp";
+        foreach (var command in commands)
+        {
+            if (command.StartsWith("DLY|", StringComparison.Ordinal))
+            {
+                if (notes.Count == 0 || !int.TryParse(command[4..], out var gap) || gap < 0)
+                    throw new FormatException("invalid buzzer sequence gap");
+                var last = notes[^1];
+                notes[^1] = (last.Hz, last.Duration, gap);
+                continue;
+            }
+            if (!command.StartsWith("BEEP|", StringComparison.Ordinal))
+                throw new FormatException("invalid buzzer sequence command");
+            var parts = command[5..].Split(',', StringSplitOptions.TrimEntries);
+            if (parts.Length is < 2 or > 4
+                || !int.TryParse(parts[0], out var hz)
+                || !int.TryParse(parts[1], out var duration))
+                throw new FormatException("invalid buzzer sequence tone");
+            if (parts.Length >= 3 && !int.TryParse(parts[2], out volume))
+                throw new FormatException("invalid buzzer sequence volume");
+            if (parts.Length == 4) envelope = parts[3];
+            notes.Add((hz, duration, 0));
+        }
+        if (notes.Count is < 1 or > 8) throw new FormatException("buzzer sequence needs 1..8 notes");
+        var body = string.Join(";", notes.Select(x => $"{x.Hz},{x.Duration},{x.Gap}"));
+        return ($"BEEPSEQ|{volume},{envelope}|{body}", notes.Sum(x => x.Duration + x.Gap));
+    }
+
+    public static IReadOnlyList<string> BuildArmBuzzerCommands(IReadOnlyDictionary<string, object?> p)
+    {
+        string preset = PropEx.GetString(p, "armCuePreset", "off");
+        if (preset == "off") return Array.Empty<string>();
+        return BuildBuzzerCommands(new Dictionary<string, object?>
+        {
+            ["preset"] = preset,
+            ["volume"] = PropEx.GetInt(p, "armCueVolume", 60),
+            ["envelope"] = PropEx.GetString(p, "armCueEnvelope", "smooth"),
+            ["tempo"] = PropEx.GetInt(p, "armCueTempo", 100),
+            ["pattern"] = PropEx.GetString(p, "armCuePattern", "880:100,40;1175:150"),
+        });
     }
 
     public static StepDefinition Get(string type) => Defs[type];
@@ -586,6 +773,10 @@ public static class StepDefinitions
             || t.Equals("End If", StringComparison.OrdinalIgnoreCase)
             || t.StartsWith("Else", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool ContainsWatch(StepNode node)
+        => node.Type is "waitForSound" or "waitForLight"
+           || node.Children.Any(ContainsWatch);
 
     private static string MarkerOrComment(string text)
         => IsStructuralMarker(text) ? text.Trim().ToLowerInvariant() : "# " + text;
@@ -700,13 +891,19 @@ public static class StepDefinitions
     public static bool OpensIfElse(StepNode n)
         => IsConditionalContainer(n.Type) && PropEx.GetBool(n.Props, "insertIfElse");
 
+    public static bool IsCatchResponseContainer(StepNode n)
+        => n.Type == "waitForSound"
+           && PropEx.GetString(n.Props, "responseRoute", "inline") == "splash";
+
     /// <summary>True when this concrete node may adopt child steps.</summary>
     public static bool AcceptsChildren(StepNode n)
-        => Get(n.Type).IsContainer && (!IsConditionalContainer(n.Type) || OpensIfElse(n));
+        => Get(n.Type).IsContainer
+           && (!IsConditionalContainer(n.Type) || OpensIfElse(n) || IsCatchResponseContainer(n));
 
     /// <summary>True when this concrete node draws a scope band / vein in the flat list.</summary>
     public static bool IsScopeContainerNode(StepNode n)
-        => Get(n.Type).IsScopeContainer && (!IsConditionalContainer(n.Type) || OpensIfElse(n));
+        => Get(n.Type).IsScopeContainer
+           && (!IsConditionalContainer(n.Type) || OpensIfElse(n) || IsCatchResponseContainer(n));
 
     /// <summary>v0.9.23 — session typing fallbacks (human-calibrated defaults 80/220 ms,
     /// personalised by Options → "Measure from my hand"). TypeTextCommands uses them only
@@ -723,6 +920,8 @@ public static class StepDefinitions
     /// </summary>
     public static IReadOnlyList<string> TypeTextCommands(IReadOnlyDictionary<string, object?> p)
     {
+        if(PropEx.GetString(p,"textScope","global")=="shift")
+            throw new FormatException("متن شیفتی فقط در Native UF2 روی Pico پشتیبانی می‌شود.");
         var text = PropEx.GetString(p, "text");
         bool secret = PropEx.GetBool(p, "secret");
         string mode = PropEx.GetString(p, "mode", "keystrokes");
@@ -747,17 +946,17 @@ public static class StepDefinitions
         int thinkMin = Math.Max(0, PropEx.GetInt(p, "thinkMin", 800));
         int thinkMax = Math.Max(0, PropEx.GetInt(p, "thinkMax", 2200));
         if (thinkMax < thinkMin) (thinkMin, thinkMax) = (thinkMax, thinkMin);
-        // v0.9.12 — typo cadence: one slip every N words, N freshly re-drawn from
-        // [typoEveryMin, typoEveryMax] after each correction (same planner pattern as the
-        // mouse every-N-moves long break). 0/0 = off. Legacy typoChance (% per word) still
-        // works for old files, but the cadence range takes precedence when both are set.
-        int typoEveryMin = Math.Max(0, PropEx.GetInt(p, "typoEveryMin"));
-        int typoEveryMax = Math.Max(0, PropEx.GetInt(p, "typoEveryMax"));
-        if (typoEveryMax < typoEveryMin) (typoEveryMin, typoEveryMax) = (typoEveryMax, typoEveryMin);
+        // The persisted typoEveryMin/Max names mean what they say: choose the
+        // eligible-character distance to the next corrected slip.  This works
+        // for one-word login/password text without turning 7..12 into 7..12
+        // errors in a short string.
+        int typoCharMin = PropEx.GetInt(p, "typoEveryMin");
+        int typoCharMax = PropEx.GetInt(p, "typoEveryMax");
+        if (typoCharMax < typoCharMin) (typoCharMin, typoCharMax) = (typoCharMax, typoCharMin);
+        typoCharMin = Math.Max(1, typoCharMin);
+        typoCharMax = Math.Max(0, typoCharMax);
         int typoChance = Math.Clamp(PropEx.GetInt(p, "typoChance"), 0, 100);
-        bool typoCadence = typoEveryMax > 0;
-        int nextTypoAt = typoCadence ? Math.Max(1, RandRange(typoEveryMin, typoEveryMax)) : -1;
-        int wordsSinceTypo = 0;
+        bool typoCharMode = typoCharMax > 0;
         // v0.9.13 — word pause PROBABILITY: 100 = after every word (the old metronome feel the
         // user reported: a pause after every space). 40–70 looks human. Files saved before this
         // field existed have no key and keep 100, so their behavior is unchanged.
@@ -766,15 +965,37 @@ public static class StepDefinitions
             : 100;
         // Word segmentation is needed by word pauses AND every v0.9.11+ layer; with all of them
         // off, keep the legacy whole-line 60-char chunking byte-identical for old files.
-        bool wordMode = wmax > 0 || pmax > 0 || thinkChance > 0 || typoChance > 0 || typoCadence;
+        bool wordMode = wmax > 0 || pmax > 0 || thinkChance > 0 || typoChance > 0 || typoCharMode;
         var cmds = new List<string>();
         var lines = normalized.Split('\n');
+        var lineWords = lines.Select(line => Regex.Split(line, @"\s+").Where(w => w.Length > 0).ToArray()).ToArray();
+        var typoPositions = new Dictionary<(int Line, int Word), List<int>>();
+        if (typoCharMode)
+        {
+            var candidates = new List<(int Line, int Word, int Pos)>();
+            for (int li = 0; li < lineWords.Length; li++)
+                for (int wi = 0; wi < lineWords[li].Length; wi++)
+                    for (int pos = 0; pos < lineWords[li][wi].Length; pos++)
+                        if ("1234567890qwertyuiopasdfghjklzxcvbnm".IndexOf(
+                                char.ToLowerInvariant(lineWords[li][wi][pos])) >= 0)
+                            candidates.Add((li, wi, pos));
+            int cursor = RandRange(typoCharMin, typoCharMax) - 1;
+            while (cursor < candidates.Count)
+            {
+                var candidate = candidates[cursor];
+                var key = (candidate.Line, candidate.Word);
+                if (!typoPositions.TryGetValue(key, out var positions))
+                    typoPositions[key] = positions = new List<int>();
+                positions.Add(candidate.Pos);
+                cursor += RandRange(typoCharMin, typoCharMax);
+            }
+        }
         for (int li = 0; li < lines.Length; li++)
         {
             var line = lines[li];
             if (wordMode)
             {
-                var words = Regex.Split(line, @"\s+").Where(w => w.Length > 0).ToArray();
+                var words = lineWords[li];
                 // v0.9.13 — stream merging: text accumulates in `pending` and is chunked ONLY at
                 // real pause points (word/thinking/punctuation/typo). Previously every word was
                 // its own KTEXT command, so the serial round-trip after each word's space made a
@@ -795,29 +1016,38 @@ public static class StepDefinitions
                     string tail = wi < words.Length - 1 ? " " : "";
                     string typed = words[wi] + tail;
 
-                    // v0.9.12 — cadence mode: a typo is DUE once N words passed since the last
-                    // correction. Unsuitable words (too long for one frame / single char) or a
-                    // punctuation slip target do NOT consume the trigger — the next word stays
-                    // due. Legacy chance mode rolls per word. The slip itself: QWERTY-neighbor
-                    // char, a brief "noticed it" pause, Backspace, then retype the remainder.
-                    bool typoDue = typoCadence && ++wordsSinceTypo >= nextTypoAt;
-                    bool typoRoll = !typoCadence && typoChance > 0 && NextInt(100) < typoChance;
-                    if ((typoDue || typoRoll) && words[wi].Length >= 2 && words[wi].Length <= 60)
+                    // Character-interval mode picks ordered eligible characters across TYPE.
+                    // Each slip uses an adjacent QWERTY key, pauses, Backspaces, and resumes from
+                    // the correct character. Multiple slips can occur in the same one-word text.
+                    if (typoPositions.TryGetValue((li, wi), out var selected))
                     {
-                        int pos = 1 + NextInt(words[wi].Length - 1);   // never the first char
+                        int start = 0;
+                        foreach (int pos in selected)
+                        {
+                            if (QwertyNeighbor(words[wi][pos]) is not char wrong) continue;
+                            FlushPending();
+                            string slip = words[wi][start..pos] + wrong;
+                            for (int i = 0; i < slip.Length; i += 60)
+                                cmds.Add($"KTEXT|{hmin},{hmax},{slip.Substring(i, Math.Min(60, slip.Length - i))}");
+                            cmds.Add($"DLY|{RandRange(Math.Max(hmax, 120), hmax * 2 + 200)}");   // noticed the slip
+                            cmds.Add("KCOMBO|8");                                                // Backspace
+                            cmds.Add($"DLY|{RandRange(hmin, hmax)}");
+                            start = pos;                                                         // correct char is next
+                        }
+                        typed = words[wi][start..] + tail;
+                    }
+                    else if (!typoCharMode && typoChance > 0 && NextInt(100) < typoChance
+                             && words[wi].Length >= 2 && words[wi].Length <= 60)
+                    {
+                        int pos = 1 + NextInt(words[wi].Length - 1);
                         if (QwertyNeighbor(words[wi][pos]) is char wrong)
                         {
-                            FlushPending();   // v0.9.13 — stream everything up to the slip first
+                            FlushPending();
                             cmds.Add($"KTEXT|{hmin},{hmax},{words[wi][..pos]}{wrong}");
-                            cmds.Add($"DLY|{RandRange(Math.Max(hmax, 120), hmax * 2 + 200)}");   // noticed the slip
-                            cmds.Add("KCOMBO|8");                                                 // Backspace
+                            cmds.Add($"DLY|{RandRange(Math.Max(hmax, 120), hmax * 2 + 200)}");
+                            cmds.Add("KCOMBO|8");
                             cmds.Add($"DLY|{RandRange(hmin, hmax)}");
-                            typed = words[wi][pos..] + tail;                                      // retype from the correct char
-                            if (typoCadence)
-                            {
-                                wordsSinceTypo = 0;
-                                nextTypoAt = Math.Max(1, RandRange(typoEveryMin, typoEveryMax));  // fresh cadence
-                            }
+                            typed = words[wi][pos..] + tail;
                         }
                     }
 

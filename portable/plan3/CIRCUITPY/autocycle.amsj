@@ -1,0 +1,1720 @@
+{
+  "app": "AMS",
+  "pipelineVersion": 3,
+  "pipelines": {
+    "Desktop": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 5000,
+          "maxMs": 10000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": true,
+          "key": "2",
+          "holdMin": 0,
+          "holdMax": 0,
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 555,
+          "maxMs": 2000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": true,
+          "key": "1",
+          "holdMin": 0,
+          "holdMax": 0,
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      }
+    ],
+    "Restart": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 180000,
+          "maxMs": 240000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": true,
+          "key": "1",
+          "holdMin": 0,
+          "holdMax": 0,
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      }
+    ],
+    "LoginOrDc": [
+      {
+        "Type": "label",
+        "Props": {
+          "label": "label1"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "randomMousePosition",
+        "Props": {
+          "x": 1301,
+          "y": 0,
+          "w": 378,
+          "h": 1049,
+          "pauseBeforeMin": 20,
+          "pauseBeforeMax": 69,
+          "pauseAfterMin": 20,
+          "pauseAfterMax": 85,
+          "midPauseChance": 50,
+          "midPauseMin": 142,
+          "midPauseMax": 528,
+          "idleEveryMin": 5,
+          "idleEveryMax": 12,
+          "idlePauseMin": 800,
+          "idlePauseMax": 3000,
+          "overshootChance": 29,
+          "curveMinPct": 1,
+          "curveMaxPct": 200,
+          "moveTimeMin": 171,
+          "moveTimeMax": 2457
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 2000,
+        "DelayMax": 5000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 500,
+          "maxMs": 2000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "typeText",
+        "Props": {
+          "text": "zodiak999999",
+          "mode": "keystrokes",
+          "keyboardBoard": "default",
+          "secret": false,
+          "hmin": 111,
+          "hmax": 250,
+          "wmin": 130,
+          "wmax": 220,
+          "wordPauseChance": 60,
+          "pmin": 88,
+          "pmax": 177,
+          "thinkChance": 66,
+          "thinkMin": 800,
+          "thinkMax": 2200,
+          "typoEveryMin": 3,
+          "typoEveryMax": 5
+        },
+        "Children": [],
+        "Name": "\u0631\u0645\u0632",
+        "Delay": 333,
+        "DelayMax": 1500,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": false,
+          "key": "ENTER",
+          "holdMin": 88,
+          "holdMax": 190
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "randomMousePosition",
+        "Props": {
+          "x": 1301,
+          "y": 0,
+          "w": 378,
+          "h": 1049,
+          "pauseBeforeMin": 20,
+          "pauseBeforeMax": 29,
+          "pauseAfterMin": 20,
+          "pauseAfterMax": 35,
+          "midPauseChance": 21,
+          "midPauseMin": 127,
+          "midPauseMax": 127,
+          "idleEveryMin": 5,
+          "idleEveryMax": 12,
+          "idlePauseMin": 800,
+          "idlePauseMax": 3000,
+          "overshootChance": 10,
+          "curveMinPct": 0,
+          "curveMaxPct": 3,
+          "moveTimeMin": 16,
+          "moveTimeMax": 523
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 10000,
+        "DelayMax": 20000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 15000,
+          "maxMs": 25000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keyDown",
+        "Props": {
+          "key": "ESC",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 90,
+        "DelayMax": 188,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keyUp",
+        "Props": {
+          "key": "ESC",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 99,
+        "DelayMax": 177,
+        "IsDisabled": false
+      },
+      {
+        "Type": "gotoLabel",
+        "Props": {
+          "label": "label1"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "CharacterDashboard": [
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 500,
+          "maxMs": 4000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": false,
+          "key": "ENTER",
+          "holdMin": 88,
+          "holdMax": 190
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "randomMousePosition",
+        "Props": {
+          "x": 1301,
+          "y": 0,
+          "w": 378,
+          "h": 1049,
+          "pauseBeforeMin": 20,
+          "pauseBeforeMax": 63,
+          "pauseAfterMin": 20,
+          "pauseAfterMax": 78,
+          "midPauseChance": 36,
+          "midPauseMin": 126,
+          "midPauseMax": 204,
+          "idleEveryMin": 5,
+          "idleEveryMax": 12,
+          "idlePauseMin": 800,
+          "idlePauseMax": 3000,
+          "overshootChance": 0,
+          "curveMinPct": 0,
+          "curveMaxPct": 4,
+          "moveTimeMin": 31,
+          "moveTimeMax": 299
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 2000,
+        "DelayMax": 5000,
+        "IsDisabled": false
+      }
+    ],
+    "EnteringGameLoading": [
+      {
+        "Type": "randomPackage",
+        "Props": {
+          "title": "",
+          "mode": "randomSubset",
+          "minCount": 1,
+          "maxCount": 2
+        },
+        "Children": [
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "pauseBeforeMin": 20,
+              "pauseBeforeMax": 69,
+              "pauseAfterMin": 20,
+              "pauseAfterMax": 85,
+              "midPauseChance": 50,
+              "midPauseMin": 142,
+              "midPauseMax": 528,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 29,
+              "curveMinPct": 1,
+              "curveMaxPct": 200,
+              "moveTimeMin": 171,
+              "moveTimeMax": 2457
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 2000,
+            "DelayMax": 5000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 22,
+              "maxMs": 1500
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "pauseBeforeMin": 20,
+              "pauseBeforeMax": 69,
+              "pauseAfterMin": 20,
+              "pauseAfterMax": 85,
+              "midPauseChance": 50,
+              "midPauseMin": 142,
+              "midPauseMax": 528,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 29,
+              "curveMinPct": 1,
+              "curveMaxPct": 200,
+              "moveTimeMin": 171,
+              "moveTimeMax": 2457
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 2000,
+            "DelayMax": 5000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 1000,
+              "maxMs": 5000
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "pauseBeforeMin": 20,
+              "pauseBeforeMax": 22,
+              "pauseAfterMin": 20,
+              "pauseAfterMax": 26,
+              "midPauseChance": 10,
+              "midPauseMin": 156,
+              "midPauseMax": 189,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 5,
+              "curveMinPct": 0,
+              "curveMaxPct": 6,
+              "moveTimeMin": 15,
+              "moveTimeMax": 235
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 55,
+            "DelayMax": 3000,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Next"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Game": [
+      {
+        "Type": "randomPackage",
+        "Props": {
+          "title": "\u0628\u0627\u0641 \u062E\u0648\u0631\u062F\u0646",
+          "mode": "shuffleAll",
+          "minCount": 1,
+          "maxCount": 6
+        },
+        "Children": [
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 111,
+              "maxMs": 888
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "8",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 11000,
+            "DelayMax": 16000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 222,
+              "maxMs": 666
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "9",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 55,
+              "maxMs": 1000
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "4",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 33,
+              "maxMs": 888
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "5",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Next"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "forLoop",
+        "Props": {
+          "title": "\u0634\u0631\u0648\u0639 \u0645\u0627\u0647\u06CC \u06AF\u06CC\u0631\u06CC 10 \u062F\u0642\u06CC\u0642\u0647 \u0627\u06CC",
+          "mode": "time",
+          "count": 10,
+          "timeValue": 10,
+          "timeUnit": "minute"
+        },
+        "Children": [
+          {
+            "Type": "label",
+            "Props": {
+              "label": "\u0642\u0644\u0627\u0628"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "7",
+              "holdMin": 80,
+              "holdMax": 180
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 88,
+            "DelayMax": 190,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 1000,
+              "maxMs": 2000
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "waitForSound",
+            "Props": {
+              "title": "\u0635\u062F\u0627\u06CC \u0686\u0644\u067E \u0627\u06AF\u0647 \u0634\u0646\u06CC\u062F\u06CC",
+              "threshold": 22,
+              "minDurationMs": 60,
+              "timeoutMs": 20000,
+              "onTimeout": "global",
+              "insertIfElse": false,
+              "armed": false,
+              "act": "left",
+              "reactMin": 80,
+              "reactMax": 180,
+              "holdMin": 30,
+              "holdMax": 90
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "F",
+              "holdMin": 80,
+              "holdMax": 180
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 96,
+            "DelayMax": 190,
+            "IsDisabled": false
+          },
+          {
+            "Type": "randomPackage",
+            "Props": {
+              "title": "",
+              "mode": "randomSubset",
+              "minCount": 1,
+              "maxCount": 1
+            },
+            "Children": [
+              {
+                "Type": "delay",
+                "Props": {
+                  "minMs": 500,
+                  "maxMs": 1000
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "delay",
+                "Props": {
+                  "minMs": 500,
+                  "maxMs": 1000
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "delay",
+                "Props": {
+                  "minMs": 500,
+                  "maxMs": 1000
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "randomMousePosition",
+                "Props": {
+                  "x": 1301,
+                  "y": 0,
+                  "w": 378,
+                  "h": 1049,
+                  "pauseBeforeMin": 20,
+                  "pauseBeforeMax": 85,
+                  "pauseAfterMin": 20,
+                  "pauseAfterMax": 103,
+                  "midPauseChance": 36,
+                  "midPauseMin": 144,
+                  "midPauseMax": 375,
+                  "idleEveryMin": 5,
+                  "idleEveryMax": 12,
+                  "idlePauseMin": 800,
+                  "idlePauseMax": 3000,
+                  "overshootChance": 2,
+                  "curveMinPct": 0,
+                  "curveMaxPct": 3,
+                  "moveTimeMin": 16,
+                  "moveTimeMax": 159
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 222,
+                "DelayMax": 888,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "Next"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "gotoLabel",
+            "Props": {
+              "label": "\u0642\u0644\u0627\u0628"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Next"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Targeted": [
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": false,
+          "key": "SPACE",
+          "holdMin": 88,
+          "holdMax": 188,
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keystroke",
+        "Props": {
+          "modCtrl": false,
+          "modShift": false,
+          "modAlt": false,
+          "modWin": false,
+          "key": "SPACE",
+          "holdMin": 88,
+          "holdMax": 188,
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 1000,
+        "IsDisabled": false
+      }
+    ],
+    "Resumable": []
+  },
+  "legacyPipelines": {
+    "Launch": [
+      {
+        "Type": "waitForLight",
+        "Props": {
+          "title": "\u062F\u06CC\u062F\u0646 \u0644\u0627\u0646\u0686\u0631",
+          "luxCenter": 6,
+          "luxTolerance": 3,
+          "stableSec": 5,
+          "sampleMode": "hires",
+          "timeoutMs": 20000,
+          "onTimeout": "global",
+          "insertIfElse": true,
+          "armed": false,
+          "key": "E",
+          "reactMin": 80,
+          "reactMax": 180,
+          "holdMin": 30,
+          "holdMax": 90
+        },
+        "Children": [
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "action": "moveOnly",
+              "scrollDelta": -1,
+              "pauseBeforeMin": 120,
+              "pauseBeforeMax": 450,
+              "pauseAfterMin": 150,
+              "pauseAfterMax": 600,
+              "midPauseChance": 12,
+              "midPauseMin": 100,
+              "midPauseMax": 500,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 25,
+              "curveMinPct": 160,
+              "curveMaxPct": 45,
+              "moveTimeMin": 0,
+              "moveTimeMax": 0
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 55,
+            "DelayMax": 222,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 500,
+              "maxMs": 2000
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "typeText",
+            "Props": {
+              "text": "62206220h$H9",
+              "mode": "keystrokes",
+              "secret": false,
+              "hmin": 111,
+              "hmax": 250,
+              "wmin": 130,
+              "wmax": 220,
+              "wordPauseChance": 60,
+              "pmin": 88,
+              "pmax": 177,
+              "thinkChance": 66,
+              "thinkMin": 800,
+              "thinkMax": 2200,
+              "typoEveryMin": 3,
+              "typoEveryMax": 5
+            },
+            "Children": [],
+            "Name": "\u0631\u0645\u0632",
+            "Delay": 333,
+            "DelayMax": 1500,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "ENTER",
+              "holdMin": 88,
+              "holdMax": 190
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 1000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "action": "moveOnly",
+              "scrollDelta": -1,
+              "pauseBeforeMin": 120,
+              "pauseBeforeMax": 450,
+              "pauseAfterMin": 150,
+              "pauseAfterMax": 600,
+              "midPauseChance": 12,
+              "midPauseMin": 100,
+              "midPauseMax": 500,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 25,
+              "curveMinPct": 160,
+              "curveMaxPct": 45,
+              "moveTimeMin": 0,
+              "moveTimeMax": 0
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 10000,
+            "DelayMax": 20000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "parallelGroup",
+            "Props": {
+              "title": ""
+            },
+            "Children": [
+              {
+                "Type": "waitForLight",
+                "Props": {
+                  "title": "\u0627\u06AF\u0647 \u0631\u0641\u062A\u06CC \u062A\u0648\u06CC \u062F\u0627\u0634\u0628\u0648\u0631\u062F",
+                  "luxCenter": 14,
+                  "luxTolerance": 50,
+                  "stableSec": 2,
+                  "sampleMode": "hires",
+                  "timeoutMs": 20000,
+                  "onTimeout": "global",
+                  "insertIfElse": true,
+                  "armed": false,
+                  "key": "E",
+                  "reactMin": 80,
+                  "reactMax": 180,
+                  "holdMin": 30,
+                  "holdMax": 90
+                },
+                "Children": [
+                  {
+                    "Type": "delay",
+                    "Props": {
+                      "minMs": 2000,
+                      "maxMs": 12000
+                    },
+                    "Children": [],
+                    "Name": "\u062F\u06CC\u0644\u06CC \u0631\u0641\u062A\u0646 \u0628\u0647 \u062F\u0627\u0634\u0628\u0648\u0631\u062F",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  },
+                  {
+                    "Type": "keystroke",
+                    "Props": {
+                      "modCtrl": false,
+                      "modShift": false,
+                      "modAlt": false,
+                      "modWin": false,
+                      "key": "ENTER",
+                      "holdMin": 88,
+                      "holdMax": 190
+                    },
+                    "Children": [],
+                    "Name": "",
+                    "Delay": 1000,
+                    "IsDisabled": false
+                  }
+                ],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "Else"
+                },
+                "Children": [
+                  {
+                    "Type": "label",
+                    "Props": {
+                      "label": "label1"
+                    },
+                    "Children": [],
+                    "Name": "",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  },
+                  {
+                    "Type": "waitForLight",
+                    "Props": {
+                      "title": "\u0627\u06AF\u0647 \u0647\u0646\u0648\u0632 \u062A\u0648\u06CC \u0628\u0631\u06AF\u0647 \u0644\u0627\u06AF\u06CC\u0646\u06CC",
+                      "luxCenter": 5,
+                      "luxTolerance": 3,
+                      "stableSec": 5,
+                      "sampleMode": "hires",
+                      "timeoutMs": 20000,
+                      "onTimeout": "global",
+                      "insertIfElse": true,
+                      "armed": false,
+                      "key": "E",
+                      "reactMin": 80,
+                      "reactMax": 180,
+                      "holdMin": 30,
+                      "holdMax": 90
+                    },
+                    "Children": [
+                      {
+                        "Type": "callLaunchDcRecovery",
+                        "Props": {},
+                        "Children": [],
+                        "Name": "\u0631\u0648 \u062A\u0648 \u0628\u062E\u0634 \u062F\u06CC \u0633\u06CC",
+                        "Delay": 0,
+                        "IsDisabled": false
+                      }
+                    ],
+                    "Name": "",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  },
+                  {
+                    "Type": "comment",
+                    "Props": {
+                      "text": "Else"
+                    },
+                    "Children": [
+                      {
+                        "Type": "gotoLabel",
+                        "Props": {
+                          "label": "label1"
+                        },
+                        "Children": [],
+                        "Name": "",
+                        "Delay": 0,
+                        "IsDisabled": false
+                      }
+                    ],
+                    "Name": "",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  },
+                  {
+                    "Type": "comment",
+                    "Props": {
+                      "text": "End If"
+                    },
+                    "Children": [],
+                    "Name": "",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  }
+                ],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "End If"
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "Next"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "pauseBeforeMin": 120,
+              "pauseBeforeMax": 450,
+              "pauseAfterMin": 150,
+              "pauseAfterMax": 600,
+              "midPauseChance": 12,
+              "midPauseMin": 100,
+              "midPauseMax": 500,
+              "idleEveryMin": 5,
+              "idleEveryMax": 12,
+              "idlePauseMin": 800,
+              "idlePauseMax": 3000,
+              "overshootChance": 25,
+              "curveMinPct": 160,
+              "curveMaxPct": 45,
+              "moveTimeMin": 0,
+              "moveTimeMax": 0
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 55,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Else"
+        },
+        "Children": [
+          {
+            "Type": "waitForLight",
+            "Props": {
+              "title": "\u0627\u06AF\u0647 \u0647\u0646\u0648\u0632 \u062A\u0648\u06CC \u0628\u0631\u06AF\u0647 \u0644\u0627\u06AF\u06CC\u0646\u06CC",
+              "luxCenter": 6,
+              "luxTolerance": 3,
+              "stableSec": 5,
+              "sampleMode": "hires",
+              "timeoutMs": 20000,
+              "onTimeout": "global",
+              "insertIfElse": true,
+              "armed": false,
+              "key": "E",
+              "reactMin": 80,
+              "reactMax": 180,
+              "holdMin": 30,
+              "holdMax": 90
+            },
+            "Children": [
+              {
+                "Type": "callLaunchDcRecovery",
+                "Props": {},
+                "Children": [],
+                "Name": "\u0631\u0648 \u062A\u0648 \u0628\u062E\u0634 \u062F\u06CC \u0633\u06CC",
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "Else"
+            },
+            "Children": [
+              {
+                "Type": "gotoLabel",
+                "Props": {
+                  "label": "label1"
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "End If"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "End If"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Main": [
+      {
+        "Type": "randomPackage",
+        "Props": {
+          "title": "\u0628\u0627\u0641 \u062E\u0648\u0631\u062F\u0646",
+          "mode": "shuffleAll",
+          "minCount": 1,
+          "maxCount": 6
+        },
+        "Children": [
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 111,
+              "maxMs": 888
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "8",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 11000,
+            "DelayMax": 16000,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 222,
+              "maxMs": 666
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "9",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 55,
+              "maxMs": 1000
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "4",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 33,
+              "maxMs": 888
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keystroke",
+            "Props": {
+              "modCtrl": false,
+              "modShift": false,
+              "modAlt": false,
+              "modWin": false,
+              "key": "5",
+              "holdMin": 88,
+              "holdMax": 188,
+              "keyboardBoard": "default"
+            },
+            "Children": [],
+            "Name": "\u0628\u0627\u0641 \u0641\u0648\u062F",
+            "Delay": 333,
+            "DelayMax": 888,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Next"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "forLoop",
+        "Props": {
+          "title": "\u0634\u0631\u0648\u0639 \u0645\u0627\u0647\u06CC \u06AF\u06CC\u0631\u06CC 10 \u062F\u0642\u06CC\u0642\u0647 \u0627\u06CC",
+          "mode": "count",
+          "count": 10,
+          "timeValue": 10,
+          "timeUnit": "minute"
+        },
+        "Children": [
+          {
+            "Type": "label",
+            "Props": {
+              "label": "\u0642\u0644\u0627\u0628"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "keyHold",
+            "Props": {
+              "key": "7"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 88,
+            "DelayMax": 190,
+            "IsDisabled": false
+          },
+          {
+            "Type": "waitForSound",
+            "Props": {
+              "title": "\u0635\u062F\u0627\u06CC \u0686\u0644\u067E \u0627\u06AF\u0647 \u0634\u0646\u06CC\u062F\u06CC",
+              "threshold": 22,
+              "minDurationMs": 60,
+              "timeoutMs": 20000,
+              "onTimeout": "global",
+              "insertIfElse": true,
+              "armed": false,
+              "act": "left",
+              "reactMin": 80,
+              "reactMax": 180,
+              "holdMin": 30,
+              "holdMax": 90
+            },
+            "Children": [
+              {
+                "Type": "keyHold",
+                "Props": {
+                  "key": "F"
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 96,
+                "DelayMax": 190,
+                "IsDisabled": false
+              },
+              {
+                "Type": "delay",
+                "Props": {
+                  "minMs": 500,
+                  "maxMs": 1000
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "gotoLabel",
+                "Props": {
+                  "label": "\u0642\u0644\u0627\u0628"
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "Else"
+            },
+            "Children": [
+              {
+                "Type": "waitForLight",
+                "Props": {
+                  "title": "\u0627\u06AF\u0647 \u0627\u0641\u062A\u0627\u062F\u06CC \u0628\u06CC\u0631\u0648\u0646",
+                  "luxCenter": 19,
+                  "luxTolerance": 5,
+                  "stableSec": 2,
+                  "sampleMode": "hires",
+                  "timeoutMs": 20000,
+                  "onTimeout": "global",
+                  "insertIfElse": true,
+                  "armed": false,
+                  "key": "E",
+                  "reactMin": 80,
+                  "reactMax": 180,
+                  "holdMin": 30,
+                  "holdMax": 90
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "Else"
+                },
+                "Children": [
+                  {
+                    "Type": "raiseError",
+                    "Props": {
+                      "message": "A deliberate error stopped the macro."
+                    },
+                    "Children": [],
+                    "Name": "",
+                    "Delay": 0,
+                    "IsDisabled": false
+                  }
+                ],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              },
+              {
+                "Type": "comment",
+                "Props": {
+                  "text": "End If"
+                },
+                "Children": [],
+                "Name": "",
+                "Delay": 0,
+                "IsDisabled": false
+              }
+            ],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "comment",
+            "Props": {
+              "text": "End If"
+            },
+            "Children": [],
+            "Name": "",
+            "Delay": 0,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      },
+      {
+        "Type": "comment",
+        "Props": {
+          "text": "Next"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "LaunchRecovery": [
+      {
+        "Type": "keyDown",
+        "Props": {
+          "key": "ESC",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 50,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keyUp",
+        "Props": {
+          "key": "ESC",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 50,
+        "IsDisabled": false
+      },
+      {
+        "Type": "randomMousePosition",
+        "Props": {
+          "x": 0,
+          "y": 0,
+          "w": 1919,
+          "h": 1079,
+          "pauseBeforeMin": 120,
+          "pauseBeforeMax": 450,
+          "pauseAfterMin": 150,
+          "pauseAfterMax": 600,
+          "midPauseChance": 12,
+          "midPauseMin": 100,
+          "midPauseMax": 500,
+          "idleEveryMin": 4,
+          "idleEveryMax": 8,
+          "idlePauseMin": 800,
+          "idlePauseMax": 3000,
+          "overshootChance": 25,
+          "curveMinPct": 144,
+          "curveMaxPct": 45,
+          "moveTimeMin": 0,
+          "moveTimeMax": 0
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 88,
+        "DelayMax": 188,
+        "IsDisabled": false
+      },
+      {
+        "Type": "typeText",
+        "Props": {
+          "text": "62206220h$H9",
+          "mode": "keystrokes",
+          "keyboardBoard": "default",
+          "secret": false,
+          "hmin": 80,
+          "hmax": 220,
+          "wmin": 88,
+          "wmax": 166,
+          "wordPauseChance": 60,
+          "pmin": 88,
+          "pmax": 177,
+          "thinkChance": 66,
+          "thinkMin": 800,
+          "thinkMax": 2200,
+          "typoEveryMin": 3,
+          "typoEveryMax": 5
+        },
+        "Children": [],
+        "Name": "\u0631\u0645\u0632",
+        "Delay": 333,
+        "DelayMax": 1500,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keyDown",
+        "Props": {
+          "key": "ENTER",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 88,
+        "DelayMax": 190,
+        "IsDisabled": false
+      },
+      {
+        "Type": "keyUp",
+        "Props": {
+          "key": "ENTER",
+          "keyboardBoard": "default"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 90,
+        "DelayMax": 190,
+        "IsDisabled": false
+      },
+      {
+        "Type": "delay",
+        "Props": {
+          "minMs": 3000,
+          "maxMs": 8000
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "MainRecovery": [],
+    "ResumeEssentials": [
+      {
+        "Type": "buzzer",
+        "Props": {
+          "preset": "custom",
+          "pattern": "2637:66,87;2637:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2637:66,87;30:66,87;3136:66,87;30:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;30:66,87;2093:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;1319:66,87;30:66,87;30:66,87;1760:66,87;30:66,87;1976:66,87;30:66,87;1865:66,87;1760:66,87;30:66,87;1568:90,117;2637:90,117;3136:90,117;3520:66,87;30:66,87;2794:66,87;3136:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2349:66,87;1976:66,87;30:66,87;30:66,87;2093:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;1319:66,87;30:66,87;30:66,87;1760:66,87;30:66,87;1976:66,87;30:66,87;1865:90,117;1760:90,117;30:90,117;1568:66,87;2637:66,87;3136:66,87;3520:66,87;30:66,87;2794:66,87;3136:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2349:66,87;1976:66,87;30:66,87;30:66,87;"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Resumable": [
+      {
+        "Type": "buzzer",
+        "Props": {
+          "preset": "custom",
+          "pattern": "2637:66,87;2637:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2637:66,87;30:66,87;3136:66,87;30:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;30:66,87;2093:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;1319:66,87;30:66,87;30:66,87;1760:66,87;30:66,87;1976:66,87;30:66,87;1865:66,87;1760:66,87;30:66,87;1568:90,117;2637:90,117;3136:90,117;3520:66,87;30:66,87;2794:66,87;3136:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2349:66,87;1976:66,87;30:66,87;30:66,87;2093:66,87;30:66,87;30:66,87;1568:66,87;30:66,87;30:66,87;1319:66,87;30:66,87;30:66,87;1760:66,87;30:66,87;1976:66,87;30:66,87;1865:90,117;1760:90,117;30:90,117;1568:66,87;2637:66,87;3136:66,87;3520:66,87;30:66,87;2794:66,87;3136:66,87;30:66,87;2637:66,87;30:66,87;2093:66,87;2349:66,87;1976:66,87;30:66,87;30:66,87;"
+        },
+        "Children": [],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "constantKinds": {
+    "BUFF": 10,
+    "CYCLE": 9,
+    "GUARD": 8,
+    "LIGHT": 7,
+    "MOUSE": 3,
+    "RANGES": 4,
+    "SCOPE": 5,
+    "SHIFT": 11,
+    "SOUND": 6,
+    "TYPE": 2,
+    "UTF8": 1
+  },
+  "formatVersion": 2,
+  "limits": {
+    "actors": 4,
+    "events": 4,
+    "frames": 8,
+    "interrupts": 1,
+    "lanes": 2,
+    "packageItems": 32,
+    "pwmChannels": 1,
+    "soundListeners": 1,
+    "soundProfiles": 8
+  },
+  "magic": "ABP1",
+  "opcodes": {
+    "BEEP": 7,
+    "BUFF": 31,
+    "DELAY": 1,
+    "END": 0,
+    "ITEM_END": 13,
+    "JUMP": 30,
+    "KDOWN": 3,
+    "KEY": 2,
+    "KUP": 4,
+    "LANE_END": 21,
+    "LOOP_ENTER": 10,
+    "LOOP_NEXT": 11,
+    "RMOUSE": 6,
+    "RPKG_ENTER": 12,
+    "SCOPE_BEGIN": 20,
+    "SHIFT_CHECK": 32,
+    "SHIFT_TYPE": 33,
+    "TYPE": 5,
+    "WATCH": 22
+  },
+  "routeClockPolicies": {
+    "ACTIVE": 256,
+    "WALL": 0
+  },
+  "routeFlags": {
+    "PAUSE_RELEASE_HID": 512
+  },
+  "routePolicies": {
+    "ABORT_AND_RESTART": 4,
+    "ABORT_AND_START": 1,
+    "CANCEL_SCOPE_AND_CONTINUE": 3,
+    "DENY": 0,
+    "INTERRUPT_AND_RESUME": 2
+  },
+  "scopePolicies": {
+    "CANCEL_ON_ANY": 2,
+    "CANCEL_ON_TERMINAL_LANE": 3,
+    "JOIN_ALL": 1,
+    "KEEP_RUNNING_UNTIL_CANCELLED": 4
+  },
+  "sizes": {
+    "header": 128,
+    "instruction": 16,
+    "resourceCertificate": 36,
+    "route": 16
+  },
+  "vmAbi": 1
+}

@@ -1,0 +1,15 @@
+{
+  "generator": "Classroom Studio v0.9.67",
+  "bundle": "combined-pico-guard-executor",
+  "system": "PC-13458",
+  "generatedUtc": "2026-09-25 00:35:17",
+  "hardwareCalibrationVerified": false,
+  "calibrationRevision": "guard-a01636aa4b847b72",
+  "sensor": {
+    "chip": "BH1750",
+    "board": "GY-302/GY-30",
+    "i2c": "I2C0 SDA=GP20 SCL=GP21",
+    "addr": 35
+  },
+  "states": []
+}

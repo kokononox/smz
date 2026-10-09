@@ -40,8 +40,61 @@ public static class LightStateProfileStore
     public static List<LightStateProfile> Normalize(IEnumerable<LightStateProfile>? profiles)
     {
         if (profiles is null) return LightStateDefaults.CreateInitialProfiles();
+        foreach (var profile in profiles.Where(x => x is not null))
+            MigrateCueStyle(profile);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var valid = profiles.Where(p => p is not null && p.IsValid && seen.Add(p.Id)).ToList();
-        return valid.Count == 0 ? LightStateDefaults.CreateInitialProfiles() : valid;
+        if (valid.Count == 0) return LightStateDefaults.CreateInitialProfiles();
+        // Schema migration: preserve every calibrated value and append only
+        // newly introduced required profiles (for example light Whisper).
+        foreach (var fallback in LightStateDefaults.CreateInitialProfiles())
+            if (seen.Add(fallback.Id)) valid.Add(fallback);
+        var defaults = LightStateDefaults.CreateInitialProfiles()
+            .ToDictionary(x => x.Id, StringComparer.Ordinal);
+        foreach (var profile in valid)
+        {
+            if (!defaults.TryGetValue(profile.Id, out var fallback)) continue;
+            if (profile.CalibrationCue is < 0 or > 100)
+                profile.CalibrationCue = fallback.CalibrationCue;
+            MigrateCueStyle(profile);
+            if (string.IsNullOrWhiteSpace(profile.CalibrationCuePattern))
+                profile.CalibrationCuePattern = fallback.CalibrationCuePattern;
+            if (profile.CalibrationCueVolume is < 1 or > 100)
+                profile.CalibrationCueVolume = 100;
+            if (profile.CalibrationCueTempo is < 25 or > 400)
+                profile.CalibrationCueTempo = 100;
+            if (profile.CalibrationCueEnvelope is not ("sharp" or "smooth" or "fade-in" or "fade-out"))
+                profile.CalibrationCueEnvelope = "sharp";
+            // New-person notifications run immediately. Only repeat-person
+            // classifiers own a board-local cooldown, mirroring the UI tabs.
+            if (profile.Id is "targeted" or "whisper")
+                profile.LightCooldownMs = 0;
+            else if (profile.LightCooldownMs == 0 && fallback.LightCooldownMs > 0)
+                profile.LightCooldownMs = fallback.LightCooldownMs;
+        }
+        // Canonicalize the user-facing calibration order even for older
+        // persisted files. Preserve every edited value; only reorder the
+        // required records, then retain any future/unknown valid records.
+        var byId = valid.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        var ordered = LightStateDefaults.CreateInitialProfiles()
+            .Select(x => byId[x.Id])
+            .ToList();
+        ordered.AddRange(valid.Where(x => !defaults.ContainsKey(x.Id)));
+        return ordered;
+    }
+
+    internal static void MigrateCueStyle(LightStateProfile profile)
+    {
+        if (profile.CalibrationCueStyleVersion > 0) return;
+        if (profile.CalibrationCue < 0) return;
+        if (profile.CalibrationCue > 0)
+        {
+            var preset = CalibrationCueCatalog.Get(profile.CalibrationCue);
+            profile.CalibrationCuePattern = preset.Pattern;
+            profile.CalibrationCueVolume = preset.Volume;
+            profile.CalibrationCueEnvelope = preset.Envelope;
+            profile.CalibrationCueTempo = preset.Tempo;
+        }
+        profile.CalibrationCueStyleVersion = 1;
     }
 }

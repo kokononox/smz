@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "runtime": "combined-pico-guard-executor",
+  "pipelineVersion": 3,
+  "pipelineRevision": "F2447139817804BB5E9521D1DB6E82C1C05920F3DFCDAC1F020ECD0B443D2C36",
+  "calibrationRevision": "guard-a01636aa4b847b72",
+  "orderedStages": [
+    "desktop",
+    "login-or-dc",
+    "character-dashboard",
+    "entering-game-loading",
+    "game"
+  ],
+  "dcFallback": {
+    "fromStages": [
+      3,
+      4,
+      5
+    ],
+    "toStage": 2,
+    "context": "dc"
+  },
+  "targeted": {
+    "sideState": true,
+    "route": "targeted_steps.txt",
+    "returnTo": "game"
+  },
+  "routes": {
+    "Desktop": "desktop_steps.txt",
+    "LoginOrDc": "login_or_dc_steps.txt",
+    "CharacterDashboard": "character_dashboard_steps.txt",
+    "EnteringGameLoading": "entering_game_loading_steps.txt",
+    "Game": "game_steps.txt",
+    "Targeted": "targeted_steps.txt",
+    "Resumable": "resumable_steps.txt",
+    "Restart": "restart_steps.txt"
+  },
+  "profiles": [
+    {
+      "id": "desktop",
+      "center": 52.2,
+      "tolerance": 15,
+      "stableMs": 750
+    },
+    {
+      "id": "login-or-dc",
+      "center": 5,
+      "tolerance": 3.8,
+      "stableMs": 200
+    },
+    {
+      "id": "character-dashboard",
+      "center": 15,
+      "tolerance": 3,
+      "stableMs": 750
+    },
+    {
+      "id": "entering-game-loading",
+      "center": 35.8,
+      "tolerance": 0.5,
+      "stableMs": 750
+    },
+    {
+      "id": "game",
+      "center": 24.2,
+      "tolerance": 0.5,
+      "stableMs": 750
+    },
+    {
+      "id": "targeted",
+      "center": 5.8,
+      "tolerance": 0.5,
+      "stableMs": 750
+    }
+  ]
+}

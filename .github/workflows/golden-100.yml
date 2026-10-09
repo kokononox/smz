@@ -1,0 +1,92 @@
+name: Golden 100 validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/dc-auto-esc-88-188]
+    paths:
+      - 'portable/plan3/CIRCUITPY/**'
+      - 'ams-shell/src/Ams.UI/Ams.UI.csproj'
+      - '.github/workflows/golden-100.yml'
+  pull_request:
+    paths:
+      - 'portable/plan3/CIRCUITPY/**'
+      - 'ams-shell/src/Ams.UI/Ams.UI.csproj'
+      - '.github/workflows/golden-100.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  golden-100:
+    name: golden-100 / bundle and manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate exact Golden 100 inventory and SHA256 manifest
+        run: python .github/scripts/golden_100_contract.py portable/plan3/CIRCUITPY
+      - name: Compile Golden 100 Python sources
+        run: python -m py_compile portable/plan3/CIRCUITPY/*.py
+
+  legacy-golden-100:
+    name: legacy/golden-100 / Windows contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve Golden 100 bytes on Windows checkout
+        shell: pwsh
+        run: |
+          # Extract blobs directly from HEAD. This bypasses checkout EOL filters
+          # entirely, so the byte-exact manifest is deterministic on Windows.
+          Remove-Item -Recurse -Force portable/plan3/CIRCUITPY
+          git -c core.autocrlf=false archive --format=tar --output=golden-100-source.tar HEAD portable/plan3/CIRCUITPY
+          tar -xf golden-100-source.tar
+          Remove-Item golden-100-source.tar
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Golden 100 contract on Windows
+        shell: pwsh
+        run: |
+          $output = & python .github/scripts/golden_100_contract.py portable/plan3/CIRCUITPY 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) {
+            $summary = ($output -join ' | ').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error file=.github/workflows/golden-100.yml,title=Golden 100 Windows contract::$summary"
+            exit $exitCode
+          }
+
+  flashable-golden-100:
+    name: golden-100 / flashable bundle
+    if: ${{ always() && needs.golden-100.result == 'success' && needs.legacy-golden-100.result == 'success' }}
+    needs: [golden-100, legacy-golden-100]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package exact Golden 100 CIRCUITPY ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf staging golden-100-circuitpy.zip golden-100-circuitpy.zip.sha256
+          mkdir staging
+          cp portable/plan3/CIRCUITPY/* staging/
+          test "$(find staging -maxdepth 1 -type f | wc -l)" -eq 25
+          (cd staging && zip -q -X -r ../golden-100-circuitpy.zip .)
+          sha256sum golden-100-circuitpy.zip | tee golden-100-circuitpy.zip.sha256
+          unzip -Z1 golden-100-circuitpy.zip | sort > golden-100-zip-inventory.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-100-circuitpy
+          path: |
+            golden-100-circuitpy.zip
+            golden-100-circuitpy.zip.sha256
+            golden-100-zip-inventory.txt
+          if-no-files-found: error
+          retention-days: 14

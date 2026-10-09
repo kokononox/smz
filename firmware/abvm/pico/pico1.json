@@ -1,0 +1,15 @@
+{
+  "circuitpython_version": "10.3.0",
+  "source_board": "raspberry_pi_pico",
+  "target_board": "greenfield_uni_en_062",
+  "usb_manufacturer": "Greenfield Uni Engineering",
+  "usb_product": "GU Debug Port 062",
+  "usb_vid": "0x3169",
+  "usb_pid": "0xC198",
+  "serial_prefix": "GUEN062-",
+  "drive_label": "EDGUEN062",
+  "maintenance_pin": "GP3",
+  "drive_mode": "maintenance",
+  "runtime_profile": "classroom_guard",
+  "language": "en_US"
+}

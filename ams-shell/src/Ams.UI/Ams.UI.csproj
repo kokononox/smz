@@ -12,7 +12,7 @@
     <AssemblyTitle>Classroom Studio</AssemblyTitle>
     <Product>Classroom Studio</Product>
     <Description>Educational classroom workflow and input-automation studio</Description>
-    <Version>0.9.67</Version>
+    <Version>0.9.73</Version>
     <RootNamespace>Ams.UI</RootNamespace>
   </PropertyGroup>
 
@@ -23,22 +23,52 @@
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
   </ItemGroup>
 
-  <ItemGroup><Resource Include="Resources\ams.ico" /></ItemGroup>
+  <ItemGroup><Resource Include="Resources\ams.ico" /><Compile Include="..\..\..\shared\ShiftUserIdentity.cs" Link="Services\ShiftUserIdentity.cs" /></ItemGroup>
 
   <ItemGroup>
+    <None Include="light-state-profiles.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm.py"><Link>native-tools\abvm.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm_uf2.py"><Link>native-tools\abvm_uf2.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\tools\abvm_slot.py"><Link>native-tools\abvm_slot.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\**" Exclude="..\..\bridge\bridge.py;..\..\bridge\light_state_bridge.py"><Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\bridge.py"><Link>bridge\_bridge_core.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\bridge\light_state_bridge.py"><Link>bridge\bridge.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\caterina\Caterina.hex"><Link>caterina\Caterina.hex</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\tools\isp_flash.py"><Link>tools\isp_flash.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\plan_cycle.py"><Link>portable-runtime\plan_cycle.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\cycle_runtime.py"><Link>portable-runtime\cycle_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\restart_windows.py"><Link>portable-runtime\restart_windows.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\auto_resume_boot.py"><Link>portable-runtime\auto_resume_boot.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\resume_essentials_runtime.py"><Link>portable-runtime\resume_essentials_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\CIRCUITPY\recovery_runtime.py"><Link>portable-runtime\recovery_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="..\..\..\portable\plan3\autocycle_h6_patch.json"><Link>portable-runtime\autocycle_h6_patch.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\README-FLASH.md"><Link>portable-runtime\README-FLASH.md</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\SHA256SUMS.txt"><Link>portable-runtime\SHA256SUMS.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\autocycle.amsj"><Link>portable-runtime\autocycle.amsj</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\boot.py"><Link>portable-runtime\boot.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\boot_out.txt"><Link>portable-runtime\boot_out.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\character_dashboard_steps.txt"><Link>portable-runtime\character_dashboard_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\code.py"><Link>portable-runtime\code.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\combined_guard_runtime.py"><Link>portable-runtime\combined_guard_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\desktop_steps.txt"><Link>portable-runtime\desktop_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\entering_game_loading_steps.txt"><Link>portable-runtime\entering_game_loading_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
     <None Include="..\..\..\portable\plan3\CIRCUITPY\error_policy.py"><Link>portable-runtime\error_policy.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\game_steps.txt"><Link>portable-runtime\game_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\guard-calibration.json"><Link>portable-runtime\guard-calibration.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\guard-transition.json"><Link>portable-runtime\guard-transition.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\guard_calibration_protocol.py"><Link>portable-runtime\guard_calibration_protocol.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\guard_transition.py"><Link>portable-runtime\guard_transition.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\live_light_guard.py"><Link>portable-runtime\live_light_guard.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\login_or_dc_steps.txt"><Link>portable-runtime\login_or_dc_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\pico-calibration.json"><Link>portable-runtime\pico-calibration.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\plan.txt"><Link>portable-runtime\plan.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\plan_engine.py"><Link>portable-runtime\plan_engine.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\restart_steps.txt"><Link>portable-runtime\restart_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\resumable_steps.txt"><Link>portable-runtime\resumable_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\settings.toml"><Link>portable-runtime\settings.toml</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY\targeted_steps.txt"><Link>portable-runtime\targeted_steps.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\autocycle_h6_patch.json"><Link>portable-runtime\autocycle_h6_patch.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-MODERN\**\*"><Link>portable-modern-runtime\%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\plan_cycle.py"><Link>portable-runtime\plan_cycle.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\cycle_runtime.py"><Link>portable-runtime\cycle_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\restart_windows.py"><Link>portable-runtime\restart_windows.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\auto_resume_boot.py"><Link>portable-runtime\auto_resume_boot.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\resume_essentials_runtime.py"><Link>portable-runtime\resume_essentials_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\..\..\portable\plan3\CIRCUITPY-SPLIT\recovery_runtime.py"><Link>portable-runtime\recovery_runtime.py</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
   </ItemGroup>
 
 </Project>
+

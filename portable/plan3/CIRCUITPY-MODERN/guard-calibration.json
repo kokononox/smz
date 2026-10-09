@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "revision": "guard-1e57d529699b3492",
+  "profiles": {
+    "desktop": {
+      "center": 52.2,
+      "tolerance": 15,
+      "stable_ms": 750
+    },
+    "login-or-dc": {
+      "center": 5,
+      "tolerance": 3.8,
+      "stable_ms": 200
+    },
+    "character-dashboard": {
+      "center": 14.2,
+      "tolerance": 3.8,
+      "stable_ms": 750
+    },
+    "entering-game-loading": {
+      "center": 35.8,
+      "tolerance": 0.5,
+      "stable_ms": 750
+    },
+    "game": {
+      "center": 22.5,
+      "tolerance": 3.7,
+      "stable_ms": 750
+    },
+    "targeted": {
+      "center": 5.8,
+      "tolerance": 0.5,
+      "stable_ms": 750
+    }
+  }
+}

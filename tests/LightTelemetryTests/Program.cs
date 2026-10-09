@@ -23,6 +23,9 @@ Check(ok.IsSuccess && ok.Sequence == uint.MaxValue && ok.Lux == 59.2 && ok.Mode 
 var low = LightTelemetryParser.Parse("OK|LUX|seq=0|lux=0.0|mode=lowres|sensor=ok");
 Check(low.IsSuccess && low.Sequence == 0 && low.Lux == 0 && low.Mode == "lowres",
     "typed parser accepts lowres and zero after sequence wrap");
+var native = LightTelemetryParser.Parse("OK|LUX|lux=51.7|sensor=ok|age=40");
+Check(native.IsSuccess && native.Lux == 51.7 && native.Sequence is null && native.Mode is null,
+    "typed parser accepts Native Pico sample age");
 Check(LightTelemetryParser.Parse("ERR|NOSENSOR|LUX").Status == LightTelemetryStatus.NoSensor,
     "missing sensor maps to typed status");
 Check(LightTelemetryParser.Parse("ERR|I2C|LUX").Status == LightTelemetryStatus.I2cError,
@@ -34,7 +37,47 @@ Rejects("OK|LUX|seq=1|lux=NaN|mode=hires|sensor=ok", "NaN is rejected");
 Rejects("OK|LUX|seq=1|lux=-1|mode=hires|sensor=ok", "negative lux is rejected");
 Rejects("OK|LUX|seq=1|lux=1.0|mode=turbo|sensor=ok", "unknown mode is rejected");
 Rejects("OK|LUX|seq=1|lux=1.0|mode=hires|sensor=bad", "invalid sensor marker is rejected");
+Rejects("OK|LUX|lux=1.0|sensor=ok|age=-1", "negative Native sample age is rejected");
+Rejects("OK|LUX|lux=1.0|sensor=ok|extra=1", "unknown compact telemetry field is rejected");
 Rejects("ERR|NOSENSOR|LUX|extra", "typed errors must be exact");
+var dump = LightCalibrationDumpParser.Parse(
+    "OK|CALDUMP|LIGHT|revision=42|mask=0191|profiles=1:5:25,5:250:290,8:599:620,9:380:400");
+Check(dump.Revision == 42 && dump.Mask == 0x0191 && dump.Profiles.Count == 4
+      && dump.Profiles[0].CenterLux == 1.5 && dump.Profiles[0].ToleranceLux == 1.0
+      && dump.Profiles[2].CenterLux == 60.95 && dump.Profiles[2].ToleranceLux == 1.05
+      && dump.Profiles[3].CenterLux == 39.0 && dump.Profiles[3].ToleranceLux == 1.0,
+    "light calibration dump parses tenths and partial profile mask");
+var importTargets = LightStateDefaults.CreateInitialProfiles();
+Check(LightCalibrationDumpParser.Apply(dump, importTargets) == 4
+      && importTargets.Single(x => x.Id == "desktop").LuxCenter == 1.5
+      && importTargets.Single(x => x.Id == "game").LuxCenter == 27
+      && importTargets.Single(x => x.Id == "whisper-repeat").LuxTolerance == 1.05
+      && importTargets.Single(x => x.Id == "targeted-repeat").LuxCenter == 39.0
+      && importTargets.Single(x => x.Id == "login-or-dc").LuxCenter == 74,
+    "board calibration import atomically updates only returned ranges");
+try
+{
+    LightCalibrationDumpParser.Parse(
+        "OK|CALDUMP|LIGHT|revision=42|mask=0001|profiles=1:30:20");
+    Check(false, "light calibration dump rejects inverted range");
+}
+catch (LightCalibrationDumpProtocolException)
+{
+    Check(true, "light calibration dump rejects inverted range");
+}
+try
+{
+    LightCalibrationDumpParser.Parse(
+        "OK|CALDUMP|LIGHT|revision=42|mask=0003|profiles=1:10:20");
+    Check(false, "light calibration dump rejects mismatched mask");
+}
+catch (LightCalibrationDumpProtocolException)
+{
+    Check(true, "light calibration dump rejects mismatched mask");
+}
+Check(LightCalibrationDumpParser.Parse(
+        "OK|CALDUMP|LIGHT|revision=0|mask=0000|profiles=none").Profiles.Count == 0,
+    "empty board calibration dump is represented explicitly");
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");
 Check(new[] { 100, 250, 500 }.All(ms =>

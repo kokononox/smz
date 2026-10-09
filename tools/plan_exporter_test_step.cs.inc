@@ -50,21 +50,22 @@
             Assert(pexRand.Counts.Contains("RMOUSE x1") && pexRand.Disabled.Count == 0,
                 "v0.9.65: emission counts are reported");
 
-            // mouseMove -> deterministic 1x1 RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
+            // mouseMove -> selected RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
             var pexMove = PlanExporter.Compile(new List<StepNode>
             {
-                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["human"] = true }),
+                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["w"] = 180, ["h"] = 120, ["human"] = true }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexMove.Text.Contains("MOVETO|x=700|y=400|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
-                "v0.9.66: mouseMove emits native PLAN|2 MOVETO");
+            Assert(pexMove.Text.Contains("RMOUSE|region=700,400,180,120|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
+                "mouseMove exports a random point within the chosen rectangle as humanized PLAN|2 RMOUSE");
             Assert(!pexMove.Text.Contains("idle=5,12"),
                 "v0.9.65: the engine's built-in idle default never leaks into a point move");
             var pexNoHuman = PlanExporter.Compile(new List<StepNode>
             {
                 PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 5, ["y"] = 6, ["human"] = false }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexNoHuman.Text.Contains("MOVETO|x=5|y=6|human=0\n"),
-                "v0.9.66: human=false emits native non-human MOVETO");
+            Assert(pexNoHuman.Text.Contains("RMOUSE|region=5,6,1,1|before=60,220")
+                   && pexNoHuman.Flags.Any(f => f.Contains("human=false cannot be preserved")),
+                "portable export warns that human=false is not supported by PLAN|2 RMOUSE");
 
             // CLICK with swapped hold bounds
             var pexClick = PlanExporter.Compile(new List<StepNode>

@@ -24,8 +24,8 @@ public static class LightTelemetryParser
             return new(errorStatus.Value, null, null, null, at, raw);
 
         var parts = raw.Split('|', StringSplitOptions.None);
-        if (parts.Length != 6 || parts[0] != "OK" || parts[1] != "LUX")
-            throw new LightTelemetryProtocolException(raw, "Expected the exact OK|LUX response shape.");
+        if (parts.Length is not (4 or 5 or 6) || parts[0] != "OK" || parts[1] != "LUX")
+            throw new LightTelemetryProtocolException(raw, "Expected a supported OK|LUX response shape.");
 
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 2; i < parts.Length; i++)
@@ -37,14 +37,35 @@ public static class LightTelemetryParser
                 throw new LightTelemetryProtocolException(raw, "Telemetry field is duplicated.");
         }
 
-        if (fields.Count != 4 || !fields.TryGetValue("seq", out var seqText)
-            || !uint.TryParse(seqText, NumberStyles.None, CultureInfo.InvariantCulture, out var sequence)
-            || !fields.TryGetValue("lux", out var luxText)
+        if (!fields.TryGetValue("lux", out var luxText)
             || !double.TryParse(luxText, NumberStyles.Float, CultureInfo.InvariantCulture, out var lux)
             || !double.IsFinite(lux) || lux < 0
-            || !fields.TryGetValue("mode", out var mode) || mode is not ("hires" or "lowres")
             || !fields.TryGetValue("sensor", out var sensor) || sensor != "ok")
             throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
+
+        uint? sequence = null;
+        string? mode = null;
+        if (fields.Count == 4)
+        {
+            if (!fields.TryGetValue("seq", out var seqText)
+                || !uint.TryParse(seqText, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedSequence)
+                || !fields.TryGetValue("mode", out var parsedMode)
+                || parsedMode is not ("hires" or "lowres"))
+                throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
+            sequence = parsedSequence;
+            mode = parsedMode;
+        }
+        else if (fields.Count == 3)
+        {
+            if (!fields.TryGetValue("age", out var ageText)
+                || !uint.TryParse(ageText, NumberStyles.None,
+                    CultureInfo.InvariantCulture, out _))
+                throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
+        }
+        else if (fields.Count != 2)
+        {
+            throw new LightTelemetryProtocolException(raw, "Telemetry fields are invalid.");
+        }
 
         return new(LightTelemetryStatus.Ok, sequence, lux, mode, at, raw);
     }

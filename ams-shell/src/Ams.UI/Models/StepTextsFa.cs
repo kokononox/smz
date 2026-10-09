@@ -1,3 +1,4 @@
+
 using System.Collections.Generic;
 
 namespace Ams.UI.Models;
@@ -17,8 +18,14 @@ public static class StepTextsFa
     {
         // ── v0.9.55 — renameable container heads
         ["title"] = "عنوان مجموعه (خالی = نام پیش‌فرض)",
+        ["completionPolicy"] = "شرط پایان گروه موازی (waitAll = انتظار برای همه · watchLane = پایان مسیر Watch/Catch · firstCompleted = اولین مسیر · timeBudget = پایان زمان تعیین‌شده)",
+        ["budgetValue"] = "مدت اجرای گروه در حالت timeBudget",
+        ["budgetUnit"] = "واحد مدت اجرای گروه در حالت timeBudget",
         // ── shared human-mouse fields (mouseMove + findImage approach + randomMousePosition) ──
         ["human"] = "حرکت انسانی (مسیر WindMouse + مکث‌ها سمت اپ — خاموش = پرش فوری برد)",
+        ["motionIntent"] = "نوع حرکت (targetRegion = رفتن به ناحیه هدف · microTwitch = ریزحرکت · mediumTwitch = حرکت متوسط)",
+        ["twitchMinPx"] = "شعاع نسبی حرکت — حداقل (px)",
+        ["twitchMaxPx"] = "شعاع نسبی حرکت — حداکثر (px)",
         ["pauseBeforeMin"] = "مکث پیش از حرکت — حداقل (ms)",
         ["pauseBeforeMax"] = "مکث پیش از حرکت — حداکثر (ms)",
         ["pauseAfterMin"] = "مکث پس از رسیدن — حداقل (ms)",
@@ -38,6 +45,8 @@ public static class StepTextsFa
 
         // ── mouse actions ──
         ["button"] = "دکمه‌ی موس",
+        ["moveMode"] = "حالت حرکت (region = انتخاب تصادفی نقطه در مستطیل · fixed = سازگاری با ماکروهای قدیمی · handSample = بازپخش نمونه از موقعیت فعلی نشانگر)",
+        ["handSample"] = "نمونه‌ی نسبی ذخیره‌شده‌ی حرکت دست",
         ["action"] = "نوع کلیک",
         ["delta"] = "مقدار ویل (عدد منفی = پایین)",
         ["scrollDelta"] = "مقدار اسکرول (منفی = پایین، مثبت = بالا)",
@@ -59,8 +68,8 @@ public static class StepTextsFa
         ["thinkChance"] = "احتمال مکث فکرکردن ٪ به‌ازای هر کلمه (۰ = خاموش · انسان برای فکر مکث می‌کند)",
         ["thinkMin"] = "مکث فکرکردن — حداقل (ms)",
         ["thinkMax"] = "مکث فکرکردن — حداکثر (ms)",
-        ["typoEveryMin"] = "اشتباه تایپی هر N کلمه — حداقل N · 0/0 = خاموش (لغزش + اصلاح با Backspace)",
-        ["typoEveryMax"] = "اشتباه تایپی هر N کلمه — حداکثر N · بعد از هر اصلاح دوباره قرعه‌کشی (۸–۲۰ طبیعی است)",
+        ["typoEveryMin"] = "فاصلهٔ بین خطاهای تایپی — حداقل تعداد کاراکتر · ۰/۰ = خاموش",
+        ["typoEveryMax"] = "فاصلهٔ بین خطاهای تایپی — حداکثر تعداد کاراکتر · پس از هر اصلاح دوباره قرعه‌کشی می‌شود",
 
         // ── timing / loops ──
         ["minMs"] = "حداقل (ms)",
@@ -72,13 +81,27 @@ public static class StepTextsFa
         ["maxCount"] = "حداکثر استپ در هر دور (randomSubset)",
 
         // ── sound (waitForSound) ──
-        ["threshold"] = "آستانه (واحد سنسور — از Calibrate استفاده کن، پیش‌فرض ۹۰)",
+        ["threshold"] = "آستانه شروع شنود (از Calibrate استفاده کن؛ ۰ = کالیبراسیون فیزیکی ذخیره‌شده)",
+        ["peakMin"] = "کف بازهٔ Peak (۰ = آستانهٔ کالیبره‌شده)",
+        ["peakMax"] = "سقف بازهٔ Peak",
+        ["soundPriority"] = "اولویت در بازه‌های هم‌پوشان (عدد بزرگ‌تر برنده است)",
         ["minDurationMs"] = "حداقل مدت (ms) — رویداد معمولاً ۱٫۵–۲٫۲ ثانیه است؛ ۶۰–۱۰۰ امن است",
-        ["timeoutMs"] = "Timeout (ms)",
+        ["cooldownMs"] = "فاصلهٔ ایمنی پس از تشخیص صدا (ms)",
+        ["calibrationId"] = "شناسهٔ کالیبراسیون همین Step صوتی (فقط ۱ یا ۲؛ در هر پروژه یکتا)",
+        ["timeoutMs"] = "Timeout قدیمی (ms)",
+        ["responseRoute"] = "رفتار تشخیص (inline یا Splash scoped)",
+        ["timeoutMinSec"] = "حداقل Timeout هر پرتاب (ثانیه)",
+        ["timeoutMaxSec"] = "حداکثر Timeout هر پرتاب (ثانیه)",
         ["armed"] = "واکنش مسلح: برد خودش هنگام تشخیص کلیک می‌کند (TRGSND)",
         ["act"] = "دکمه‌ی کلیک مسلح",
         ["reactMin"] = "واکنش — حداقل (ms)",
         ["reactMax"] = "واکنش — حداکثر (ms)",
+        ["armCuePreset"] = "بازخورد بازر بعد از Catch موفق (خاموش یا الگوی انتخابی)",
+        ["armCueVolume"] = "بلندی صدای بازخورد Catch (۱ تا ۱۰۰٪)",
+        ["armCueEnvelope"] = "لبهٔ صدای بازخورد Catch",
+        ["armCueTempo"] = "سرعت اجرای نوت بازخورد Catch (۲۵ تا ۴۰۰٪؛ ۱۰۰ = عادی)",
+        ["armCuePattern"] = "نوت سفارشی Catch — فرکانس:مدت،مکث؛ ...",
+        ["tempo"] = "سرعت اجرای نوت‌ها (۲۵ تا ۴۰۰٪؛ ۱۰۰ = عادی)",
 
         // ── light (waitForLight — BH1750 / GY-302 / GY-30 on the Pico) — v0.9.39 ──
         ["luxCenter"] = "مرکز روشنایی (لوکس) — همان صفحه‌ی واقعی را نشان بده و Calibrate را بزن",
@@ -116,8 +139,24 @@ public static class StepTextsFa
     /// <summary>Step-specific overrides for keys that mean different things per step.</summary>
     private static readonly Dictionary<string, string> FaByStep = new(StringComparer.Ordinal)
     {
+        ["randomMousePosition:speedMode"] = "سرعت حرکت — حالت قبلی، پروفایل، آرام، معمولی، سریع، ترکیبی یا سفارشی",
+        ["randomMousePosition:handProfileSource"] = "منبع پروفایل — قبلی، اصلی یا نمونهٔ همین استپ",
+        ["randomMousePosition:speedCapPxPerSec"] = "سقف سرعت (px/s) — صفر = سقف پروفایل دست",
+        ["randomMousePosition:speedSlowWeight"] = "وزن حرکت آرام — سهم تعداد حرکت‌ها، ۰ تا ۱۰۰",
+        ["randomMousePosition:speedNormalWeight"] = "وزن حرکت معمولی — ۰ تا ۱۰۰",
+        ["randomMousePosition:speedFastWeight"] = "وزن حرکت سریع — ۰ تا ۱۰۰",
+        ["randomMousePosition:speedCustomMin"] = "سرعت سفارشی حداقل (px/s)",
+        ["randomMousePosition:speedCustomMax"] = "سرعت سفارشی حداکثر (px/s)",
+
         // "text" — typeText vs comment
-        ["typeText:text"] = "متن",
+        ["typeText:text"] = "متن Global؛ پیش از تأیید شیفت نیز همین متن اجرا می‌شود",
+        ["typeText:textScope"] = "منبع متن (global = مشترک · shift = روز/شب)",
+        ["typeText:textDay"] = "متن شیفت روز — در حالت shift الزامی",
+        ["typeText:textNight"] = "متن شیفت شب — در حالت shift الزامی",
+        ["shiftCheck:key"] = "کلید میان‌بر اجرای بریج موقت؛ Modifierها بالاتر انتخاب می‌شوند",
+        ["shiftCheck:holdMin"] = "حداقل نگه‌داشتن کلید میان‌بر (ms)",
+        ["shiftCheck:holdMax"] = "حداکثر نگه‌داشتن کلید میان‌بر (ms)",
+        ["shiftCheck:timeoutSeconds"] = "مهلت تأیید و بسته‌شدن اتصال بریج (۱ تا ۱۲۰ ثانیه)",
         ["comment:text"] = "یادداشت",
 
         // v0.9.46 — per-step keyboard executor (default falls back to Options)
@@ -132,8 +171,10 @@ public static class StepTextsFa
         ["randomPackage:mode"] = "حالت — shuffleAll: هر فرزند یک بار با ترتیب تصادفی تازه · randomSubset: تعداد تصادفی از فرزندان",
 
         // x/y/w/h — mouseMove vs randomMousePosition vs findImage
-        ["mouseMove:x"] = "مختصات X",
-        ["mouseMove:y"] = "مختصات Y",
+        ["mouseMove:x"] = "مبدأ X مستطیل مقصد",
+        ["mouseMove:y"] = "مبدأ Y مستطیل مقصد",
+        ["mouseMove:w"] = "عرض مستطیل مقصد",
+        ["mouseMove:h"] = "ارتفاع مستطیل مقصد",
         ["randomMousePosition:x"] = "ناحیه X",
         ["randomMousePosition:y"] = "ناحیه Y",
         ["randomMousePosition:w"] = "عرض ناحیه",
@@ -145,7 +186,9 @@ public static class StepTextsFa
 
         // "path" — openFile / playAudio / runExe / playScript
         ["openFile:path"] = "مسیر فایل",
-        ["buzzer:preset"] = "نوع صدای بوق (short / double / warning / success / custom)",
+        ["buzzer:preset"] = "نوع صدا (کوتاه، دوتایی، اعلان، هشدار، موفقیت، خطا، صعودی، نزولی یا سفارشی)",
+        ["buzzer:volume"] = "شدت صدا (۱ تا ۱۰۰ درصد)",
+        ["buzzer:envelope"] = "لبه صدا (sharp = فوری · smooth = نرم · fade-in / fade-out)",
         ["buzzer:pattern"] = "الگوی سفارشی — فرکانس:مدت,مکث;... نمونه: 900:150,80;1200:250",
         ["playAudio:path"] = "فایل صوتی (wav / mp3)",
         ["playAudio:loop"] = "تکرار تا توقف دستی",

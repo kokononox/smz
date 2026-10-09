@@ -1,0 +1,97 @@
+name: Apply combined Guard and hand-mouse development
+
+on:
+  push:
+    branches: [fix/portable-relative-mouse]
+    paths:
+      - 'tools/combined-development.patch.gz.b64'
+      - '.github/workflows/apply-combined-development.yml'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply-test-commit:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decode and apply source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          raw = ''.join(Path('tools/combined-development.patch.gz.b64').read_text().split())
+          Path('combined-development.patch').write_bytes(gzip.decompress(base64.b64decode(raw)))
+          PY
+          git apply --check combined-development.patch
+          git apply combined-development.patch
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('ams-shell/src/Ams.UI/Views/StepDialog.xaml.cs')
+          text = p.read_text(encoding='utf-8')
+          old = 'Foreground = (Brush)Application.Current.Resources["TextSecondaryBrush"],'
+          new = 'Foreground = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["TextSecondaryBrush"],'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one unqualified WPF brush expression')
+          p.write_text(text.replace(old, new), encoding='utf-8')
+
+          p = Path('ams-shell/src/Ams.UI/Models/StepTextsFa.cs')
+          text = p.read_text(encoding='utf-8')
+          replacements = {
+              '["mouseMove:moveMode"]': '["moveMode"]',
+              '["mouseMove:handSample"]': '["handSample"]',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit('expected exactly one Persian lookup key: ' + old)
+              text = text.replace(old, new)
+          p.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run focused portable contracts
+        shell: bash
+        run: |
+          python portable/plan3/sim/test_calibration_overlap_guard.py
+          python portable/plan3/sim/test_modern_random_package_runtime.py
+          python -m py_compile portable/plan3/CIRCUITPY-MODERN/*.py
+      - name: Build and test Classroom Studio
+        shell: pwsh
+        run: |
+          dotnet restore ams-shell/AMS.sln 2>&1 | Tee-Object combined-development.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build ams-shell/AMS.sln -c Release --no-restore 2>&1 | Tee-Object combined-development.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tests/TestRunner.csproj -c Release 2>&1 | Tee-Object combined-development.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project tests/TestRunner.csproj -c Release --no-build 2>&1 | Tee-Object combined-development.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Report failure tail
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs=require('fs');
+            const text=fs.existsSync('combined-development.log')?fs.readFileSync('combined-development.log','utf8'):'failure occurred before the .NET log was created';
+            const markers=text.split('\n').filter(x=>/FAIL:|Unhandled exception|error CS/i.test(x)).slice(-40).join('\n');
+            const tail=text.split('\n').slice(-140).join('\n');
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:9,body:'<!-- combined-development-failure -->\n**Combined development failure**\n```\n=== failure markers ===\n'+markers+'\n=== tail ===\n'+tail+'\n```'});
+      - name: Commit verified source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ams-shell/src/Ams.UI portable/plan3/CIRCUITPY-MODERN portable/plan3/sim/test_calibration_overlap_guard.py tests/TestRunner.cs
+          git commit -m "feat: add overlap-safe calibration and hand-mouse sampling"
+          git push

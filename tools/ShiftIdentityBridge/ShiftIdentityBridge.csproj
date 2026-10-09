@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ClassroomShiftBridge</AssemblyName>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <Compile Include="../../shared/ShiftUserIdentity.cs" Link="ShiftUserIdentity.cs" />
+    <EmbeddedResource Include="../../firmware/abvm/pico/batch30.json" Link="batch30.json" />
+    <EmbeddedResource Include="../../firmware/abvm/pico/pico1.json" Link="pico1.json" />
+  </ItemGroup>
+</Project>

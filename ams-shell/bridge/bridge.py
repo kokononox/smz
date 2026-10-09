@@ -93,6 +93,7 @@ def detect_board_port():
         if any(k in d for k in KEYS): s += 50
         return s
     cands = sorted(list_ports.comports(), key=score, reverse=True)
+    fallback = None
     for p in cands:
         try:
             ser = serial.Serial(p.device, 115200, timeout=0.4, write_timeout=0.4)
@@ -104,15 +105,18 @@ def detect_board_port():
                     buf += ser.read(64)
                     if b"role=brain" in buf or b"pico-light" in buf:
                         return p.device      # Pico brain found — use it even if the arm is attached
-                    if b"PONG" in buf or b"HELLO" in buf or b"OK" in buf:
-                        return p.device      # fallback: any PONG/HELLO/OK
+                    if (b"PONG" in buf or b"HELLO" in buf or b"OK" in buf) and fallback is None:
+                        # Remember a direct/legacy board, but keep scanning: the Pico brain
+                        # may be on the next COM port and never needs ams_key.json.
+                        fallback = p.device
+                        break
                     if not buf or len(buf) < 1:
                         time.sleep(0.02)
             finally:
                 ser.close()
         except Exception:
             continue
-    return cands[0].device if cands and score(cands[0]) >= 50 else None
+    return fallback or (cands[0].device if cands and score(cands[0]) >= 50 else None)
 
 
 class PicoError(Exception):
@@ -151,7 +155,29 @@ class PicoLink:
             self.ser.reset_input_buffer()
         except Exception:
             pass
-        pong = self.command("PING", timeout=2.5)
+        # Build 119: opening the Pico data CDC while Guard is busy can miss the
+        # first PING even though the port is healthy.  Retrying the idempotent
+        # probe avoids the old "unplug/replug the cable" recovery.  Do not
+        # reset the input queue between attempts: EVT traffic and a late PONG
+        # are both valid evidence from the same live board.
+        pong = None
+        last_error = None
+        for attempt in range(4):
+            try:
+                pong = self.command("PING", timeout=2.0)
+                break
+            except PicoError as exc:
+                last_error = exc
+                if "ERR|TIMEOUT|PING" not in str(exc) or attempt == 3:
+                    break
+                time.sleep(0.12)
+        if pong is None:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+            raise last_error or PicoError("ERR|TIMEOUT|PING")
         if "role=brain" not in pong and "pico-light" not in pong:
             try:
                 self.ser.close()
@@ -184,6 +210,12 @@ class PicoLink:
             if line.startswith("EVT|"):
                 self.events.append(line)   # رویداد مسلح، جایگزین پاسخ نمی‌شود
                 continue
+            # Native firmware reports an unsupported command with the complete
+            # request after "unknown=".  Its third pipe field is therefore
+            # "unknown=<head>", not <head>; return it to the caller instead of
+            # mistaking it for a stale error and waiting until disconnect.
+            if line == "ERR|COMMAND|unknown=" + cmd:
+                return line
             parts = line.split("|")
             if len(parts) >= 2 and parts[0] == "OK" and parts[1] and parts[1] != want:
                 continue                 # v0.9.60e - stale OK of an older command
@@ -296,6 +328,28 @@ def open_link(port):
             link.close()
         except Exception:
             pass
+    # A saved manual COM can point at the Pro Micro after Windows renumbers USB
+    # ports. Before requiring the private direct-link key, scan every port and
+    # transparently prefer the Pico brain. This fixes portable Classroom ZIPs
+    # that correctly omit ams_key.json.
+    detected = detect_board_port()
+    if detected and str(detected).upper() != str(port).upper():
+        alternate = PicoLink(port=detected)
+        try:
+            dev = alternate.connect()
+            emit({"event": "stage", "stage": "pico_fallback", "from": port, "port": detected})
+            return alternate, dev
+        except Exception:
+            try:
+                alternate.close()
+            except Exception:
+                pass
+    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ams_key.json")
+    if not os.path.isfile(key_path):
+        raise PicoError(
+            "Pico brain not found on any serial port; portable Classroom "
+            "cannot use direct Pro Micro mode without ams_key.json"
+        )
     from ams_serial import BoardLink   # import تنبل — مسیر پیکو به ams_key.json نیاز ندارد
     link = BoardLink(port=port)
     dev = link.connect()
@@ -343,6 +397,16 @@ def main():
             op = req.get("op")
             try:
                 if op == "connect":
+                    # A prior send fault may have left a live Serial object in
+                    # this sidecar even though the UI already shows Disconnected.
+                    # Always release it before probing/opening another port.
+                    stale = state["link"]
+                    state["link"] = None
+                    if stale is not None:
+                        try:
+                            stale.close()
+                        except Exception:
+                            pass
                     port = req.get("port") or "AUTO"
                     if port.strip().upper() in ("AUTO", ""):
                         port = detect_board_port() or "AUTO"   # v0.9.5 — اسکن خودکار
@@ -372,11 +436,15 @@ def main():
                     cmd = req["cmd"]
                     abort_flag.clear()
                     _drain_stale(link)         # v0.9.60e - eat leftovers of write-only aborts
-                    if cmd.split("|", 1)[0] == "MMOVE":
-                        # v0.9.60e - firmware 60c made MMOVE fire-and-forget (no reply is
-                        # ever sent): a lone MMOVE via a "send" op would wait 5 s and die.
+                    cmd_head = cmd.split("|", 1)[0]
+                    if cmd_head in ("MMOVE", "CURSOR"):
+                        # v0.9.60e / cursor-origin-sync - these are write-only transport
+                        # hints. MMOVE has no board reply, and the modern Pico accepts
+                        # CURSOR as a coalesced host-origin sample with no reply. Return a
+                        # local acknowledgement so the WPF side does not wait for a reply
+                        # that the firmware intentionally does not emit.
                         link._send(cmd)
-                        reply = "OK|MMOVE"      # local ack, same contract as send_path
+                        reply = f"OK|{cmd_head}"  # local ack, same contract as send_path
                     else:
                         reply = link.command(cmd, timeout=_ktext_timeout(cmd, req.get("timeout", 5.0)))
                     if abort_flag.is_set():
@@ -402,6 +470,16 @@ def main():
                     if send is None:
                         raise BoardError("bridge: _send unavailable")
                     _drain_stale(link)         # v0.9.60e - clean pipe before streaming
+                    # UART can be healthy while the Pro Micro USB HID side is
+                    # disconnected or suspended. Never turn that into a false
+                    # OK|PATH: Windows cannot receive mouse reports then.
+                    presence = link.command("PING", timeout=2.0)
+                    if ("role=brain" in presence and "arm-usb=" in presence
+                            and "arm-usb=3" not in presence):
+                        arm_usb_state = presence.split("arm-usb=", 1)[1].split("|", 1)[0]
+                        raise BoardError(
+                            "Pro Micro USB HID is not active (arm-usb="
+                            + arm_usb_state + "; expected 3/UP)")
                     # v0.9.60f - hardware-cadence thinning (the choppy-mouse fix). The arm
                     # executes ~50 moves/sec (~20 ms each, measured 2026-09-08), but dense
                     # WindMouse trails arrive at ~4 ms/point: oversubscribed 4-5x, the
@@ -470,6 +548,15 @@ def main():
                     emit({"event": "aborted", "reply": "ERR|aborted", "cmd": req.get("cmd")})
                 else:
                     emit({"event": "error", "op": op, "message": str(e)})
+                    if op in ("connect", "send", "send_path"):
+                        failed = state["link"]
+                        state["link"] = None
+                        if failed is not None:
+                            try:
+                                failed.close()
+                            except Exception:
+                                pass
+                        emit({"event": "disconnected"})
 
     threading.Thread(target=worker, daemon=True).start()
 

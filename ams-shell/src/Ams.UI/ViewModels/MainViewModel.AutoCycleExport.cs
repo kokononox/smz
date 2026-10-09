@@ -20,6 +20,8 @@ public partial class MainViewModel
         try
         {
             var workspace = CapturePipelineWorkspaceForExport();
+            if(workspace.GameBuffs.Any(b=>!b.IsDisabled))
+                throw new InvalidOperationException("باف مستقل به خروجی Native UF2 نیاز دارد؛ این خروجی پشتیبانی نمی‌کند.");
             var written = PipelinePlanBundle.Export(dlg.FileName, workspace, _settings,
                 (int)SystemParameters.PrimaryScreenWidth, (int)SystemParameters.PrimaryScreenHeight,
                 _currentFile ?? "untitled", Environment.MachineName);

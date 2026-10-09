@@ -66,6 +66,7 @@ class Ctx:
         self.light_calls = []
         self.light_result = True
         self.logs = []
+        self.path_starts = []
         self._pos = None
         self.t = 0.0
 
@@ -104,6 +105,8 @@ class Ctx:
 
     def log(self, msg):
         self.logs.append(msg)
+        if msg.startswith("rmouse -> "):
+            self.path_starts.append(len(self.moves))
 
 
 def run(text, ctx=None):
@@ -142,17 +145,30 @@ gaps = [abs(ctx.moves[i][0] - ctx.moves[i - 1][0]) + abs(ctx.moves[i][1] - ctx.m
         for i in range(1, len(ctx.moves))]
 check(max(gaps) <= 6, "gliding contract: max micro-step %d px (<= 6)" % max(gaps))
 
-# ── 3) mouseMove -> RMOUSE region 1x1, idle explicitly OFF ────────────────────
-text, gen = build([step("mouseMove", {"x": 700, "y": 400, "human": True})])
+# ── 3) mouseMove -> random point in the selected region ────────────────────────
+text, gen = build([step("mouseMove", {"x": 700, "y": 400, "w": 180, "h": 120, "human": True})])
 line = [l for l in text.split("\n") if l.startswith("RMOUSE|")][0]
-check(line == "RMOUSE|region=700,400,1,1|before=60,220|after=80,280|curve=20,40|"
+check(line == "RMOUSE|region=700,400,180,120|before=60,220|after=80,280|curve=20,40|"
               "mid=6:80,250|over=12|idle=1,1:0,0",
-      "mouseMove compiles to the deterministic 1x1 region with idle explicitly off (got: " + line + ")")
+      "mouseMove compiles to the selected region with idle explicitly off (got: " + line + ")")
 ctx = run(text)
-check(ctx.moves[-1] == (700, 400), "mouseMove lands exactly on (700,400) on the real engine")
+check(ctx.moves[-1][0] in range(700, 880) and ctx.moves[-1][1] in range(400, 520),
+      "mouseMove lands at a fresh point inside the selected region on the real engine")
+
+repeat = step("forLoop", {"mode": "count", "count": 4}, children=[
+    step("mouseMove", {"x": 700, "y": 400, "w": 180, "h": 120, "human": True})
+])
+text, gen = build([repeat])
+ctx = run(text)
+continuous = len(ctx.path_starts) == 4 and all(
+    abs(ctx.moves[ctx.path_starts[i]][0] - ctx.moves[ctx.path_starts[i] - 1][0]) <= 3
+    and abs(ctx.moves[ctx.path_starts[i]][1] - ctx.moves[ctx.path_starts[i] - 1][1]) <= 3
+    for i in range(1, len(ctx.path_starts)))
+check(continuous,
+      "portable loop starts each Move to Location from the previous path's actual final point")
 
 text, gen = build([step("mouseMove", {"x": 5, "y": 6, "human": False})])
-check(any("instant (non-human) move" in f for f in gen.flags), "human=false is flagged, not silent")
+check(any("human=false cannot be preserved" in f for f in gen.flags), "human=false is flagged, not silent")
 
 # idle breaks OFF when the raw idlePauseMax is 0 (read BEFORE the min/max swap - the
 # off-intent must survive even when only the max is zeroed)

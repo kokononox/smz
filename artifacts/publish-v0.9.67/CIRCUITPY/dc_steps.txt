@@ -1,0 +1,5 @@
+PLAN|2
+# DC popup dismissal — random delay 88..188 ms
+DELAY|88,188
+KDOWN|27
+KUP|27

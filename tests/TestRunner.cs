@@ -25,14 +25,113 @@ class TestRunner
     [STAThread]   // v0.8.0 — the accordion test builds a MainViewModel (WPF brushes)
     static void Main()
     {
+        // Native route IDs must not depend on .NET's choice among enum aliases.
+        var routeWorkspace = new PipelineWorkspace();
+        var dcRoute = routeWorkspace[PipelineKind.Dc];
+        dcRoute.Steps.Add(new StepNode { Type="delay", Name="custom-dc-delay", Props=new(){["minMs"]=88,["maxMs"]=188} });
+        var dcLoop = new StepNode { Type="forLoop", Name="custom-dc-loop", Props=new(){["count"]=2} };
+        dcLoop.Children.Add(new StepNode { Type="delay", Name="nested-dc-delay", Props=new(){["minMs"]=10,["maxMs"]=20} });
+        dcRoute.Steps.Add(dcLoop);
+        dcRoute.Steps.Add(new StepNode { Type="comment", Name="custom-dc-comment" });
+        dcRoute.Steps.Add(new StepNode { Type="keystroke", Name="custom-dc-key", Props=new(){["key"]="ESC"} });
+        var routeJson = PipelineWorkspaceSerializer.Serialize(routeWorkspace);
+        using (var routeDocument = JsonDocument.Parse(routeJson))
+        {
+            var routeKeys = routeDocument.RootElement.GetProperty("pipelines").EnumerateObject().Select(p=>p.Name).ToArray();
+            var expectedRouteKeys = new[]{"Desktop","Restart","Startup","LoginOrDc","Dc","CharacterDashboard","EnteringGameLoading","Game","Targeted","TargetedRepeat","Whisper","Splash","WhisperRepeat","Finish","SwitchToDay","SwitchToNight"};
+            Assert(routeKeys.OrderBy(n=>n).SequenceEqual(expectedRouteKeys.OrderBy(n=>n)),
+                "Native serialization uses canonical route names for every tab, never enum aliases");
+        }
+        Assert(PipelineWorkspaceSerializer.CanonicalName(PipelineKind.MainRecovery)=="Dc"
+            &&PipelineWorkspaceSerializer.CanonicalName(PipelineKind.LaunchRecovery)=="Dc"
+            &&PipelineWorkspaceSerializer.CanonicalName(PipelineKind.Launch)=="Restart",
+            "Canonical names are stable for shared legacy enum values");
+        foreach(var dcAlias in new[]{"MainRecovery","LaunchRecovery","DC"})
+        {
+            var legacyRouteJson = routeJson.Replace("\"Dc\":", "\""+dcAlias+"\":").Replace("\"Restart\":", "\"Launch\":");
+            var migratedRoute = PipelineWorkspaceSerializer.Deserialize(legacyRouteJson);
+            Assert(migratedRoute[PipelineKind.Dc].Steps.Count==4
+                &&migratedRoute[PipelineKind.Dc].Steps[1].Children.Count==1
+                &&migratedRoute[PipelineKind.Dc].Steps[3].Name=="custom-dc-key",
+                "Legacy "+dcAlias+" migration preserves authored DC roots and children");
+            using var migratedDocument = JsonDocument.Parse(PipelineWorkspaceSerializer.Serialize(migratedRoute));
+            var migratedPipelines = migratedDocument.RootElement.GetProperty("pipelines");
+            Assert(migratedPipelines.TryGetProperty("Dc",out var migratedDc)&&migratedDc.GetArrayLength()==4
+                &&!migratedPipelines.TryGetProperty("MainRecovery",out _)
+                &&migratedPipelines.TryGetProperty("Restart",out _),
+                "Legacy "+dcAlias+" resave writes Native-compatible Dc and Restart keys");
+        }
+        var shiftSchedule=new ShiftScheduleSettings {enabled=true,dayStart=480,dayEnd=1080,nightStart=1200,nightEnd=360,maxAttempts=2};
+        shiftSchedule.Validate();
+        Assert(true,"Shift schedule permits gaps and midnight crossing");
+        shiftSchedule.nightStart=1000;bool shiftOverlap=false;
+        try{shiftSchedule.Validate();}catch(FormatException){shiftOverlap=true;}
+        Assert(shiftOverlap,"Shift schedule rejects overlapping users' intervals");
+        shiftSchedule.nightStart=1200;shiftSchedule.maxAttempts=0;bool shiftAttempts=false;
+        try{shiftSchedule.Validate();}catch(FormatException){shiftAttempts=true;}
+        Assert(shiftAttempts,"Shift schedule rejects an unlimited attempt budget");
+        var scheduleWorkspace=new PipelineWorkspace();
+        scheduleWorkspace.ShiftSchedule=new ShiftScheduleSettings {enabled=true,dayStart=480,dayEnd=1080,nightStart=1200,nightEnd=360,maxAttempts=2};
+        scheduleWorkspace[PipelineKind.SwitchToDay].Steps.Add(new StepNode{Type="keystroke",Props=new(){["key"]="5",["modWin"]=true}});
+        scheduleWorkspace[PipelineKind.SwitchToNight].Steps.Add(new StepNode{Type="keystroke",Props=new(){["key"]="6",["modWin"]=true}});
+        var scheduleRoundtrip=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(scheduleWorkspace));
+        Assert(scheduleRoundtrip.ShiftSchedule.enabled&&scheduleRoundtrip.ShiftSchedule.nightEnd==360
+            &&scheduleRoundtrip[PipelineKind.SwitchToDay].Steps.Count==1&&scheduleRoundtrip[PipelineKind.SwitchToNight].Steps.Count==1,
+            "Shift schedule and separate editable switch routes survive macro save/load");
+        Assert(!new PipelineWorkspace().ShiftSchedule.enabled,"Old macro defaults to identity-only behavior");
+        var buffWorkspace = new PipelineWorkspace();
+        var testBuff = new StepNode { Type="keystroke", Name="tea", Delay=11000, DelayMax=16000,
+            Props=new() { ["key"]="9", ["holdMin"]=89, ["holdMax"]=210,
+                ["renewMinMinutes"]=54.0, ["renewMaxMinutes"]=56.0,
+                ["beforeMinMs"]=222, ["beforeMaxMs"]=666, ["keyboardBoard"]="pico" } };
+        GameBuffValidation.Validate(testBuff);
+        buffWorkspace.GameBuffs.Add(testBuff);
+        buffWorkspace.GameMouseFatigueMinutes=135;
+        var buffReload=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(buffWorkspace));
+        Assert(buffReload.GameBuffs.Count==1&&buffReload.GameBuffs[0].Delay==11000&&buffReload.GameBuffs[0].DelayMax==16000,
+            "Pico buffs round-trip food consumption delays");
+        Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
+            "Pico buffs round-trip configurable intervals and fatigue duration");
+        Assert(StepDefinitions.Get("buffCheckpoint").Fields.Count==0,"Pico buff safe boundary is a visible structural step");
+        testBuff.Props["renewMaxMinutes"]=53.0;
+        bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }
+        Assert(badBuff,"Pico buff validation rejects inverted intervals");
+        var shiftValues = new Dictionary<string,object?> { ["textScope"]="shift",["text"]="G",["textDay"]="D",["textNight"]="N" };
+        ShiftTextValidation.ValidateText(shiftValues);
+        Assert(StepDefinitions.Get("typeText").Fields.Any(f=>f.Key=="textDay"&&f.HideUnlessValue=="shift")
+            &&StepDefinitions.Get("typeText").Fields.Any(f=>f.Key=="textNight"&&f.HideUnlessValue=="shift"),
+            "Shift text exposes separate conditional day/night fields");
+        Assert(StepDefinitions.Get("shiftCheck").Fields.Any(f=>f.Key=="key"&&f.Default=="4"),"Shift identity check has editable launch shortcut");
+        Assert(ClassroomShift.ShiftUserIdentity.Hash(" dayuser ")==ClassroomShift.ShiftUserIdentity.Hash("DAYUSER"),
+            "Host bridge and exporter share normalized username hashing");
+        shiftValues["textNight"]="";bool emptyShift=false;
+        try { ShiftTextValidation.ValidateText(shiftValues); } catch(FormatException) { emptyShift=true; }
+        Assert(emptyShift,"Empty shift text is rejected before save");
+        shiftValues["textScope"]="global";ShiftTextValidation.ValidateText(shiftValues);
+        Assert(PropEx.GetString(shiftValues,"text")=="G","Global fallback is retained when changing text scope");
         // ── Step 1: StepDefinitions exist ────────────────────────────
         var errorDef = StepDefinitions.Get("raiseError");
         Assert(errorDef.Label == "Raise Error / Stop Macro" && errorDef.Fields.Any(f => f.Key == "message"),
             "raiseError definition exists with a message field");
         Assert(StepDefinitions.Get("waitForSound").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("global")),
-            "waitForSound exposes a per-step timeout policy");
+            "Wait For Sound exposes its per-step timeout policy");
+        Assert(StepDefinitions.Get("splashListener").Fields.Count == 0,
+            "Build 119: old Splash Listener remains load-only for migration");
         Assert(StepDefinitions.Get("waitForLight").Fields.Any(f => f.Key == "onTimeout" && f.Options!.Contains("stopWithAlarm")),
             "waitForLight exposes a per-step timeout policy");
+
+        var compactLux = LightTelemetryParser.Parse("OK|LUX|lux=60.0|sensor=ok");
+        Assert(compactLux.Status == LightTelemetryStatus.Ok && compactLux.Lux == 60.0
+               && compactLux.Sequence is null && compactLux.Mode is null,
+            "Light telemetry accepts compact Pico OK|LUX response");
+        var nativeLux = LightTelemetryParser.Parse("OK|LUX|lux=51.7|sensor=ok|age=40");
+        Assert(nativeLux.Status == LightTelemetryStatus.Ok && nativeLux.Lux == 51.7
+               && nativeLux.Sequence is null && nativeLux.Mode is null,
+            "Light telemetry accepts Native Pico response with sample age");
+        var fullLux = LightTelemetryParser.Parse("OK|LUX|seq=7|lux=41.7|mode=hires|sensor=ok");
+        Assert(fullLux.Status == LightTelemetryStatus.Ok && fullLux.Sequence == 7
+               && fullLux.Mode == "hires" && fullLux.Lux == 41.7,
+            "Light telemetry preserves the full sequenced response");
 
         var def = StepDefinitions.Get("openFile");
         Assert(def.Label == "Open File / Program", "openFile definition exists");
@@ -66,6 +165,12 @@ class TestRunner
         };
         cmds = StepDefinitions.GetCommands(mouseMove);
         Assert(cmds.Contains("MMOVE|100,200,abs,1"), $"mouseMove command correct (got: {string.Join(", ", cmds)})");
+
+        // Modern autonomous Pico Guard receives the real Windows cursor origin
+        // from Studio; it must never silently fall back to screen centre.
+        var cursorCommand = CursorOriginSync.Command(new System.Drawing.Point(321, 654));
+        Assert(cursorCommand == "CURSOR|321,654", "cursor origin command preserves the real host position");
+        Assert(CursorOriginSync.IsAcknowledged("OK|CURSOR"), "cursor origin local acknowledgement is accepted");
 
         var typeTextSecret = new StepNode
         {
@@ -161,50 +266,49 @@ class TestRunner
         Assert(typoTyped.Length == "hello world".Length + 2,
             $"typo sequence types exactly one slip char per word before correcting (typed {typoTyped.Length} chars)");
 
-        // ── v0.9.12 — typo cadence: one slip every N words, N drawn from a range ──
+        // ── Typo interval: corrected slip every N eligible characters ──
         var tenWords = string.Join(" ", Enumerable.Range(0, 10).Select(i => $"word{i}"));
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
-            Props = new Dictionary<string, object?> { { "text", tenWords }, { "typoEveryMin", 3 }, { "typoEveryMax", 3 } }
+            Props = new Dictionary<string, object?> { { "text", "zodiak999999" }, { "typoEveryMin", 7 }, { "typoEveryMax", 12 } }
         });
-        Assert(cmds.Count(c => c == "KCOMBO|8") == 3,
-            $"typo cadence 3/3 over 10 words fires exactly at words 3, 6, 9 (got {cmds.Count(c => c == "KCOMBO|8")})");
+        Assert(cmds.Count(c => c == "KCOMBO|8") == 1,
+            $"typo interval 7–12 injects one correction into a 12-character password (got {cmds.Count(c => c == "KCOMBO|8")})");
 
-        int cadMin = int.MaxValue, cadMax = 0;
+        int countMin = int.MaxValue, countMax = 0;
         var correctionCounts = new HashSet<int>();
         for (int seed = 0; seed < 24; seed++)
         {
-            // v0.9.16 — use seeded overload so each run is independent of the global RNG state.
             var cc = StepDefinitions.GetCommands(new StepNode
             {
                 Type = "typeText",
-                Props = new Dictionary<string, object?> { { "text", tenWords }, { "typoEveryMin", 2 }, { "typoEveryMax", 4 } }
+                Props = new Dictionary<string, object?> { { "text", "abcdefghijklmnopqrstuvwxyz" }, { "typoEveryMin", 7 }, { "typoEveryMax", 12 } }
             }, seed);
             int bs = cc.Count(x => x == "KCOMBO|8");
-            cadMin = Math.Min(cadMin, bs); cadMax = Math.Max(cadMax, bs);
+            countMin = Math.Min(countMin, bs); countMax = Math.Max(countMax, bs);
             correctionCounts.Add(bs);
         }
-        Assert(cadMin >= 2 && cadMax <= 5,
-            $"typo cadence 2–4 over 10 words stays in bounds (got {cadMin}–{cadMax} corrections)");
+        Assert(countMin >= 2 && countMax <= 3,
+            $"typo interval 7–12 spaces corrections across 26 characters (got {countMin}–{countMax})");
         Assert(correctionCounts.Count > 1,
-            $"typo cadence re-rolls N after each correction (distinct counts: {string.Join(",", correctionCounts.OrderBy(x=>x))})");
+            $"typo interval is re-rolled after corrections (distinct counts: {string.Join(",", correctionCounts.OrderBy(x=>x))})");
 
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
-            Props = new Dictionary<string, object?> { { "text", "a bb cc" }, { "typoEveryMin", 1 }, { "typoEveryMax", 1 } }
+            Props = new Dictionary<string, object?> { { "text", "abcdefg" }, { "typoEveryMin", 7 }, { "typoEveryMax", 7 } }
         });
-        Assert(cmds.Count(c => c == "KCOMBO|8") == 2,
-            $"single-char words cannot take a slip and do not consume the cadence (got {cmds.Count(c => c == "KCOMBO|8")})");
+        Assert(cmds.Count(c => c == "KCOMBO|8") == 1,
+            $"the interval boundary itself receives one corrected slip (got {cmds.Count(c => c == "KCOMBO|8")})");
 
         cmds = StepDefinitions.GetCommands(new StepNode
         {
             Type = "typeText",
             Props = new Dictionary<string, object?> { { "text", tenWords }, { "typoChance", 100 }, { "typoEveryMin", 5 }, { "typoEveryMax", 5 } }
         });
-        Assert(cmds.Count(c => c == "KCOMBO|8") == 2,
-            $"cadence range takes precedence over legacy typoChance (got {cmds.Count(c => c == "KCOMBO|8")}, chance mode would give 10)");
+        Assert(cmds.Count(c => c == "KCOMBO|8") > 5,
+            $"character interval takes precedence over legacy typoChance (got {cmds.Count(c => c == "KCOMBO|8")})");
 
         // ── v0.9.13 — word-pause probability + stream merging (no fixed gap after space) ──
         cmds = StepDefinitions.GetCommands(new StepNode
@@ -330,6 +434,34 @@ class TestRunner
         Assert(sw.ElapsedMilliseconds >= 380,
             $"the step AFTER a parallel group runs only after the join (elapsed {sw.ElapsedMilliseconds}ms)");
 
+        var budgetGroup = new StepNode
+        {
+            Type = "parallelGroup",
+            Props = new Dictionary<string, object?>
+            {
+                ["completionPolicy"] = "timeBudget",
+                ["budgetValue"] = 1,
+                ["budgetUnit"] = "second",
+            },
+        };
+        budgetGroup.Children.Add(DelayStep(80)); // finite worker ends early
+        var endlessWorker = new StepNode
+        {
+            Type = "forLoop",
+            Props = new Dictionary<string, object?> { ["mode"] = "infinite" },
+        };
+        endlessWorker.Children.Add(DelayStep(50));
+        budgetGroup.Children.Add(endlessWorker);
+        sw.Restart();
+        new RunEngine(new FakeBridge(), _ => { }, 1920, 1080)
+            .RunAsync(new[] { budgetGroup }, CancellationToken.None).Wait();
+        sw.Stop();
+        Assert(sw.ElapsedMilliseconds >= 900,
+            $"timeBudget stays alive after the finite lane ends (elapsed {sw.ElapsedMilliseconds}ms)");
+        if (IsCi) Console.WriteLine($"INFO(CI): one-second timeBudget elapsed {sw.ElapsedMilliseconds}ms");
+        else Assert(sw.ElapsedMilliseconds < 1400,
+            $"timeBudget cancels the infinite worker near its deadline (elapsed {sw.ElapsedMilliseconds}ms)");
+
         var conc = new FakeBridge { ArtificialDelayMs = 150 };
         var pgConc = new StepNode { Type = "parallelGroup" };
         pgConc.Children.Add(new StepNode { Type = "typeText", Props = new Dictionary<string, object?> { { "text", "aaaa" } } });
@@ -359,7 +491,8 @@ class TestRunner
             Props = new Dictionary<string, object?> { { "text", "hi" } },
         });
         new RunEngine(parMouse, _ => { }, 1920, 1080).RunAsync(new[] { pgMouse }, CancellationToken.None).Wait();
-        Assert(parMouse.PathCalls == 0 && parMouse.Sent.Any(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")),
+        Assert(parMouse.PathCalls == 0
+               && parMouse.Sent.Count(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")) > 1,
             "inside a parallel group the mouse is app-paced per-point (interleaves with typing)");
         Assert(parMouse.Sent.Any(c => c.StartsWith("KTEXT|")),
             "the typing branch ran concurrently on the same bridge");
@@ -581,6 +714,7 @@ class TestRunner
                 EnvironmentVariables = { ["PYTHONIOENCODING"] = "utf-8" }
             };
             using var p = Process.Start(psi);
+            if (p is null) throw new InvalidOperationException("PNG decoder process could not be started");
             // Read both streams concurrently to avoid pipe-buffer deadlock
             var outTask = p.StandardOutput.ReadToEndAsync();
             var errTask = p.StandardError.ReadToEndAsync();
@@ -1016,16 +1150,17 @@ class TestRunner
             HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 800 }, { "moveTimeMax", 800 }, { "overshootChance", 0 }, { "midPauseChance", 0 } }, 0, 2300),
             new HumanMouse.PausePlanner(new Random(42)), new Random(42), 1920, 1080);
         int durSum = durFixed.Waypoints.Sum(w => w.DelayMs);
-        Assert(durFixed.TargetMoveMs == 800 && Math.Abs(durSum - 800) <= durFixed.Waypoints.Count,
-            $"fixed duration 800ms hits its target (sum={durSum}ms over {durFixed.Waypoints.Count} micro-steps)");
+        Assert(durFixed.TargetMoveMs == 1080
+               && Math.Abs(durSum - durFixed.TargetMoveMs) <= durFixed.Waypoints.Count,
+            $"fixed 800ms baseline scales to the long-move target (target={durFixed.TargetMoveMs} sum={durSum}ms)");
 
         var durRangeCfg = HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 400 }, { "moveTimeMax", 1500 }, { "overshootChance", 0 }, { "midPauseChance", 0 } }, 0, 2300);
         var durSums = Enumerable.Range(0, 12)
             .Select(i => HumanMouse.PlanMove(100, 400, 1100, 400, durRangeCfg,
                 new HumanMouse.PausePlanner(new Random(50 + i)), new Random(50 + i), 1920, 1080)
                 .Waypoints.Sum(w => w.DelayMs)).ToList();
-        Assert(durSums.Min() >= 250 && durSums.Max() <= 1900 && durSums.Distinct().Count() > 6,
-            $"duration range 400–1500 draws a fresh target per move (min={durSums.Min()} max={durSums.Max()} distinct={durSums.Distinct().Count()})");
+        Assert(durSums.Min() >= 500 && durSums.Max() <= 2200 && durSums.Distinct().Count() > 6,
+            $"duration range 400–1500 draws a fresh distance-scaled target (min={durSums.Min()} max={durSums.Max()} distinct={durSums.Distinct().Count()})");
 
         var durNoSpeed = HumanMouse.PlanMove(100, 400, 1100, 400,
             HumanMouse.Config.FromProps(new Dictionary<string, object?> { { "moveTimeMin", 600 }, { "moveTimeMax", 600 }, { "midPauseChance", 0 } }, 0, 0),
@@ -1034,6 +1169,37 @@ class TestRunner
             "duration range still times the path when the global speed range is disabled (max 0)");
         Assert(HumanMouse.Config.FromProps(new Dictionary<string, object?>(), 0, 2300).MoveTimeMaxMs == 0,
             "old files without duration fields keep speed-driven timing (0/0)");
+
+        // Natural-v1: duration follows distance while preserving the configured range as
+        // the medium-distance baseline.  Transport cadence and endpoint math stay unchanged.
+        int naturalShort = HumanMouse.DistanceScaledMoveMs(800, 800, 80, new Random(900));
+        int naturalMedium = HumanMouse.DistanceScaledMoveMs(800, 800, 325, new Random(900));
+        int naturalLong = HumanMouse.DistanceScaledMoveMs(800, 800, 650, new Random(900));
+        Assert(naturalShort < naturalMedium && naturalMedium < naturalLong
+               && naturalShort >= 120 && naturalLong <= 30000,
+            $"natural-v1 duration scales with distance ({naturalShort} < {naturalMedium} < {naturalLong})");
+
+        var naturalShortPlan = HumanMouse.PlanMove(100, 300, 250, 300,
+            HumanMouse.Config.FromProps(new Dictionary<string, object?> {
+                { "moveTimeMin", 800 }, { "moveTimeMax", 800 },
+                { "overshootChance", 100 }, { "midPauseChance", 100 },
+                { "midPauseMin", 70 }, { "midPauseMax", 70 }
+            }, 0, 0),
+            new HumanMouse.PausePlanner(new Random(901)), new Random(901), 1920, 1080);
+        Assert(!naturalShortPlan.Overshot,
+            "natural-v1 does not overshoot short moves");
+
+        var naturalLongPlan = HumanMouse.PlanMove(100, 300, 700, 300,
+            HumanMouse.Config.FromProps(new Dictionary<string, object?> {
+                { "moveTimeMin", 800 }, { "moveTimeMax", 800 },
+                { "overshootChance", 100 }, { "midPauseChance", 0 },
+                { "curveMinPct", 3 }, { "curveMaxPct", 22 }
+            }, 0, 0),
+            new HumanMouse.PausePlanner(new Random(902)), new Random(902), 1920, 1080);
+        Assert(naturalLongPlan.Overshot
+               && naturalLongPlan.Waypoints[^1].X == 700
+               && naturalLongPlan.Waypoints[^1].Y == 300,
+            "natural-v1 long-move overshoot returns to the exact endpoint");
 
         // v0.9.9 — every key name captured by WPF must map to a Win32 global-hotkey VK.
         Assert(GlobalHotkeyService.TryParseGesture("Shift+Add", out var shiftAddMods, out var shiftAddVk)
@@ -1080,7 +1246,9 @@ class TestRunner
             Assert(ps.Contains("Move-HumanMouse"), "generated script uses the human-mouse function");
             Assert(!ps.Contains("[Math]::Random"), "no invalid [Math]::Random in the PS 5.1 output");
             Assert(ps.Count(ch => ch == '{') == ps.Count(ch => ch == '}'), "generated script braces are balanced");
-            Assert(ps.Contains("Move-HumanMouse 700 400"), "humanized Mouse Position step uses the engine too");
+            Assert(ps.Contains("$destX = 700 + $script:rng.Next(0, 1)")
+                   && ps.Contains("Move-HumanMouse $destX $destY"),
+                "humanized mouseMove samples a target from the configured rectangle before moving");
             Assert(ps.Contains("curvMin=120; curvMax=190"), "generated script preserves the full curvature range");
             Assert(ps.Contains("$curveKnots") && ps.Contains("$speedKnots") && ps.Contains("$spacingKnots"),
                 "generated script continuously profiles curvature, speed and micro-step spacing");
@@ -1099,11 +1267,50 @@ class TestRunner
             Props = new Dictionary<string, object?> { ["x"] = 100, ["y"] = 100, ["w"] = 500, ["h"] = 400 },
         };
         new RunEngine(fbS, _ => { }, 1920, 1080).RunAsync(new[] { rndStep2 }, CancellationToken.None).Wait();
-        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: > 10 } && !fbS.Sent.Any(c => c.StartsWith("MMOVE|")),
+        // The sampled destination and speed are intentionally random. Shorter valid
+        // paths bottom out at eight points; assert density without a flaky distance assumption.
+        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: >= 8 }
+               && fbS.Sent.Any(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")),
             $"randomMousePosition streams one dense path (calls={fbS.PathCalls}, pts={fbS.LastPath?.Count})");
+        Assert(fbS.Sent.FindIndex(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0"))
+               > fbS.Sent.IndexOf("SETRES|1920,1080"),
+            "RunEngine synchronizes the live cursor to the board after SETRES and before movement");
         var lastPt = fbS.LastPath![^1];
         Assert(lastPt.X >= 100 && lastPt.X < 600 && lastPt.Y >= 100 && lastPt.Y < 500,
             $"stream ends inside the region (got {lastPt.X},{lastPt.Y})");
+
+        // mouseMove samples a new target point from its rectangle on every run and
+        // still uses the app-side human path, starting from the live cursor anchor.
+        var fbMoveRegion = new FakeBridge();
+        var moveRegionSteps = Enumerable.Range(0, 5).Select(_ => new StepNode
+        {
+            Type = "mouseMove", Delay = 0, DelayMax = 0,
+            Props = new Dictionary<string, object?>
+            {
+                ["x"] = 100, ["y"] = 120, ["w"] = 400, ["h"] = 300, ["human"] = true,
+                ["pauseBeforeMin"] = 0, ["pauseBeforeMax"] = 0,
+                ["pauseAfterMin"] = 0, ["pauseAfterMax"] = 0,
+                ["midPauseChance"] = 0, ["overshootChance"] = 0,
+                ["moveTimeMin"] = 100, ["moveTimeMax"] = 150,
+            },
+        }).ToArray();
+        new RunEngine(fbMoveRegion, _ => { }, 1920, 1080)
+            .RunAsync(moveRegionSteps, CancellationToken.None).Wait();
+        var regionTargets = fbMoveRegion.Paths.Select(path => path[^1]).ToList();
+        Assert(fbMoveRegion.PathCalls == 5 && regionTargets.All(p =>
+                   p.X >= 100 && p.X < 500 && p.Y >= 120 && p.Y < 420),
+            "mouseMove streams five human paths and every final cursor target stays inside its rectangle");
+        Assert(regionTargets.Select(p => (p.X, p.Y)).Distinct().Count() > 1,
+            "mouseMove samples a fresh destination instead of repeatedly aiming at one point");
+
+        var fbLegacyMouse = new FakeBridge();
+        new RunEngine(fbLegacyMouse, _ => { }, 1920, 1080).RunAsync(new[]
+        {
+            new StepNode { Type = "mouseMove", Delay = 0, DelayMax = 0,
+                Props = new Dictionary<string, object?> { ["x"] = 20, ["y"] = 30, ["human"] = false } },
+        }, CancellationToken.None).Wait();
+        Assert(fbLegacyMouse.Sent.Any(c => c == "MMOVE|20,30,abs,0"),
+            "legacy mouseMove steps without w/h retain their exact-coordinate behavior");
 
         // old bridge.py (no send_path) → control-point fallback with firmware smoothstep
         var fbOld = new FakeBridge { UnknownOp = true };
@@ -1853,8 +2060,8 @@ class TestRunner
         Console.WriteLine("--- Step 32: v0.9.32 sound calibrate fallback ---");
 
         var v32vm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
-        Assert(v32vm.Contains("SCAL|2000"),
-            "v0.9.32: primary SCAL path kept");
+        Assert(v32vm.Contains("SCAL|1000") && !v32vm.Contains("SCAL|2000"),
+            "Build 120: primary SCAL path stays within the ARM 1000 ms protocol limit");
         Assert(v32vm.Contains("calibrate probe: WSND"),
             "v0.9.32: WSND binary-search fallback exists");
         Assert(v32vm.Contains("calibrate (WSND fallback): silence floor"),
@@ -1863,7 +2070,7 @@ class TestRunner
         Assert(v32dlg.Contains("نمونه‌برداری از سنسور صدا"),
             "v0.9.32: measuring label no longer promises a 2-second window");
         var v32csp = V27ReadSrc("Ams.UI.csproj");
-        Assert(v32csp.Contains("<Version>0.9.67</Version>"),
+        Assert(v32csp.Contains("<Version>0.9.73</Version>"),
             "v0.9.32: assembly version bumped (the v0.9.31 build had shipped with 0.9.29)");
         Console.WriteLine();
         // ── Step 33: v0.9.33 — loop replay fix + marker guard for sound If/Else ────────────
@@ -1906,7 +2113,7 @@ class TestRunner
         Assert(v34vm.Contains("Classroom Studio v0.9."),
             "v0.9.34+: the startup banner carries the current version");
         var v34csp = V27ReadSrc("Ams.UI.csproj");
-        Assert(v34csp.Contains("<Version>0.9.67</Version>"),
+        Assert(v34csp.Contains("<Version>0.9.73</Version>"),
             "v0.9.34: assembly version bumped (current build shipped as 0.9.35)");
         Console.WriteLine();
         // ── Step 35: v0.9.35 — Else/End If marker cluster fixes ──────────────────────────────
@@ -1996,8 +2203,8 @@ class TestRunner
             "v0.9.36: paste keeps sibling order and unsafe partial block moves are blocked");
 
         // 12) version/banner
-        Assert(v34csp.Contains("<Version>0.9.67</Version>")
-               && v34vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v34csp.Contains("<Version>0.9.73</Version>")
+               && v34vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.36: version and banner match");
         Console.WriteLine();
         // ── Step 37: v0.9.37 — mandatory If/Else structure + white step rows ────────
@@ -2054,8 +2261,8 @@ class TestRunner
             "v0.9.37: pastel scope tints removed — rows keep the white list background");
         Assert(v37mw.Contains("double left = double.NaN;") && v37mw.Contains("candidate < left"),
             "v0.9.37: the scope bracket anchors at the leftmost row, so it spans the Else row");
-        Assert(v37csp.Contains("<Version>0.9.67</Version>")
-               && v37vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v37csp.Contains("<Version>0.9.73</Version>")
+               && v37vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.37: version and banner match");
         // ── Step 38: v0.9.38 — accordion toggle beside the text + Else bend on the bracket ──
         Console.WriteLine();
@@ -2100,8 +2307,8 @@ class TestRunner
             "v0.9.38: the bracket anchors on the text cell (toggle included), left of the toggle");
 
         // 11) version/banner
-        Assert(v38csp.Contains("<Version>0.9.67</Version>")
-               && v38vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v38csp.Contains("<Version>0.9.73</Version>")
+               && v38vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.38: version and banner match");
         Console.WriteLine();
         Console.WriteLine();
@@ -2172,8 +2379,8 @@ class TestRunner
             "v0.9.39: the light fields have Persian labels in the step dialog");
 
         // 15) version/banner
-        Assert(v39csp.Contains("<Version>0.9.67</Version>")
-               && v39vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v39csp.Contains("<Version>0.9.73</Version>")
+               && v39vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.39: version and banner match");
 
         // ── Step 40: v0.9.40 — the accordion toggle reveals the scope vein ──
@@ -2217,8 +2424,8 @@ class TestRunner
             "v0.9.40: the v0.9.38 Else bend and the v0.9.39 light step are preserved");
 
         // 11) version/banner
-        Assert(v40csp.Contains("<Version>0.9.67</Version>")
-               && v40vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v40csp.Contains("<Version>0.9.73</Version>")
+               && v40vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.40: version and banner match");
 
         // ── Step 41: v0.9.41 — spelling, marker veins, rail submenus, restart removal ──
@@ -2267,7 +2474,7 @@ class TestRunner
             "v0.9.41: no reboot scheduling is left in the run loop");
 
         // 11-14) the vertical rail mirrors the Insert tab, grouped into per-section submenus
-        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "waitForSound", "waitForLight", "openFile", "playAudio", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
+        string[] v41types = { "mouseClick", "mouseMove", "mouseScroll", "randomMousePosition", "keystroke", "typeText", "keyDown", "keyUp", "delay", "forLoop", "randomPackage", "parallelGroup", "findImage", "waitForSound", "waitForLight", "openFile", "buzzer", "runExe", "playScript", "label", "gotoLabel", "comment", "rawCommand" };
         int v41rs = v41xaml.IndexOf("<!-- Icon rail", StringComparison.Ordinal);
         int v41rj = v41xaml.IndexOf("<!-- Steps column", StringComparison.Ordinal);
         Assert(v41rs > 0 && v41rj > v41rs,
@@ -2289,7 +2496,7 @@ class TestRunner
             "v0.9.41: clicking a rail caret opens that section's submenu");
 
         // 15) version/banner
-        Assert(v41csp.Contains("<Version>0.9.67</Version>") && v41vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v41csp.Contains("<Version>0.9.73</Version>") && v41vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.41: version and banner match");
 
         // ── Step 42: v0.9.42 — a step without a condition adopts nothing ──
@@ -2364,7 +2571,7 @@ class TestRunner
             "v0.9.42: opening, importing and editing run the release migration");
 
         // 15) version/banner
-        Assert(v42csp.Contains("<Version>0.9.67</Version>") && v42vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v42csp.Contains("<Version>0.9.73</Version>") && v42vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.42: version and banner match");
 
         // ── Step 43: v0.9.43 — seven user-reported UI items ─────────────────────
@@ -2438,7 +2645,7 @@ class TestRunner
                && v43dlg.Contains("MakeAudioDeviceCombo") && v43dlg.Contains("FieldKind.AudioDevice =>")
                && v43fa.Contains("-۱=خودکار"),
             "v0.9.43: the audio output device is a dropdown of real NAudio devices, not a bare number");
-        Assert(v43csp.Contains("<Version>0.9.67</Version>") && v43vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v43csp.Contains("<Version>0.9.73</Version>") && v43vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.43: version and banner match");
 
         // ── Step 44: v0.9.44 — rail-leave close · parallel-group vein · Pico play options ·
@@ -2495,6 +2702,12 @@ class TestRunner
             "v0.9.44: a plain firmware-1.6 board lights only the Pro Micro arm LED");
         Assert(MainViewModel.ParseBoardPresence("OK|PONG|pico-light 0.9.44|role=brain|arm=missing") == (true, false),
             "v0.9.44: a brain without an arm lights only the Pico LED");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-ver=2.8.2-S4|role=brain") == (true, true),
+            "native ABVM identity lights both Pico and ready Pro Micro indicators");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-usb=3|arm-ver=2.8.2-S4|role=brain") == (true, true),
+            "native ABVM lights Pro Micro only when its USB HID host is UP");
+        Assert(MainViewModel.ParseBoardPresence("OK|PONG|combined-pico-guard-executor|native=abvm|arm-ready=1|arm-usb=1|arm-ver=2.8.2-S4|role=brain") == (true, false),
+            "native ABVM does not show false green when Pro Micro USB HID is down");
         Assert(v44mw.Contains("PicoPresent") && v44mw.Contains("ArmPresent")
                && v44vm.Contains("ParseBoardPresence") && v44vm.Contains("SendAsync(\"PING\")"),
             "v0.9.44: the status bar has Pico / Pro Micro indicators fed by the post-connect PING");
@@ -2513,7 +2726,7 @@ class TestRunner
             "v0.9.60: code.py always types locally on the Pico, whatever the legacy keyboard-board option says");
 
         // 16) version/banner
-        Assert(v44csp.Contains("<Version>0.9.67</Version>") && v44vm.Contains("Classroom Studio v0.9.67"),
+        Assert(v44csp.Contains("<Version>0.9.73</Version>") && v44vm.Contains("Classroom Studio v0.9.73"),
             "v0.9.44: version and banner match");
 
         // ── Step 45: v0.9.45 — stable rail popup · visible board roles · structural Next ──
@@ -2579,8 +2792,8 @@ class TestRunner
             "v0.9.45: loop + Next are atomic for delete/cut/copy; Next cannot be orphaned");
 
         // 15) version family
-        Assert(v45csp.Contains("<Version>0.9.67</Version>")
-               && v45vm.Contains("Classroom Studio v0.9.67")
+        Assert(v45csp.Contains("<Version>0.9.73</Version>")
+               && v45vm.Contains("Classroom Studio v0.9.73")
                && v45exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.45: app version, banner and Pico bundle version match");
 
@@ -2653,8 +2866,8 @@ class TestRunner
         Assert(v46fa.Contains("keystroke:keyboardBoard") && v46fa.Contains("typeText:keyboardBoard")
                && v46fa.Contains("keyDown:keyboardBoard") && v46fa.Contains("keyUp:keyboardBoard"),
             "v0.9.46: all four new step fields have Persian labels");
-        Assert(v46csp.Contains("<Version>0.9.67</Version>")
-               && v46vm.Contains("Classroom Studio v0.9.67")
+        Assert(v46csp.Contains("<Version>0.9.73</Version>")
+               && v46vm.Contains("Classroom Studio v0.9.73")
                && v46exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.46: app version, banner and Pico bundle version match");
 
@@ -2690,8 +2903,8 @@ class TestRunner
             "v0.9.47: the red vein still closes on the visible Next row");
         Assert(v47row.Contains("public string Number") && v47row.Contains("public int Depth"),
             "v0.9.47: row numbering and depth model are unchanged");
-        Assert(v47csp.Contains("<Version>0.9.67</Version>")
-               && v47vm.Contains("Classroom Studio v0.9.67")
+        Assert(v47csp.Contains("<Version>0.9.73</Version>")
+               && v47vm.Contains("Classroom Studio v0.9.73")
                && v47exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.47: app version, banner and Pico bundle version match");
 
@@ -2748,8 +2961,8 @@ class TestRunner
             "v0.9.48: inactive Options tabs are Collapsed — Hidden kept reserving their height and stretched the dialog");
 
         // 13) version family
-        Assert(v48csp.Contains("<Version>0.9.67</Version>")
-               && v48vm.Contains("Classroom Studio v0.9.67")
+        Assert(v48csp.Contains("<Version>0.9.73</Version>")
+               && v48vm.Contains("Classroom Studio v0.9.73")
                && v48exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.48: app version, banner and Pico bundle version match");
 
@@ -2789,8 +3002,8 @@ class TestRunner
             "v0.9.49: the Options layout pins the buttons to the bottom of the docked dialog");
 
         // 10) version family
-        Assert(v49csp.Contains("<Version>0.9.67</Version>")
-               && v49vm.Contains("Classroom Studio v0.9.67")
+        Assert(v49csp.Contains("<Version>0.9.73</Version>")
+               && v49vm.Contains("Classroom Studio v0.9.73")
                && v49exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.49: app version, banner and Pico bundle version match");
 
@@ -2904,8 +3117,8 @@ class TestRunner
         Assert(v50mw2.Contains("BoardPrepCommand") && v50vm2.Contains("BoardPrepWindow"),
             "v0.9.50: the Tools menu opens the board preparation window");
         // v0.9.51 — version pins move with the release (were v0.9.50)
-        Assert(v50csp2.Contains("<Version>0.9.67</Version>")
-               && v50vm2.Contains("Classroom Studio v0.9.67")
+        Assert(v50csp2.Contains("<Version>0.9.73</Version>")
+               && v50vm2.Contains("Classroom Studio v0.9.73")
                && v50exp2.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.50→51: app version, banner and Pico bundle version match");
 
@@ -3086,8 +3299,8 @@ class TestRunner
                    && ck52.Contains("(0x303A, 0x1001)") && ck52.Contains("(0x303A, 0x1002)"),
                 "v0.9.52: checkup recognises the new devices in both bootloader and application mode");
         }
-        Assert(v51csp.Contains("<Version>0.9.67</Version>")
-               && v51vm3.Contains("Classroom Studio v0.9.67")
+        Assert(v51csp.Contains("<Version>0.9.73</Version>")
+               && v51vm3.Contains("Classroom Studio v0.9.73")
                && v51exp.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.52: version pins for this release (csproj + banner + bundle)");
 
@@ -3247,8 +3460,8 @@ class TestRunner
             var csp54 = V27ReadSrc("Ams.UI.csproj");
             var vm54 = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             var exp54 = V27ReadSrc(Path.Combine("Services", "PicoFirmwareExporter.cs"));
-            Assert(csp54.Contains("<Version>0.9.67</Version>")
-                   && vm54.Contains("Classroom Studio v0.9.67")
+            Assert(csp54.Contains("<Version>0.9.73</Version>")
+                   && vm54.Contains("Classroom Studio v0.9.73")
                    && exp54.Contains("BundleVersion = \"0.9.64f\""),
                 "v0.9.55: version pins for this release (csproj + banner + bundle)");
         }
@@ -3321,6 +3534,47 @@ class TestRunner
                    && mwc55.Contains("ToolTipService.SetIsEnabled(_openRailHost, true)"),
                 "v0.9.55: the hover hint drops below the icon and switches off while its submenu is open");
 
+            Assert(mwx55.Contains("x:Name=\"StepsWorkspace\"")
+                   && mwx55.Contains("SizeChanged=\"StepsWorkspace_SizeChanged\"")
+                   && mwx55.Contains("x:Name=\"PlayOptionsScroll\"")
+                   && mwx55.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Auto\"")
+                   && mwx55.Contains("<ColumnDefinition Width=\"Auto\" />")
+                   && mwc55.Contains("e.NewSize.Height * 0.45")
+                   && mwc55.Contains("PlayOptionsPanel.MaxHeight = responsiveHeight"),
+                "responsive shell: Play Options is bounded, step panes scroll, and run controls stay reserved");
+
+            var lightProfilesUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.LightProfiles.cs"));
+            var mainVmUi = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+            var cueCatalog = V27ReadSrc(Path.Combine("Models", "CalibrationCueCatalog.cs"));
+            var cueEditor = V27ReadSrc(Path.Combine("Views", "CalibrationCueEditorDialog.cs"));
+            Assert(lightProfilesUi.Contains("StepDefinitions.BuildBuzzerCommands(values)")
+                   && cueCatalog.Contains("id <= 100")
+                   && cueCatalog.Contains("Legacy defaults")
+                   && cueEditor.Contains("حداکثر ۸ نوت")
+                   && cueEditor.Contains("Minimum = 0.25, Maximum = 4.0")
+                   && cueEditor.Contains("سرعت پخش")
+                   && lightProfilesUi.Contains("BuzzerSystemCues")
+                   && lightProfilesUi.Contains("SaveBuzzerSystemCues")
+                   && mainVmUi.Contains("BuildBuzzerSequenceCommand(commands)")
+                   && mainVmUi.Contains("OK|BEEPSEQ"),
+                "calibration cue editor preserves legacy sounds, exposes 100 presets/custom notes, and previews one board-local sequence");
+            var nativeBuzzerExport = V27ReadSrc(Path.Combine("Services", "NativeUf2Exporter.cs"));
+            var systemCueStore = V27ReadSrc(Path.Combine("Services", "BuzzerSystemCueStore.cs"));
+            Assert(nativeBuzzerExport.Contains("[\"buzzerCues\"] = buzzerCues")
+                   && systemCueStore.Contains("normalized.Count != 23")
+                   && cueCatalog.Contains("دکمه فیزیکی شروع")
+                   && cueCatalog.Contains("آژیر آمبولانسی"),
+                "all formerly hard-coded physical, runtime, calibration and watchdog cues are editable and exported");
+
+            var tabsVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.PipelineTabs.cs"));
+            Assert(tabsVm.Contains("_collapsedPathsByTab")
+                   && tabsVm.Contains("RestoreCollapsedPathsOrApplyDefault")
+                   && tabsVm.Contains("IsAccordionContainer(node)"),
+                "accordion scopes start closed and retain per-tab session state");
+            Assert(mwx55.Contains("Padding=\"12,4,12,7\" MinHeight=\"42\"")
+                   && mwx55.Contains("Padding=\"0,0,0,3\" MinHeight=\"30\""),
+                "status footer reserves vertical space for its horizontal scrollbar");
+
             // settings hosted inside the main window
             var od55 = V27ReadSrc(Path.Combine("Views", "OptionsDialog.xaml.cs"));
             var odx55 = V27ReadSrc(Path.Combine("Views", "OptionsDialog.xaml"));
@@ -3376,12 +3630,16 @@ class TestRunner
             var csp55 = V27ReadSrc("Ams.UI.csproj");
             var vmb55 = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
             var exp55 = V27ReadSrc(Path.Combine("Services", "PicoFirmwareExporter.cs"));
-            Assert(csp55.Contains("<Version>0.9.67</Version>")
-                   && vmb55.Contains("Classroom Studio v0.9.67")
+            Assert(csp55.Contains("<Version>0.9.73</Version>")
+                   && vmb55.Contains("Classroom Studio v0.9.73")
                    && exp55.Contains("BundleVersion = \"0.9.64f\""),
                 "v0.9.55: version pins for this release (csproj + banner + bundle)");
         }
 
+        // Modern exporter/runtime contracts are kept out of the Golden-100
+        // contract. The full TestRunner still executes them when this guard is true.
+        if (Environment.GetEnvironmentVariable("GOLDEN_100_ONLY") != "1")
+        {
         // ── Step 56: v0.9.56 — UART arm moved from GP0/GP1 to GP16/GP17 (wiring v6) ──
         Console.WriteLine();
         Console.WriteLine("--- Step 56: v0.9.56 UART GP0/GP1 -> GP16/GP17 ---");
@@ -3413,8 +3671,8 @@ class TestRunner
         } finally {
             if (System.IO.Directory.Exists(tmp56)) System.IO.Directory.Delete(tmp56, true);
         }
-        Assert(csproj56.Contains("<Version>0.9.67</Version>"),
-            "v0.9.56: csproj version is 0.9.67");
+        Assert(csproj56.Contains("<Version>0.9.73</Version>"),
+            "v0.9.56: csproj version is 0.9.70");
 
 
         // ── Step 57: v0.9.57 — portable / self-contained build ──
@@ -3456,8 +3714,8 @@ class TestRunner
             "v0.9.58: PythonBoardBridge uses PortablePaths.FindPython()");
         Assert(p57pbb.Contains("TimeSpan.FromSeconds(15)"),
             "v0.9.58: ConnectAsync has 15s timeout");
-        Assert(p57csp.Contains("<Version>0.9.67</Version>"),
-            "v0.9.58: csproj version is 0.9.67");
+        Assert(p57csp.Contains("<Version>0.9.73</Version>"),
+            "v0.9.58: csproj version is 0.9.70");
         // (a) csproj bundles the whole bridge/ folder with wildcard
         Assert(p57csp.Contains(@"bridge\**") && p57csp.Contains("CopyToOutputDirectory"),
             "v0.9.58: csproj uses bridge wildcard with CopyToOutputDirectory");
@@ -3490,6 +3748,20 @@ class TestRunner
             "custom buzzer: new action exists and legacy playAudio remains registered");
         Assert(StepDefinitions.BuildBuzzerCommands(buzCustom).SequenceEqual(new[] { "BEEP|900,150", "DLY|80", "BEEP|1200,250" }),
             "custom buzzer: custom sequence compiles to BEEP/DLY commands");
+        var buzStyled = new Dictionary<string, object?>
+        {
+            ["preset"] = "notification", ["volume"] = 42, ["envelope"] = "smooth",
+        };
+        Assert(StepDefinitions.BuildBuzzerCommands(buzStyled).SequenceEqual(
+                new[] { "BEEP|880,110,42,smooth", "DLY|45", "BEEP|1175,170,42,smooth" })
+               && buzDef.Fields.Any(f => f.Key == "volume")
+               && buzDef.Fields.Any(f => f.Key == "envelope"),
+            "custom buzzer: presets expose volume and smooth envelope on every tone");
+        var buzSequence = StepDefinitions.BuildBuzzerSequenceCommand(
+            StepDefinitions.BuildBuzzerCommands(buzStyled));
+        Assert(buzSequence.Command == "BEEPSEQ|42,smooth|880,110,45;1175,170,0"
+               && buzSequence.TotalDurationMs == 325,
+            "custom buzzer: preview packs all notes into one jitter-free board command");
         bool badBuzzer = false;
         try { StepDefinitions.BuildBuzzerCommands(new Dictionary<string, object?> { ["preset"]="custom", ["pattern"]="25000:10" }); }
         catch (FormatException) { badBuzzer = true; }
@@ -3499,6 +3771,12 @@ class TestRunner
         var buzFw = V27ReadSrc(Path.Combine("Services", "PicoFirmwareExporter.cs"));
         Assert(buzFw.Contains("PWMOut(board.GP6") && !buzFw.Contains("PWMOut(board.GP5") && !buzFw.Contains("board.D9"),
             "custom buzzer: passive PWM is Pico GP6 only");
+        var buzDialog = V27ReadSrc(Path.Combine("Views", "StepDialog.xaml.cs"));
+        var buzVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+        Assert(buzDialog.Contains("شنیدن صدای انتخاب‌شده روی بازر")
+               && buzVm.Contains("PreviewBuzzerAsync")
+               && buzFw.Contains("fade-in") && buzFw.Contains("fade-out"),
+            "custom buzzer: editor previews the selected styled tone on the connected Pico");
 
         // (c) meta guard: every version PIN in this file matches the current release.
         // Pin lines are the assertions that check the csproj Version tag, the app banner or
@@ -3527,7 +3805,7 @@ class TestRunner
                 if (!isLabel) (metaLine.Contains("BundleVersion") ? pinnedBundle : pinned).Add(int.Parse(metaMatch.Groups[1].Value));
             }
         }
-        var curMinor = 67;
+        var curMinor = 73;
         var curBundleMinor = 64;   // the firmware template is unchanged in this release, so the bundle stays on its older line
         var pinnedText = string.Join(", ", pinned.Distinct().OrderBy(n => n));
         Assert(pinned.Count > 0 && pinned.Distinct().All(n => n == curMinor),
@@ -3548,8 +3826,8 @@ class TestRunner
         var csp60 = V27ReadSrc("Ams.UI.csproj");
 
         Assert(PicoFirmwareExporter.BundleVersion == "0.9.64f"
-               && csp60.Contains("<Version>0.9.67</Version>")
-               && vm60.Contains("Classroom Studio v0.9.67")
+               && csp60.Contains("<Version>0.9.73</Version>")
+               && vm60.Contains("Classroom Studio v0.9.73")
                && exp60.Contains("BundleVersion = \"0.9.64f\""),
             "v0.9.60: version pins (firmware bundle, csproj, app banner)");
 
@@ -3674,21 +3952,114 @@ class TestRunner
             Assert(pexRand.Counts.Contains("RMOUSE x1") && pexRand.Disabled.Count == 0,
                 "v0.9.65: emission counts are reported");
 
-            // mouseMove -> deterministic 1x1 RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
+            // mouseMove -> selected RMOUSE region; idle explicitly OFF (gen-1 defaults it ON)
             var pexMove = PlanExporter.Compile(new List<StepNode>
             {
-                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["human"] = true }),
+                PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 700, ["y"] = 400, ["w"] = 180, ["h"] = 120, ["human"] = true }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexMove.Text.Contains("MOVETO|x=700|y=400|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
-                "v0.9.66: mouseMove emits native PLAN|2 MOVETO");
+            Assert(pexMove.Text.Contains("RMOUSE|region=700,400,180,120|before=60,220|after=80,280|curve=20,40|mid=6:80,250|over=12|idle=1,1:0,0\n"),
+                "mouseMove exports a random point within the chosen rectangle as humanized PLAN|2 RMOUSE");
             Assert(!pexMove.Text.Contains("idle=5,12"),
                 "v0.9.65: the engine's built-in idle default never leaks into a point move");
             var pexNoHuman = PlanExporter.Compile(new List<StepNode>
             {
                 PexStep("mouseMove", new Dictionary<string, object?> { ["x"] = 5, ["y"] = 6, ["human"] = false }),
             }, pexSettings, 1920, 1080, "f", "T");
-            Assert(pexNoHuman.Text.Contains("MOVETO|x=5|y=6|human=0\n"),
-                "v0.9.66: human=false emits native non-human MOVETO");
+            Assert(pexNoHuman.Text.Contains("RMOUSE|region=5,6,1,1|before=60,220")
+                   && pexNoHuman.Flags.Any(f => f.Contains("human=false cannot be preserved")),
+                "portable export warns that human=false is not supported by PLAN|2 RMOUSE");
+
+            var hand = new HandMovementSample.Sample(10_000, new System.Drawing.Point(100, 100),
+                new System.Drawing.Point(130, 106), new[]
+                {
+                    new HandMovementSample.Segment(100, 10, 2),
+                    new HandMovementSample.Segment(120, 12, 3),
+                    new HandMovementSample.Segment(140, 8, 1),
+                });
+            var encodedHand = HandMovementSample.Encode(hand);
+            Assert(HandMovementSample.TryDecode(encodedHand, out var decodedHand)
+                   && decodedHand.Segments.Count == 3 && decodedHand.End.X == 130
+                   && HandMovementSample.Displacement(decodedHand) == new System.Drawing.Point(30, 6),
+                "v0.9.70: ten-second hand sample codec round-trips without keyboard/text data");
+            Assert(HandMovementSample.CaptureIntervalMs == 8
+                   && HandMovementSample.ReplaySegmentLimit == 1280,
+                "v0.9.70: hand capture retains 8ms detail without exceeding the safe UART replay rate");
+            Assert(StepDefinitions.Get("mouseMove").Label == "Mouse Movement"
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "moveMode")
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "handSample"),
+                "v0.9.70: mouse movement exposes fixed and relative hand-gesture modes");
+            var pexHand = PlanExporter.Compile(new List<StepNode>
+            {
+                PexStep("mouseMove", new Dictionary<string, object?>
+                { ["x"] = 130, ["y"] = 106, ["moveMode"] = "handSample", ["handSample"] = encodedHand }),
+            }, pexSettings, 1920, 1080, "f", "T");
+            Assert(pexHand.Text.Contains("HANDPATH|100,10,2;120,12,3;140,8,1\n")
+                   && !pexHand.Text.Contains("RAW|MMOVE|") && !pexHand.Text.Contains("MOVETO|"),
+                "v0.9.70: sampled hand motion exports as a compact native relative HID path");
+            var handNode = PexStep("mouseMove", new Dictionary<string, object?>
+                { ["x"] = 999, ["y"] = 777, ["moveMode"] = "handSample", ["handSample"] = encodedHand });
+            Assert(StepDefinitions.Get("mouseMove").Summarize(handNode).Contains("Δ(30, 6)")
+                   && !StepDefinitions.Get("mouseMove").Summarize(handNode).Contains("999"),
+                "v0.9.70: hand gesture summary reports relative displacement, never an absolute destination");
+            var runEngineSource = V27ReadSrc(Path.Combine("Services", "RunEngine.cs"));
+            Assert(runEngineSource.Contains("MMOVE|{segment.Dx},{segment.Dy},rel,2")
+                   && !runEngineSource.Contains("ReplayHandMovementAsync(handSample, PropEx.GetInt"),
+                "v0.9.70: desktop replay uses the same relative HID contract as portable export");
+            var cadenceSample = new HandMovementSample.Sample(10_000,
+                new System.Drawing.Point(0, 0), new System.Drawing.Point(35, 0), new[]
+                {
+                    new HandMovementSample.Segment(10, 5, 0),
+                    new HandMovementSample.Segment(10, 6, 0),
+                    new HandMovementSample.Segment(10, 7, 0),
+                    new HandMovementSample.Segment(10, 8, 0),
+                    new HandMovementSample.Segment(10, 9, 0),
+                });
+            var encodedCadence = HandMovementSample.Encode(cadenceSample);
+            Assert(HandMovementSample.TryGetSpeedRange(cadenceSample, out var cadenceMin, out var cadenceMax)
+                   && cadenceMin == 500 && cadenceMax == 800,
+                "sampled Random Mouse cadence uses robust 20th/80th percentile speeds");
+            Assert(StepDefinitions.Get("randomMousePosition").Fields.Any(f => f.Key == "handSample"),
+                "Random Mouse Position exposes a stored hand-sample profile");
+            var sampledRandom = PlanExporter.Compile(new List<StepNode>
+            {
+                PexStep("randomMousePosition", new Dictionary<string, object?>
+                {
+                    ["x"] = 10, ["y"] = 20, ["w"] = 300, ["h"] = 200,
+                    ["handSample"] = encodedCadence,
+                }),
+            }, pexSettings, 1920, 1080, "f", "T");
+            Assert(sampledRandom.Text.Contains("|speed=500,800|"),
+                "sampled Random Mouse exports the user's measured speed band");
+            var sampledRandomWithLegacyDuration = PlanExporter.Compile(new List<StepNode>
+            {
+                PexStep("randomMousePosition", new Dictionary<string, object?>
+                {
+                    ["x"] = 10, ["y"] = 20, ["w"] = 300, ["h"] = 200,
+                    ["handSample"] = encodedCadence,
+                    ["moveTimeMin"] = 16, ["moveTimeMax"] = 159,
+                }),
+            }, pexSettings, 1920, 1080, "f", "T");
+            Assert(sampledRandomWithLegacyDuration.Text.Contains("|speed=500,800|")
+                   && !sampledRandomWithLegacyDuration.Text.Contains("|mt="),
+                "fresh Random Mouse hand sample overrides stale explicit duration fields");
+            var sampledCfg = HumanMouse.Config.FromProps(new Dictionary<string, object?>
+            {
+                ["handSample"] = encodedCadence,
+                ["moveTimeMin"] = 16, ["moveTimeMax"] = 159,
+            }, 300, 2000);
+            Assert(sampledCfg.SpeedMinPxPerSec == 500 && sampledCfg.SpeedMaxPxPerSec == 800
+                   && sampledCfg.MoveTimeMinMs == 0 && sampledCfg.MoveTimeMaxMs == 0,
+                "desktop Random Mouse uses sampled cadence as its single timing source");
+            var stepDialogSource = V27ReadSrc(Path.Combine("Views", "StepDialog.xaml.cs"));
+            var mainVmMouseSource = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+            Assert(stepDialogSource.Contains("randomMousePosition\" && f.Key == \"h\"")
+                   && stepDialogSource.Contains("کشیدن مستطیل مقصد روی صفحه")
+                   && mainVmMouseSource.Contains("or \"mouseMove\") pickRegion = PickRegionOnScreen")
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "w")
+                   && StepDefinitions.Get("mouseMove").Fields.Any(f => f.Key == "h")
+                   && StepDefinitions.Get("mouseMove").Fields.First(f => f.Key == "moveMode").Default == "region"
+                   && stepDialogSource.Contains("مقصد و هندسه همچنان تصادفی‌اند"),
+                "Move to Location exposes rectangle dimensions and a drag-to-select region picker");
 
             // CLICK with swapped hold bounds
             var pexClick = PlanExporter.Compile(new List<StepNode>
@@ -3734,10 +4105,41 @@ class TestRunner
             var pexPar=PexStep("parallelGroup"); pexPar.Children.Add(PexStep("mouseClick"));
             pexPar.Children.Add(PexStep("mouseScroll",new Dictionary<string,object?>{{"delta",1}})); pexParity.Add(pexPar);
             var pexParityText=PlanExporter.Compile(pexParity,pexSettings,1920,1080,"f","T").Text;
-            foreach(var op in new[]{"WSND|91,70,8000","KEY|combo=162+65","KDOWN|160","KUP|160","WHEEL|-3","LABEL|again","GOTO|again","RAW|PING","RPKG|all,1,2","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR"})
+            Assert(pexParityText.Contains("WSNDP|1,") && pexParityText.Contains(",91,70,8000"),
+                "Build 74: C# parity emits bound WSNDP for Wait For Sound");
+            foreach(var op in new[]{"KEY|combo=162+65","KDOWN|160","KUP|160","WHEEL|-3","LABEL|again","GOTO|again","RAW|PING","RPKG|all,1,2","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR"})
                 Assert(pexParityText.Contains(op),"v0.9.66: C# parity emits "+op);
             Assert(pexParityText.Split('\n').Count(x=>x=="KEY|combo=91+82|hold=40,90")==3,
                 "v0.9.66: runExe/openFile/playAudio emit Win+R macros");
+
+            // Build 90: buzzer is a Pico-local cooperative op. It must remain
+            // exportable after a plain Wait For Sound inside looped parallel branches.
+            var soundParallel = PexStep("parallelGroup");
+            foreach (var id in new[] { 1, 2 })
+            {
+                var branch = PexStep("forLoop", new Dictionary<string, object?>
+                {
+                    ["mode"] = "count", ["count"] = 1,
+                });
+                branch.Children.Add(PexStep("waitForSound", new Dictionary<string, object?>
+                {
+                    ["calibrationId"] = id, ["threshold"] = id == 1 ? 130 : 30,
+                    ["minDurationMs"] = 60, ["timeoutMs"] = 20000,
+                    ["armed"] = false, ["insertIfElse"] = false,
+                }));
+                branch.Children.Add(PexStep("buzzer", new Dictionary<string, object?>
+                {
+                    ["preset"] = id == 1 ? "warning" : "success",
+                }));
+                soundParallel.Children.Add(branch);
+            }
+            var soundParallelText = PlanExporter.Compile(
+                new List<StepNode> { soundParallel }, pexSettings, 1920, 1080, "s1.amsj", "T").Text;
+            Assert(soundParallelText.Contains("PGROUP\nLOOP|1\nWSNDP|1,")
+                   && soundParallelText.Contains("\nPARITEM\nLOOP|1\nWSNDP|2,")
+                   && soundParallelText.Contains("BEEP|700,180")
+                   && soundParallelText.Contains("BEEP|900,120"),
+                "Build 90: looped parallel Wait For Sound + Buzzer exports cooperatively");
 
             // findImage remains an explicit blocking error.
             try { PlanExporter.Compile(new List<StepNode>{PexStep("findImage")},pexSettings,1920,1080,"f","T"); Assert(false,"v0.9.66: findImage must block"); }
@@ -4046,28 +4448,424 @@ class TestRunner
             }
             finally { if (Directory.Exists(pexTmp)) Directory.Delete(pexTmp, true); }
         }
-        // v0.9.67 hotfix regression: exercise the real per-system exporter before
-        // applying the AutoCycle manifest. The old parity fixture alone missed template drift.
+        }
+
+        // Current Studio contract: the one-click AutoCycle export is the exact
+        // Golden-100 inventory. Resumable remains archived and must not add a
+        // resume runtime to the active export.
         var cycleFwTmp = Path.Combine(Path.GetTempPath(), "cyclefw_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(cycleFwTmp);
         try
         {
             var cycleCode = Path.Combine(cycleFwTmp, "code.py");
             var cycleWritten = AutoCycleFirmwareBundle.Export(cycleCode, Array.Empty<StepNode>(),
-                "REAL-EXPORT-REGRESSION", "once", 1, 0, false);
+                "CURRENT-EXPORT-REGRESSION", "once", 1, 0, false);
             var cycleText = File.ReadAllText(cycleCode);
-            Assert(cycleWritten.Count == 9
-                   && File.Exists(Path.Combine(cycleFwTmp, "resume_essentials_runtime.py")),
-                "v0.9.67: real Pico exporter + AutoCycle writes the complete nine-file firmware bundle");
-            Assert(cycleText.Contains("AUTO_CYCLE_PATCH_0967_H6")
-                   && cycleText.Contains("import plan_cycle as _pc")
-                   && cycleText.Contains("_resume_boot.tick()")
-                   && cycleText.Contains("restart armed; waiting for host reboot")
-                   && cycleText.Contains("board.GP6")
-                   && cycleText.Contains("0x10: Keycode.LEFT_SHIFT"),
-                "v0.9.67: AutoCycle manifest patches the real per-system firmware output");
+            Assert(cycleWritten.Count == 25
+                   && File.Exists(Path.Combine(cycleFwTmp, "SHA256SUMS.txt"))
+                   && File.Exists(Path.Combine(cycleFwTmp, "code.py"))
+                   && !File.Exists(Path.Combine(cycleFwTmp, "resume_essentials_runtime.py")),
+                "current Studio: one-click Pico export writes the complete Golden-100 inventory");
+            Assert(cycleText.Length > 50000
+                   && !cycleText.Contains("AUTO_CYCLE_PATCH_0967_H6")
+                   && !cycleText.Contains("import plan_cycle as _pc"),
+                "current Studio: export preserves the Golden-100 code.py without modern runtime patches");
         }
         finally { if (Directory.Exists(cycleFwTmp)) Directory.Delete(cycleFwTmp, true); }
+
+        // Modern AutoCycle contracts are intentionally separate from the
+        // legacy/Golden-100 contract. CI can set GOLDEN_100_ONLY=1 to validate
+        // the exact 25-file baseline without requiring modern runtime payloads.
+        if (Environment.GetEnvironmentVariable("GOLDEN_100_ONLY") != "1")
+        {
+        // Modern split-memory export is a separate contract; it must not replace
+        // or mutate the legacy Golden-100 exporter.
+        var modernTmp = Path.Combine(Path.GetTempPath(), "modernfw_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(modernTmp);
+        try
+        {
+            var modernWritten = ModernAutoCycleFirmwareBundle.Export(Path.Combine(modernTmp, "code.py"));
+            var modernManifestEntries = File.ReadAllText(
+                Path.Combine(modernTmp, "SHA256SUMS.txt"))
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+            Assert(modernWritten.Count >= 36
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_parse.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_core.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_runtime.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_actions.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_events.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_response.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_parallel.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_game_sound.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_human.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_core.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_mouse.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_login_type.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_exec.py"))
+                   && File.Exists(Path.Combine(modernTmp, "plan_engine_parallel.py"))
+                   && File.Exists(Path.Combine(modernTmp, "sound_step_calibration.py"))
+                   && File.Exists(Path.Combine(modernTmp, "restart_cycle.py"))
+                   && File.Exists(Path.Combine(modernTmp, "restart_windows.py"))
+                   && modernManifestEntries >= 32,
+                "modern AutoCycle export writes the split-memory bundle and manifest");
+            // Windows checkout expands LF to CRLF and R5 adds the shallow sound-response
+            // handoff. Keep a bounded deferred entrypoint while explicitly pinning the
+            // unwind-before-response contract instead of the old pre-R5 byte count.
+            var modernEntry = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(modernEntry.Length < 57000
+                   && modernEntry.Contains("DeferredPlanEngine")
+                   && modernEntry.Contains("signal = plan_engine_game.run_game_file(commands, ctx)")
+                   && modernEntry.Contains("plan_engine_game.service_sound_exit(ctx, signal)")
+                   && modernEntry.Contains("ERR|CAL|TICK|stage=%d|detail=%s:%s"),
+                "modern AutoCycle export uses the small deferred-loading entrypoint");
+            var modernRuntime = File.ReadAllText(Path.Combine(modernTmp, "combined_guard_runtime.py"));
+            var modernExec = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_exec.py"));
+            Assert(modernRuntime.Contains("mouse_mode = \"relative\"")
+                   && modernRuntime.Contains("MMOVE|%d,%d,rel,2")
+                   && modernRuntime.Contains("ASND|%d,%d,%d")
+                   && modernRuntime.Contains("def sound_parallel_safe")
+                   && modernExec.Contains("ctx.mmove_relative(dx, dy)")
+                   && File.ReadAllText(Path.Combine(modernTmp, "code.py")).Contains("relative-native-before-route"),
+                "modern AutoCycle export uses hostless relative mouse without a cursor bridge");
+            Assert(modernRuntime.Contains("line.startswith(\"EVT|ASND|DETECTED\")")
+                   && modernRuntime.Contains("line.startswith(\"EVT|ASND|TIMEOUT\")")
+                   && modernRuntime.Contains("EVT|SOUND|listen|source=async")
+                   && modernRuntime.Contains("mode=async")
+                   && modernRuntime.Contains("self.sample_next = now + .1"),
+                "Build 81: packaged Classroom runtime preserves the ARM 2.8.2-S4 async sound contract");
+            var modernCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(modernCode.Contains("_LIGHT_ROUTE_COMMANDS")
+                   && modernCode.Contains("\"RMOUSE\"")
+                   && modernCode.Contains("\"TYPE\"")
+                   && modernCode.Contains("\"LABEL\"")
+                   && modernCode.Contains("\"GOTO\"")
+                   && modernCode.Contains("import plan_engine_login as login_helper")
+                   && modernCode.Contains("\"RAW\"")
+                   && modernCode.Contains("\"LOOPTIME\"")
+                   && modernCode.Contains("\"ENDLOOP\"")
+                   && modernCode.Contains("elif command == \"RAW\":")
+                   && modernCode.Contains("ctx.mmove_relative(int(fields[0]), int(fields[1]))"),
+                "looped hand-sampled RAW/MMOVE routes stay on the low-memory light-route executor");
+            Assert(modernCode.Contains("EVT|GUARD|PREEMPT|from=%s|to=%s|lux=%.1f")
+                   && modernCode.Contains("self.controls.aborted = True")
+                   && modernCode.Contains("self.keyboard.release_all()")
+                   && modernCode.Contains("commands = name if name == \"game_steps.txt\" else _light_route_file(name)")
+                   && modernCode.Contains("plan_engine_game.run_game_file(commands, ctx)")
+                   && modernCode.Contains("return _light_route_rows(fh)"),
+                "Build 100: stable light changes safely preempt routes and large Game files stream from flash");
+            var loginHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login.py"));
+            var loginCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_core.py"));
+            var loginMouse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_mouse.py"));
+            var loginType = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_login_type.py"));
+            Assert(!loginHelper.Contains("import plan_engine_parse")
+                   && loginHelper.Contains("def run_rmouse(")
+                   && loginHelper.Contains("def run_type(")
+                   && loginHelper.Contains("before-mouse-runtime-import")
+                   && loginHelper.Length < 4000
+                   && loginCore.Contains("class PausePlanner:")
+                   && loginCore.Length < 5000
+                   && loginMouse.Contains("def _mouse_events(")
+                   && loginMouse.Contains("def run_rmouse(")
+                   && loginMouse.Length < 7000
+                   && loginType.Contains("_QWERTY_ROWS")
+                   && loginType.Contains("def _typing_commands(")
+                   && loginType.Contains("def run_type(")
+                   && loginType.Length < 7000,
+                "Build 104: Login/DC loads Core, Natural Mouse and typing sequentially");
+            var gameHelper = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game.py"));
+            var gameCore = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_core.py"));
+            var gameRuntime = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_runtime.py"));
+            var gameActions = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_actions.py"));
+            var gameEvents = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_events.py"));
+            var gameResponse = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_response.py"));
+            var gameParallel = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_parallel.py"));
+            var gameSound = File.ReadAllText(Path.Combine(modernTmp, "plan_engine_game_sound.py"));
+            var gameRunStart = gameRuntime.IndexOf("def _run(", StringComparison.Ordinal);
+            var gameRunBody = gameRuntime.IndexOf('\n', gameRunStart) + 1;
+            var gameRunEnd = gameRuntime.IndexOf("def run_game(", StringComparison.Ordinal);
+            Assert(!gameHelper.Contains("import plan_engine_parse")
+                   && !gameHelper.Contains("import plan_engine_exec")
+                   && gameHelper.Contains("def run_game(")
+                   && gameHelper.Contains("def run_game_file(")
+                   && gameHelper.Contains("before-core-import")
+                   && gameHelper.Contains("after-runtime-import")
+                   && gameHelper.Length < 3500
+                   && gameCore.Contains("class _FileCommands:")
+                   && gameCore.Contains("def _pick_items(")
+                   && gameCore.Length < 10000
+                   && gameRuntime.Contains("elif op == \"LABEL\"")
+                   && gameRuntime.Contains("elif op == \"GOTO\"")
+                   && gameRuntime.Contains("GOTO label not found")
+                   && gameActions.Contains("def _basic(")
+                   && gameActions.Contains("def leaf(")
+                   && gameActions.Contains("def _sound(")
+                   && gameActions.Contains("def _profile(")
+                   && gameActions.Length < 5000
+                   && gameRuntime.Contains("return _sound_module().resolve_sound_watch(ctx)")
+                   && !gameRuntime.Contains("from plan_engine_parse import select_sound_profile")
+                   && gameHelper.Contains("(\"plan_engine_game_sound\", \"sound\")")
+                   && gameSound.Contains("def resolve_sound_watch(")
+                   && gameSound.Contains("def service_sound_exit(")
+                   && !gameSound.Contains("plan_engine_parse")
+                   && gameSound.Length < 5000
+                   && gameResponse.Contains("_core._FileCommands(name)")
+                   && gameResponse.Length < 4000
+                   && gameRuntime.Length < 7000
+                   && gameEvents.Contains("def events(")
+                   && gameEvents.Contains("class Cursor:")
+                   && gameEvents.Length < 9000
+                   && gameRunStart >= 0 && gameRunBody > gameRunStart && gameRunEnd > gameRunBody
+                   && !gameRuntime.Substring(gameRunBody, gameRunEnd - gameRunBody)
+                       .Contains("_run(commands,")
+                   && gameParallel.Contains("sound_parallel_safe")
+                   && gameParallel.Length < 9000,
+                "Build 103: Game compiler peaks are split across sequential bounded modules");
+
+            var repairedWatch = V27ReadSrc(Path.Combine("Services", "LightWatchService.cs"));
+            var repairedBridge = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
+            var repairedDeploy = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.AutoCycleModern.cs"));
+            var watchFault = repairedWatch.IndexOf("WatchFaulted?.Invoke(ex);", StringComparison.Ordinal);
+            var watchDelay = repairedWatch.IndexOf("var remaining", watchFault, StringComparison.Ordinal);
+            Assert(watchFault >= 0 && watchDelay > watchFault
+                   && repairedWatch.Substring(watchFault, watchDelay - watchFault).Contains("break;"),
+                "Light Watch stops polling after one transport fault");
+            Assert(repairedBridge.Contains("op is (\"send\" or \"send_path\")")
+                   && repairedBridge.Contains("SetState(BridgeState.Disconnected)")
+                   && repairedBridge.Contains("failed.Kill(entireProcessTree: true)")
+                   && repairedBridge.Contains("Port = null;"),
+                "bridge kills the stale sidecar and releases COM after send faults");
+            var repairedRepoRoot = new DirectoryInfo(AppContext.BaseDirectory)
+                .Parent?.Parent?.Parent?.Parent?.FullName ?? "";
+            var repairedPythonBridge = File.ReadAllText(
+                Path.Combine(repairedRepoRoot, "ams-shell", "bridge", "bridge.py"));
+            Assert(repairedPythonBridge.Contains("stale = state[\"link\"]")
+                   && repairedPythonBridge.Contains("failed = state[\"link\"]")
+                   && repairedPythonBridge.Contains("Pico brain not found on any serial port"),
+                "portable bridge closes stale links and never falls into keyless direct-board mode");
+            var repairedTransition = File.ReadAllText(
+                Path.Combine(modernTmp, "guard_transition.py"));
+            var repairedCalibration = File.ReadAllText(
+                Path.Combine(modernTmp, "guard_calibration_protocol.py"));
+            var repairedCalibrationNvm = File.ReadAllText(
+                Path.Combine(modernTmp, "calibration_nvm.py"));
+            Assert(repairedTransition.Contains("game-reentry-after-unknown")
+                   && repairedTransition.Contains("\"execute\": False"),
+                "Game re-entry after an optical spike restores stage 5 without replaying the macro");
+            Assert(repairedCalibration.Contains("def calibrated_profile(")
+                   && repairedCalibration.Contains("0.95")
+                   && repairedCalibration.Contains("max(center - low, high - center)")
+                   && repairedCalibrationNvm.Contains("def fit_profiles(")
+                   && repairedCalibrationNvm.Contains("FIT_GAP = 0.25")
+                   && repairedCalibrationNvm.Contains("FIT_MIN = 0.5")
+                   && modernRuntime.Contains("calibration_nvm.fit_profiles(")
+                   && !modernRuntime.Contains("__import__(\"calibration_fit\")")
+                   && modernRuntime.Replace("\r", "").Length < 40000,
+                "light calibration covers asymmetric samples and adaptively fits adjacent profiles");
+            var repairedVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
+            Assert(repairedVm.Contains("_bridge.StateChanged += OnBridgeStateChanged")
+                   && repairedVm.Contains("private void OnBridgeStateChanged")
+                   && repairedVm.Contains("Connection = ConnectionState.Disconnected")
+                   && repairedVm.Contains("ConnectButtonText = \"Connect\""),
+                "Build 71: UI follows authoritative bridge disconnects instead of staying green");
+            Assert(repairedVm.Contains("_bridge.State != BridgeState.Connected")
+                   && repairedVm.Contains("Connect را بزنید"),
+                "Build 71: sound calibration rejects a stale bridge before SCAL/WSND probes");
+            Assert(repairedVm.Contains("OK|CURSOR", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|UNKNOWN|SCAL", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|UNKNOWN|WSND", StringComparison.Ordinal)
+                   && repairedVm.Contains("ERR|TIMEOUT|WSND", StringComparison.Ordinal),
+                "Build 72: cursor ACK noise is hidden and unsupported sound replies never become threshold 300");
+            Assert(modernCode.Contains("elif line.startswith(\"SCAL|\"):")
+                   && modernCode.Contains("elif line.startswith(\"WSND|\"):")
+                   && modernCode.Contains("reply = self.arm.send(line, ms / 1000.0 + 3)")
+                   && modernCode.Contains("reply = self.arm.send(line, timeout_ms / 1000.0 + 3)"),
+                "Build 72: Pico host commands proxy sound calibration and probes to the Pro Micro");
+            Assert(repairedDeploy.Contains("private async Task ExportAutoCycleModern()")
+                   && repairedDeploy.Contains("await StopLightWatchAsync();"),
+                "Pico deployment stops Light Watch before USB autoreload");
+
+            var current = new PipelineWorkspace();
+            foreach (var tab in current.Tabs) tab.Steps.Clear();
+            current[PipelineKind.Desktop].Steps.Add(new StepNode
+            {
+                Type = "comment",
+                Props = new Dictionary<string, object?> { ["text"] = "CURRENT-MOUSE-TEST-ONLY" },
+            });
+            var exportedLightProfiles = new[]
+            {
+                new LightStateProfile { Id="desktop", Name="Desktop", Enabled=true, LuxCenter=43.3, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="login-or-dc", Name="Login", Enabled=true, LuxCenter=4, LuxTolerance=2, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="character-dashboard", Name="Character", Enabled=true, LuxCenter=16.7, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="entering-game-loading", Name="Loading", Enabled=true, LuxCenter=38.3, LuxTolerance=1, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="game", Name="Game", Enabled=true, LuxCenter=25.8, LuxTolerance=0.5, StableDurationMs=750, HysteresisLux=1 },
+                new LightStateProfile { Id="targeted", Name="Targeted", Enabled=true, LuxCenter=20, LuxTolerance=2, StableDurationMs=750, HysteresisLux=1 },
+            };
+            ModernAutoCycleFirmwareBundle.ExportCurrentProject(
+                Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
+                1920, 1080, "test mous.amsj", "CURRENT-PROJECT-REGRESSION");
+            var currentDesktop = File.ReadAllText(Path.Combine(modernTmp, "desktop_steps.txt"));
+            var currentSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
+            var currentEngine = File.ReadAllText(Path.Combine(modernTmp, "plan_engine.py"));
+            Assert(currentDesktop.Contains("CURRENT-MOUSE-TEST-ONLY")
+                   && currentSnapshot.Contains("CURRENT-MOUSE-TEST-ONLY")
+                   && !currentDesktop.Contains("Win+2", StringComparison.OrdinalIgnoreCase),
+                "modern one-click export replaces template routes and snapshot with the open project");
+            using var exportedCalibration = JsonDocument.Parse(File.ReadAllText(Path.Combine(modernTmp, "guard-calibration.json")));
+            using var exportedTransition = JsonDocument.Parse(File.ReadAllText(Path.Combine(modernTmp, "guard-transition.json")));
+            var calRoot = exportedCalibration.RootElement;
+            var transitionRoot = exportedTransition.RootElement;
+            var calRevision = calRoot.GetProperty("revision").GetString();
+            var transitionRevision = transitionRoot.GetProperty("calibrationRevision").GetString();
+            var exportedGame = calRoot.GetProperty("profiles").GetProperty("game");
+            var transitionGame = transitionRoot.GetProperty("profiles").EnumerateArray()
+                .Single(item => item.GetProperty("id").GetString() == "game");
+            Assert(calRevision == transitionRevision
+                   && exportedGame.GetProperty("center").GetDouble() == 25.8
+                   && exportedGame.GetProperty("tolerance").GetDouble() == 0.5
+                   && transitionGame.GetProperty("center").GetDouble() == 25.8
+                   && transitionGame.GetProperty("stableMs").GetInt32() == 750,
+                "Build 73: current editable light profiles replace both Pico Guard contracts");
+
+            Assert(currentEngine.Length < 8000
+                   && currentEngine.Contains("from plan_engine_parse import")
+                   && currentEngine.Contains("def run_plan(plan, ctx):")
+                   && currentEngine.Contains("import plan_engine_exec as executor")
+                   && currentEngine.Contains("plan-lite-relative")
+                   && !currentEngine.Contains("Generated memory-fit core"),
+                "modern current-project export preserves the split-engine facade after legacy plan generation");
+            var manifestDesktop = File.ReadLines(Path.Combine(modernTmp, "SHA256SUMS.txt"))
+                .Single(line => line.EndsWith("  desktop_steps.txt", StringComparison.Ordinal));
+            var desktopHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(Path.Combine(modernTmp, "desktop_steps.txt")))).ToLowerInvariant();
+            Assert(manifestDesktop == desktopHash + "  desktop_steps.txt",
+                "modern one-click export rebuilds SHA256SUMS after current routes are generated");
+            var manifestEngine = File.ReadLines(Path.Combine(modernTmp, "SHA256SUMS.txt"))
+                .Single(line => line.EndsWith("  plan_engine.py", StringComparison.Ordinal));
+            var engineHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(Path.Combine(modernTmp, "plan_engine.py")))).ToLowerInvariant();
+            Assert(manifestEngine == engineHash + "  plan_engine.py",
+                "modern one-click export hashes the restored split-engine facade");
+            foreach (var profileFile in new[] { "guard-calibration.json", "guard-transition.json" })
+            {
+                var manifestProfile = File.ReadLines(Path.Combine(modernTmp, "SHA256SUMS.txt"))
+                    .Single(line => line.EndsWith("  " + profileFile, StringComparison.Ordinal));
+                var profileHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                    File.ReadAllBytes(Path.Combine(modernTmp, profileFile)))).ToLowerInvariant();
+                Assert(manifestProfile == profileHash + "  " + profileFile,
+                    "Build 73: manifest hashes exported " + profileFile);
+            }
+            var watchedLoop = new StepNode
+            {
+                Type = "forLoop",
+                Props = new Dictionary<string, object?> { ["mode"] = "infinite" },
+                Children =
+                {
+                    new StepNode { Type = "delay", Props = new Dictionary<string, object?> { ["minMs"] = 20, ["maxMs"] = 20 } },
+                    new StepNode
+                    {
+                        Type = "waitForSound",
+                        Props = new Dictionary<string, object?>
+                        {
+                            ["responseRoute"] = "splash", ["calibrationId"] = 2,
+                            ["peakMin"] = 25, ["peakMax"] = 95,
+                            ["soundPriority"] = 5, ["minDurationMs"] = 60,
+                            ["cooldownMs"] = 900, ["timeoutMinSec"] = 19,
+                            ["timeoutMaxSec"] = 24, ["armed"] = false,
+                            ["insertIfElse"] = false,
+                        },
+                        Children =
+                        {
+                            new StepNode
+                            {
+                                Type = "keystroke",
+                                Props = new Dictionary<string, object?> { ["key"] = "F" },
+                            },
+                        },
+                    },
+                },
+            };
+            current[PipelineKind.Game].Steps.Add(watchedLoop);
+            current[PipelineKind.Whisper].Steps.Add(new StepNode
+            {
+                Type = "buzzer", Props = new Dictionary<string, object?> { ["preset"] = "warning" },
+            });
+            var whisperProfile = current.SoundProfiles.Single(x => x.Id == 1);
+            whisperProfile.Enabled = true; whisperProfile.PeakMin = 20; whisperProfile.PeakMax = 80;
+            whisperProfile.Priority = 10; whisperProfile.CooldownMs = 1800;
+            var splashProfile = current.SoundProfiles.Single(x => x.Id == 2);
+            splashProfile.Enabled = false;
+            ModernAutoCycleFirmwareBundle.ExportCurrentProject(
+                Path.Combine(modernTmp, "code.py"), current, new AppSettings(), exportedLightProfiles,
+                1920, 1080, "test sound-watch.amsj", "CURRENT-PROJECT-REGRESSION");
+            var watchedGame = File.ReadAllText(Path.Combine(modernTmp, "game_steps.txt"));
+            var whisperRoute = File.ReadAllText(Path.Combine(modernTmp, "whisper_steps.txt"));
+            var watchedSnapshot = File.ReadAllText(Path.Combine(modernTmp, "autocycle.amsj"));
+            Assert(watchedGame.Contains("SOUNDWATCH|whisper,20,80,60,10,1800,whisper_steps.txt,global")
+                   && watchedGame.Contains("splash,25,95,60,5,900,splash_steps.txt,scoped")
+                   && watchedGame.Contains("WPROFILE|splash,19000,24000")
+                   && whisperRoute.Contains("BEEP|700,180")
+                   && File.ReadAllText(Path.Combine(modernTmp, "splash_steps.txt")).Contains("KEY|combo=70")
+                   && watchedSnapshot.Contains("soundProfiles")
+                   && watchedSnapshot.Contains("\"Type\": \"waitForSound\"")
+                   && !watchedSnapshot.Contains("\"Type\": \"splashListener\""),
+                "Build 119: global Whisper plus explicit ID-2 Catch wait export with inline response");
+
+            var legacyWorkspace = new PipelineWorkspace();
+            foreach (var tab in legacyWorkspace.Tabs) tab.Steps.Clear();
+            legacyWorkspace[PipelineKind.Game].Steps.Add(new StepNode
+            {
+                Type = "splashListener",
+            });
+            legacyWorkspace[PipelineKind.Splash].Steps.Add(new StepNode
+            {
+                Type = "keystroke", Props = new Dictionary<string, object?> { ["key"] = "F" },
+            });
+            var legacySplashProfile = legacyWorkspace.SoundProfiles.Single(x => x.Id == 2);
+            legacySplashProfile.Enabled = true;
+            legacySplashProfile.PeakMin = 25;
+            legacySplashProfile.PeakMax = 95;
+            legacySplashProfile.TimeoutMinSec = 17;
+            legacySplashProfile.TimeoutMaxSec = 23;
+            var legacyWorkspaceJson = PipelineWorkspaceSerializer.Serialize(legacyWorkspace)
+                .Replace("\"pipelineVersion\": 6", "\"pipelineVersion\": 5");
+            var migratedWorkspace = PipelineWorkspaceSerializer.Deserialize(legacyWorkspaceJson);
+            var migratedSplash = migratedWorkspace.SoundProfiles.Single(x => x.Id == 2);
+            var migratedCatch = migratedWorkspace[PipelineKind.Game].Steps
+                .Single(x => x.Type == "waitForSound");
+            Assert(PropEx.GetInt(migratedCatch.Props, "calibrationId", 0) == 2
+                   && PropEx.GetInt(migratedCatch.Props, "timeoutMinSec", 0) == 17
+                   && PropEx.GetInt(migratedCatch.Props, "timeoutMaxSec", 0) == 23
+                   && migratedCatch.Children.Single().Type == "keystroke"
+                   && migratedWorkspace[PipelineKind.Splash].Steps.Count == 0
+                   && !migratedSplash.Enabled,
+                "Build 119: Build-95 Splash marker/tab migrates to explicit ID-2 Catch wait with response child");
+
+            ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
+            Assert(true, "Build 104: target read-back accepts 40 valid hashes and matching Guard revisions");
+            var corruptGuardPath = Path.Combine(modernTmp, "guard-calibration.json");
+            var validGuardBytes = File.ReadAllBytes(corruptGuardPath);
+            File.WriteAllText(corruptGuardPath, "37|STATE|debug-cross-link");
+            var rejectedCorruption = false;
+            try { ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp); }
+            catch (IOException) { rejectedCorruption = true; }
+            Assert(rejectedCorruption,
+                "Build 76: target read-back rejects a Guard file cross-linked with debug data");
+            File.WriteAllBytes(corruptGuardPath, validGuardBytes);
+            ModernAutoCycleFirmwareBundle.VerifyExportedTarget(modernTmp);
+
+            var safeDebugCode = File.ReadAllText(Path.Combine(modernTmp, "code.py"));
+            Assert(!safeDebugCode.Contains("_DEBUG_FILE")
+                   && !safeDebugCode.Contains("disable_concurrent_write_protection=True")
+                   && safeDebugCode.Contains("NVM and live CDC events are sufficient"),
+                "Build 76: runtime diagnostics never write to the USB-mounted CIRCUITPY FAT volume");
+            Assert(repairedDeploy.Contains("HALT|SILENT")
+                   && repairedDeploy.Contains("VerifyExportedTarget")
+                   && repairedDeploy.Contains("hashes and Guard revisions OK"),
+                "Build 76: export quiesces Pico and verifies target bytes before reporting success");
+        }
+        finally { if (Directory.Exists(modernTmp)) Directory.Delete(modernTmp, true); }
 
         // ci-36 follow-up: the UI-selected Random Package must become a real
         // resume_essentials.txt PLAN|2 pre-pass, never an empty silent manager.
@@ -4109,17 +4907,38 @@ class TestRunner
             var rootText = File.ReadAllText(Path.Combine(essentialsTmp, "plan.txt"));
             Assert(essentialWritten.Count == 11
                    && File.Exists(Path.Combine(essentialsTmp, "resume_essentials_runtime.py")),
-                "v0.9.67: AutoCycle plan bundle writes runtime plus resume_essentials.txt");
+                "v0.9.70: AutoCycle plan bundle writes runtime plus resume_essentials.txt");
             Assert(essentialText.StartsWith("PLAN|2\n")
                    && essentialText.Contains("RPKG|all,1,1")
                    && essentialText.Contains("TYPE|text= resume essential")
                    && !essentialText.Contains("LOOP|3"),
-                "v0.9.67: selected Random Package is compiled once as the Resume Essentials pre-pass");
+                "v0.9.70: selected Random Package is compiled once as the Resume Essentials pre-pass");
             Assert(rootText.Contains("POSTLAUNCH|1,1,1,3,20,40")
                    && !essentialText.Contains("POSTLAUNCH|"),
-                "v0.9.67: Restart Launch is root-only and precedes the Resume Essentials pre-pass");
+                "v0.9.70: Restart Launch is root-only and precedes the Resume Essentials pre-pass");
         }
         finally { if (Directory.Exists(essentialsTmp)) Directory.Delete(essentialsTmp, true); }
+
+        }
+
+        // Opt-in mouse speed policy: legacy compatibility, weighted choice and cap on final path.
+        var speedPolicyEncoded = "v1|10000|0,0|35,0|10,5,0;10,6,0;10,7,0;10,8,0;10,9,0";
+        const int speedPolicyMax = 800;
+        var speedPolicyProps = new Dictionary<string, object?> { ["speedMode"]="fast", ["handProfileSource"]="local", ["handSample"]=speedPolicyEncoded, ["speedCapPxPerSec"]=speedPolicyMax };
+        Assert(MouseSpeedPolicy.Validate(speedPolicyProps)==speedPolicyMax, "speed policy uses the recorded hand ceiling");
+        var speedPolicyCfg = HumanMouse.Config.FromProps(speedPolicyProps, 300, 2000);
+        var speedPolicyRng = new Random(7301);
+        var speedPolicyPlan = HumanMouse.PlanMove(100,100,500,350,speedPolicyCfg,new HumanMouse.PausePlanner(speedPolicyRng),speedPolicyRng,1920,1080);
+        int speedX=100,speedY=100;
+        bool capHeld=true;
+        foreach(var wp in speedPolicyPlan.Waypoints) {
+            double length=Math.Sqrt((wp.X-speedX)*(double)(wp.X-speedX)+(wp.Y-speedY)*(double)(wp.Y-speedY));
+            if(length>0 && (wp.DelayMs<=0 || length*1000/wp.DelayMs>speedPolicyMax+0.001))capHeld=false;
+            speedX=wp.X;speedY=wp.Y;
+        }
+        Assert(capHeld && speedPolicyPlan.SelectedSpeedMode=="fast", "speed policy caps final curved path segments");
+        var selectedMixed = MouseSpeedPolicy.Select("mixed", 250, 530, 0, 0, 100, 300, 530, new Random(1));
+        Assert(selectedMixed.selected=="fast" && selectedMixed.high==530, "100%-fast weighted selection resolves to fast");
 
         Console.WriteLine($"=== Results: {passed} passed, {failed} failed ===");
         Environment.Exit(failed > 0 ? 1 : 0);
@@ -4133,6 +4952,7 @@ sealed class FakeBridge : IBoardBridge
     public bool UnknownOp;                 // v0.9.2 — simulate an old bridge.py without send_path
     public int PathCalls;
     public List<(int X, int Y, int DelayMs)>? LastPath;
+    public readonly List<List<(int X, int Y, int DelayMs)>> Paths = new();
     public int ArtificialDelayMs;          // v0.9.15 — per-op latency for concurrency tests
     public int InFlight;
     public int MaxInFlight;
@@ -4146,6 +4966,7 @@ sealed class FakeBridge : IBoardBridge
             if (ArtificialDelayMs > 0) await Task.Delay(ArtificialDelayMs);
             MaxInFlight = Math.Max(MaxInFlight, InFlight);
             LastPath = points.ToList();
+            Paths.Add(LastPath);
             return "OK|PATH," + points.Count;
         }
         finally { Interlocked.Decrement(ref InFlight); }

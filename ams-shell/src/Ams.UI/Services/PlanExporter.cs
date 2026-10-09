@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using Ams.UI.Models;
 
@@ -25,8 +26,8 @@ namespace Ams.UI.Services;
 /// The gen-3 engine (PLAN|2, portable/plan3/tools/plan_gen.py) belongs to the parked 0.9.66
 /// line, so every step that needs it is a BLOCKING ERROR here - never silently skipped.
 ///
-/// Compiled (8 of the 23 app actions): randomMousePosition, mouseMove (emitted as a
-/// deterministic 1x1 RMOUSE region - the engine draws tx=randint(x, x+0)=x every pass),
+/// Compiled (8 of the 23 app actions): randomMousePosition, mouseMove (emitted as an
+/// RMOUSE rectangle; the engine samples a fresh destination within it on every execution),
 /// mouseClick, typeText, delay, forLoop, waitForLight (plain + armed), comment. Blocked (15):
 /// findImage, waitForSound, keystroke, keyDown, keyUp, mouseScroll, label, gotoLabel,
 /// rawCommand, randomPackage, parallelGroup, playAudio, playScript, runExe, openFile.
@@ -35,7 +36,7 @@ namespace Ams.UI.Services;
 /// PLAN|2 compensations vs plan_gen (gen-3): the PLAN|2 engine DEFAULTS mid-pauses ON (12%) and
 /// idle breaks ON (1000-5000 ms every 5-12 moves) when a key is omitted, so this exporter emits
 /// mid= and idle= EXPLICITLY on every move (mid=0:0,0 / idle=1,1:0,0 disable them), and the
-/// mouseMove emulation always carries idle=1,1:0,0 (a point-to-point move never idles).
+/// mouseMove emulation always carries idle=1,1:0,0 (one step never schedules a long idle break).
 /// </summary>
 public static class PlanExporter
 {
@@ -111,6 +112,7 @@ public static class PlanExporter
         public int Markers;
         private readonly Dictionary<StepNode, string> _numbering = new();
         private readonly HashSet<string> _labels = new(StringComparer.Ordinal);
+        private readonly HashSet<int> _soundCalibrationIds = new();
         private readonly string _sourcePath;
 
         public Gen(AppSettings settings, string sourcePath)
@@ -252,6 +254,8 @@ public static class PlanExporter
                 case "mouseClick":EmitMouseClick(n);return; case "mouseScroll":EmitMouseScroll(n);return;
                 case "keystroke":EmitKeystroke(n);return; case "keyDown":EmitKeyState(n,true);return; case "keyUp":EmitKeyState(n,false);return;
                 case "typeText":EmitTypeText(n);return; case "forLoop":EmitForLoop(n);return;
+                case "buzzer":EmitBuzzer(n);return;
+                case "splashListener":EmitSplashListener(n);return;
                 case "waitForSound":EmitWaitForSound(n);return; case "waitForLight":EmitWaitForLight(n);return;
                 case "label":EmitLabel(n);return; case "gotoLabel":EmitGoto(n);return; case "rawCommand":EmitRaw(n);return;
                 case "randomPackage":EmitRandomPackage(n);return; case "parallelGroup":EmitParallelGroup(n);return;
@@ -273,12 +277,37 @@ public static class PlanExporter
             Emit(n, new[] { hi > lo ? "DELAY|" + lo + "," + hi : "DELAY|" + lo }, "DELAY");
         }
 
+        private void EmitBuzzer(StepNode n)
+        {
+            IReadOnlyList<string> commands;
+            try { commands = StepDefinitions.BuildBuzzerCommands(n.Props); }
+            catch (FormatException ex) { Error(n, ex.Message); return; }
+            foreach (var command in commands)
+            {
+                if (command.StartsWith("BEEP|", StringComparison.Ordinal))
+                {
+                    Lines.Add(command);
+                    Count("BEEP");
+                }
+                else if (command.StartsWith("DLY|", StringComparison.Ordinal)
+                         && int.TryParse(command[4..], NumberStyles.Integer,
+                             CultureInfo.InvariantCulture, out var pause))
+                {
+                    Lines.Add("DELAY|" + pause + "," + pause);
+                    Count("DELAY");
+                }
+            }
+            EmitDelay(n);
+        }
+
         /// <summary>The humanized-move layers; PLAN|2 forces EVERY key explicit (its built-in defaults
         /// enable mid-pauses at 12% and idle breaks at 1000-5000 ms - the app defaults differ, so an
         /// omitted key would change behavior on the Pico).</summary>
         private string Tuning(StepNode n, (int i0, int i1, int p0, int p1) idle)
         {
             var p = n.Props;
+            if (PropEx.GetString(p, "speedMode", "legacy") != "legacy" || PropEx.GetString(p, "handProfileSource", "legacy") != "legacy")
+                throw new InvalidOperationException("Mouse speed controls require Windows execution or Native Export, not legacy PLAN2.");
             var (b0, b1) = Pair(PropEx.GetInt(p, "pauseBeforeMin", 60), PropEx.GetInt(p, "pauseBeforeMax", 220));
             var (a0, a1) = Pair(PropEx.GetInt(p, "pauseAfterMin", 80), PropEx.GetInt(p, "pauseAfterMax", 280));
             var (c0, c1) = Pair(PropEx.GetInt(p, "curveMinPct", 20), PropEx.GetInt(p, "curveMaxPct", 40));
@@ -292,8 +321,15 @@ public static class PlanExporter
             var (m0, m1) = Pair(PropEx.GetInt(p, "midPauseMin", 80), PropEx.GetInt(p, "midPauseMax", 250));
             parts.Add("mid=" + mch + ":" + m0 + "," + m1);
             parts.Add("over=" + Math.Max(0, Math.Min(100, PropEx.GetInt(p, "overshootChance", 12))));
+            var sampledMin = 0;
+            var sampledMax = 0;
+            var hasSampledCadence = n.Type == "randomMousePosition"
+                && HandMovementSample.TryDecode(PropEx.GetString(p, "handSample"), out var sample)
+                && HandMovementSample.TryGetSpeedRange(sample, out sampledMin, out sampledMax);
             var (t0, t1) = Pair(PropEx.GetInt(p, "moveTimeMin", 0), PropEx.GetInt(p, "moveTimeMax", 0));
-            if (t1 > 0) parts.Add("mt=" + t0 + "," + t1);
+            if (!hasSampledCadence && t1 > 0) parts.Add("mt=" + t0 + "," + t1);
+            if (hasSampledCadence)
+                parts.Add("speed=" + sampledMin + "," + sampledMax);
             parts.Add("idle=" + idle.i0 + "," + idle.i1 + ":" + idle.p0 + "," + idle.p1);
             return "|" + string.Join("|", parts);
         }
@@ -317,7 +353,31 @@ public static class PlanExporter
             Emit(n, new[] { "RMOUSE|region=" + x + "," + y + "," + w + "," + h + Tuning(n, idle) }, "RMOUSE");
         }
 
-        private void EmitMouseMove(StepNode n){int x=PropEx.GetInt(n.Props,"x",600),y=PropEx.GetInt(n.Props,"y",497);if(!PropEx.GetBool(n.Props,"human",true)){Emit(n,new[]{"MOVETO|x="+x+"|y="+y+"|human=0"},"MOVETO");return;}Emit(n,new[]{"MOVETO|x="+x+"|y="+y+Tuning(n,(1,1,0,0))},"MOVETO");}
+        private void EmitMouseMove(StepNode n)
+        {
+            int x=PropEx.GetInt(n.Props,"x",600), y=PropEx.GetInt(n.Props,"y",497);
+            if (PropEx.GetString(n.Props, "moveMode", "fixed") == "handSample")
+            {
+                if (!HandMovementSample.TryDecode(PropEx.GetString(n.Props, "handSample"), out var sample))
+                { Error(n, "handSample mode needs a valid ten-second mouse sample"); return; }
+                var path = HandMovementSample.Compact(sample.Segments, HandMovementSample.ReplaySegmentLimit);
+                // DelayMs is the time BEFORE this captured cursor change. Keep
+                // all samples in one light-runtime command: this preserves the
+                // gesture without allocating one Pico command tuple per point.
+                var payload = string.Join(";", path.Select(seg =>
+                    seg.DelayMs.ToString(CultureInfo.InvariantCulture) + "," +
+                    seg.Dx.ToString(CultureInfo.InvariantCulture) + "," +
+                    seg.Dy.ToString(CultureInfo.InvariantCulture)));
+                Emit(n, new[] { "HANDPATH|" + payload }, "HANDPATH");
+                return;
+            }
+            int w = PropEx.GetInt(n.Props, "w", 1), h = PropEx.GetInt(n.Props, "h", 1);
+            if (w <= 0 || h <= 0)
+            { Error(n, "region width/height must be positive (got " + w + "x" + h + ")"); return; }
+            if (!PropEx.GetBool(n.Props, "human", true))
+                Flag(n, "PLAN|2 RMOUSE always uses a humanized path; human=false cannot be preserved in portable export");
+            Emit(n, new[] { "RMOUSE|region=" + x + "," + y + "," + w + "," + h + Tuning(n, (1, 1, 0, 0)) }, "MOVETO");
+        }
 
         private void EmitMouseClick(StepNode n)
         {
@@ -374,9 +434,9 @@ public static class PlanExporter
                 if (t1 > 0) parts.Add("think=" + tch + ":" + t0 + "," + t1);
             }
             var (y0, y1) = Pair(PropEx.GetInt(p, "typoEveryMin", 0), PropEx.GetInt(p, "typoEveryMax", 0));
-            if (y1 > 0) parts.Add("typo=" + y0 + "," + y1);
+            if (y1 > 0) parts.Add("typochars=" + y0 + "," + y1);
             else if (PropEx.GetInt(p, "typoChance", 0) > 0)
-                Flag(n, "legacy typoChance % is not portable - use 'typo every N words' (typoEveryMin/Max); "
+                Flag(n, "legacy typoChance % is not portable - use the character interval (typoEveryMin/Max); "
                         + "the step types WITHOUT typos in this plan");
             Emit(n, new[] { "TYPE|text=" + text + "|" + string.Join("|", parts) }, "TYPE");
         }
@@ -387,14 +447,74 @@ public static class PlanExporter
         private void EmitMouseScroll(StepNode n)=>Emit(n,new[]{"WHEEL|"+PropEx.GetInt(n.Props,"delta",-1)},"WHEEL");
         private void EmitKeystroke(StepNode n){var p=n.Props;var keys=new List<int>();if(PropEx.GetBool(p,"modCtrl"))keys.Add(162);if(PropEx.GetBool(p,"modShift"))keys.Add(160);if(PropEx.GetBool(p,"modAlt"))keys.Add(164);if(PropEx.GetBool(p,"modWin"))keys.Add(91);var vk=Vk(n,PropEx.GetString(p,"key","F4"),"keystroke");if(vk==0)return;keys.Add(vk);var(h0,h1)=Pair(PropEx.GetInt(p,"holdMin",0),PropEx.GetInt(p,"holdMax",0));var line="KEY|combo="+string.Join("+",keys);if(h1>0)line+="|hold="+h0+","+h1;KeyboardFlag(n);Emit(n,new[]{line},"KEY");}
         private void EmitKeyState(StepNode n,bool down){var vk=Vk(n,PropEx.GetString(n.Props,"key","SHIFT"),down?"keyDown":"keyUp");if(vk==0)return;KeyboardFlag(n);Emit(n,new[]{(down?"KDOWN|":"KUP|")+vk},down?"KDOWN":"KUP");}
-        private void EmitWaitForSound(StepNode n){var p=n.Props;int t=PropEx.GetInt(p,"threshold",90),m=PropEx.GetInt(p,"minDurationMs",60),to=PropEx.GetInt(p,"timeoutMs",20000);if(PropEx.GetBool(p,"armed")){int act=PropEx.GetString(p,"act","left")switch{"right"=>2,"middle"=>3,_=>1};var(r0,r1)=Pair(PropEx.GetInt(p,"reactMin",80),PropEx.GetInt(p,"reactMax",180));var(h0,h1)=Pair(PropEx.GetInt(p,"holdMin",30),PropEx.GetInt(p,"holdMax",90));Emit(n,new[]{"TRGSND|"+t+","+m+","+to+","+act+","+r0+","+r1+","+h0+","+h1},"TRGSND");}else Emit(n,new[]{"WSND|"+t+","+m+","+to},"WSND");}
+        private string SoundBinding(StepNode n,int id,int threshold,int minimum)
+        {
+            var title=PropEx.GetString(n.Props,"title",n.Name??"").Trim();
+            var raw=Encoding.UTF8.GetBytes(id+"|"+Num(n)+"|"+title+"|"+threshold+"|"+minimum);
+            return Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant()[..12];
+        }
+        private void EmitWaitForSound(StepNode n)
+        {
+            var p=n.Props;int t=PropEx.GetInt(p,"threshold",90),m=PropEx.GetInt(p,"minDurationMs",60),to=PropEx.GetInt(p,"timeoutMs",20000);
+            if(!EmitSoundArmCue(n))return;
+            if(PropEx.GetString(p,"responseRoute","inline")=="splash")
+            {
+                int lo=PropEx.GetInt(p,"timeoutMinSec",18),hi=PropEx.GetInt(p,"timeoutMaxSec",22);
+                if(lo>hi)(lo,hi)=(hi,lo);
+                if(lo<1||hi>300){Error(n,"Splash timeout range must be between 1 and 300 seconds");return;}
+                Emit(n,new[]{"WPROFILE|splash,"+(lo*1000)+","+(hi*1000)},"WPROFILE");return;
+            }
+            if(PropEx.GetBool(p,"armed")){int act=PropEx.GetString(p,"act","left")switch{"right"=>2,"middle"=>3,_=>1};var(r0,r1)=Pair(PropEx.GetInt(p,"reactMin",80),PropEx.GetInt(p,"reactMax",180));var(h0,h1)=Pair(PropEx.GetInt(p,"holdMin",30),PropEx.GetInt(p,"holdMax",90));Emit(n,new[]{"TRGSND|"+t+","+m+","+to+","+act+","+r0+","+r1+","+h0+","+h1},"TRGSND");return;}
+            int id=PropEx.GetInt(p,"calibrationId",1);
+            if(id is not (1 or 2)){Error(n,"sound calibration ID must be 1 or 2");return;}
+            if(!_soundCalibrationIds.Add(id)){Error(n,"sound calibration ID "+id+" is already assigned to another enabled Wait For Sound step");return;}
+            int peakMin=PropEx.GetInt(p,"peakMin",0),peakMax=PropEx.GetInt(p,"peakMax",511),priority=PropEx.GetInt(p,"soundPriority",0);
+            if(peakMin<0||peakMax<1||peakMax>511||peakMin>peakMax){Error(n,"sound Peak range must satisfy 0 <= Min <= Max <= 511");return;}
+            if(priority is < -100 or > 100){Error(n,"sound priority must be between -100 and 100");return;}
+            Emit(n,new[]{"WSNDP|"+id+","+SoundBinding(n,id,t,m)+","+t+","+m+","+to+","+peakMin+","+peakMax+","+priority},"WSNDP");
+        }
+        private bool EmitSoundArmCue(StepNode n)
+        {
+            IReadOnlyList<string> commands;
+            try { commands=StepDefinitions.BuildArmBuzzerCommands(n.Props); }
+            catch(FormatException ex){Error(n,ex.Message);return false;}
+            if(commands.Count==0)return true;
+            foreach(var command in commands)
+            {
+                if(command.StartsWith("BEEP|",StringComparison.Ordinal))
+                {
+                    Lines.Add(command);Count("BEEP");
+                }
+                else if(command.StartsWith("DLY|",StringComparison.Ordinal)
+                        && int.TryParse(command[4..],NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,out var pause))
+                {
+                    Lines.Add("DELAY|"+pause+","+pause);Count("DELAY");
+                }
+            }
+            Lines.Add("DELAY|120,120");Count("DELAY");
+            return true;
+        }
+        private void EmitSplashListener(StepNode n)
+            => Emit(n,new[]{"WPROFILE|splash,18000,22000"},"WPROFILE");
         private (int lo,int hi,int stable,int timeout,int mode) LuxArgs(Dictionary<string,object?> p){int c=PropEx.GetInt(p,"luxCenter",1250),tol=Math.Max(1,PropEx.GetInt(p,"luxTolerance",50));return(Math.Max(0,c-tol),c+tol,Math.Max(0,(int)Math.Round(PropEx.GetDouble(p,"stableSec",2)*1000)),PropEx.GetInt(p,"timeoutMs",20000),PropEx.GetString(p,"sampleMode","hires")=="lowres"?1:0);}
         private void EmitLabel(StepNode n){var name=PropEx.GetString(n.Props,"label","label1").Trim();if(name.Length==0||name.Contains('=')||name.Contains('|')){Error(n,"bad label name '"+name+"'");return;}if(!_labels.Add(name)){Error(n,"duplicate label '"+name+"'");return;}Emit(n,new[]{"LABEL|"+name},"LABEL");}
         private void EmitGoto(StepNode n){var name=PropEx.GetString(n.Props,"label").Trim();if(name.Length==0){Error(n,"Go To Label with no label chosen");return;}Emit(n,new[]{"GOTO|"+name},"GOTO");}
         private void EmitRaw(StepNode n){var cmd=PropEx.GetString(n.Props,"cmd","PING").Trim();if(cmd.Length==0||cmd.Contains('\n')||cmd.Contains('\r')){Error(n,"raw command must be one non-empty line");return;}Emit(n,new[]{"RAW|"+cmd},"RAW");}
         private void EmitRandomPackage(StepNode n){var kids=n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).ToList();if(kids.Count==0){Error(n,"random package has no enabled children");return;}if(kids.Any(c=>Conditional.Contains(c.Type)&&PropEx.GetBool(c.Props,"insertIfElse"))){Error(n,"an If/Else structure cannot live inside a Random Package");return;}var mode=PropEx.GetString(n.Props,"mode","shuffleAll");int mn=1,mx=kids.Count;string em="all";if(mode=="randomSubset"){em="pick";mn=Math.Max(0,PropEx.GetInt(n.Props,"minCount",1));mx=Math.Min(kids.Count,PropEx.GetInt(n.Props,"maxCount",10));if(mn>mx)(mn,mx)=(mx,mn);}else if(mode!="shuffleAll"){Error(n,"unknown random package mode '"+mode+"'");return;}Lines.Add("RPKG|"+em+","+mn+","+mx);Count("RPKG");for(int i=0;i<kids.Count;i++){if(i>0)Lines.Add("PKGITEM");Walk(new List<StepNode>{kids[i]});}Lines.Add("ENDPKG");EmitDelay(n);}
-        private static readonly HashSet<string> ParallelOk=new(){"mouseMove","mouseClick","mouseScroll","keystroke","keyDown","keyUp","typeText","delay","rawCommand","comment"};
-        private void EmitParallelGroup(StepNode n){var kids=n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).ToList();if(kids.Count<2){Error(n,"a Parallel Group needs at least two enabled branches");return;}var before=Errors.Count;foreach(var c in kids)if(!ParallelOk.Contains(c.Type))Error(c,"'"+c.Type+"' cannot live inside a Parallel Group on the Pico");if(Errors.Count>before)return;Lines.Add("PGROUP");Count("PGROUP");for(int i=0;i<kids.Count;i++){if(i>0)Lines.Add("PARITEM");Walk(new List<StepNode>{kids[i]});}Lines.Add("ENDPAR");EmitDelay(n);}
+        private static readonly HashSet<string> ParallelLeaf=new(){"randomMousePosition","mouseMove","mouseClick","mouseScroll","keystroke","keyDown","keyUp","typeText","delay","rawCommand","comment","buzzer"};
+        private bool ParallelCompatible(StepNode n)
+        {
+            if(n.Type is "waitForSound" or "splashListener")
+            {
+                if (n.Type == "splashListener") return true;
+                return !PropEx.GetBool(n.Props,"armed")&&!PropEx.GetBool(n.Props,"insertIfElse");
+            }
+            if(n.Type is "forLoop" or "randomPackage")
+                return n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).All(ParallelCompatible);
+            return ParallelLeaf.Contains(n.Type);
+        }
+        private void EmitParallelGroup(StepNode n){var kids=n.Children.Where(c=>!c.IsDisabled&&!IsMarker(c)).ToList();if(kids.Count<2){Error(n,"a Parallel Group needs at least two enabled branches");return;}var before=Errors.Count;foreach(var c in kids)if(!ParallelCompatible(c))Error(c,"'"+c.Type+"' cannot live inside a cooperative Parallel Group on the Pico (armed/If sound waits are also unsupported)");if(Errors.Count>before)return;Lines.Add("PGROUP");Count("PGROUP");for(int i=0;i<kids.Count;i++){if(i>0)Lines.Add("PARITEM");Walk(new List<StepNode>{kids[i]});}Lines.Add("ENDPAR");EmitDelay(n);}
         private static string QuoteRun(string value)=>value.Contains(' ')?"\""+value+"\"":value;
         private void EmitRunMacro(StepNode n,string command,string kind){string enc;try{enc=PctType(command);}catch(FormatException ex){Error(n,ex.Message);return;}Emit(n,new[]{"# "+kind,"KEY|combo=91+82|hold=40,90","DELAY|350,650","TYPE|text="+enc,"DELAY|140,260","KEY|combo=13|hold=40,90","DELAY|600,1200"},kind);}
         private void EmitLaunch(StepNode n,bool shellOpen){var p=n.Props;var path=PropEx.GetString(p,"path").Trim();if(path.Length==0){Error(n,"no path set");return;}var args=PropEx.GetString(p,"args");var state=PropEx.GetString(p,"windowState","normal");string cmd;if(state=="minimized")cmd="cmd /c start /min \"\" "+QuoteRun(path)+(args.Length>0?" "+args:"");else{if(state=="maximized")Flag(n,"'maximized' cannot be expressed through the Run box - launching visible/normal");cmd=QuoteRun(path)+(args.Length>0?" "+args:"");}EmitRunMacro(n,cmd,shellOpen?"openFile":"runExe");}
@@ -696,7 +816,7 @@ public static class PlanExporter
         var stack = new List<(string Kind, bool ElseSeen, int Line)>();
         var labels = new HashSet<string>(StringComparer.Ordinal);
         var gotos = new List<string>();
-        var known = new HashSet<string>{"PLAN","SCREEN","SPEED","DELAY","LOOP","LOOPTIME","ENDLOOP","RMOUSE","MOVETO","CLICK","TYPE","WLIGHT","WSND","TRGSND","IFSND","IFLUX","ELSE","ENDIF","KEY","KDOWN","KUP","WHEEL","LABEL","GOTO","RAW","RPKG","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR","INCLUDE","BEEP"};
+        var known = new HashSet<string>{"PLAN","SCREEN","SPEED","DELAY","LOOP","LOOPTIME","ENDLOOP","RMOUSE","MOVETO","CLICK","TYPE","WLIGHT","WSND","WSNDP","WPROFILE","TRGSND","IFSND","IFLUX","ELSE","ENDIF","KEY","KDOWN","KUP","WHEEL","LABEL","GOTO","RAW","HANDPATH","RPKG","PKGITEM","ENDPKG","PGROUP","PARITEM","ENDPAR","INCLUDE","BEEP"};
         bool first = true;
         string previousOp = "";
         var lines = text.Split('\n');
@@ -759,8 +879,43 @@ public static class PlanExporter
                 if (fields.Length < 2 || fields[1].Length == 0) Bad("empty GOTO");
                 gotos.Add(fields[1]);
             }
+            if (op == "WSNDP")
+            {
+                if (fields.Length != 2) Bad("WSNDP needs one comma payload");
+                var values = fields[1].Split(',');
+                if (values.Length is not (5 or 8 or 10) || values[0] is not ("1" or "2")
+                    || values[1].Length != 12 || values[1].Any(ch => !Uri.IsHexDigit(ch))
+                    || !values.Skip(2).Take(values.Length == 5 ? 3 : 6).All(IsInt)
+                    || (values.Length == 10 && (values[8].Length == 0
+                        || values[8].Any(ch => ch < 32 || ch > 126 || "/\\:|%".Contains(ch))
+                        || !IsInt(values[9]))))
+                    Bad("bad WSNDP profile contract");
+            }
+            if (op == "WPROFILE")
+            {
+                if (fields.Length != 2) Bad("WPROFILE needs one comma payload");
+                var values = fields[1].Split(',');
+                if (values.Length != 3 || values[0] != "splash" || !IsInt(values[1]) || !IsInt(values[2]))
+                    Bad("bad WPROFILE contract");
+            }
             if (op == "INCLUDE" && (!HasKv(fields, "file", out var file) || file.Length == 0 ||
                 file.Any(ch => ch < 32 || ch > 126 || "/\\:|%".Contains(ch)))) Bad("unsafe INCLUDE filename");
+            if (op == "HANDPATH")
+            {
+                if (fields.Length != 2 || fields[1].Length == 0) Bad("HANDPATH needs samples");
+                var samples = fields[1].Split(';', StringSplitOptions.RemoveEmptyEntries);
+                if (samples.Length is < 1 or > 2000) Bad("HANDPATH sample count out of range");
+                foreach (var sample in samples)
+                {
+                    var values = sample.Split(',');
+                    if (values.Length != 3 || !values.All(IsInt)) Bad("HANDPATH needs delay,dx,dy samples");
+                    int delay = int.Parse(values[0], CultureInfo.InvariantCulture);
+                    int dx = int.Parse(values[1], CultureInfo.InvariantCulture);
+                    int dy = int.Parse(values[2], CultureInfo.InvariantCulture);
+                    if (delay is < 1 or > 60_000 || Math.Abs((long)dx) > 8192 || Math.Abs((long)dy) > 8192)
+                        Bad("HANDPATH sample out of range");
+                }
+            }
             first = false;
             previousOp = op;
         }
@@ -1159,7 +1314,7 @@ def parse_plan(text):
                 if 'text' not in prm:
                     raise ValueError('line %d: TYPE needs text=' % line_no)
                 prm['text'] = pct_dec(prm['text'])
-                for k in ('h', 'w', 'p', 'typo'):
+                for k in ('h', 'w', 'p', 'typo', 'typos'):
                     if k in prm:
                         prm[k] = _pair(prm[k], k, line_no)
                 if 'think' in prm:
@@ -1921,14 +2076,57 @@ def plan_typing(text, p):
     think_chance, think_range = p.get('think', (0, (800, 2200)))
     think_chance = _clamp(think_chance, 0, 100)
     think_min, think_max = think_range
+    typo_count_min, typo_count_max = p.get('typos', (0, 0))
+    if typo_count_max < typo_count_min:
+        typo_count_min, typo_count_max = typo_count_max, typo_count_min
+    typo_count_min = max(0, typo_count_min)
+    typo_count_max = max(0, typo_count_max)
+    typo_count_mode = typo_count_max > 0
+    typo_char_min, typo_char_max = p.get('typochars', (0, 0))
+    if typo_char_max < typo_char_min:
+        typo_char_min, typo_char_max = typo_char_max, typo_char_min
+    typo_char_min = max(1, typo_char_min)
+    typo_char_max = max(0, typo_char_max)
+    typo_char_mode = typo_char_max > 0
     typo_min, typo_max = p.get('typo', (0, 0))
-    typo_cadence = typo_max > 0
+    typo_cadence = not typo_char_mode and not typo_count_mode and typo_max > 0
     next_typo_at = max(1, rand_range(typo_min, typo_max)) if typo_cadence else -1
     words_since_typo = 0
-    word_mode = wmax > 0 or pmax > 0 or think_chance > 0 or typo_cadence
+    word_mode = (wmax > 0 or pmax > 0 or think_chance > 0 or
+                 typo_char_mode or typo_count_mode or typo_cadence)
     cmds = []
     lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    line_words = [[wd for wd in line.split() if wd] for line in lines]
     pending = []
+    typo_positions = {}
+
+    if typo_char_mode:
+        candidates = []
+        for li, words in enumerate(line_words):
+            for wi, word in enumerate(words):
+                for pos, ch in enumerate(word):
+                    if ch.lower() in '1234567890qwertyuiopasdfghjklzxcvbnm':
+                        candidates.append((li, wi, pos))
+        cursor = rand_range(typo_char_min, typo_char_max) - 1
+        while cursor < len(candidates):
+            li, wi, pos = candidates[cursor]
+            typo_positions.setdefault((li, wi), []).append(pos)
+            cursor += rand_range(typo_char_min, typo_char_max)
+    elif typo_count_mode:
+        candidates = []
+        for li, words in enumerate(line_words):
+            for wi, word in enumerate(words):
+                for pos, ch in enumerate(word):
+                    if ch.lower() in '1234567890qwertyuiopasdfghjklzxcvbnm':
+                        candidates.append((li, wi, pos))
+        wanted = min(len(candidates), rand_range(typo_count_min, typo_count_max))
+        for i in range(wanted):
+            j = i + _below(len(candidates) - i)
+            candidates[i], candidates[j] = candidates[j], candidates[i]
+            li, wi, pos = candidates[i]
+            typo_positions.setdefault((li, wi), []).append(pos)
+        for positions in typo_positions.values():
+            positions.sort()
 
     def flush():
         s = ''.join(pending)
@@ -1937,23 +2135,40 @@ def plan_typing(text, p):
             cmds.append(('KTEXT', hmin, hmax, s[i:i + 60]))
     for li, line in enumerate(lines):
         if word_mode:
-            words = [wd for wd in line.split() if wd]
+            words = line_words[li]
             for wi, word in enumerate(words):
                 tail = ' ' if wi < len(words) - 1 else ''
                 typed = word + tail
-                typo_due = typo_cadence and (words_since_typo := (words_since_typo + 1)) >= next_typo_at
-                if typo_due and 2 <= len(word) <= 60:
-                    pos = 1 + _below(len(word) - 1)
-                    wrong = _qwerty_neighbor(word[pos])
-                    if wrong is not None:
+                selected = typo_positions.get((li, wi), ())
+                if selected:
+                    start = 0
+                    for pos in selected:
+                        wrong = _qwerty_neighbor(word[pos])
+                        if wrong is None:
+                            continue
                         flush()
-                        cmds.append(('KTEXT', hmin, hmax, word[:pos] + wrong))
+                        slip = word[start:pos] + wrong
+                        for ci in range(0, len(slip), 60):
+                            cmds.append(('KTEXT', hmin, hmax, slip[ci:ci + 60]))
                         cmds.append(('DLY', rand_range(max(hmax, 120), hmax * 2 + 200)))
                         cmds.append(('KCOMBO', 8))
                         cmds.append(('DLY', rand_range(hmin, hmax)))
-                        typed = word[pos:] + tail
-                        words_since_typo = 0
-                        next_typo_at = max(1, rand_range(typo_min, typo_max))
+                        start = pos
+                    typed = word[start:] + tail
+                else:
+                    typo_due = typo_cadence and (words_since_typo := (words_since_typo + 1)) >= next_typo_at
+                    if typo_due and 2 <= len(word) <= 60:
+                        pos = 1 + _below(len(word) - 1)
+                        wrong = _qwerty_neighbor(word[pos])
+                        if wrong is not None:
+                            flush()
+                            cmds.append(('KTEXT', hmin, hmax, word[:pos] + wrong))
+                            cmds.append(('DLY', rand_range(max(hmax, 120), hmax * 2 + 200)))
+                            cmds.append(('KCOMBO', 8))
+                            cmds.append(('DLY', rand_range(hmin, hmax)))
+                            typed = word[pos:] + tail
+                            words_since_typo = 0
+                            next_typo_at = max(1, rand_range(typo_min, typo_max))
                 segs = _split_punct(typed) if pmax > 0 else [typed]
                 for si, seg in enumerate(segs):
                     pending.append(seg)
@@ -1974,6 +2189,5 @@ def plan_typing(text, p):
         if li < len(lines) - 1:
             cmds.append(('KCOMBO', 13))
     return cmds
-
 """";
 }

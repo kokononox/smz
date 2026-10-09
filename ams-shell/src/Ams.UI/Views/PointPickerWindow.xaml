@@ -1,0 +1,20 @@
+<Window x:Class="Ams.UI.Views.PointPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="انتخاب مختصات" WindowStyle="None" AllowsTransparency="True"
+        Background="#01000000" Topmost="True" ShowInTaskbar="False" Cursor="Cross"
+        KeyDown="Window_KeyDown"
+        MouseMove="Window_MouseMove"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown"
+        MouseRightButtonDown="Window_MouseRightButtonDown">
+    <Canvas x:Name="Canvas">
+        <Line x:Name="Horizontal" Stroke="#FFDF5D" StrokeThickness="1" IsHitTestVisible="False" />
+        <Line x:Name="Vertical" Stroke="#FFDF5D" StrokeThickness="1" IsHitTestVisible="False" />
+        <TextBlock x:Name="InfoText"
+                   Foreground="#FFDF5D" FontFamily="Cascadia Code" FontSize="14"
+                   Background="#B31E1F24" Padding="8,4" IsHitTestVisible="False" />
+        <TextBlock Text="روی مختصات مقصد کلیک کنید · Esc / کلیک راست = لغو"
+                   Foreground="#E8EAED" Background="#B31E1F24" Padding="10,6" FontSize="13"
+                   Canvas.Left="24" Canvas.Top="24" IsHitTestVisible="False" />
+    </Canvas>
+</Window>

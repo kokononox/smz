@@ -59,7 +59,7 @@ internal static class PipelineTabsUiBootstrap
         WpfPanel.SetZIndex(statusPanel, 50);
         host.Children.Add(statusPanel);
 
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, FlowDirection = FlowDirection.LeftToRight };
+        var tabs = new WrapPanel { Orientation = Orientation.Horizontal, FlowDirection = FlowDirection.LeftToRight };
         var buttons = new List<Button>();
         Button? statusButton = null;
         foreach (var tab in vm.PipelineTabs)
@@ -137,6 +137,55 @@ internal static class PipelineTabsUiBootstrap
         scroll.Content = body;
         root.Children.Add(scroll);
 
+        var identity = new StackPanel { Margin=new Thickness(0,0,0,18) };
+        identity.Children.Add(new TextBlock { Text="تنظیمات کلی — کاربران ویندوز شیفت‌ها", FontSize=20, Foreground=Brush("#F5F7FA") });
+        identity.Children.Add(new TextBlock { Text="نام Username ویندوز را وارد کنید، نه Display name. تغییر نام‌ها با Export Native UF2 روی برد اعمال می‌شود. ClassroomStudio هنگام اجرای بریج موقت باید Disconnect باشد.", TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
+        foreach(var entry in new[] { ("کاربر روز",nameof(MainViewModel.DayWindowsUser)),("کاربر شب",nameof(MainViewModel.NightWindowsUser)) }) {
+            var row=new StackPanel { Orientation=Orientation.Horizontal,Margin=new Thickness(0,4,0,4) };
+            row.Children.Add(new TextBlock { Text=entry.Item1,Width=90,Foreground=Brush("#F5F7FA") });
+            var input=new TextBox { Width=260,FlowDirection=FlowDirection.LeftToRight };
+            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2) { Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus });
+            row.Children.Add(input);identity.Children.Add(row);
+        }
+        var scheduleCheck=new CheckBox { Content="بررسی بازهٔ شیفت و سوییچ خودکار",Foreground=Brush("#F5F7FA"),Margin=new Thickness(0,8,0,8) };
+        scheduleCheck.SetBinding(CheckBox.IsCheckedProperty,new Binding(nameof(MainViewModel.ShiftScheduleEnabled)){Source=vm,Mode=BindingMode.TwoWay});
+        identity.Children.Add(scheduleCheck);
+        foreach(var entry in new[] { ("شروع روز",nameof(MainViewModel.ShiftDayStart)),("پایان روز",nameof(MainViewModel.ShiftDayEnd)),("شروع شب",nameof(MainViewModel.ShiftNightStart)),("پایان شب",nameof(MainViewModel.ShiftNightEnd)),("سقف تلاش سوییچ",nameof(MainViewModel.ShiftMaxAttempts)) }) {
+            var row=new StackPanel {Orientation=Orientation.Horizontal,Margin=new Thickness(0,3,0,3)};
+            row.Children.Add(new TextBlock {Text=entry.Item1,Width=140,Foreground=Brush("#F5F7FA")});
+            var input=new TextBox {Width=100,FlowDirection=FlowDirection.LeftToRight};
+            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2){Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus,ValidatesOnExceptions=true});
+            row.Children.Add(input);identity.Children.Add(row);
+        }
+        identity.Children.Add(new TextBlock {Text="ساعت‌ها به شکل HH:mm و ۲۴ ساعته؛ شروع شامل و پایان خارج از بازه است. روز متعلق به کاربر روز و شب متعلق به کاربر شبِ بالا است. استپ‌های تب‌های سوییچ به روز/شب را خودتان بچینید؛ ری‌استارت خودکار اضافه نمی‌شود.",TextWrapping=TextWrapping.Wrap,Foreground=Brush("#AAB3C2"),Margin=new Thickness(0,5,0,5)});
+        identity.Children.Add(Bound(nameof(MainViewModel.ShiftScheduleSummary),13));
+        var addCheck=new Button { Content="افزودن استپ تأیید شیفت به Desktop / Startup",Margin=new Thickness(0,8,0,8),Padding=new Thickness(10,6,10,6) };
+        addCheck.Click+=(_,_)=>vm.AddShiftCheck();identity.Children.Add(addCheck);
+        identity.Children.Add(Bound(nameof(MainViewModel.ShiftStatusText),13));body.Children.Add(identity);
+        var buffBox = new StackPanel { Margin = new Thickness(0,0,0,18) };
+        buffBox.Children.Add(new TextBlock { Text="باف‌های محیط بازی — Pico", FontSize=20, Foreground=Brush("#F5F7FA") });
+        buffBox.Children.Add(new TextBlock {
+            Text="ترتیب تصادفی • مصرف اولیه قبل از ماهیگیری • تجدید پس از Catch/Timeout • Pause ساعت باف را متوقف نمی‌کند. تغییرات پس از Export Native UF2 اعمال می‌شوند.",
+            TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
+        var buffList = new WpfListBox { Height=150, DisplayMemberPath="Name", Background=Brush("#22262D"), Foreground=Brush("#F5F7FA") };
+        buffList.SetBinding(ItemsControl.ItemsSourceProperty,new Binding(nameof(MainViewModel.GameBuffs)) { Source=vm });
+        buffBox.Children.Add(buffList);
+        var actions = new StackPanel { Orientation=Orientation.Horizontal };
+        var addBuff = new Button { Content="افزودن باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        var editBuff = new Button { Content="ویرایش باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        var removeBuff = new Button { Content="حذف باف", Margin=new Thickness(3), Padding=new Thickness(10,6,10,6) };
+        addBuff.Click+=(_,_)=>vm.EditGameBuff(null);
+        editBuff.Click+=(_,_)=> { if(buffList.SelectedItem is StepNode buff)vm.EditGameBuff(buff); };
+        removeBuff.Click+=(_,_)=>vm.RemoveGameBuff(buffList.SelectedItem as StepNode);
+        actions.Children.Add(addBuff);actions.Children.Add(editBuff);actions.Children.Add(removeBuff);
+        buffBox.Children.Add(actions);
+        var fatigueRow=new StackPanel { Orientation=Orientation.Horizontal, Margin=new Thickness(0,8,0,8) };
+        fatigueRow.Children.Add(new TextBlock { Text="مدت افت تدریجی سرعت موس (دقیقهٔ ماهیگیری فعال): ", Foreground=Brush("#AAB3C2") });
+        var fatigueInput=new TextBox { Width=90 };
+        fatigueInput.SetBinding(TextBox.TextProperty,new Binding(nameof(MainViewModel.GameMouseFatigueMinutes)) { Source=vm, Mode=BindingMode.TwoWay, UpdateSourceTrigger=UpdateSourceTrigger.LostFocus, ValidatesOnExceptions=true });
+        fatigueRow.Children.Add(fatigueInput);buffBox.Children.Add(fatigueRow);
+        buffBox.Children.Add(Bound(nameof(MainViewModel.GameBuffStatusText),13));
+        body.Children.Add(buffBox);
         body.Children.Add(new TextBlock
         {
             Text = "وضعیت زنده‌ی سنسور نور",

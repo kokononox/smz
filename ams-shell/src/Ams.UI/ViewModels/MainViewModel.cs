@@ -183,7 +183,7 @@ public partial class MainViewModel : ObservableObject
 
         StepDefinitions.TypingFallbackMaxMs = _settings.TypeKeyMaxMs;
 
-        Log("Classroom Studio v0.9.67 — step-by-step board wizard with per-device default board specs filled in for you, an editable board-spec form in step 2, and a port scan that lists only the boards actually attached");
+        Log("Classroom Studio v0.9.73 — Whisper-over-Targeted priority, ordered nine-profile calibration, continuous three-pixel human mouse and ARM 2.8.3 HID");
 
         Log("Insert a step from the Insert menu, the left rail, or the right-click menu — then Connect and Run.");
 
@@ -225,12 +225,13 @@ public partial class MainViewModel : ObservableObject
 
     {
 
+        UpdateGameBuffTelemetry(message);
+        UpdateShiftTelemetry(message);
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
 
         var d = System.Windows.Application.Current?.Dispatcher;
 
         if (d is not null && !d.CheckAccess()) d.Invoke(() => LogLines.Add(line));
-
         else LogLines.Add(line);
 
     }
@@ -321,7 +322,12 @@ public partial class MainViewModel : ObservableObject
 
         bool pico = s.Contains("pico", StringComparison.OrdinalIgnoreCase) || s.Contains("role=brain", StringComparison.OrdinalIgnoreCase);
 
-        bool arm = s.Contains("arm=promicro", StringComparison.OrdinalIgnoreCase) || s.Contains("arm=ok", StringComparison.OrdinalIgnoreCase) || !pico;
+        bool armUsbReady = !s.Contains("arm-usb=", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("arm-usb=3", StringComparison.OrdinalIgnoreCase);
+        bool arm = s.Contains("arm=promicro", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("arm=ok", StringComparison.OrdinalIgnoreCase)
+            || (s.Contains("arm-ready=1", StringComparison.OrdinalIgnoreCase) && armUsbReady)
+            || !pico;
 
         return (pico, arm);
 
@@ -1848,6 +1854,7 @@ public partial class MainViewModel : ObservableObject
             Connection = ConnectionState.Disconnected;
 
             PicoPresent = ArmPresent = false;   // v0.9.44 — both presence lights go out
+            StopCursorSync();
 
             ConnectButtonText = "Connect";
 
@@ -1860,8 +1867,9 @@ public partial class MainViewModel : ObservableObject
         _bridge ??= CreateBridge();
 
         _bridge.LineReceived -= OnBridgeLine;
-
         _bridge.LineReceived += OnBridgeLine;
+        _bridge.StateChanged -= OnBridgeStateChanged;
+        _bridge.StateChanged += OnBridgeStateChanged;
 
 
 
@@ -1896,6 +1904,7 @@ public partial class MainViewModel : ObservableObject
                 (PicoPresent, ArmPresent) = ParseBoardPresence(pong);
 
                 Log($"board identity: {pong} → pico={(PicoPresent ? "on" : "off")}, arm={(ArmPresent ? "on" : "off")}");
+                StartCursorSync();
 
             }
 
@@ -1905,6 +1914,7 @@ public partial class MainViewModel : ObservableObject
 
                 PicoPresent = false; ArmPresent = true;   // a plain firmware-1.6 board is the Pro Micro arm alone
 
+                StopCursorSync();
                 Log("board identity probe failed: " + ex.Message);
 
             }
@@ -1915,6 +1925,7 @@ public partial class MainViewModel : ObservableObject
 
         {
 
+            StopCursorSync();
             Connection = ConnectionState.Disconnected;
 
             ConnectButtonText = "Connect";
@@ -2027,6 +2038,9 @@ public partial class MainViewModel : ObservableObject
 
             // a thread-pool thread every 300 ms for the whole pause.
 
+            if(_pipelineWorkspace.GameBuffs.Any(b=>!b.IsDisabled))
+                throw new InvalidOperationException("پروژه دارای باف مستقل است؛ اجرای آن فقط با Export Native UF2 روی Pico پشتیبانی می‌شود.");
+            engine.SetGlobalHandSample(_pipelineWorkspace.HumanMouseProfile.EncodedSample);
             engine.SetPauseCheck(async ct =>
 
             {
@@ -2192,7 +2206,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
 
-    /// Calibrate button for waitForSound (§16.6.5): samples the sensor on A0 for 2s
+    /// Calibrate button for waitForSound (§16.6.5): samples the sensor on A0 for 1s
 
     /// in silence (SCAL) and suggests floor_max × 1.5 — the rule of §16.1/§17.7.
 
@@ -2204,13 +2218,14 @@ public partial class MainViewModel : ObservableObject
 
     {
 
-        if (Connection != ConnectionState.Connected || _bridge is null)
+        if (Connection != ConnectionState.Connected || _bridge is null
+            || _bridge.State != BridgeState.Connected)
 
         {
 
             System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
 
-                "Connect the board first — calibration samples the sound sensor on A0.",
+                "ارتباط برد فعال نیست. Connect را بزنید و سپس دوباره کالیبراسیون صدا را اجرا کنید.",
 
                 "Calibrate", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -2224,7 +2239,7 @@ public partial class MainViewModel : ObservableObject
 
         {
 
-            var reply = await _bridge.SendAsync("SCAL|2000", 6.0);   // 2s silence window
+            var reply = await _bridge.SendAsync("SCAL|1000", 4.0);   // ARM protocol maximum is 1000 ms
 
             var m = Regex.Match(reply, @"max=(\d+)");
 
@@ -2244,6 +2259,14 @@ public partial class MainViewModel : ObservableObject
 
             }
 
+            else if (reply.StartsWith("ERR|UNKNOWN|SCAL", StringComparison.Ordinal))
+            {
+                Log("calibrate: Pico bundle does not proxy SCAL to the Pro Micro");
+                System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
+                    "این Bundle پیکو فرمان تست صدا را پشتیبانی نمی‌کند. ابتدا با همین نسخهٔ Classroom پروژه را دوباره روی CIRCUITPY خروجی بگیرید.",
+                    "کالیبره", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
             else
 
                 Log("calibrate: SCAL reply unexpected (" + reply + ") — falling back to WSND probing");
@@ -2278,7 +2301,23 @@ public partial class MainViewModel : ObservableObject
 
                 catch { probeErrors++; probe = ""; }
 
+                if (probe.StartsWith("ERR|UNKNOWN|WSND", StringComparison.Ordinal)
+                    || probe.StartsWith("ERR|EXEC|WSND", StringComparison.Ordinal))
+                {
+                    Log("calibrate probe failed: " + probe);
+                    System.Windows.MessageBox.Show(System.Windows.Application.Current.MainWindow,
+                        "فرمان تست صدا به Pro Micro نرسید. Bundle جدید را روی CIRCUITPY خروجی بگیرید و اتصال UART بردها را بررسی کنید.",
+                        "کالیبره", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return null;
+                }
                 bool fired = probe.StartsWith("OK|", StringComparison.Ordinal) || probe.StartsWith("EVT|", StringComparison.Ordinal);
+                bool quiet = probe.StartsWith("ERR|TIMEOUT|WSND", StringComparison.Ordinal);
+                if (!fired && !quiet)
+                {
+                    probeErrors++;
+                    Log("calibrate probe invalid reply: " + probe);
+                    continue;
+                }
 
                 Log($"calibrate probe: WSND ≥{mid} → {(fired ? "fired" : "quiet")}");
 
@@ -2314,6 +2353,12 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Region Picker overlay (§5.5.12) for x/y/w/h field sets.</summary>
 
+    private async Task<string?> SampleHandMovementAsync()
+    {
+        var sample = await HandMovementSample.CaptureAsync();
+        return sample is null ? null : HandMovementSample.Encode(sample);
+    }
+
     private Task<(int x, int y, int w, int h)?> PickRegionOnScreen()
 
     {
@@ -2336,6 +2381,19 @@ public partial class MainViewModel : ObservableObject
 
         return Task.FromResult<(int, int, int, int)?>(null);
 
+    }
+
+    private Task<(int x, int y)?> PickPointOnScreen()
+    {
+        var picker = new PointPickerWindow { Owner = System.Windows.Application.Current.MainWindow };
+        if (picker.ShowDialog() == true)
+        {
+            var point = (picker.ScreenX, picker.ScreenY);
+            Log($"point picked: ({point.ScreenX},{point.ScreenY})");
+            return Task.FromResult<(int, int)?>(point);
+        }
+        Log("point pick cancelled");
+        return Task.FromResult<(int, int)?>(null);
     }
 
 
@@ -2379,6 +2437,7 @@ public partial class MainViewModel : ObservableObject
     {
 
         _runCts?.Cancel();
+        StopCursorSync();
 
         if (_bridge is not null)
 
@@ -2396,7 +2455,38 @@ public partial class MainViewModel : ObservableObject
 
 
 
-    private void OnBridgeLine(object? sender, string line) => Log("bridge: " + line);
+    private void OnBridgeLine(object? sender, string line)
+    {
+        // Build 72 — cursor origin sync runs four times per second. Successful ACKs are
+        // transport housekeeping, not operator diagnostics; keep errors and all other lines.
+        if (line.Contains("OK|CURSOR", StringComparison.Ordinal)) return;
+        // PythonBoardBridge raises LineReceived on the serial-reader thread before it parses
+        // and completes the pending reply. Never synchronously wait for WPF from this callback:
+        // a modal tool awaiting that reply would otherwise create a reader/UI deadlock.
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+            dispatcher.BeginInvoke((Action)(() => Log("bridge: " + line)));
+        else Log("bridge: " + line);
+    }
+
+    // Build 71 — transport state is authoritative. A sidecar/COM failure must not leave
+    // the status bar green while every later command throws "Bridge is not connected."
+    private void OnBridgeStateChanged(object? sender, BridgeState state)
+    {
+        if (state != BridgeState.Disconnected) return;
+        void ApplyDisconnected()
+        {
+            Connection = ConnectionState.Disconnected;
+            ConnectButtonText = "Connect";
+            PicoPresent = false;
+            ArmPresent = false;
+            StopCursorSync();
+            Log("bridge disconnected — reconnect before calibration or playback");
+        }
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess()) ApplyDisconnected();
+        else dispatcher.BeginInvoke((Action)ApplyDisconnected);
+    }
 
 
 
@@ -2576,7 +2666,7 @@ public partial class MainViewModel : ObservableObject
         var pydir = PortablePaths.FirstExistingDir(new[]
         {
             Path.Combine(AppContext.BaseDirectory, "bridge"),
-            _settings.PythonDir.Length > 0 ? _settings.PythonDir : null,
+            _settings.PythonDir,
         });
         if (pydir is null && _settings.PythonDir.Length > 0)
             Log("\u0645\u0633\u06cc\u0631 \u062a\u0646\u0638\u06cc\u0645\u200c\u0634\u062f\u0647 \u0631\u0648\u06cc \u0627\u06cc\u0646 \u0633\u06cc\u0633\u062a\u0645 \u0646\u06cc\u0633\u062a — \u0627\u0632 \u0646\u0633\u062e\u0647\u0027\u06cc \u062f\u0627\u062e\u0644 \u067e\u0648\u0634\u0647 \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u0645\u06cc\u0027\u0634\u0648\u062f: " + _settings.PythonDir);
@@ -3581,15 +3671,21 @@ public partial class MainViewModel : ObservableObject
         string? calibrateKey = null;
 
         Func<Task<(int x, int y, int w, int h)?>>? pickRegion = null;
+        Func<Task<(int x, int y)?>>? pickPoint = null;
+        Func<Task<string?>>? sampleMouse = null;
+        Func<IReadOnlyDictionary<string, object?>, Task<string>>? previewBuzzer = null;
 
         if (type == "waitForSound") { calibrate = CalibrateSoundThreshold; calibrateKey = "threshold"; }
         if (type == "waitForLight") { calibrate = CalibrateLightRange; calibrateKey = "luxCenter"; }   // v0.9.39 — BH1750 range centre
 
-        if (type is "randomMousePosition" or "findImage") pickRegion = PickRegionOnScreen;
+        if (type is "randomMousePosition" or "findImage" or "mouseMove") pickRegion = PickRegionOnScreen;
+        if (type is "mouseMove" or "randomMousePosition") sampleMouse = SampleHandMovementAsync;
+        if (type == "buzzer") previewBuzzer = PreviewBuzzerAsync;
+        if (type == "waitForSound") previewBuzzer = PreviewArmBuzzerAsync;
 
 
 
-        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type)
+        var dlg = new StepDialog(title, fields, current, calibrate, calibrateKey, pickRegion, type, sampleMouse, pickPoint, previewBuzzer, globalHandSample: () => _pipelineWorkspace.HumanMouseProfile.EncodedSample)
 
         {
 
@@ -3599,6 +3695,33 @@ public partial class MainViewModel : ObservableObject
 
         return dlg.ShowDialog() == true ? dlg.Values : null;
 
+    }
+
+    private async Task<string> PreviewBuzzerAsync(IReadOnlyDictionary<string, object?> values)
+        => await PreviewBuzzerCommandsAsync(StepDefinitions.BuildBuzzerCommands(values));
+
+    private async Task<string> PreviewArmBuzzerAsync(IReadOnlyDictionary<string, object?> values)
+    {
+        var commands = StepDefinitions.BuildArmBuzzerCommands(values);
+        if (commands.Count == 0)
+            throw new InvalidOperationException("ابتدا صدای مسلح‌شدن را از حالت off خارج کنید.");
+        return await PreviewBuzzerCommandsAsync(commands);
+    }
+
+    private async Task<string> PreviewBuzzerCommandsAsync(IReadOnlyList<string> commands)
+    {
+        if (Connection != ConnectionState.Connected || _bridge is null
+            || _bridge.State != BridgeState.Connected)
+            throw new InvalidOperationException("ابتدا برد را Connect کنید.");
+
+        var sequence = StepDefinitions.BuildBuzzerSequenceCommand(commands);
+        string reply = await _bridge.SendAsync(sequence.Command,
+            Math.Max(3.0, sequence.TotalDurationMs / 1000.0 + 2.0));
+        if (!reply.StartsWith("OK|BEEPSEQ", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"برد پیش‌شنیدن را نپذیرفت: {reply} (فرمان: {sequence.Command})");
+        Log("buzzer preview played");
+        return "پخش شد ✓";
     }
 
 

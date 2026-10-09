@@ -1,0 +1,70 @@
+{
+  "app": "AMS",
+  "pipelineVersion": 2,
+  "pipelines": {
+    "Desktop": [
+      {
+        "Type": "forLoop",
+        "Props": {
+          "title": "تست موس — سریع",
+          "mode": "count",
+          "count": 12,
+          "timeValue": 1,
+          "timeUnit": "minute"
+        },
+        "Children": [
+          {
+            "Type": "randomMousePosition",
+            "Props": {
+              "x": 1301,
+              "y": 0,
+              "w": 378,
+              "h": 1049,
+              "pauseBeforeMin": 20,
+              "pauseBeforeMax": 60,
+              "pauseAfterMin": 20,
+              "pauseAfterMax": 80,
+              "midPauseChance": 0,
+              "midPauseMin": 0,
+              "midPauseMax": 0,
+              "idleEveryMin": 100,
+              "idleEveryMax": 100,
+              "idlePauseMin": 0,
+              "idlePauseMax": 0,
+              "overshootChance": 0,
+              "curveMinPct": 5,
+              "curveMaxPct": 30,
+              "moveTimeMin": 350,
+              "moveTimeMax": 600
+            },
+            "Children": [],
+            "Name": "سریع",
+            "Delay": 0,
+            "IsDisabled": false
+          },
+          {
+            "Type": "delay",
+            "Props": {
+              "minMs": 400,
+              "maxMs": 700
+            },
+            "Children": [],
+            "Name": "فاصله بین حرکت‌ها",
+            "Delay": 0,
+            "IsDisabled": false
+          }
+        ],
+        "Name": "",
+        "Delay": 0,
+        "IsDisabled": false
+      }
+    ],
+    "Restart": [],
+    "LoginOrDc": [],
+    "Dc": [],
+    "CharacterDashboard": [],
+    "EnteringGameLoading": [],
+    "Game": [],
+    "Targeted": []
+  }
+}

@@ -1,0 +1,3 @@
+PLAN|2
+# Startup runs once after the Windows restart USB reconnect.
+# Author required launch/login preparation in the Classroom Startup tab.

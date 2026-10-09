@@ -320,13 +320,15 @@ class Gen:
         self.emit(n, ["RMOUSE|region=%d,%d,%d,%d%s" % (x, y, w, h, self._tuning(p, idle))], "RMOUSE")
 
     def _st_mouseMove(self, n, p):
-        """gen-1 has no MOVETO op: a 1x1 RMOUSE region is the SAME deterministic humanized
-        move to the exact point (the engine draws tx=randint(x, x+0)=x every pass)."""
+        """PLAN|2 samples a fresh destination from the fixed step's rectangle."""
         x, y = _pi(p, "x", 600), _pi(p, "y", 497)
+        w, h = _pi(p, "w", 1), _pi(p, "h", 1)
+        if w <= 0 or h <= 0:
+            self.error(n, "region width/height must be positive (got %dx%d)" % (w, h))
+            return
         if not _pb(p, "human", True):
-            self.flag(n, "instant (non-human) move is not in the PLAN|1 contract - a humanized "
-                         "move to the exact point was emitted instead")
-        self.emit(n, ["RMOUSE|region=%d,%d,1,1%s" % (x, y, self._tuning(p, (1, 1, 0, 0)))], "MOVETO")
+            self.flag(n, "PLAN|2 RMOUSE always uses a humanized path; human=false cannot be preserved in portable export")
+        self.emit(n, ["RMOUSE|region=%d,%d,%d,%d%s" % (x, y, w, h, self._tuning(p, (1, 1, 0, 0)))], "MOVETO")
 
     def _st_mouseClick(self, n, p):
         btn = _ps(p, "button", "left")

@@ -1,0 +1,856 @@
+import gc
+import json
+import math
+import os
+import random
+import time
+import board
+import busio
+import digitalio
+import pwmio
+import usb_cdc
+import usb_hid
+import storage
+import microcontroller
+
+class Keyboard:
+    """Small boot-keyboard driver; avoids an undeclared adafruit_hid dependency."""
+    def __init__(self, devices):
+        self.device = None
+        for device in devices:
+            if getattr(device, "usage_page", None) == 0x01 and getattr(device, "usage", None) == 0x06:
+                self.device = device
+                break
+        if self.device is None:
+            raise RuntimeError("USB HID keyboard device is unavailable")
+        self.report = bytearray(8)
+
+    @staticmethod
+    def _modifier(code):
+        return code - 224 if 224 <= code <= 231 else None
+
+    def _send(self):
+        try:
+            self.device.send_report(self.report, 1)
+        except (TypeError, NotImplementedError):
+            self.device.send_report(self.report)
+
+    def press(self, *codes):
+        for code in codes:
+            modifier = self._modifier(code)
+            if modifier is not None:
+                self.report[0] |= 1 << modifier
+                continue
+            duplicate = False
+            for index in range(2, 8):
+                if self.report[index] == code:
+                    duplicate = True
+                    break
+            if duplicate:
+                continue
+            for index in range(2, 8):
+                if self.report[index] == 0:
+                    self.report[index] = code
+                    break
+            else:
+                raise ValueError("USB HID keyboard supports at most six simultaneous keys")
+        self._send()
+
+    def release(self, *codes):
+        for code in codes:
+            modifier = self._modifier(code)
+            if modifier is not None:
+                self.report[0] &= ~(1 << modifier)
+                continue
+            for index in range(2, 8):
+                if self.report[index] == code:
+                    self.report[index] = 0
+        self._send()
+
+    def release_all(self):
+        for index in range(8):
+            self.report[index] = 0
+        self._send()
+
+import plan_engine
+from guard_calibration_protocol import (
+    build_calibration_get, parse_calibration_set, calibrated_profile,
+)
+from live_light_guard import (
+    HASHED_BUNDLE_FILES,
+    GuardBundleError,
+    LightStateGuard,
+    _file_sha256,
+    load_guard_bundle,
+)
+
+PROFILES = ("desktop", "login-or-dc", "character-dashboard", "entering-game-loading", "game", "targeted")
+PENDING_REVISION = "pending"
+
+class CalibrationOverlapError(Exception):
+    def __init__(self, other_id, width):
+        self.other_id = other_id; self.width = width
+
+DC_ESC_DELAY_MIN_MS = 88
+DC_ESC_DELAY_MAX_MS = 188
+
+class BH1750:
+    def __init__(self):
+        self.i2c = busio.I2C(board.GP21, board.GP20); self.buf = bytearray(2)
+        for command in (1, 7, 0x10): self._write(command)
+        time.sleep(.2)
+    def _write(self, command):
+        while not self.i2c.try_lock(): pass
+        try: self.i2c.writeto(0x23, bytes((command,)))
+        finally: self.i2c.unlock()
+    def lux(self):
+        while not self.i2c.try_lock(): pass
+        try: self.i2c.readfrom_into(0x23, self.buf)
+        finally: self.i2c.unlock()
+        value = ((self.buf[0] << 8) | self.buf[1]) / 1.2
+        if not math.isfinite(value) or value < 0: raise RuntimeError("invalid lux")
+        return value
+
+class Arm:
+    """UART0 GP16/GP17 transport: checksum frames, short-write rejection, two-move back-pressure."""
+    def __init__(self):
+        self.uart = busio.UART(board.GP16, board.GP17, baudrate=57600, timeout=.05)
+        self.buf = bytearray(); self.pending = 0; self.held = set()
+        self.relative_ready = None; self.async_sound = None; self.sound_result = None
+        self.sound_detail = None; self.host_usb_state = None; self.host_usb_seen = False
+    def frame(self, line): return ("#%02X|%s\n" % (sum(line.encode()) & 255, line)).encode()
+    def write(self, line):
+        data = self.frame(line); count = self.uart.write(data)
+        if count is not None and count != len(data): raise RuntimeError("short UART write")
+    def pump(self):
+        if self.uart.in_waiting: self.buf.extend(self.uart.read(self.uart.in_waiting))
+        replies = []
+        while b"\n" in self.buf:
+            raw, self.buf = self.buf.split(b"\n", 1); line = raw.decode("utf-8", "replace").strip()
+            if line.startswith("OK|MMOVE"):
+                self.pending = max(0, self.pending - 1)
+            elif line.startswith("EVT|ASND|DETECTED"):
+                self.sound_result = True
+                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "peak=unknown"
+                print(line)
+            elif line.startswith("EVT|ASND|TIMEOUT"):
+                self.sound_result = False
+                self.sound_detail = line.split("|", 3)[3] if line.count("|") >= 3 else "max=unknown"
+                print(line)
+            elif line.startswith("EVT|HOSTUSB|"):
+                state = line.rsplit("|", 1)[-1]
+                if state in ("UP", "SUSPEND", "DOWN"):
+                    self.host_usb_state = state
+                    self.host_usb_seen = True
+                print(line)
+            elif line.startswith("EVT|"): print(line)
+            elif line: replies.append(line)
+        return replies
+    def move(self, x, y):
+        end = time.monotonic() + 2
+        while self.pending >= 2:
+            self.pump()
+            if time.monotonic() > end: raise RuntimeError("arm back-pressure timeout")
+            time.sleep(.001)
+        self.write("MMOVE|%d,%d,abs,2" % (x, y)); self.pending += 1
+    def move_relative(self, dx, dy):
+        if self.relative_ready is None:
+            reply = self.send("HVER", 3)
+            self.relative_ready = "|REL=1" in reply
+            self.async_sound = "|ASND=1" in reply
+        if not self.relative_ready:
+            raise RuntimeError("ARM 2.8 relative mouse firmware required")
+        end = time.monotonic() + 2
+        while self.pending >= 2:
+            self.pump()
+            if time.monotonic() > end: raise RuntimeError("arm back-pressure timeout")
+            time.sleep(.001)
+        self.write("MMOVE|%d,%d,rel,2" % (dx, dy)); self.pending += 1
+    def _track_button_command(self, line):
+        head, sep, payload = line.partition("|")
+        button = payload.split(",", 1)[0].strip().lower() if sep else ""
+        if head == "MDOWN" and button in ("left", "right", "middle"):
+            self.held.add(button)
+        elif head == "MUP" and button in ("left", "right", "middle"):
+            self.held.discard(button)
+
+    def send(self, line, timeout=5):
+        head = line.split("|", 1)[0]
+        # SETRES is idempotent. A stale ERR/partial UART line must not make a
+        # whole Route fail; retry it once after the receive queue is pumped.
+        attempts = 2 if head == "SETRES" else 1
+        last_error = None
+        for attempt in range(attempts):
+            self.pump()
+            self.write(line)
+            end = time.monotonic() + timeout
+            while time.monotonic() < end:
+                for reply in self.pump():
+                    if reply.startswith("OK|" + head):
+                        self._track_button_command(line)
+                        return reply
+                    if reply.startswith("ERR|"):
+                        if head == "WSND" and reply.startswith("ERR|TIMEOUT|WSND"):
+                            return reply
+                        last_error = reply
+                        break
+                if last_error is not None: break
+                time.sleep(.002)
+            if attempt + 1 < attempts:
+                self.pump()
+                time.sleep(.03)
+                last_error = None
+                continue
+            if last_error is not None:
+                raise RuntimeError("ARM %s rejected: %s" % (head, last_error))
+            raise RuntimeError("ARM %s acknowledgement timeout" % head)
+    def flush(self):
+        end = time.monotonic() + 3
+        while self.pending and time.monotonic() < end: self.pump(); time.sleep(.002)
+        if self.pending: raise RuntimeError("arm move acknowledgement timeout")
+    def release(self, force=True):
+        # Never emit MUP for a button that this runtime did not observe going
+        # down. Unconditional MUP frames were interpreted by the Pro Micro as
+        # a stray click/hold on otherwise mouse-only routes.
+        for button in tuple(self.held):
+            try: self.send("MUP|" + button, 1)
+            except Exception: pass
+        self.held.clear(); self.pending = 0
+    def abort(self):
+        # Stop the active human-mouse operation first. Do not send synthetic
+        # MUP frames for left/right/middle when no MDOWN was acknowledged.
+        try:
+            self.write("HALT")
+        except Exception:
+            pass
+        deadline = time.monotonic() + .35
+        while time.monotonic() < deadline:
+            halted = False
+            for reply in self.pump():
+                if reply.startswith("OK|HALT") or reply.startswith("ERR|ABORTED"):
+                    halted = True
+                    break
+            if halted:
+                break
+            time.sleep(.002)
+        for button in tuple(self.held):
+            try:
+                self.write("MUP|" + button)
+                time.sleep(.008)
+            except Exception:
+                pass
+        deadline = time.monotonic() + .35
+        while time.monotonic() < deadline:
+            self.pump()
+            time.sleep(.002)
+        self.held.clear(); self.pending = 0
+    def prepare_route(self):
+        # Software equivalent of the power-cycle workaround: cancel a stale
+        # route, neutralize all buttons, and discard completed move debt before
+        # SETRES or the first RMOUSE command of the next route.
+        self.abort()
+        self.pending = 0
+
+class Button:
+    def __init__(self, pin):
+        self.io = digitalio.DigitalInOut(pin); self.io.direction = digitalio.Direction.INPUT; self.io.pull = digitalio.Pull.UP
+        self.down = False; self.changed = 0; self.started = 0; self.long = False
+    def poll(self, now):
+        pressed = not self.io.value
+        if pressed != self.down and now - self.changed >= .04:
+            self.changed = now; self.down = pressed
+            if pressed: self.started = now; self.long = False; return "down"
+            return "up"
+        if pressed and not self.long and now - self.started >= 3: self.long = True; return "long"
+        return None
+
+class Controls:
+    def __init__(self, arm, keyboard):
+        self.arm = arm; self.keyboard = keyboard; self.running = False; self.paused = False; self.aborted = False
+        self.tick = None
+    def start(self): self.running = True; self.paused = False; self.aborted = False
+    def stop(self):
+        self.running = False; self.paused = False; self.aborted = True
+        try: self.keyboard.release_all()
+        except Exception: pass
+        self.arm.abort()
+    def _poll_controls(self):
+        callback = self.tick
+        if callback is not None:
+            callback()
+    def gate(self):
+        while self.paused and self.running:
+            self.arm.pump()
+            self._poll_controls()
+            time.sleep(.01)
+        return self.running and not self.aborted
+    def sleep(self, milliseconds):
+        end = time.monotonic() + max(0, milliseconds) / 1000
+        while time.monotonic() < end:
+            self.arm.pump()
+            self._poll_controls()
+            if not self.gate(): return False
+            time.sleep(.005)
+        return True
+
+class PlanContext:
+    plan_api = 3; screen_w = 1920; screen_h = 1080; speed_min = 0; speed_max = 2000
+    mouse_mode = "relative"
+    def __init__(self, runtime):
+        self.r = runtime; self._parallel_sound = None
+        self._sound_watch = None; self._sound_watch_pending = None
+        self._sound_watch_servicing = False
+    def get_mouse_pos(self):
+        value = getattr(self.r, "mouse_pos", None)
+        if value is None or len(value) < 2:
+            return None
+        return (int(value[0]), int(value[1]))
+    def set_mouse_pos(self, x, y):
+        self.r.mouse_pos = (int(x), int(y))
+    def now(self): return time.monotonic()
+    def gate(self): return self.r.controls.gate()
+    def sleep_ms(self, ms):
+        if self._sound_watch is None or self._sound_watch_servicing:
+            return self.r.controls.sleep(ms)
+        end = time.monotonic() + max(0, ms) / 1000
+        while time.monotonic() < end:
+            remaining = int(max(1, (end - time.monotonic()) * 1000))
+            if not self.r.controls.sleep(min(10, remaining)):
+                return False
+            if self.r.arm.sound_result is not None:
+                break
+        return True
+    def log(self, text): print("plan:", text)
+    def mmove(self, x, y): self.r.arm.move(x, y)
+    def mmove_relative(self, dx, dy): self.r.arm.move_relative(dx, dy)
+    def mclick(self, button, count, hmin, hmax): self.r.arm.send("MCLICK|%s,%d,%d,%d" % (button, count, hmin, hmax), 8)
+    def ktext(self, hmin, hmax, text): self.r.type_text(text, hmin, hmax, self)
+    def type_char(self, ch):
+        value = ord(ch)
+        ascii_alnum = (48 <= value <= 57 or 65 <= value <= 90 or 97 <= value <= 122)
+        code = self.r.key(ord(ch.upper())) if ascii_alnum else self.r.key(32 if ch == " " else 13)
+        self.r.keyboard.press(code)
+        self.r.keyboard.release(code)
+    def kcombo(self, value): self.key_combo([value], 0, 0)
+    def key(self, vk, hold): self.key_combo([vk], hold, hold)
+    def key_combo(self, vks, hmin, hmax):
+        codes = [self.r.key(v) for v in vks]
+        for code in codes: self.r.keyboard.press(code)
+        self.sleep_ms(max(hmin, hmax))
+        for code in reversed(codes): self.r.keyboard.release(code)
+    def kdown(self, vk): self.r.keyboard.press(self.r.key(vk))
+    def kup(self, vk): self.r.keyboard.release(self.r.key(vk))
+    def wheel(self, delta): self.r.arm.send("MWHEEL|%d" % delta, 3)
+    def raw(self, line): return self.r.arm.send(str(line), 5)
+    def setres(self, w, h): return self.r.arm.send("SETRES|%d,%d" % (w, h), 5)
+    def wait_sound(self, threshold, minimum, timeout):
+        reply = self.r.arm.send("WSND|%d,%d,%d" % (threshold, minimum, timeout), timeout / 1000 + 3)
+        if "DETECTED" in reply:
+            detail = reply.split("DETECTED|", 1)[1] if "DETECTED|" in reply else "peak=unknown"
+            self.r.emit("EVT|SOUND|result=detected|" + detail)
+            return True
+        if "TIMEOUT" in reply:
+            detail = reply.split("WSND|", 1)[1] if "WSND|" in reply else "max=unknown"
+            self.r.emit("EVT|SOUND|result=timeout|" + detail)
+            return False
+        return None
+    def sound_profile(self, profile_id, binding, threshold, minimum):
+        return self.r.sound_profile(profile_id, binding, threshold, minimum)
+    def sound_start(self, threshold, minimum, timeout):
+        arm = self.r.arm
+        if arm.relative_ready is None:
+            reply = arm.send("HVER", 3)
+            arm.relative_ready = "|REL=1" in reply
+            arm.async_sound = "|ASND=1" in reply
+        if arm.async_sound:
+            arm.sound_result = None; arm.sound_detail = None
+            arm.send("ASND|%d,%d,%d" % (threshold, minimum, timeout), 2)
+            self.r.emit("EVT|SOUND|listen|source=async|threshold=%d|min=%d|timeout=%d" %
+                        (threshold, minimum, timeout))
+            self._parallel_sound = "async"
+            return
+        self._parallel_sound = {
+            "threshold": int(threshold), "minimum": max(10, int(minimum)),
+            "deadline": time.monotonic() + max(1, int(timeout)) / 1000,
+            "sustained": 0, "polls": 0}
+    def sound_poll(self):
+        if self._parallel_sound == "async":
+            self.r.arm.pump()
+            result = self.r.arm.sound_result
+            if result is not None:
+                detail = self.r.arm.sound_detail or "peak=unknown"
+                self.r.emit("EVT|SOUND|result=%s|mode=async|%s" %
+                            ("detected" if result else "timeout", detail))
+                self._parallel_sound = None
+            return result
+        state = self._parallel_sound
+        if state is None:
+            return False
+        if time.monotonic() >= state["deadline"]:
+            self._parallel_sound = None
+            return False
+        # ARM 2.8.1 already exposes a short, HALT-abortable sound calibration
+        # window. Reusing 10 ms SCAL slices avoids adding bytes to the nearly
+        # full Leonardo firmware and returns the UART to MMOVE between polls.
+        # MMOVE is pipelined (two outstanding frames). Starting SCAL before
+        # those acknowledgements arrive makes ARM correctly answer ERR|BUSY.
+        # Drain the move queue first and retry only that transient rejection.
+        reply = None
+        for attempt in range(3):
+            self.r.arm.flush()
+            try:
+                reply = self.r.arm.send("SCAL|10", 2)
+                break
+            except RuntimeError as exc:
+                if "SCAL rejected: ERR|BUSY" not in str(exc) or attempt >= 2:
+                    raise
+                self.r.arm.pump()
+                time.sleep(.02)
+        if reply is None:
+            raise RuntimeError("ARM SCAL unavailable")
+        peak = None
+        marker = reply.find("max=")
+        if marker >= 0:
+            marker += 4
+            value = 0
+            digits = 0
+            while marker < len(reply):
+                code = ord(reply[marker])
+                if code < 48 or code > 57:
+                    break
+                value = value * 10 + code - 48
+                digits += 1
+                marker += 1
+            if digits:
+                peak = value
+        if peak is None:
+            raise RuntimeError("ARM SCAL reply has no peak")
+        state["polls"] += 1
+        if state["polls"] >= 32:
+            state["polls"] = 0
+            gc.collect()
+        if peak >= state["threshold"]:
+            state["sustained"] += 10
+            if state["sustained"] >= state["minimum"]:
+                self._parallel_sound = None
+                return True
+        else:
+            state["sustained"] = 0
+        return None
+    def sound_peak(self):
+        detail = self.r.arm.sound_detail or ""
+        marker = detail.find("peak=")
+        if marker < 0:
+            marker = detail.find("max=")
+        if marker < 0:
+            return None
+        marker += 5 if detail[marker:marker + 5] == "peak=" else 4
+        value = 0
+        digits = 0
+        while marker < len(detail):
+            code = ord(detail[marker])
+            if code < 48 or code > 57:
+                break
+            value = value * 10 + code - 48
+            digits += 1
+            marker += 1
+        return value if digits else None
+    def sound_cancel(self):
+        if self._parallel_sound == "async":
+            self.r.arm.flush()
+            self.r.arm.send("ASNDCANCEL", 2)
+        self._parallel_sound = None
+    def _active_watch_profiles(self):
+        state = self._sound_watch
+        if state is None:
+            return []
+        scope = state.get("scope")
+        return [item for item in state["profiles"]
+                if item["mode"] == "global" or item["id"] == scope]
+    def _arm_sound_watch(self):
+        state = self._sound_watch
+        if (state is None or self._sound_watch_servicing
+                or self._parallel_sound is not None
+                or time.monotonic() < state["cooldown_until"]):
+            return
+        profiles = self._active_watch_profiles()
+        if not profiles:
+            state["armed"] = None
+            return
+        state["armed"] = profiles
+        threshold = min(item["peak_min"] for item in profiles)
+        minimum = min(item["minimum"] for item in profiles)
+        self.sound_start(threshold, minimum, 30000)
+        if self._parallel_sound != "async":
+            self.sound_cancel()
+            raise ValueError("SOUNDWATCH requires asynchronous ASND firmware")
+        self.r.emit("EVT|SOUNDWATCH|armed|profiles=%d|threshold=%d" %
+                    (len(profiles), threshold))
+    def install_sound_watch(self, profiles):
+        self.close_sound_watch()
+        self._sound_watch = {"profiles": profiles, "scope": None,
+                             "scope_result": None, "cooldown_until": 0.0,
+                             "armed": None}
+        self._sound_watch_pending = None
+        self._arm_sound_watch()
+    def poll_sound_watch(self):
+        state = self._sound_watch
+        if (state is None or self._sound_watch_servicing
+                or self._sound_watch_pending is not None):
+            return None
+        if time.monotonic() < state["cooldown_until"]:
+            return None
+        if self._parallel_sound is None:
+            self._arm_sound_watch()
+        if self._parallel_sound is None:
+            return None
+        result = self.sound_poll()
+        if result is None:
+            return None
+        if not result:
+            self._arm_sound_watch(); return None
+        self._sound_watch_pending = True
+        return None
+    def take_sound_watch(self):
+        pending = self._sound_watch_pending
+        self._sound_watch_pending = None
+        return pending
+    def begin_profile_wait(self, profile_id):
+        state = self._sound_watch
+        if state is None:
+            raise ValueError("WPROFILE requires SOUNDWATCH")
+        found = [item for item in state["profiles"]
+                 if item["id"] == profile_id and item["mode"] == "scoped"]
+        if not found:
+            raise ValueError("WPROFILE profile is not enabled")
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        state["scope"] = profile_id; state["scope_result"] = None
+        self._arm_sound_watch()
+    def poll_profile_wait(self, profile_id):
+        state = self._sound_watch
+        if state is None or state.get("scope") != profile_id:
+            return None
+        return state.get("scope_result")
+    def end_profile_wait(self):
+        state = self._sound_watch
+        if state is None:
+            return
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        state["scope"] = None; state["scope_result"] = None
+        self._arm_sound_watch()
+    def suspend_sound_watch(self):
+        self._sound_watch_servicing = True
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+    def resume_sound_watch(self, cooldown):
+        state = self._sound_watch
+        if state is not None:
+            state["cooldown_until"] = time.monotonic() + max(0, cooldown) / 1000
+        self._sound_watch_servicing = False
+    def close_sound_watch(self):
+        if self._parallel_sound is not None:
+            self.sound_cancel()
+        self._sound_watch = None; self._sound_watch_pending = None
+        self._sound_watch_servicing = False
+    def close(self):
+        self.close_sound_watch()
+    def sound_parallel_safe(self):
+        return self.r.arm.async_sound is True
+    def trg_sound(self, threshold, minimum, timeout, action, rmin, rmax, hmin, hmax):
+        return self.r.arm.send("TRGSND|%d,%d,%d,%d,%d,%d,%d,%d" % (threshold, minimum, timeout, action, rmin, rmax, hmin, hmax), timeout / 1000 + 3).startswith("OK|")
+    def beep(self, frequency, duration):
+        tone = pwmio.PWMOut(board.GP6, duty_cycle=32768, frequency=int(frequency), variable_frequency=True)
+        try: self.sleep_ms(duration)
+        finally: tone.duty_cycle = 0; tone.deinit()
+    def read_plan_file(self, name):
+        if not name or any(c in name for c in "/\\:"): raise ValueError("unsafe include")
+        with open("/" + name, "r") as fh: return fh.read()
+    def wait_light(self, lo, hi, stable, timeout, mode):
+        start = None; end = time.monotonic() + timeout / 1000
+        while time.monotonic() < end:
+            value = self.r.sensor.lux()
+            if lo <= value <= hi:
+                if start is None: start = time.monotonic()
+                if (time.monotonic() - start) * 1000 >= stable: return True
+            else: start = None
+            if not self.sleep_ms(20): return False
+        return False
+
+class Combined:
+    def __init__(self):
+        self.arm = Arm(); self.keyboard = Keyboard(usb_hid.devices); self.controls = Controls(self.arm, self.keyboard); self.sensor = BH1750()
+        self.bundle = load_guard_bundle("/"); self.guard = LightStateGuard.from_bundle("/"); self.routes = {}
+        self.blue = Button(board.GP4); self.yellow = Button(board.GP3); self.usb = usb_cdc.data or usb_cdc.console; self.host = bytearray()
+        self.calibrating = False; self.stage = 0; self.samples = []; self.sample_started = 0; self.sample_next = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.last_cal_error = None
+    def live_beep(self, frequency, duration_ms, volume=100, envelope="sharp"):
+        tone = pwmio.PWMOut(board.GP6, duty_cycle=0, frequency=int(frequency), variable_frequency=True)
+        try:
+            total=duration_ms/1000; edge=min(.08,total/3); target=int(32768*volume/100); started=time.monotonic()
+            while True:
+                elapsed=time.monotonic()-started
+                if elapsed>=total: break
+                level=1.0
+                if envelope in ("smooth","fade-in") and elapsed<edge: level=elapsed/edge
+                if envelope in ("smooth","fade-out") and elapsed>total-edge: level=min(level,(total-elapsed)/edge)
+                tone.duty_cycle=max(0,min(32768,int(target*level)))
+                time.sleep(.004 if envelope!="sharp" else total)
+        finally:
+            tone.duty_cycle=0; tone.deinit()
+    def key(self, vk):
+        # Convert Windows virtual-key values directly to USB HID usages.
+        # Keep this branch-only mapping allocation-free on CircuitPython's small heap.
+        if 65 <= vk <= 90: return vk - 61
+        if 49 <= vk <= 57: return vk - 19
+        if vk == 48: return 39
+        if 112 <= vk <= 123: return vk - 54
+        if vk == 13: return 40
+        if vk == 27: return 41
+        if vk == 8: return 42
+        if vk == 9: return 43
+        if vk == 32: return 44
+        if vk == 37: return 80
+        if vk == 38: return 82
+        if vk == 39: return 79
+        if vk == 40: return 81
+        if vk == 160: return 225
+        if vk == 162: return 224
+        if vk == 164: return 226
+        if vk == 91: return 227
+        return 8
+    def type_text(self, text, hmin, hmax, ctx):
+        for ch in text:
+            if not ctx.gate(): raise plan_engine.PlanAbort()
+            value = ord(ch)
+            ascii_alnum = (48 <= value <= 57 or 65 <= value <= 90 or 97 <= value <= 122)
+            code = self.key(ord(ch.upper())) if ascii_alnum else self.key(32 if ch == " " else 13)
+            self.keyboard.press(code); self.keyboard.release(code)
+            if not ctx.sleep_ms(hmax if hmax > hmin else hmin): raise plan_engine.PlanAbort()
+    def emit(self, line):
+        try: self.usb.write((line + "\n").encode())
+        except Exception: pass
+    def _ensure_calibration_storage_writable(self):
+        # boot.py remounts CIRCUITPY writable before USB is enabled. A second
+        # remount here fails with "Cannot remount path when visible via USB"
+        # and used to strand Calibration in an unsaved state. Do not remount a
+        # live USB filesystem; let the atomic write path report a real I/O error.
+        return True
+
+    def _write_verified_text(self, path, text):
+        # CircuitPython can acknowledge a filesystem write before the USB
+        # volume has committed it. Flush, close, and read back the exact text
+        # before allowing calibration to proceed.
+        with open(path, "w") as fh:
+            fh.write(text)
+            try: fh.flush()
+            except Exception: pass
+        with open(path, "r") as fh:
+            if fh.read() != text:
+                raise RuntimeError("write verification mismatch: " + path)
+
+    def _replace_text(self, path, text):
+        temp = path + ".tmp"
+        try:
+            self._write_verified_text(temp, text)
+            try: os.remove(path)
+            except Exception: pass
+            os.rename(temp, path)
+            with open(path, "r") as fh:
+                if fh.read() != text:
+                    raise RuntimeError("rename verification mismatch: " + path)
+        except Exception:
+            try: os.remove(temp)
+            except Exception: pass
+            raise
+    def _read_text(self, path):
+        with open(path, "r") as fh: return fh.read()
+    def _replace_json(self, path, text):
+        self._replace_text(path, text)
+    def _hash_manifest(self):
+        lines = ["%s  %s" % (_file_sha256("/", name), name) for name in sorted(HASHED_BUNDLE_FILES)]
+        return "\n".join(lines) + "\n"
+    def _publish_calibration(self, revision, profile_id, profile):
+        self.last_cal_fit = False
+        profiles, events, blocked = calibration_nvm.fit_profiles(
+            self.bundle.get("calibration", {}).get("profiles", {}),
+            profile_id, profile)
+        self.last_cal_fit = profiles is not None and bool(events)
+        for event in events: self.emit(event)
+        if profiles is None:
+            raise CalibrationOverlapError(blocked, 0)
+        try:
+            calibration_nvm.save(microcontroller.nvm, CALIBRATION_BASE_REVISION, profiles)
+            calibration_nvm.apply(self.bundle, profiles)
+            self.guard = LightStateGuard(
+                self.bundle["states"], self.bundle["stable_ms"],
+                self.bundle["hysteresis"], self.bundle["sensor_timeout_ms"])
+            self.guard.bundle = self.bundle
+        except Exception as exc:
+            self.last_cal_error = type(exc).__name__ + ":" + str(exc)[:80]
+            self.emit("ERR|CAL|SAVE|" + self.last_cal_error)
+            raise
+        self.last_cal_error = None
+        self.calibration_source = "nvm"
+        self.emit("EVT|CAL|storage=nvm|id=" + profile_id)
+    def calibration_count(self):
+        return len(self.bundle.get("calibration", {}).get("profiles", {}))
+    def calget(self):
+        return build_calibration_get(self.bundle["revision"], self.calibration_count())
+    def calstatus(self):
+        profiles = self.bundle.get("calibration", {}).get("profiles", {})
+        parts = []
+        for pid in PROFILES:
+            item = profiles.get(pid, {})
+            parts.append("%s:%.3f:%.3f:%d" % (
+                pid,
+                float(item.get("center", 0)),
+                float(item.get("tolerance", 0)),
+                int(item.get("stable_ms", 750))))
+        error = (self.last_cal_error or "none").replace("|", "/").replace("\n", " ")[:80]
+        return "OK|CALSTATUS|revision=%s|source=%s|count=%d|profiles=%s|last_error=%s" % (
+            self.bundle.get("revision", "unknown"),
+            getattr(self, "calibration_source", "file"),
+            len(profiles), ";".join(parts), error)
+    def calset(self, line):
+        if self.controls.running or self.calibrating: return "ERR|CALSET|BUSY"
+        payload, error = parse_calibration_set(line)
+        if error is not None: return "ERR|CALSET|" + error
+        try:
+            self._publish_calibration(payload["revision"], payload["id"], payload)
+        except CalibrationOverlapError as exc:
+            return "ERR|CALSET|OVERLAP|with=%s|lux=%.3f" % (exc.other_id, exc.width)
+        except Exception:
+            return "ERR|CALSET|SAVE"
+        return "OK|CALSET|%s|revision=%s|count=%d" % (payload["id"], payload["revision"], self.calibration_count())
+    def start_cal(self):
+        self.controls.stop(); self.calibrating = True; self.stage = 0; self.samples = []; self.sample_started = 0; self.result = None; self.saved = False; self.saved_ids = set(); self.emit("EVT|CAL|mode=ready|stage=1|id=" + PROFILES[0] + "|seconds=5|saved=0")
+    def end_cal(self):
+        if not self.calibrating:
+            return
+        incomplete = 1 if self.result is not None and not self.saved else 0
+        saved_count = len(self.saved_ids)
+        # Exiting Calibration is always allowed. An in-progress or unsaved
+        # sample is discarded in memory; previously saved profiles remain intact.
+        self.calibrating = False
+        self.result = None
+        self.samples = []
+        self.sample_started = 0
+        self.saved = False
+        self.emit("EVT|CAL|mode=exited|saved=%d|incomplete=%d" % (saved_count, incomplete))
+    def save_cal(self):
+        if not isinstance(self.result, dict): self.emit("ERR|CAL|BUSY|stage=%d" % (self.stage + 1)); return
+        try: self._publish_calibration(PENDING_REVISION, PROFILES[self.stage], self.result)
+        except CalibrationOverlapError as exc:
+            self.last_cal_error = "OVERLAP:%s:%.3f" % (exc.other_id, exc.width)
+            self.emit("ERR|CAL|OVERLAP|stage=%d|id=%s|with=%s|lux=%.3f" %
+                      (self.stage + 1, PROFILES[self.stage], exc.other_id, exc.width))
+            return
+        except Exception as exc:
+            self.last_cal_error = type(exc).__name__ + ":" + str(exc)[:80]
+            self.emit("ERR|CAL|SAVE|stage=%d|detail=%s" % (self.stage + 1, self.last_cal_error))
+            return
+        self.saved = True; self.saved_ids.add(PROFILES[self.stage]); self.emit("EVT|CAL|mode=saved-stage|stage=%d|id=%s|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
+    def yellow_action(self):
+        if not self.calibrating: self.controls.paused = not self.controls.paused; return
+        if self.result == "sampling": self.emit("ERR|CAL|BUSY|stage=%d" % (self.stage + 1)); return
+        if self.result is not None: self.save_cal(); return
+        self.samples = []; self.sample_started = time.monotonic(); self.sample_next = self.sample_started; self.result = "sampling"; self.emit("EVT|CAL|mode=started|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
+    def cal_tick(self):
+        if not self.calibrating or self.result != "sampling": return
+        now = time.monotonic()
+        # The main loop runs every 10 ms. Appending a float on every pass built
+        # ~500 Python objects, then sorted() needed a second pointer array and
+        # could stop code.py with MemoryError exactly at the five-second mark.
+        # Ten samples/second is ample for a slowly changing lux sensor and
+        # caps both the live list and the final median/sort compiler pressure.
+        if now < self.sample_next: return
+        self.sample_next = now + .1
+        self.samples.append(self.sensor.lux())
+        if now - self.sample_started < 5: return
+        values = sorted(self.samples); center = values[len(values)//2]; spread = max(values)-min(values)
+        if len(values) < 5 or spread > 5: self.result = None; self.emit("ERR|CAL|UNSTABLE|stage=%d|spread=%.1f" % (self.stage+1, spread)); return
+        self.result = calibrated_profile(
+            values, self.bundle.get("calibration", {}).get("profiles", {}),
+            PROFILES[self.stage], 750)
+        self.saved = False; self.emit("EVT|CAL|mode=complete-stage|stage=%d|id=%s|center=%.1f|spread=%.1f|tolerance=%.1f|saved=0" % (self.stage+1, PROFILES[self.stage], self.result["center"], spread, self.result["tolerance"]))
+    def next_cal(self):
+        if not self.calibrating: return
+        if self.result is not None and self.result != "sampling" and not self.saved: self.emit("ERR|CAL|UNSAVED|stage=%d" % (self.stage+1)); return
+        if self.stage >= 5: self.emit("EVT|CAL|mode=last|stage=6|saved=%d" % len(self.saved_ids)); return
+        self.stage += 1; self.result = None; self.saved = False; self.emit("EVT|CAL|mode=ready|stage=%d|id=%s|seconds=5|saved=%d" % (self.stage+1, PROFILES[self.stage], len(self.saved_ids)))
+    def buttons(self):
+        now = time.monotonic(); blue = self.blue.poll(now); yellow = self.yellow.poll(now)
+        if blue == "long": self.end_cal() if self.calibrating else self.start_cal()
+        elif blue == "up" and not self.blue.long: self.next_cal() if self.calibrating else (self.controls.stop() if self.controls.running else (self.guard.reset(), self.controls.start()))
+        if yellow == "up" and not self.yellow.long: self.yellow_action()
+        self.cal_tick()
+    def _dismiss_dc_popup(self, decision):
+        # Login and DC share the same optical profile. The transition policy
+        # marks a stable observation from stages 3–5 as context=dc, so ESC is
+        # never injected on the actual login path.
+        if decision.get("context") != "dc":
+            return True
+        delay_ms = random.randint(DC_ESC_DELAY_MIN_MS, DC_ESC_DELAY_MAX_MS)
+        self.emit("EVT|DC|ESC|phase=delay|delay-ms=%d" % delay_ms)
+        if not self.controls.sleep(delay_ms):
+            return False
+        esc = self.key(27)
+        try:
+            self.keyboard.press(esc)
+            self.emit("EVT|DC|ESC|phase=sent|delay-ms=%d|key=ESC" % delay_ms)
+        finally:
+            # Always release the key even if the USB HID report fails.
+            self.keyboard.release(esc)
+        return True
+    def route(self, decision):
+        if not decision.get("execute"): return
+        name = decision.get("route")
+        if name not in self.bundle["manifest"]["routes"].values(): raise GuardBundleError("unvalidated route")
+        # A parsed plan is consumable: loop/random bookkeeping must not be
+        # reused by a later invocation of the same Route.
+        with open("/" + name, "r") as fh:
+            route_plan = plan_engine.parse_plan(fh.read())
+        self.arm.prepare_route()
+        try:
+            if not self._dismiss_dc_popup(decision):
+                return
+            plan_engine.run_plan(route_plan, PlanContext(self))
+            self.arm.flush()
+        finally:
+            # Always leave the Pro Micro neutral even when a plan step fails.
+            self.arm.release(False)
+            del route_plan
+            gc.collect()
+    def host_poll(self):
+        if self.usb.in_waiting: self.host.extend(self.usb.read(self.usb.in_waiting))
+        while b"\n" in self.host:
+            raw, self.host = self.host.split(b"\n", 1); line = raw.decode("utf-8", "replace").strip()
+            if not line: continue
+            try:
+                if line == "PING": reply = "OK|PONG|combined-pico-guard-executor|hid=on|uart=on|profiles=6"
+                elif line == "CALGET": reply = self.calget()
+                elif line == "CALSTATUS": reply = self.calstatus()
+                elif line.startswith("CALSET|"): reply = self.calset(line)
+                elif line == "GUARD|ON": self.controls.start(); reply = "OK|GUARD|ON"
+                elif line in ("GUARD|OFF", "HALT"): self.controls.stop(); reply = "OK|GUARD|OFF"
+                elif line == "LUX?": reply = "OK|LUX|lux=%.1f|sensor=ok" % self.sensor.lux()
+                else: reply = "ERR|GUARD|UNKNOWN"
+                self.emit(reply)
+            except Exception: self.emit("ERR|EXC")
+    def loop(self):
+        self.emit("combined-pico-guard-executor|GP4 start/stop hold3s=calibration|GP3 pause/resume|GP6 piezo"); last = 0
+        while True:
+            self.host_poll(); self.buttons(); self.arm.pump()
+            if self.controls.running and not self.calibrating and time.monotonic() - last >= .25:
+                last = time.monotonic()
+                try:
+                    self.guard.update(self.sensor.lux(), int(last * 1000))
+                    if self.guard.last_decision is not None: self.route(self.guard.last_decision)
+                except Exception as exc: self.controls.stop(); self.emit("ERR|GUARD|FAIL|" + str(exc)[:60])
+            time.sleep(.01)
+
+def main():
+    try: Combined().loop()
+    except GuardBundleError as exc: print("combined Guard bundle rejected:", exc)
+    except Exception as exc: print("combined Guard stopped:", exc)

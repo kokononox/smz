@@ -50,6 +50,8 @@ public static class HumanMouse
         public int SampledCurvePct { get; init; }             // v0.9.8: fresh value selected for this move
         public int CurveMinPct { get; init; }                 // requested dynamic range (for log/tests)
         public int CurveMaxPct { get; init; }
+        public string SelectedSpeedMode { get; init; } = "legacy";
+        public int SpeedCap { get; init; }
         public int TargetMoveMs { get; init; }                // v0.9.10: sampled duration target (0 = speed-driven)
     }
 
@@ -72,6 +74,14 @@ public static class HumanMouse
         public int CurveMaxPct { get; init; } = 45;           // 0..100 bow, 101..200 true arc
         public int SpeedMinPxPerSec { get; init; } = 0;       // app setting (px/s) — max 0 = no path timing
         public int SpeedMaxPxPerSec { get; init; } = 2000;   // v0.9.24 — recalibrated from the dense hand recording (was 2300 → 500 → 2000)
+        public string SpeedMode { get; init; } = "legacy";
+        public string ProfileSource { get; init; } = "legacy";
+        public int SpeedCap { get; init; }
+        public int SlowWeight { get; init; } = 20;
+        public int NormalWeight { get; init; } = 50;
+        public int FastWeight { get; init; } = 30;
+        public int CustomSpeedMin { get; init; } = 300;
+        public int CustomSpeedMax { get; init; } = 530;
         public int MoveTimeMinMs { get; init; }               // v0.9.10: per-move duration range ms (0/0 = speed-driven)
         public int MoveTimeMaxMs { get; init; }
 
@@ -110,6 +120,19 @@ public static class HumanMouse
             int mtMin = Math.Max(0, PropEx.GetInt(p, "moveTimeMin", 0));
             int mtMax = Math.Max(0, PropEx.GetInt(p, "moveTimeMax", 0));
             if (mtMax < mtMin) (mtMin, mtMax) = (mtMax, mtMin);
+            int effectiveSpeedMin = speedMin, effectiveSpeedMax = speedMax;
+            bool hasSampledCadence = false;
+            if (!gentleDefaults
+                && HandMovementSample.TryDecode(PropEx.GetString(p, "handSample"), out var sample)
+                && HandMovementSample.TryGetSpeedRange(sample, out var sampledMin, out var sampledMax))
+            {
+                effectiveSpeedMin = sampledMin;
+                effectiveSpeedMax = sampledMax;
+                hasSampledCadence = true;
+            }
+            // A fresh hand sample is the authoritative cadence source for
+            // Random Mouse. Old explicit duration fields must not override it.
+            if (hasSampledCadence) mtMin = mtMax = 0;
 
             return new Config
             {
@@ -127,8 +150,13 @@ public static class HumanMouse
                 OvershootChancePct = Math.Clamp(PropEx.GetInt(p, "overshootChance", gentleDefaults ? 12 : 15), 0, 100),
                 CurveMinPct = curveMin,
                 CurveMaxPct = curveMax,
-                SpeedMinPxPerSec = speedMin,
-                SpeedMaxPxPerSec = speedMax,
+                SpeedMode = PropEx.GetString(p, "speedMode", "legacy"),
+                ProfileSource = PropEx.GetString(p, "handProfileSource", "legacy"),
+                SpeedCap = MouseSpeedPolicy.Validate(p),
+                SlowWeight = PropEx.GetInt(p, "speedSlowWeight", 20), NormalWeight = PropEx.GetInt(p, "speedNormalWeight", 50), FastWeight = PropEx.GetInt(p, "speedFastWeight", 30),
+                CustomSpeedMin = PropEx.GetInt(p, "speedCustomMin", 300), CustomSpeedMax = PropEx.GetInt(p, "speedCustomMax", 530),
+                SpeedMinPxPerSec = effectiveSpeedMin,
+                SpeedMaxPxPerSec = effectiveSpeedMax,
                 MoveTimeMinMs = mtMin,
                 MoveTimeMaxMs = mtMax,
             };
@@ -179,6 +207,21 @@ public static class HumanMouse
     }
 
     /// <summary>
+    /// Natural-v1 duration: keep the user's configured range as the medium-distance
+    /// baseline, shorten close moves and lengthen long moves.  The scale glides from
+    /// 0.72x at zero distance to 1.35x at 650px, then stays bounded.  This is applied
+    /// once per movement; micro-step cadence remains untouched.
+    /// </summary>
+    public static int DistanceScaledMoveMs(int minMs, int maxMs, double distance, Random rng)
+    {
+        if (maxMs < minMs) (minMs, maxMs) = (maxMs, minMs);
+        if (maxMs <= 0) return 0;
+        int sampled = Rand(rng, Math.Max(1, minMs), Math.Max(1, maxMs));
+        double scale = 0.72 + 0.63 * Math.Clamp(distance / 650.0, 0.0, 1.0);
+        return (int)Math.Clamp(Math.Round(sampled * scale), 120, 30000);
+    }
+
+    /// <summary>
     /// Builds a complete move plan from (sx,sy) to (tx,ty): optional overshoot leg +
     /// correction leg, WindMouse waypoints with ease-in-out timing, a possible folded-in
     /// hesitation pause, and the before/after/long pauses. Target is clamped to the screen.
@@ -210,7 +253,9 @@ public static class HumanMouse
         if (moveTimeMax < moveTimeMin) (moveTimeMin, moveTimeMax) = (moveTimeMax, moveTimeMin);
         // v0.9.10 — per-step duration range: a FRESH target time is drawn for every move, then
         // the continuously-changing speed profile is normalized to land on it (0/0 = speed-driven).
-        int targetMoveMs = moveTimeMax > 0 ? Rand(rng, Math.Max(1, moveTimeMin), Math.Max(1, moveTimeMax)) : 0;
+        int targetMoveMs = moveTimeMax > 0
+            ? DistanceScaledMoveMs(moveTimeMin, moveTimeMax, dist, rng)
+            : 0;
         bool overshot = false;
         int overshootDenseIndex = -1, overshootCtrlIndex = -1;
 
@@ -258,15 +303,14 @@ public static class HumanMouse
         // Overshoot & correct: aim PAST the target along the approach line (plus a little
         // perpendicular error), pause briefly like a human re-aiming, then correct back.
         // Arc mode and overshoot are mutually exclusive — pick one curvature strategy per move.
-        else if (dist >= 60 && c.OvershootChancePct > 0 && rng.Next(100) < c.OvershootChancePct)
+        else if (dist >= 300 && c.OvershootChancePct > 0 && rng.Next(100) < c.OvershootChancePct)
         {
             overshot = true;
             double ux = (tx - sx) / dist, uy = (ty - sy) / dist;
-            // v0.9.5 — overshoot scales with curve: 3-8% at curve≤1, up to 20% at curve=2.
-            // Lateral error also scales: ±2px at curve≤1, up to ±12px at curve=2.
-            double curveScale = Math.Min(1.0, curve); // strong arc is a separate branch, not giant overshoot
-            int over = (int)Math.Clamp(dist * (0.03 + rng.NextDouble() * 0.05) * curveScale, 2, 20);
-            int perp = (int)(rng.NextDouble() * (2.0 + curveScale * 5.0) - (1.0 + curveScale * 2.5));
+            // Natural-v1: a rare, small miss followed by one correction.  Large
+            // percentage-based overshoots looked synthetic on long screen moves.
+            int over = Rand(rng, 2, 6);
+            int perp = Rand(rng, -1, 1);
             int ox = Math.Clamp(tx + (int)(ux * over - uy * perp), 0, Math.Max(0, screenW - 1));
             int oy = Math.Clamp(ty + (int)(uy * over + ux * perp), 0, Math.Max(0, screenH - 1));
             int leg1Ms = Math.Max(40, (int)(totalMs * 0.8));
@@ -301,13 +345,29 @@ public static class HumanMouse
 
         // v0.9.8 — speed is a CONTINUOUS profile, not one random speed for the whole move.
         // It alternates smoothly between low/high portions of [SpeedMin, SpeedMax].
-        AssignDynamicStreamDelays(dense, sx, sy, c.SpeedMinPxPerSec, c.SpeedMaxPxPerSec, rng, targetMoveMs);
+        string selectedSpeedMode = "legacy";
+        int effectiveMin = c.SpeedMinPxPerSec, effectiveMax = c.SpeedMaxPxPerSec;
+        if (c.SpeedMode != "legacy")
+        {
+            (effectiveMin, effectiveMax, selectedSpeedMode) = MouseSpeedPolicy.Select(c.SpeedMode, effectiveMin, c.SpeedCap, c.SlowWeight, c.NormalWeight, c.FastWeight, c.CustomSpeedMin, c.CustomSpeedMax, rng);
+            targetMoveMs = 0; // explicit speed policy supersedes legacy duration overrides
+        }
+        AssignDynamicStreamDelays(dense, sx, sy, effectiveMin, effectiveMax, rng, targetMoveMs);
+        if (c.SpeedCap > 0)
+        {
+            int px = sx, py = sy;
+            for (int i = 0; i < dense.Count; i++) {
+                var wp = dense[i]; double length = Math.Sqrt((wp.X-px)*(double)(wp.X-px) + (wp.Y-py)*(double)(wp.Y-py));
+                dense[i] = wp with { DelayMs = Math.Max(wp.DelayMs, (int)Math.Ceiling(length * 1000 / c.SpeedCap)) };
+                px = wp.X; py = wp.Y;
+            }
+        }
         int dynamicTotalMs = dense.Sum(p => p.DelayMs);
         for (int i = 0; i < ctrl.Count; i++) ctrl[i] = ctrl[i] with { DelayMs = 0 };
         AssignDelays(ctrl, dynamicTotalMs, rng); // old-bridge fallback keeps equivalent total time
         if (overshootDenseIndex >= 0)
         {
-            int reAimMs = Rand(rng, 60, 180);
+            int reAimMs = Rand(rng, 70, 160);
             dense[overshootDenseIndex] = dense[overshootDenseIndex] with
                 { DelayMs = dense[overshootDenseIndex].DelayMs + reAimMs };
             if (overshootCtrlIndex >= 0)
@@ -316,7 +376,9 @@ public static class HumanMouse
         }
 
         // Hesitation: fold ONE mid-path pause into a random interior point of BOTH lists.
-        var mid = pauses.MidPauseMs(c);
+        // Hesitation is rare and meaningful only on a long movement.  Short-move
+        // pauses resemble transport stalls rather than hand behaviour.
+        var mid = dist >= 300 ? pauses.MidPauseMs(c) : null;
         if (mid is > 0)
         {
             if (dense.Count >= 8)
@@ -344,6 +406,7 @@ public static class HumanMouse
             SampledCurvePct = sampledCurvePct,
             CurveMinPct = curveMin,
             CurveMaxPct = curveMax,
+            SelectedSpeedMode = selectedSpeedMode, SpeedCap = c.SpeedCap,
             TargetMoveMs = targetMoveMs,
         };
     }
@@ -548,6 +611,9 @@ public static class HumanMouse
         int hi = shapeOnly ? 2000 : Math.Max(lo, Math.Max(speedMin, speedMax));   // v0.9.24 — shape-only fallback aligned
         int knotCount = Math.Clamp(4 + pts.Count / 120, 4, 9);
         var speedProfile = BuildRangeProfile(lo, hi, knotCount, rng, lowAtBothEnds: true);
+        // Move the speed peak slightly earlier or later on every movement.  The
+        // remap is monotonic and keeps endpoints exact; only the velocity shape changes.
+        double phaseSkew = rng.NextDouble() * 0.44 - 0.22;
 
         double pathLength = 0; int px = sx, py = sy;
         var segLengths = new double[pts.Count];
@@ -564,6 +630,7 @@ public static class HumanMouse
         for (int i = 0; i < pts.Count; i++)
         {
             double phase = Math.Clamp((travelled + segLengths[i] * 0.5) / pathLength, 0.0, 1.0);
+            phase = Math.Clamp(phase + phaseSkew * phase * (1.0 - phase), 0.0, 1.0);
             double speed = Math.Clamp(SampleCurveProfile(speedProfile, phase), lo, hi);
             double w = segLengths[i] * 1000.0 / Math.Max(1.0, speed);
             weights[i] = w; weightSum += w;

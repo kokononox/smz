@@ -131,7 +131,7 @@ public static class VisionService
                         // v0.8.3 — when strips are too narrow (app nearly fullscreen), post-filter
                         // any HIT that falls INSIDE the app window. Strips alone can't exclude
                         // the app when it covers >95% of the screen (e.g. 1040/1080px = 40px gap).
-                        if (appClipped && HitInsideApp(result.Value.p, appB.Value)) continue;
+                        if (appClipped && appB is Rectangle appBounds && HitInsideApp(result.Value.p, appBounds)) continue;
                         log($"find image: HIT score={result.Value.score:F3} · {t.Width}x{t.Height}");
                         return result.Value.p;
                     }

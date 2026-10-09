@@ -134,6 +134,10 @@ public static class ScriptGenerator
                 break;
             }
 
+            case "splashListener":
+                sb.AppendLine(pad + "# Splash Listener is portable-only; timeout comes from the Splash profile.");
+                break;
+
             case "openFile":
             {
                 var ofp = PropEx.GetString(n.Props, "path");
@@ -157,6 +161,10 @@ public static class ScriptGenerator
                 sb.AppendLine(pad + "# TODO: PC-side image search — run this script via the AMS app's Run for Find Image support");
                 break;
 
+            case "shiftCheck":
+                throw new InvalidOperationException("تأیید شیفت به Native UF2 نیاز دارد.");
+            case "buffCheckpoint":
+                throw new InvalidOperationException("باف مستقل فقط در Native UF2 پشتیبانی می‌شود.");
             case "randomMousePosition":
             {
                 var (x, y, w, h) = (PropEx.GetInt(n.Props, "x"), PropEx.GetInt(n.Props, "y"),
@@ -176,10 +184,27 @@ public static class ScriptGenerator
             {
                 // v0.9.0 — humanized via the same engine (Gentle preset) when the step's
                 // "human" box is checked; raw instant MMOVE otherwise.
-                if (PropEx.GetBool(n.Props, "human", true))
-                    sb.AppendLine($"{pad}Move-HumanMouse {PropEx.GetInt(n.Props, "x", 600)} {PropEx.GetInt(n.Props, "y", 497)} {screenW} {screenH} @{{ {GentleHashFromProps(n.Props, mouseSpeedMin, mouseSpeedMax)} }}");
+                if (PropEx.GetString(n.Props, "moveMode", "fixed") == "handSample"
+                    && HandMovementSample.TryDecode(PropEx.GetString(n.Props, "handSample"), out var sample))
+                {
+                    foreach (var seg in HandMovementSample.Compact(sample.Segments, HandMovementSample.ReplaySegmentLimit))
+                    {
+                        sb.AppendLine($"{pad}Step-Delay {seg.DelayMs}");
+                        if (seg.Dx != 0 || seg.Dy != 0) sb.AppendLine($"{pad}Send-Cmd \"MMOVE|{seg.Dx},{seg.Dy},rel,2\"");
+                    }
+                }
                 else
-                    sb.AppendLine($"{pad}Send-Cmd \"MMOVE|{PropEx.GetInt(n.Props, "x", 600)},{PropEx.GetInt(n.Props, "y", 497)},abs,0\"");
+                {
+                    int x = PropEx.GetInt(n.Props, "x", 600), y = PropEx.GetInt(n.Props, "y", 497);
+                    int w = Math.Max(1, PropEx.GetInt(n.Props, "w", 1));
+                    int h = Math.Max(1, PropEx.GetInt(n.Props, "h", 1));
+                    sb.AppendLine($"{pad}$destX = {x} + $script:rng.Next(0, {w})");
+                    sb.AppendLine($"{pad}$destY = {y} + $script:rng.Next(0, {h})");
+                    if (PropEx.GetBool(n.Props, "human", true))
+                        sb.AppendLine($"{pad}Move-HumanMouse $destX $destY {screenW} {screenH} @{{ {GentleHashFromProps(n.Props, mouseSpeedMin, mouseSpeedMax)} }}");
+                    else
+                        sb.AppendLine($"{pad}Send-Cmd \"MMOVE|$destX,$destY,abs,0\"");
+                }
                 break;
             }
 
@@ -229,7 +254,14 @@ public static class ScriptGenerator
     /// fall back to the human defaults — same keys as HumanMouse.Config.FromProps).</summary>
     private static string CfgHash(System.Collections.Generic.IReadOnlyDictionary<string, object?> p, int speedMin, int speedMax)
     {
+        if (PropEx.GetString(p, "speedMode", "legacy") != "legacy" || PropEx.GetString(p, "handProfileSource", "legacy") != "legacy")
+            throw new InvalidOperationException("Mouse speed controls require Windows execution or Native Export, not legacy PowerShell.");
         int G(string k, int d) => PropEx.GetInt(p, k, d);
+        int sampledMin = 0, sampledMax = 0;
+        bool hasSampledCadence = HandMovementSample.TryDecode(PropEx.GetString(p, "handSample"), out var sample)
+            && HandMovementSample.TryGetSpeedRange(sample, out sampledMin, out sampledMax);
+        if (hasSampledCadence)
+            (speedMin, speedMax) = (sampledMin, sampledMax);
         int legacy = Math.Clamp(G("curvePct", 30), 0, 200);
         int curveMin = p.ContainsKey("curveMinPct") ? Math.Clamp(G("curveMinPct", 15), 0, 200) : Math.Max(0, legacy - 15);
         int curveMax = p.ContainsKey("curveMaxPct") ? Math.Clamp(G("curveMaxPct", 45), 0, 200) : Math.Min(200, legacy + 15);
@@ -237,6 +269,7 @@ public static class ScriptGenerator
         int mtMin = Math.Max(0, G("moveTimeMin", 0));
         int mtMax = Math.Max(0, G("moveTimeMax", 0));
         if (mtMax < mtMin) (mtMin, mtMax) = (mtMax, mtMin);
+        if (hasSampledCadence) mtMin = mtMax = 0;
         return $"pbMin={G("pauseBeforeMin", 120)}; pbMax={G("pauseBeforeMax", 450)}; paMin={G("pauseAfterMin", 150)}; paMax={G("pauseAfterMax", 600)}; " +
                $"midPct={Math.Clamp(G("midPauseChance", 12), 0, 100)}; midMin={G("midPauseMin", 100)}; midMax={G("midPauseMax", 400)}; " +
                $"idleMin={G("idleEveryMin", 5)}; idleMax={G("idleEveryMax", 12)}; idlePMin={G("idlePauseMin", 1000)}; idlePMax={G("idlePauseMax", 5000)}; " +

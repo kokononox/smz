@@ -485,9 +485,9 @@ class Gen:
                 parts.append("think=%d:%d,%d" % (tch, t0, t1))
         y0, y1 = _pair(_pi(p, "typoEveryMin", 0), _pi(p, "typoEveryMax", 0))
         if y1 > 0:
-            parts.append("typo=%d,%d" % (y0, y1))
+            parts.append("typochars=%d,%d" % (y0, y1))
         elif _pi(p, "typoChance", 0) > 0:
-            self.flag(n, "legacy typoChance %% is not portable - use 'typo every N words' "
+            self.flag(n, "legacy typoChance %% is not portable - use the character interval "
                          "(typoEveryMin/Max); the step types WITHOUT typos in this plan")
         self._keyboard_board_flag(n, p)
         self.emit(n, ["TYPE|text=%s|%s" % (text, "|".join(parts))], "TYPE")

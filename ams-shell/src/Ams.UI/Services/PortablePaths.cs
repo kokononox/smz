@@ -49,11 +49,14 @@ public static class PortablePaths
                 CreateNoWindow = true,
             };
             using var proc = System.Diagnostics.Process.Start(psi);
-            proc.WaitForExit(3000);
-            if (proc.ExitCode == 0)
+            if (proc is not null)
             {
-                var outp = proc.StandardOutput.ReadToEnd().Trim();
-                if (!string.IsNullOrEmpty(outp) && File.Exists(outp)) return outp;
+                proc.WaitForExit(3000);
+                if (proc.ExitCode == 0)
+                {
+                    var outp = proc.StandardOutput.ReadToEnd().Trim();
+                    if (!string.IsNullOrEmpty(outp) && File.Exists(outp)) return outp;
+                }
             }
         }
         catch { /* py launcher not available */ }
@@ -69,8 +72,11 @@ public static class PortablePaths
                 CreateNoWindow = true,
             };
             using var proc2 = System.Diagnostics.Process.Start(psi2);
-            proc2.WaitForExit(3000);
-            if (proc2.ExitCode == 0) return "python";
+            if (proc2 is not null)
+            {
+                proc2.WaitForExit(3000);
+                if (proc2.ExitCode == 0) return "python";
+            }
         }
         catch { /* python not on PATH */ }
 

@@ -1,0 +1,5 @@
+PLAN|2
+RUNFOR|300,480
+AUTORESUME|1,180,300
+POSTLAUNCH|1,1,1,3,20,40
+STATELOOP|poll=250|stable=750|hysteresis=1|timeout=1500|fallback=STOP|routes=desktop:37:68:desktop_steps.txt,login-or-dc:1:9:login_or_dc_steps.txt,character-dashboard:10:18:character_dashboard_steps.txt,entering-game-loading:35:37:entering_game_loading_steps.txt,game:19:26:game_steps.txt,targeted:5:7:targeted_steps.txt

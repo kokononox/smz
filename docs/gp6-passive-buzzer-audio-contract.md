@@ -23,16 +23,19 @@ Forbidden wiring:
 
 The Pico owns audio cues. The Pro Micro remains the mouse/sound-sensor arm and must not drive the buzzer.
 
-Planned command:
+Commands:
 
 ```text
 BEEP|freq,ms
+BEEP|freq,ms,volume,envelope
 ```
 
 Rules:
 
 - `freq`: integer Hz, valid range `30..20000`
 - `ms`: integer duration in milliseconds, `>= 0`
+- `volume`: optional integer percent, `1..100` (default `100`)
+- `envelope`: optional `sharp`, `smooth`, `fade-in`, or `fade-out` (default `sharp`)
 - Implementation pin: `BUZZER_PIN = board.GP6`
 - If a runtime has no buzzer context, `BEEP` must fail safely or be skipped explicitly; it must not crash unrelated plan execution.
 - `BEEP` must be implemented on the Pico side only.
@@ -43,7 +46,7 @@ The app may expose Pico audio cues only after the firmware side is wired and tes
 
 Required software checks before giving a hardware-test file to the user:
 
-1. Parser accepts `BEEP|freq,ms`.
+1. Parser accepts both legacy `BEEP|freq,ms` and styled `BEEP|freq,ms,volume,envelope`.
 2. Parser rejects frequencies outside `30..20000`.
 3. Exporter emits `BEEP|freq,ms` only for Pico-buzzer/audio-cue steps.
 4. Exporter never emits Pro Micro/D9 buzzer instructions.
