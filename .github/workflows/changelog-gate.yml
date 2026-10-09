@@ -8,6 +8,9 @@ name: Hardware changelog gate
 
 on:
   pull_request:
+    # Only the integration PRs into main carry the release contract; the
+    # stacked feature PRs stay free of it and are gated when they land.
+    branches: [main]
     paths:
       - 'ams-shell/**'
       - 'tests/**'
