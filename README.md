@@ -4,7 +4,7 @@
 
 - [Current hardware changelog](CHANGELOG-CURRENT.md) — مشکلات هر Build، علت، اصلاح، نتیجهٔ CI و نتیجهٔ تست واقعی
 - [Latest Classroom Studio test releases](https://github.com/noonoix/smz/releases)
-- Active hardware branch: `fix/portable-relative-mouse`
+- Active hardware branch: `feat/pico-shift-wake` (top of the stacked PR chain)
 
 ## Current build contract
 

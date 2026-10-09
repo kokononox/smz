@@ -1,0 +1,48 @@
+name: Hardware changelog gate
+
+# The release workflow (classroom-studio-current.yml) enforces this rule on a
+# push to one of its release branches.  Feature work in this repository happens
+# on stacked PRs, so the same rule has to hold where the review happens: a
+# build-affecting change must carry its CHANGELOG-CURRENT.md entry before it is
+# merged.  This workflow is read-only and publishes nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'ams-shell/**'
+      - 'tests/**'
+      - 'portable/plan3/CIRCUITPY-MODERN/**'
+      - 'portable/plan3/CIRCUITPY-SPLIT/**'
+      - 'firmware/abvm/**'
+      - 'tools/apply_calibration_save_heap_fix.py'
+      - 'tools/current_release_notes.py'
+      - 'CHANGELOG-CURRENT.md'
+      - '.github/workflows/changelog-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    name: changelog / build-affecting change needs an entry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a current hardware changelog entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='${{ github.event.pull_request.base.sha }}'
+          git fetch --no-tags --quiet origin "$base"
+          changed="$(git diff --name-only "$base" HEAD)"
+          echo "$changed"
+          release_relevant="$(printf '%s\n' "$changed" | grep -E '^(ams-shell/|tests/|portable/plan3/CIRCUITPY-MODERN/|portable/plan3/CIRCUITPY-SPLIT/|firmware/abvm/|tools/apply_calibration_save_heap_fix.py|tools/current_release_notes.py)' || true)"
+          if [ -n "$release_relevant" ] && ! printf '%s\n' "$changed" | grep -qx 'CHANGELOG-CURRENT.md'; then
+            echo '::error::Build-affecting changes require an update to CHANGELOG-CURRENT.md'
+            exit 1
+          fi
+          echo 'Changelog gate passed.'
