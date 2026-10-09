@@ -95,6 +95,32 @@ int main(void) {
     wake_scheduler_disarm(&w);
     assert(!wake_scheduler_due(&w, 2000u * MIN));
 
+    /* An operator WAKE! arm must survive a clock sample that lands while the
+     * authored schedule is off: there is nothing to replace it with, and losing
+     * it would cancel the only wake of the test. */
+    WakeScheduler keptArm = make(2u);
+    wake_scheduler_configure(&keptArm, false, 480u, 1200u, 1320u, 360u);
+    assert(wake_scheduler_arm_dry(&keptArm, 0u, 60u * 1000u));
+    assert(wake_scheduler_armed(&keptArm));
+    assert(!wake_scheduler_sync(&keptArm, 5u * 1000u, 600u));
+    assert(wake_scheduler_armed(&keptArm));
+    assert(keptArm.manual && keptArm.dry);
+    assert(keptArm.deadline_ms == 60u * 1000u);
+    assert(keptArm.synced && keptArm.synced_minute == 600u);
+    assert(!wake_scheduler_due(&keptArm, 59u * 1000u));
+    assert(wake_scheduler_due(&keptArm, 60u * 1000u));
+    /* An enabled schedule still replaces the test arm with the real window. */
+    wake_scheduler_configure(&keptArm, true, 480u, 1200u, 1320u, 360u);
+    assert(wake_scheduler_sync(&keptArm, 5u * 1000u, 600u));
+    assert(keptArm.armed && !keptArm.manual && !keptArm.dry);
+    assert(keptArm.next_start == 1320u);
+    /* A malformed minute never anchors the wall clock either. */
+    WakeScheduler badMinute = make(2u);
+    wake_scheduler_configure(&badMinute, false, 480u, 1200u, 1320u, 360u);
+    assert(wake_scheduler_arm_at(&badMinute, 0u, 60u * 1000u));
+    assert(!wake_scheduler_sync(&badMinute, 0u, 1440u));
+    assert(wake_scheduler_armed(&badMinute) && !badMinute.synced);
+
     /* Midnight wrap: 23:00 sample, day start is the nearest window start. */
     assert(wake_scheduler_sync(&w, 0u, 1380u));
     assert(w.next_start == 480u);
@@ -162,7 +188,7 @@ int main(void) {
     assert(!wake_scheduler_recovery_needed(false, false, 0u, 3u));
 
     puts("wake scheduler: nearest start, lead clamp, gaps, midnight wrap, "
-         "re-sync, disarm, malformed-minute, wall anchor, WAKE! arm and "
-         "bounded-recovery paths passed");
+         "re-sync, disarm, malformed-minute, wall anchor, WAKE! arm, "
+         "manual-arm survival and bounded-recovery paths passed");
     return 0;
 }

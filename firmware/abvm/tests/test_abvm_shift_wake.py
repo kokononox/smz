@@ -185,6 +185,27 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIsNotNone(m)
         dx,dy=int(m.group(1)),int(m.group(2))
         self.assertLessEqual(dx*dx+dy*dy,9)
+    def test_operator_wake_state_probe(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('!strcmp(line, "WAKE?")',main)
+        self.assertIn('OK|WAKE|armed=%u|manual=%u|dry=%u',main)
+        self.assertIn('WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?',main)
+        self.assertIn('|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s',main)
+    def test_a_stale_host_awake_report_cannot_eat_the_only_wake(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('#define WAKE_HOST_AWAKE_GRACE_MS 5000u',main)
+        self.assertIn('EVT|WAKE|due|host=up|confirm-ms=%u',main)
+        self.assertIn('if((int32_t)(now-wake_host_awake_at)<(int32_t)WAKE_HOST_AWAKE_GRACE_MS) return;',main)
+        # Every deadline reports the inputs the decision used, once.
+        self.assertIn('EVT|WAKE|due|manual=%u|dry=%u|attempts=%u|usb=%s',main)
+        self.assertIn('wake_host_awake_at=0u;wake_due_logged=false;',main)
+    def test_a_blocked_wake_names_itself(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('ERR|WAKE|recovery|blocks|phase=%u|attempts=%u',main)
+        self.assertIn('wake_recovery_block_logged=false;',main)
+    def test_a_clock_sample_never_cancels_an_operator_test_arm(self):
+        sched=(ROOT/'firmware/abvm/pico/wake_scheduler.c').read_text()
+        self.assertIn('if (!w->enabled && w->manual) {',sched)
     def test_lead_and_settle_bounds(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         lead=re.search(r'#define WAKE_LEAD_MINUTES (\d+)u',main)

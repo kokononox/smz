@@ -117,6 +117,22 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   host never reports `UP` the attempt is retried after `WAKE_RETRY_MS`, up to
   `WAKE_MAX_ATTEMPTS`.
 * A host that is already awake skips the pulse and starts the round directly.
+  That verdict comes from the bridge, though, and the bridge re-announces it
+  every two seconds, so a single `UP` report can be that old. The shortcut is
+  therefore taken only after the host has been reported awake for
+  `WAKE_HOST_AWAKE_GRACE_MS`, so a machine that suspends right at the deadline
+  still gets its pulse instead of silently losing the only wake of the window.
+* Every deadline logs one
+  `EVT|WAKE|due|manual=|dry=|attempts=|usb=|pico-usb=|pico-rw=` line naming the
+  inputs the decision used, and `WAKE?` reports the whole deadline state on
+  demand (`armed`, `manual`, `dry`, `synced`, `schedule`, `target`, `due-ms`,
+  `attempts`, `phase`, `recovery`, `host`, `pico-usb`, `pico-rw`), so a wake that
+  never left the board explains itself instead of looking like a dead wake path.
+  A deadline that expires while the recovery owns the path is reported once as
+  `ERR|WAKE|recovery|blocks`.
+* A bridge clock sample never cancels an operator `WAKE!` test arm while the
+  authored schedule is off: there is nothing to replace it with, and disarming
+  there silently cancelled the only wake of the test.
 * A verified wake leaves the machine on the Windows lock screen, and the authored
   macro language has no click opcode at all (ABVM knows motion, keys and typing
   only), so nothing in the project can dismiss it. After the settle the firmware

@@ -130,6 +130,11 @@ Say 'وضعیت فعلی برد:' 'Cyan'
 Send-Cmd 'STATUS'
 $status = Drain 700
 SayLines $status
+Say ''
+Say 'وضعیت مهلت بیداری روی برد:' 'Cyan'
+Send-Cmd 'WAKE?'
+$wakeState = Drain 700
+SayLines $wakeState
 
 # ---- ۳) مسلح کردن بیداری ----
 $window = ($Mode -eq 'window')
@@ -187,21 +192,18 @@ Say ''
 Say 'اگر سیستم بیدار نشد، بعد از پایان تست یک کلید بزن تا دستی بیدار شود؛' 'DarkGray'
 Say 'برد لاگ زمان خواب را ذخیره کرده و بلافاصله می‌فرستد (خطوط RPL).' 'DarkGray'
 Say ''
-if ($window) {
-    Say 'حالا خودم سیستم را می‌خوابانم. اگر نمی‌خواهی، همین حالا Ctrl+C بزن.' 'White'
-    for ($i = 5; $i -gt 0; $i--) {
-        Say ('  خواباندن تا ' + $i + ' ثانیه...') 'DarkGray'
-        Start-Sleep -Seconds 1
-    }
-    try {
-        Start-Process -FilePath 'rundll32.exe' -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0' -NoNewWindow
-    } catch {
-        Say 'خواباندن خودکار نشد؛ دستی از Start > Sleep بخوابان.' 'Yellow'
-    }
-    Say 'اگر ۱۰ ثانیه بعد سیستم هنوز بیدار است، خودت از Start > Sleep بخوابان.' 'DarkGray'
-} else {
-    Say 'حالا سیستم را بخوابان:   Start  >  Sleep' 'White'
+Say 'حالا خودم سیستم را می‌خوابانم. اگر نمی‌خواهی، همین حالا Ctrl+C بزن.' 'White'
+Say 'مهم: سیستم باید قبل از رسیدن مهلت خواب باشد، وگرنه آن بیداری مصرف می‌شود.' 'Yellow'
+for ($i = 5; $i -gt 0; $i--) {
+    Say ('  خواباندن تا ' + $i + ' ثانیه...') 'DarkGray'
+    Start-Sleep -Seconds 1
 }
+try {
+    Start-Process -FilePath 'rundll32.exe' -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0' -NoNewWindow
+} catch {
+    Say 'خواباندن خودکار نشد؛ دستی از Start > Sleep بخوابان.' 'Yellow'
+}
+Say 'اگر ۱۰ ثانیه بعد سیستم هنوز بیدار است، خودت از Start > Sleep بخوابان.' 'DarkGray'
 Say ('حدود ' + $expect + ' ثانیه بعد باید خودش روشن شود.') 'White'
 Say 'این پنجره را باز بگذار؛ لاگ‌ها همین‌جا می‌آیند.' 'White'
 Say ''
@@ -217,6 +219,8 @@ $stalled = $false
 $reopenTries = 0
 $sawReplay = $false
 $lastNotice = 0
+$hostAwake = $false
+$recoveryBlocked = $false
 $pulseAt = $null
 $hostUpAt = $null
 $firstEnterAt = $null
@@ -243,6 +247,8 @@ while ((Get-Date) -lt $limit) {
             if ($line -match 'state=dismiss\|step=enter') { $dismisses = $dismisses + 1; if (-not $firstEnterAt) { $firstEnterAt = Get-Date } }
             if ($line -match 'dismiss\|stall') { $stalled = $true }
             if ($line -match '^RPL\|') { $sawReplay = $true }
+            if ($line -match 'state=host-awake') { $hostAwake = $true }
+            if ($line -match 'recovery\|blocks') { $recoveryBlocked = $true }
         }
     }
     # The COM port can disappear while the machine is asleep; the board comes
@@ -262,6 +268,7 @@ while ((Get-Date) -lt $limit) {
         }
     }
     if ($woke -and $sawStart) { break }
+    if ($hostAwake) { break }
     $elapsed = [int]((Get-Date) - $start).TotalSeconds
     if ($elapsed -ge ($lastNotice + 20)) {
         $lastNotice = $elapsed
@@ -283,7 +290,13 @@ if ($woke) {
 # ---- ۵) نتیجه ----
 Say ''
 Say '-----------------------------------------------------' 'White'
-if ($woke) {
+if ($hostAwake) {
+    Say 'نتیجه: مهلت بیداری قبل از خوابیدن سیستم رسید   [FAIL]' 'Red'
+    Say 'آن لحظه سیستم بیدار بود، پس فریم‌ور عمداً پالسی نفرستاد و همان بیداری' 'Yellow'
+    Say 'مصرف شد؛ بعد از خوابیدن سیستم دیگر چیزی برای بیدارکردن نمانده بود.' 'Yellow'
+    Say 'این نسخه خودش سیستم را می‌خواباند، پس دوباره اجرا کن و تا خواب رفتن' 'Yellow'
+    Say 'سیستم دست به ماوس/کیبورد نزن.' 'Yellow'
+} elseif ($woke) {
     Say 'نتیجه: سیستم بیدار شد   [OK]' 'Green'
 } elseif ($sawPulse) {
     Say 'نتیجه: پالس فرستاده شد ولی سیستم بیدار نشد   [FAIL]' 'Red'
@@ -292,7 +305,10 @@ if ($woke) {
     Say '  - بایوس > USB Wake Support = Enabled و ErP / Deep Sleep = Disabled' 'Yellow'
 } else {
     Say 'نتیجه: هیچ پالسی دیده نشد   [FAIL]' 'Red'
-    Say 'اگر سیستم واقعاً خواب بود و پیام پالس هم نیامد، لاگ را برایم بفرست.' 'Yellow'
+    Say 'دو دلیل رایج را در لاگ ببین:' 'Yellow'
+    Say '  EVT|WAKE|due|...            ← چه چیزی در لحظهٔ مهلت تصمیم را گرفت' 'Yellow'
+    Say '  ERR|WAKE|recovery|blocks|.. ← مسیر بیداری در دست بازیابی بود' 'Yellow'
+    Say 'اگر هیچ‌کدام نبود، لاگ را برایم بفرست.' 'Yellow'
 }
 
 Say ''
@@ -312,6 +328,8 @@ if ($null -ne $lockedAfter) {
 }
 if ($shotSaved) { Say '  عکس صفحه                      : wake-shot.png' 'White' }
 if ($sawReplay) { Say '  لاگ زمان خواب (RPL)            : بله — در فایل ذخیره شده' 'White' }
+if ($hostAwake) { Say '  مهلت قبل از خواب سیستم رسید    : بله — پالس عمداً نرفت' 'Red' }
+if ($recoveryBlocked) { Say '  مسیر بیداری در دست بازیابی بود : بله — ERR|WAKE|recovery|blocks' 'Yellow' }
 
 Start-Sleep -Seconds 3
 Say ''

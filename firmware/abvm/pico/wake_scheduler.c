@@ -60,6 +60,19 @@ bool wake_scheduler_armed(const WakeScheduler *w) {
 
 bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute) {
     if (!w) return false;
+    if (!w->enabled && w->manual) {
+        /* The authored schedule is off, so there is nothing to replace an
+         * operator's WAKE! test arm with.  Disarming here would let a clock
+         * sample that lands between the arm and its deadline cancel the only
+         * wake of the test -- silently, which is how it used to behave.  The
+         * sample still anchors the wall clock. */
+        if (minute < WAKE_MINUTES_PER_DAY) {
+            w->synced = true;
+            w->synced_minute = minute;
+            w->synced_at = now;
+        }
+        return false;
+    }
     wake_scheduler_disarm(w);
     w->synced = true;
     w->synced_minute = minute;
