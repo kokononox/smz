@@ -84,7 +84,8 @@ class ShiftWakeTests(unittest.TestCase):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_DISMISS_ENABLED 1',main)
         self.assertIn('#define WAKE_DISMISS_KEY 13u',main)
-        self.assertIn('#define WAKE_DISMISS_PRESSES 2u',main)
+        self.assertIn('#define WAKE_DISMISS_PRESSES 3u',main)
+        self.assertIn('#define WAKE_DISMISS_TIMEOUT_MS 20000u',main)
         self.assertIn('hid_keyboard_submit_trigger(WAKE_DISMISS_KEY,40u,90u,now)',main)
         # The lock screen goes away on Enter alone: no pointer click, because the
         # authored macro language has no click opcode and the mouse must not move.
@@ -94,18 +95,47 @@ class ShiftWakeTests(unittest.TestCase):
         dismiss=main[main.index('if(wake_phase==WAKE_PHASE_DISMISS) {'):
                     main.index('wake_phase=WAKE_PHASE_SETTLE;wake_deadline=now;',
                                main.index('if(wake_phase==WAKE_PHASE_DISMISS) {'))]
-        self.assertNotIn('arm_uart_mouse',dismiss)
         self.assertNotIn('MCLICK',dismiss)
         # The dismiss is only ever reached for a host this board actually woke, and
         # it runs before the authored round takes over.
         self.assertIn('if(wake_woke_host&&!wake_dismiss_done)',main)
-        self.assertIn('wake_woke_host=false;wake_dismiss_done=false;wake_dismiss_step=0u;',main)
+        self.assertIn('wake_woke_host=false;wake_dismiss_done=false;wake_dismiss_step=0u;wake_dismiss_started=0u;',main)
         self.assertLess(main.index('if(wake_woke_host&&!wake_dismiss_done)'),
                         main.index('printf("EVT|WAKE|state=start|attempt=%u\\n",wake_attempts);'))
         # Every Enter is logged, and none may hold up the shift.
         self.assertIn('EVT|WAKE|state=dismiss|step=enter|n=%u',main)
         self.assertIn('ERR|WAKE|dismiss|key=%u|n=%u',main)
         self.assertIn('wake_dismiss_done=true;',main)
+
+    def test_dismiss_phase_can_never_park_the_wake_machine(self):
+        # A key report only goes out while the host keeps this board's port
+        # resumed, and the host can resume through the Arduino board instead.
+        # Waiting for that endpoint forever parked the phase machine, so a later
+        # arm could never reach its pulse and the shift was lost.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('wake_dismiss_started=now;',main)
+        self.assertIn('(int32_t)(now-wake_dismiss_started-WAKE_DISMISS_TIMEOUT_MS)>=0',main)
+        self.assertIn('ERR|WAKE|dismiss|stall|step=%u|usb=%u',main)
+        # The cap releases the phase instead of ending the shift.
+        stall=main.index('ERR|WAKE|dismiss|stall')
+        self.assertLess(stall,main.index('wake_dismiss_step=WAKE_DISMISS_PRESSES;'))
+        self.assertLess(main.index('wake_dismiss_step=WAKE_DISMISS_PRESSES;'),
+                        main.index('wake_dismiss_done=true;'))
+        # A suspended port is not a dead end: ask for the port back and let the
+        # board that certainly resumed press the key.
+        self.assertIn('if(!pico_usb_suspended) return;',main)
+        self.assertIn('(void)wake_pulse_pico();',main)
+        self.assertIn('#define WAKE_DISMISS_ARM_FALLBACK 1',main)
+        self.assertIn('#define WAKE_DISMISS_ARM_COMMAND "KCOMBO|13,40,90"',main)
+        self.assertIn('arm_uart_mouse_submit_internal(WAKE_DISMISS_ARM_COMMAND,now)',main)
+        self.assertIn('EVT|WAKE|state=dismiss|step=enter|n=%u|via=arm',main)
+        # A fresh manual arm starts from a clean phase machine.
+        arm_reset=main.index('wake_phase=WAKE_PHASE_IDLE;wake_pulse_inflight=false;\n'
+                             '                wake_woke_host=false;wake_dismiss_done=false;')
+        self.assertLess(arm_reset,main.index('OK|WAKE|manual|in=%lu'))
+        self.assertIn('wake_retry_at=now;',main[arm_reset:arm_reset+400])
+        # And the phase itself is visible in STATUS.
+        self.assertIn('|wake-phase=%u\\n", abvm_status_name(vm.status)',main)
     def test_wake_code_stays_out_of_the_adapter_slices(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         for start,end in (("static void fail_shift_check(","static void service_game_buffs("),

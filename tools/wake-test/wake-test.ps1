@@ -14,12 +14,17 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { Add-Type -AssemblyName System.IO.Ports -ErrorAction Stop } catch { }
 
 function Say($text, $color = 'Gray') { Write-Host $text -ForegroundColor $color }
+$logPath = Join-Path (Get-Location) 'wake-log.txt'
+function Add-Log($text) {
+    try { Add-Content -LiteralPath $logPath -Value $text -Encoding UTF8 } catch { }
+}
 function SayLines($text) {
     foreach ($raw in ($text -split "`r?`n")) {
         $line = $raw.Trim()
-        if ($line.Length -gt 0) { Say ('   ' + $line) 'White' }
+        if ($line.Length -gt 0) { Say ('   ' + $line) 'White'; Add-Log $line }
     }
 }
+try { Set-Content -LiteralPath $logPath -Value ('# wake-test ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) -Encoding UTF8 } catch { }
 
 Say ''
 Say '=====================================================' 'White'
@@ -56,6 +61,7 @@ foreach ($name in ($ports | Sort-Object)) {
         }
         if ($buffer -match 'role=brain') {
             $pico = $sp
+            $script:portName = $name
             Say ('برد Pico روی ' + $name + ' پیدا شد.') 'Green'
             SayLines $buffer
             break
@@ -122,19 +128,45 @@ $limit = $start.AddSeconds($seconds + 180)
 $sawPulse = $false
 $woke = $false
 $sawStart = $false
+$dismisses = 0
+$stalled = $false
+$reopenTries = 0
 $lastNotice = 0
 
 while ((Get-Date) -lt $limit) {
     $chunk = ''
-    try { if ($pico.BytesToRead -gt 0) { $chunk = $pico.ReadExisting() } } catch { }
+    try {
+        if ($null -ne $pico -and $pico.IsOpen -and $pico.BytesToRead -gt 0) { $chunk = $pico.ReadExisting() }
+    } catch {
+        try { $pico.Close() } catch { }
+    }
     if ($chunk.Length -gt 0) {
         foreach ($raw in ($chunk -split "`r?`n")) {
             $line = $raw.Trim()
             if ($line.Length -eq 0) { continue }
             Say (('[' + (Get-Date).ToString('HH:mm:ss') + ']  ' + $line)) 'White'
+            Add-Log (('[' + (Get-Date).ToString('HH:mm:ss') + ']  ' + $line))
             if ($line -match 'state=pulse') { $sawPulse = $true }
             if ($line -match 'state=host-up|HOSTUSB\|UP') { $woke = $true }
             if ($line -match 'state=start') { $sawStart = $true }
+            if ($line -match 'state=dismiss\|step=enter') { $dismisses = $dismisses + 1 }
+            if ($line -match 'dismiss\|stall') { $stalled = $true }
+        }
+    }
+    # The COM port can disappear while the machine is asleep; the board comes
+    # back on the same name, so reopen it instead of losing the whole log.
+    if ($null -eq $pico -or -not $pico.IsOpen) {
+        if ($reopenTries -lt 40) {
+            $reopenTries = $reopenTries + 1
+            try {
+                $sp = New-Object System.IO.Ports.SerialPort($script:portName, 115200)
+                $sp.ReadTimeout = 300
+                $sp.WriteTimeout = 1000
+                $sp.DtrEnable = $true
+                $sp.Open()
+                $pico = $sp
+                Add-Log ('# port reopened (' + $script:portName + ')')
+            } catch { }
         }
     }
     if ($woke -and $sawStart) { break }
@@ -161,6 +193,16 @@ if ($woke) {
     Say 'اگر سیستم واقعاً خواب بود و پیام پالس هم نیامد، لاگ را برایم بفرست.' 'Yellow'
 }
 
+Say ''
+Say 'تشخیص گام‌به‌گام:' 'Cyan'
+if ($sawPulse) { Say '  پالس بیداری فرستاده شد        : بله' 'White' } else { Say '  پالس بیداری فرستاده شد        : نه' 'Red' }
+if ($woke) { Say '  سیستم برگشت (host-up)          : بله' 'White' } else { Say '  سیستم برگشت (host-up)          : نه' 'Red' }
+Say ('  اینترهای برداشتن قفل           : ' + $dismisses) 'White'
+if ($stalled) {
+    Say '  گیر کردن روی قفل (stall)       : بله — فریم‌ور بعد از مهلت رد شد' 'Yellow'
+}
+if ($sawStart) { Say '  ماکرو شروع شد                  : بله' 'White' } else { Say '  ماکرو شروع شد                  : نه' 'Yellow' }
+
 Start-Sleep -Seconds 3
 Say ''
 Say 'وضعیت نهایی برد:' 'Cyan'
@@ -182,5 +224,8 @@ if ($final -match 'wake-recovery=(\d+)') {
 }
 
 try { $pico.Close() } catch { }
+Say ''
+Say ('لاگ کامل ذخیره شد در: ' + $logPath) 'Cyan'
+Say 'اگر نتیجه درست نبود، همین فایل wake-log.txt را برای من بفرست.' 'Cyan'
 Say ''
 Say 'پایان. کلید را بزن تا بسته شود.' 'White'
