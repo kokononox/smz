@@ -337,6 +337,26 @@ if ($sawReplay) { Say '  لاگ زمان خواب (RPL)            : بله — 
 if ($hostAwake) { Say '  مهلت قبل از خواب سیستم رسید    : بله — پالس عمداً نرفت' 'Red' }
 if ($recoveryBlocked) { Say '  مسیر بیداری قفل بود            : بله' 'Red'; Say ('    ' + $blockReason) 'Red' }
 
+if ($woke) {
+    # ویندوز خودش می‌داند کدام دستگاه سیستم را بیدار کرده؛ همان یک خط،
+    # مسیر بیداری را قطعی می‌کند: خودِ Pico یا مسیر پشتیبان برد آردوینو.
+    Say ''
+    Say 'منبع بیداری به گفتهٔ خود ویندوز (powercfg -lastwake):' 'Cyan'
+    $lastWake = ''
+    try { $lastWake = (powercfg -lastwake 2>&1 | Out-String) } catch { }
+    foreach ($raw in ($lastWake -split "`r?`n")) {
+        $line = $raw.TrimEnd()
+        if ($line.Length -eq 0) { continue }
+        Say ('   ' + $line) 'White'
+        Add-Log ('   ' + $line)
+    }
+    if ($lastWake -match 'VID_7F5F') {
+        Say '   → خودِ برد Pico (VID_7F5F) سیستم را بیدار کرده است.' 'Green'
+    } elseif ($lastWake.Trim().Length -gt 0) {
+        Say '   → اگر نام دستگاه ماوس/برد آردوینو است، مسیر پشتیبان آردوینو سیستم را بیدار کرده.' 'Yellow'
+    }
+}
+
 Start-Sleep -Seconds 3
 Say ''
 Say 'وضعیت نهایی برد:' 'Cyan'
