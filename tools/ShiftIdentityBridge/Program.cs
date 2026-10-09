@@ -46,14 +46,6 @@ internal static class Program
                                 ReadTimeout = 350, WriteTimeout = 1000, NewLine = "\n",
                             };
                             port.Open();
-                            // Power-loss bootstrap: a board that lost power keeps the
-                            // schedule it was flashed with but owns no wall clock, so
-                            // it can never arm a window or wake the machine by itself.
-                            // The stamp goes only to a board that says it has no clock:
-                            // re-arming a healthy board would move a real deadline, and
-                            // a stamp taken inside the lead time falls back to "one
-                            // minute from now".
-                            if (BoardNeedsClock(port)) port.WriteLine(ClockStamp(DateTime.Now));
                             port.WriteLine("SHIFT?");
                             var probe = Stopwatch.StartNew();
                             while (probe.ElapsedMilliseconds < 600)
@@ -81,6 +73,18 @@ internal static class Program
                     if (candidates.Count == 1)
                     {
                         var (port, nonce, needsClock) = candidates[0];
+                        // Power-loss bootstrap: a board that lost power keeps the
+                        // schedule it was flashed with but owns no wall clock, so it
+                        // can never arm a window or wake the machine by itself.  The
+                        // challenge proves this port is the board, so the stamp is
+                        // asked for here -- before the reply, and on no other port.
+                        // It goes only to a board that says it has no clock: re-arming
+                        // a healthy board would move a real deadline, and a stamp
+                        // taken inside the lead time falls back to "one minute from
+                        // now".  Asking first also stops the clock from depending on
+                        // the identity verdict, which the shift answer carries only
+                        // while the authored schedule is enabled.
+                        if (BoardNeedsClock(port)) port.WriteLine(ClockStamp(DateTime.Now));
                         var localNow=DateTime.Now;
                         port.WriteLine(needsClock
                             ? $"SHIFT2!|{nonce}|{ShiftUserIdentity.Hash(Environment.UserName)}|{localNow.Hour*60+localNow.Minute}"
@@ -132,13 +136,14 @@ internal static class Program
     // board that still has one must be left exactly as it is.  WAKE? is the only
     // question that tells the two apart, and only the new firmware answers it:
     // older firmware replies ERR|COMMAND|unknown=WAKE? and gets no stamp.  The
-    // answer is read off the same open port before the shift probe, so a board
-    // that cannot answer costs this attempt nothing.
+    // answer is read off the port the challenge already came from, so the shift
+    // window is never shortened by a port that cannot answer, and a board that
+    // cannot answer costs this attempt nothing.
     private static bool BoardNeedsClock(SerialPort port)
     {
         port.WriteLine("WAKE?");
         var probe = Stopwatch.StartNew();
-        while (probe.ElapsedMilliseconds < 400)
+        while (probe.ElapsedMilliseconds < 300)
         {
             string line;
             try { line = port.ReadLine().Trim(); }
