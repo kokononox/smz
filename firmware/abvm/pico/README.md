@@ -88,9 +88,26 @@ Playback is allocation-free and nonblocking; no additional hardware is required.
 ## Autonomous shift wake (hostless)
 
 A portable board has no clock and no host helper, yet the next shift still has
-to start by itself. The temporary Windows bridge already reports the local
-wall clock on every shift identity check, so the firmware converts that single
-sample into a monotonic deadline instead of asking for a battery-backed RTC:
+to start by itself. Two things therefore have to reach the board without a PC
+running: the authored windows, and the current time.
+
+* The authored schedule travels inside the flashed program as the same `SFT2`
+  shift descriptor the round uses, so the board reads it at boot with
+  `abvm_find_constant(ABVM_CONST_SHIFT)` and configures the scheduler before USB
+  is even attached. Waiting for a round to reach its shift check would close a
+  circle: that check belongs to the round the board was supposed to start, so a
+  freshly flashed board could never arm the first window it had to wake. Boot
+  reports the result as
+  `EVT|WAKE|schedule|source=program|enabled=|day=|night=|lead=`, or `source=none`
+  when the flashed project carries no schedule at all.
+* The clock has two independent sources and needs neither at any given moment.
+  The temporary Windows bridge reports the local wall clock on every shift
+  identity check, and `TIME!|HH:MM` stamps it once on demand from any host tool —
+  no bridge, no round, no software left running. The stamp retires the recovery
+  budget exactly like an accepted bridge sample, so it is the one click that
+  breaks the cold-start circle after a flash or a brownout.
+* The firmware converts whichever sample it gets into a monotonic deadline
+  instead of asking for a battery-backed RTC:
 
 * `wake_scheduler_sync()` turns "the next window start is at minute X" into
   `deadline = now + (X - minute - lead)`. The nearest of the two window starts
@@ -184,7 +201,9 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   waiting for a real window. The `!dry` form wakes the host and then stops, which
   is the safe first hardware test: no authored round starts while nobody is
   watching the desktop. The next accepted clock sample replaces either form with
-  the authored schedule.
+  the authored schedule. `TIME!|HH:MM` stamps the wall clock once and re-arms from
+  the schedule the board read at boot, which is what lets a freshly flashed board
+  wake its first window with no host software involved.
 
 ### After a board reset
 

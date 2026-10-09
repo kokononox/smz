@@ -697,6 +697,41 @@ static void execute_command(char *line, uint32_t now) {
             }
         }
     }
+    else if (!strncmp(line, "TIME!", 5)) {
+        /* A board that has never completed a shift check owns no wall clock at
+         * all, so the authored schedule cannot arm and the first autonomous wake
+         * of a window is impossible.  This one-shot stamp hands the board a
+         * clock with no host software involved: the operator runs it once, or the
+         * kitchen sends it right after flashing, and the board keeps time from
+         * there.  The schedule itself now comes from the flashed program. */
+        char *argument = line + 5;
+        if (*argument == '|') ++argument;
+        char *end = NULL;
+        unsigned long hour = strtoul(argument, &end, 10);
+        unsigned long minute = 0ul;
+        bool valid = end && *end == ':' && hour < 24ul;
+        if (valid) {
+            char *minutes = end + 1;
+            minute = strtoul(minutes, &end, 10);
+            valid = end && !*end && (size_t)(end - minutes) <= 2u && minute < 60ul;
+        }
+        if (!valid) printf("ERR|ARG|TIME\n");
+        else {
+            wake_attempts_reset();
+            (void)calibration_store_wake_recovery_reset();
+            bool armed = wake_scheduler_sync(&wake_scheduler, now,
+                                             (uint16_t)(hour * 60ul + minute));
+            if (armed)
+                printf("OK|TIME|set=%02lu:%02lu|window=%02u:%02u|in=%lu|lead=%u\n",
+                       hour, minute, wake_scheduler.next_start / 60u,
+                       wake_scheduler.next_start % 60u,
+                       (unsigned long)((wake_scheduler.deadline_ms - now) / 60000u),
+                       wake_scheduler.lead_minutes);
+            else
+                printf("OK|TIME|set=%02lu:%02lu|armed=0|schedule=%u\n",
+                       hour, minute, wake_scheduler.enabled ? 1u : 0u);
+        }
+    }
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
         if (light_sensor_latest(&lux, &age, now))
@@ -1978,12 +2013,29 @@ int main(void) {
     bool program_verified = abvm_init(&vm, program, program_size);
     bool guard_available = program_verified && guard_runtime_init(&vm);
     if(guard_available)configure_buzzer_cues();
+    bool schedule_from_program = false;
     if (program_verified) {
         calibration_runtime_init(&vm);
         (void)cycle_runtime_init(&vm,now_ms());
         load_whisper_profile();
         ambient_mouse_init(now_ms());
         wake_scheduler_init(&wake_scheduler,WAKE_LEAD_MINUTES);
+        /* The authored shift schedule travels inside the flashed program, so the
+         * board can learn its windows at boot instead of waiting for a round to
+         * reach its shift check.  Without this the board only ever learns the
+         * schedule from a check it is supposed to trigger itself, which leaves a
+         * freshly flashed board unable to arm the first window it must wake. */
+        {
+            const uint8_t *shift_payload;uint32_t shift_size;uint16_t shift_id;
+            if(abvm_find_constant(&vm,ABVM_CONST_SHIFT,&shift_id,&shift_payload,&shift_size)&&
+               shift_identity_load(&shift_identity,shift_payload,shift_size,
+                                   now_ms()^local_u32(vm.header.program_sha256))) {
+                wake_scheduler_configure(&wake_scheduler,shift_identity.schedule_enabled,
+                                         shift_identity.day_start,shift_identity.day_end,
+                                         shift_identity.night_start,shift_identity.night_end);
+                schedule_from_program=true;
+            }
+        }
         /* A board reset loses the RAM deadline but not the decision behind it:
          * the persisted record still knows whether the host was asleep with a
          * wake owed, and that is enough to recover the clock. */
@@ -2014,7 +2066,17 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?\n");
+    if(schedule_from_program)
+        printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",
+               wake_scheduler.enabled?1u:0u,
+               wake_scheduler.day_start/60u,wake_scheduler.day_start%60u,
+               wake_scheduler.day_end/60u,wake_scheduler.day_end%60u,
+               wake_scheduler.night_start/60u,wake_scheduler.night_start%60u,
+               wake_scheduler.night_end/60u,wake_scheduler.night_end%60u,
+               wake_scheduler.lead_minutes);
+    else
+        printf("EVT|WAKE|schedule|source=none|enabled=0\n");
     if (wake_recovery_phase!=WAKE_RECOVERY_IDLE)
         printf("EVT|WAKE|recovery|armed|target=%02u:%02u|attempts=%u\n",
                wake_store_last.next_start/60u,wake_store_last.next_start%60u,

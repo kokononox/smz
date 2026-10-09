@@ -23,6 +23,15 @@ class WakeToolScriptTests(unittest.TestCase):
                                  f'{script} has non-ASCII text and needs a UTF-8 BOM')
         self.assertGreaterEqual(checked, 2, 'the wake tools carry Persian text')
 
+    def test_readmes_carry_a_utf8_bom(self):
+        readmes = sorted((ROOT / 'tools').glob('*/README-FA.txt'))
+        self.assertTrue(readmes, 'expected the Persian readmes to exist')
+        for readme in readmes:
+            raw = readme.read_bytes()
+            with self.subTest(readme=str(readme)):
+                self.assertEqual(raw[:3], b'\xef\xbb\xbf',
+                                 f'{readme} is Persian text and needs a UTF-8 BOM')
+
     def test_cmd_launchers_are_ascii_and_crlf(self):
         launchers = sorted((ROOT / 'tools').glob('*/*.cmd'))
         self.assertTrue(launchers, 'expected the wake tool launchers to exist')

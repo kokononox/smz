@@ -51,6 +51,34 @@ class ShiftWakeTests(unittest.TestCase):
         # The safe test path must leave before the authored round is started.
         self.assertIn('return;',block.group(1))
         self.assertNotIn('start_control',block.group(1))
+    def test_the_board_learns_its_schedule_at_boot(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        # The authored windows travel inside the flashed program, so the board
+        # must not depend on a round reaching its shift check to learn them.
+        self.assertIn('abvm_find_constant(&vm,ABVM_CONST_SHIFT',main)
+        self.assertIn('EVT|WAKE|schedule|source=program',main)
+        self.assertIn('EVT|WAKE|schedule|source=none',main)
+        boot=main.index('abvm_find_constant(&vm,ABVM_CONST_SHIFT')
+        self.assertLess(main.index('wake_scheduler_init(&wake_scheduler,WAKE_LEAD_MINUTES)'),boot)
+        self.assertLess(boot,main.index('tusb_init();'))
+
+    def test_a_one_shot_clock_stamp_needs_no_host_software(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('!strncmp(line, "TIME!", 5)',main)
+        self.assertIn('wake_scheduler_sync(&wake_scheduler, now,',main)
+        self.assertIn('ERR|ARG|TIME',main)
+        self.assertIn('TIME!HH:MM',main)
+        # A fresh stamp is a fresh clock, so it retires the recovery budget the
+        # same way an accepted bridge sample does.
+        stamp=main.index('!strncmp(line, "TIME!", 5)')
+        self.assertIn('calibration_store_wake_recovery_reset();',
+                      main[stamp:stamp+1800])
+
+    def test_the_clock_stamp_tool_is_clickable(self):
+        tool=ROOT/'tools'/'wake-test'
+        self.assertIn('clock',(tool/'wake-test.ps1').read_text(encoding='utf-8-sig'))
+        self.assertIn('clock',(tool/'wake-set-clock.cmd').read_text(encoding='ascii'))
+
     def test_persisted_wake_record_is_versioned(self):
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
         self.assertIn('#define CAL_VERSION 6u',store)
