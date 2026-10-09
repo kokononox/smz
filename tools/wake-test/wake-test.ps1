@@ -1,16 +1,20 @@
 ﻿<#
   wake-test.ps1 — تست بیدارکردن ویندوز از خواب با برد Pico
 
-  استفاده:
+  استفاده (هر کدام یک فایل کلیک‌کردنی است):
     wake-test.cmd         ← فقط بیدارکردن (امن: ماکرو شروع نمی‌شود)
-    wake-test.cmd full    ← بیدارکردن + شروع ماکرو
-    wake-test.cmd window  ← تست پنجرهٔ واقعی شیفت: اول چک می‌کند برد روی کدام
+    wake-test-full.cmd    ← بیدارکردن + شروع ماکرو
+    wake-test-window.cmd  ← تست پنجرهٔ واقعی شیفت: اول چک می‌کند برد روی کدام
                             ساعت مسلح است، بعد خودش سیستم را می‌خواباند و
                             منتظر بیداری واقعی می‌ماند
 
   پیش از اجرا Classroom Studio را کامل ببند، چون پورت COM برد را نگه می‌دارد.
 #>
 param([string]$Mode = '')
+
+# حالت اجرا همین اول حساب می‌شود تا بنر ابتدای اجرا و منطق بعدی یکسان بمانند.
+$window = ($Mode -eq 'window')
+$dry = -not (($Mode -eq 'full') -or $window)
 
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -62,6 +66,16 @@ Say ''
 Say '=====================================================' 'White'
 Say '  تست بیدارکردن ویندوز از خواب — برد Pico' 'White'
 Say '=====================================================' 'White'
+Say ''
+
+if ($dry) {
+    Say 'حالت امن (DRY): فقط بیدارکردن — ماکرو شروع نمی‌شود.' 'Magenta'
+    Say 'برای بیداری همراه با شروع واقعی ماکرو: wake-test-full.cmd' 'Magenta'
+} elseif ($window) {
+    Say 'حالت پنجرهٔ واقعی شیفت (WINDOW): ماکرو واقعاً اجرا می‌شود.' 'Magenta'
+} else {
+    Say 'حالت کامل (FULL): بعد از بیداری ماکرو واقعاً اجرا می‌شود.' 'Magenta'
+}
 Say ''
 
 # ---- ۱) پیدا کردن پورت Pico (با اثر انگشت PING) ----
@@ -142,8 +156,6 @@ if ($status -match 'state=(running|paused)') {
 }
 
 # ---- ۳) مسلح کردن بیداری ----
-$window = ($Mode -eq 'window')
-$dry = -not (($Mode -eq 'full') -or $window)
 $seconds = 60
 $command = 'WAKE!' + $seconds
 if ($dry) { $command = $command + '!dry' }
@@ -162,7 +174,7 @@ if ($window) {
         Say 'برد هنوز روی پنجرهٔ واقعی شیفت مسلح نیست.' 'Red'
         Say 'یعنی نمونهٔ ساعت از پل به برد نرسیده است (wake-target=00:00).' 'Yellow'
         Say 'یک بار Classroom Studio را باز کن تا چک هویت شیفت انجام شود و ساعت' 'Yellow'
-        Say 'برسد؛ بعد دوباره wake-test.cmd window را اجرا کن.' 'Yellow'
+        Say 'برسد؛ بعد دوباره wake-test-window.cmd را اجرا کن.' 'Yellow'
         try { $pico.Close() } catch { }
         return
     }

@@ -34,5 +34,36 @@ class WakeToolScriptTests(unittest.TestCase):
                                  f'{launcher} must use CRLF line endings')
 
 
+class WakeTestModeLauncherTests(unittest.TestCase):
+    """A launcher that forgets its mode argument silently degrades the test into
+    the safe dry run: the wake path runs, the macro never starts, and the run
+    looks like a success.  That is how the real-macro test was lost once, so each
+    mode gets its own clickable file and each file's argument is pinned here."""
+
+    def test_each_live_mode_has_a_launcher_that_passes_it(self):
+        tool = ROOT / 'tools' / 'wake-test'
+        for launcher, mode in (('wake-test-full.cmd', 'full'),
+                               ('wake-test-window.cmd', 'window')):
+            text = (tool / launcher).read_text(encoding='ascii')
+            with self.subTest(launcher=launcher):
+                self.assertIn('wake-test.ps1" ' + mode, text)
+
+    def test_the_default_launcher_stays_dry(self):
+        text = (ROOT / 'tools' / 'wake-test' / 'wake-test.cmd').read_text(encoding='ascii')
+        self.assertNotIn('wake-test.ps1" full', text)
+        self.assertNotIn('wake-test.ps1" window', text)
+
+    def test_the_script_only_treats_full_and_window_as_live(self):
+        script = (ROOT / 'tools' / 'wake-test' / 'wake-test.ps1').read_text(encoding='utf-8-sig')
+        self.assertIn("$window = ($Mode -eq 'window')", script)
+        self.assertIn("$dry = -not (($Mode -eq 'full') -or $window)", script)
+
+    def test_the_readme_names_every_launcher(self):
+        readme = (ROOT / 'tools' / 'wake-test' / 'README-FA.txt').read_text(encoding='utf-8-sig')
+        for launcher in ('wake-test.cmd', 'wake-test-full.cmd', 'wake-test-window.cmd'):
+            with self.subTest(launcher=launcher):
+                self.assertIn(launcher, readme)
+
+
 if __name__ == '__main__':
     unittest.main()
