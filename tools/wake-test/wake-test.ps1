@@ -136,6 +136,11 @@ $stalled = $false
 $reopenTries = 0
 $sawReplay = $false
 $lastNotice = 0
+$pulseAt = $null
+$hostUpAt = $null
+$firstEnterAt = $null
+$startAt = $null
+$settleMs = 0
 
 while ((Get-Date) -lt $limit) {
     $chunk = ''
@@ -150,10 +155,11 @@ while ((Get-Date) -lt $limit) {
             if ($line.Length -eq 0) { continue }
             Say (('[' + (Get-Date).ToString('HH:mm:ss') + ']  ' + $line)) 'White'
             Add-Log (('[' + (Get-Date).ToString('HH:mm:ss') + ']  ' + $line))
-            if ($line -match 'state=pulse') { $sawPulse = $true }
-            if ($line -match 'state=host-up|HOSTUSB\|UP') { $woke = $true }
-            if ($line -match 'state=start') { $sawStart = $true }
-            if ($line -match 'state=dismiss\|step=enter') { $dismisses = $dismisses + 1 }
+            if ($line -match 'state=pulse') { $sawPulse = $true; if (-not $pulseAt) { $pulseAt = Get-Date } }
+            if ($line -match 'state=host-up|HOSTUSB\|UP') { $woke = $true; if (-not $hostUpAt) { $hostUpAt = Get-Date } }
+            if ($line -match 'state=start') { $sawStart = $true; if (-not $startAt) { $startAt = Get-Date } }
+            if ($line -match 'settle-ms=(\d+)') { $settleMs = [int]$matches[1] }
+            if ($line -match 'state=dismiss\|step=enter') { $dismisses = $dismisses + 1; if (-not $firstEnterAt) { $firstEnterAt = Get-Date } }
             if ($line -match 'dismiss\|stall') { $stalled = $true }
             if ($line -match '^RPL\|') { $sawReplay = $true }
         }
@@ -207,6 +213,9 @@ if ($stalled) {
     Say '  گیر کردن روی قفل (stall)       : بله — فریم‌ور بعد از مهلت رد شد' 'Yellow'
 }
 if ($sawStart) { Say '  ماکرو شروع شد                  : بله' 'White' } else { Say '  ماکرو شروع شد                  : نه' 'Yellow' }
+if ($settleMs -gt 0) { Say ('  مهلت نشستن (settle-ms)         : ' + $settleMs + ' میلی‌ثانیه') 'White' }
+if ($pulseAt -and $firstEnterAt) { Say ('  پالس تا اینتر اول              : ' + [int]($firstEnterAt - $pulseAt).TotalSeconds + ' ثانیه') 'White' }
+if ($pulseAt -and $startAt) { Say ('  پالس تا شروع ماکرو             : ' + [int]($startAt - $pulseAt).TotalSeconds + ' ثانیه') 'White' }
 if ($sawReplay) { Say '  لاگ زمان خواب (RPL)            : بله — در فایل ذخیره شده' 'White' }
 
 Start-Sleep -Seconds 3

@@ -31,13 +31,16 @@
 لاگ‌های درست به این شکل‌اند:
   OK|WAKE|manual|in=60|target=19:58|dry=1
   EVT|WAKE|state=pulse|attempt=1|wall=19:58|target=19:58|lead=2|pico-rw=1|arm=1|usb=2
-  EVT|WAKE|state=host-up|settle-ms=30000
+  EVT|WAKE|state=host-up|settle-ms=15000
   EVT|WAKE|state=dismiss|step=enter|n=1   ← اینتر اول: برداشتن صفحهٔ قفل
   EVT|WAKE|state=dismiss|step=enter|n=2   ← اینترهای بعدی: ورود به دسکتاپ
   EVT|WAKE|state=start|attempt=1|skipped=manual-dry
 
 ابزار در پایان یک «تشخیص گام‌به‌گام» چاپ می‌کند: پالس رفت؟ سیستم برگشت؟ چند
 اینتر بیرون رفت؟ ماکرو شروع شد؟ با همین پنج خط می‌فهمیم کدام گام شکسته است.
+همچنین زمان‌های واقعی را چاپ می‌کند: مهلت نشستن (settle-ms)، فاصلهٔ پالس تا
+اینتر اول، و فاصلهٔ پالس تا شروع ماکرو. با این سه عدد می‌فهمی تأخیر برداشتن
+قفل چقدر است و اگر لازم بود کم یا زیادش کنی.
 
   EVT|WAKE|state=dismiss|step=enter|n=2|via=arm
       ← اگر پورت USB خودِ Pico بعد از بیداری خواب بماند (وقتی سیستم از راه برد

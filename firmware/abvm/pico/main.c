@@ -36,7 +36,7 @@ extern size_t abvm_program_size(void);
 #define WAKE_PULSE_COMMAND "MMOVE|1,0,rel,2"
 #define WAKE_PULSE_TIMEOUT_MS 5000u
 #define WAKE_RESUME_TIMEOUT_MS 60000u
-#define WAKE_SETTLE_MS 30000u
+#define WAKE_SETTLE_MS 15000u
 #define WAKE_MAX_ATTEMPTS 3u
 #define WAKE_RETRY_MS 300000u
 /* A verified wake leaves the host on the Windows lock screen, and the authored

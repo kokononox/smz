@@ -123,7 +123,9 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   therefore presses `VK_RETURN` `WAKE_DISMISS_PRESSES` times, paced by
   `WAKE_DISMISS_GAP_MS`: hardware testing on the target showed that Enter alone
   drops the lock screen and signs the machine in, so the pointer is never moved
-  and the round starts from the cursor position it expects. The step runs only
+  and the round starts from the cursor position it expects. Measured on the
+  target, the bridge reports `UP` about 5 s after the resume, so `WAKE_SETTLE_MS`
+  is 15 s and the whole pulse-to-round sequence takes about 24 s. The step runs only
   for a host this board actually woke; `WAKE_DISMISS_ENABLED 0` removes it for a
   machine that does not lock on wake.
 * The two wake sources are independent and neither is gated on the other. The
