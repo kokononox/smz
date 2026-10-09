@@ -136,6 +136,42 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('wake_retry_at=now;',main[arm_reset:arm_reset+400])
         # And the phase itself is visible in STATUS.
         self.assertIn('|wake-phase=%u\\n", abvm_status_name(vm.status)',main)
+    def test_no_single_source_or_stuck_phase_can_lose_a_wake(self):
+        # The Pico resumes the host bus from its own suspended port and needs
+        # nothing from the Arduino board, so an unprobed, busy or faulted board
+        # must never be able to stop the machine from being woken -- and every
+        # skip has to be visible in the log instead of silent.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('if(calibration_runtime_active()) return;',main)
+        self.assertIn('if(arm_uart_mouse_ready()&&!arm_uart_mouse_busy()) {',main)
+        self.assertIn('bool pico=wake_pulse_pico();',main)
+        self.assertLess(main.index('bool pico=wake_pulse_pico();'),
+                        main.index('if(arm_uart_mouse_ready()&&!arm_uart_mouse_busy()) {'))
+        self.assertIn('ERR|WAKE|pulse|pico-skipped|usb=%u|rw=%u',main)
+        self.assertIn('ERR|WAKE|pulse|wait|arm-ready=%u|arm-busy=%u|pico-usb=%u|pico-rw=%u',main)
+        self.assertIn('ERR|WAKE|pulse|arm-skipped|ready=%u|busy=%u',main)
+        # A recovery that cannot reach the board or read the store gives up
+        # instead of blocking the normal wake path behind it.
+        self.assertIn('ERR|WAKE|recovery|skipped|reason=arm|ready=%u|busy=%u',main)
+        self.assertIn('ERR|WAKE|recovery|skipped|reason=store',main)
+
+    def test_logs_survive_the_host_being_asleep(self):
+        # The whole wake decision happens with nobody listening: the CDC is
+        # disconnected while the host sleeps.  Lines are held in RAM and
+        # replayed, and a long line is written in full instead of being cut at
+        # the endpoint buffer.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        cfg=(ROOT/'firmware/abvm/pico/tusb_config.h').read_text()
+        self.assertIn('#define CFG_TUD_CDC_TX_BUFSIZE 1024',cfg)
+        self.assertIn('#define LOG_REPLAY_BYTES 2048',main)
+        self.assertIn('if (!tud_cdc_connected()) { log_replay_add(output, count); return length; }',main)
+        self.assertIn('"RPL|begin\\n"',main)
+        self.assertIn('"RPL|end\\n"',main)
+        self.assertIn('static size_t cdc_write_all(const char *text, size_t length)',main)
+        self.assertIn('uint32_t chunk = tud_cdc_write(text + sent, (uint32_t)(length - sent));',main)
+        # The replay is bounded and drops the oldest bytes instead of growing.
+        self.assertLess(main.index('static void log_replay_add'),main.index('static int cdc_printf'))
+
     def test_wake_code_stays_out_of_the_adapter_slices(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         for start,end in (("static void fail_shift_check(","static void service_game_buffs("),

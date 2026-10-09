@@ -126,6 +126,25 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   and the round starts from the cursor position it expects. The step runs only
   for a host this board actually woke; `WAKE_DISMISS_ENABLED 0` removes it for a
   machine that does not lock on wake.
+* The two wake sources are independent and neither is gated on the other. The
+  Pico resumes the host bus from its own suspended port and needs nothing from
+  the Arduino board, so an unprobed, busy or faulted board can no longer stop the
+  machine from being woken — which is what used to happen, silently, because the
+  pulse path returned before it reached the log. Every skip is now reported:
+  `ERR|WAKE|pulse|pico-skipped|usb=|rw=` when the host never armed this board's
+  own remote wake-up, `ERR|WAKE|pulse|arm-skipped|ready=|busy=` when only the
+  Pico path went out, and `ERR|WAKE|pulse|wait|...` once while nothing can go out
+  yet.
+* The recovery path cannot park the wake machine: it is blocked on an
+  unreachable board or an unreadable store only until its deadline, and then
+  reports `ERR|WAKE|recovery|skipped|reason=arm|store` and lets the normal path
+  run again.
+* Logs survive the host being asleep. While the CDC is disconnected every line
+  used to be dropped, which is exactly the window the wake decision happens in;
+  the last `LOG_REPLAY_BYTES` of output are now kept in RAM and replayed, marked
+  `RPL|begin` … `RPL|end`, as soon as the host is back. `CFG_TUD_CDC_TX_BUFSIZE`
+  was raised so a full `STATUS` line (over 360 characters) is written in one
+  piece instead of being cut at the endpoint buffer.
 * The dismiss phase is bounded, because a key report is only delivered while the
   host keeps this board's own port resumed and the host can resume through the
   Arduino board instead. `WAKE_DISMISS_TIMEOUT_MS` caps the phase; on expiry the

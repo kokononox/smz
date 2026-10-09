@@ -117,6 +117,9 @@ if ($dry) {
     Say 'حالت کامل: بعد از بیداری، ماکرو روی دسکتاپ کار می‌کند.' 'Yellow'
 }
 Say ''
+Say 'اگر سیستم بیدار نشد، بعد از پایان تست یک کلید بزن تا دستی بیدار شود؛' 'DarkGray'
+Say 'برد لاگ زمان خواب را ذخیره کرده و بلافاصله می‌فرستد (خطوط RPL).' 'DarkGray'
+Say ''
 Say 'حالا سیستم را بخوابان:   Start  >  Sleep' 'White'
 Say ('حدود ' + $seconds + ' ثانیه بعد باید خودش روشن شود.') 'White'
 Say 'این پنجره را باز بگذار؛ لاگ‌ها همین‌جا می‌آیند.' 'White'
@@ -131,6 +134,7 @@ $sawStart = $false
 $dismisses = 0
 $stalled = $false
 $reopenTries = 0
+$sawReplay = $false
 $lastNotice = 0
 
 while ((Get-Date) -lt $limit) {
@@ -151,6 +155,7 @@ while ((Get-Date) -lt $limit) {
             if ($line -match 'state=start') { $sawStart = $true }
             if ($line -match 'state=dismiss\|step=enter') { $dismisses = $dismisses + 1 }
             if ($line -match 'dismiss\|stall') { $stalled = $true }
+            if ($line -match '^RPL\|') { $sawReplay = $true }
         }
     }
     # The COM port can disappear while the machine is asleep; the board comes
@@ -202,6 +207,7 @@ if ($stalled) {
     Say '  گیر کردن روی قفل (stall)       : بله — فریم‌ور بعد از مهلت رد شد' 'Yellow'
 }
 if ($sawStart) { Say '  ماکرو شروع شد                  : بله' 'White' } else { Say '  ماکرو شروع شد                  : نه' 'Yellow' }
+if ($sawReplay) { Say '  لاگ زمان خواب (RPL)            : بله — در فایل ذخیره شده' 'White' }
 
 Start-Sleep -Seconds 3
 Say ''

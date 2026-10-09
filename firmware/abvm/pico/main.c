@@ -110,6 +110,7 @@ static bool wake_woke_host,wake_dismiss_done;
 static uint8_t wake_dismiss_step;
 static uint8_t wake_attempts;
 static uint32_t wake_deadline,wake_retry_at,wake_recovery_deadline,wake_dismiss_started;
+static bool wake_pulse_wait_logged;
 static bool pico_usb_suspended,pico_remote_wakeup_en;
 static WakeStoreState wake_store_last;
 static uint32_t wake_store_next_at;
@@ -362,13 +363,66 @@ static void service_global_sound_listener(uint32_t now) {
     (void)arm_uart_sound_restart(now,1u,global_sound_threshold,
                                  global_sound_minimum,30000u);
 }
+/* While the host is asleep the CDC is disconnected and every log line would be
+ * thrown away, which is exactly the window an operator has to read afterwards:
+ * the wake decision, the pulse and its result all happen with nobody listening.
+ * The tail of the output is therefore kept in RAM and replayed, marked RPL|, the
+ * moment the host is back.  The buffer is bounded and only whole writes are
+ * replayed, so it can never grow or block. */
+#define LOG_REPLAY_BYTES 2048
+static char log_replay[LOG_REPLAY_BYTES];
+static size_t log_replay_used;
+
+static void log_replay_add(const char *text, size_t length) {
+    if (!length) return;
+    if (length >= LOG_REPLAY_BYTES) {
+        memcpy(log_replay, text + (length - LOG_REPLAY_BYTES), LOG_REPLAY_BYTES);
+        log_replay_used = LOG_REPLAY_BYTES;
+        return;
+    }
+    if (log_replay_used + length > LOG_REPLAY_BYTES) {
+        size_t drop = log_replay_used + length - LOG_REPLAY_BYTES;
+        memmove(log_replay, log_replay + drop, log_replay_used - drop);
+        log_replay_used -= drop;
+    }
+    memcpy(log_replay + log_replay_used, text, length);
+    log_replay_used += length;
+}
+
+static size_t cdc_write_all(const char *text, size_t length) {
+    size_t sent = 0u;
+    while (sent < length) {
+        uint32_t chunk = tud_cdc_write(text + sent, (uint32_t)(length - sent));
+        if (!chunk) break;
+        sent += chunk;
+    }
+    tud_cdc_write_flush();
+    return sent;
+}
+
 static int cdc_printf(const char *format, ...) {
     char output[384]; va_list args; va_start(args, format);
     int length = vsnprintf(output, sizeof(output), format, args); va_end(args);
-    if (length <= 0 || !tud_cdc_connected()) return length;
+    if (length <= 0) return length;
     size_t count = (size_t)length;
     if (count >= sizeof(output)) count = sizeof(output) - 1u;
-    tud_cdc_write(output, (uint32_t)count); tud_cdc_write_flush(); return length;
+    if (!tud_cdc_connected()) { log_replay_add(output, count); return length; }
+    if (log_replay_used) {
+        /* Chronological order: the held-back lines come first.  A host that is
+         * not draining yet keeps the remainder for the next call. */
+        static const char opening[] = "RPL|begin\n";
+        static const char closing[] = "RPL|end\n";
+        cdc_write_all(opening, sizeof(opening) - 1u);
+        size_t sent = cdc_write_all(log_replay, log_replay_used);
+        if (sent >= log_replay_used) log_replay_used = 0u;
+        else {
+            memmove(log_replay, log_replay + sent, log_replay_used - sent);
+            log_replay_used -= sent;
+        }
+        cdc_write_all(closing, sizeof(closing) - 1u);
+    }
+    (void)cdc_write_all(output, count);
+    return length;
 }
 #define printf cdc_printf
 static void print_status(void) {
@@ -1590,9 +1644,23 @@ static void service_wake_recovery(uint32_t now) {
             printf("EVT|WAKE|recovery|skipped|reason=host-up\n");
             return;
         }
-        if(!arm_uart_mouse_ready()||arm_uart_mouse_busy()||calibration_runtime_active()) return;
+        if(calibration_runtime_active()) return;
+        if(!arm_uart_mouse_ready()||arm_uart_mouse_busy()) {
+            /* The normal wake path is blocked while the recovery runs, so a
+             * board that cannot be reached must not hold the phase: give up
+             * after the deadline instead of parking the wake machine. */
+            if((int32_t)(now-wake_recovery_deadline)<0) return;
+            wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            printf("ERR|WAKE|recovery|skipped|reason=arm|ready=%u|busy=%u\n",
+                   arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u);
+            return;
+        }
         WakeStoreState state;
-        if(!calibration_store_wake_get(&state)) return;
+        if(!calibration_store_wake_get(&state)) {
+            wake_recovery_phase=WAKE_RECOVERY_IDLE;
+            printf("ERR|WAKE|recovery|skipped|reason=store\n");
+            return;
+        }
         if(!wake_scheduler_recovery_needed(state.host_asleep,state.pending,
                                            state.recovery_attempts,WAKE_RECOVERY_MAX_ATTEMPTS)) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
@@ -1753,7 +1821,7 @@ static void service_wake(uint32_t now) {
         printf("ERR|WAKE|attempt-limit|attempts=%u\n",wake_attempts);
         return;
     }
-    if(calibration_runtime_active()||!arm_uart_mouse_ready()||arm_uart_mouse_busy()) return;
+    if(calibration_runtime_active()) return;
     if(arm_uart_host_usb_state()==ARM_HOST_USB_UP) {
         /* The host is already awake: start the authored round without a pulse and
          * without a lock-screen dismiss, because there is no lock screen to clear
@@ -1765,12 +1833,36 @@ static void service_wake(uint32_t now) {
     }
     /* Both wake sources are fired in the same pulse: they are armed by the host
      * independently, so whichever one Windows accepted is the one that resumes
-     * the machine, and no latency is spent discovering which. */
+     * the machine, and no latency is spent discovering which.  Neither source
+     * may be gated on the other: the Pico resumes the host bus from its own
+     * suspended port and needs nothing from the Arduino board, so an unprobed,
+     * busy or faulted board must never be able to stop the machine from being
+     * woken -- silently, which is how it used to behave. */
     bool pico=wake_pulse_pico();
-    ArmMouseSubmit result=wake_pulse_arm(now);
+    ArmMouseSubmit result=ARM_MOUSE_UNSUPPORTED;
+    if(arm_uart_mouse_ready()&&!arm_uart_mouse_busy()) {
+        result=wake_pulse_arm(now);
+        if(!pico&&result==ARM_MOUSE_ACCEPTED)
+            printf("ERR|WAKE|pulse|pico-skipped|usb=%u|rw=%u\n",
+                   pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u);
+    } else if(!pico) {
+        /* Nothing can go out yet.  Say why once, then keep trying: the deadline
+         * stays due until a pulse actually leaves. */
+        if(!wake_pulse_wait_logged) {
+            wake_pulse_wait_logged=true;
+            printf("ERR|WAKE|pulse|wait|arm-ready=%u|arm-busy=%u|pico-usb=%u|pico-rw=%u\n",
+                   arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u,
+                   pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u);
+        }
+        return;
+    } else {
+        printf("ERR|WAKE|pulse|arm-skipped|ready=%u|busy=%u\n",
+               arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u);
+    }
     if(pico||result==ARM_MOUSE_ACCEPTED) {
         /* The Pico's own resume carries no acknowledgement, so the phase machine
          * only waits on the Arduino round trip when that path was used. */
+        wake_pulse_wait_logged=false;
         wake_pulse_inflight=result==ARM_MOUSE_ACCEPTED;
         wake_woke_host=true;wake_dismiss_done=false;wake_dismiss_step=0u;
         wake_phase=WAKE_PHASE_PULSE;

@@ -20,7 +20,10 @@
 #define CFG_TUD_VENDOR 0
 
 #define CFG_TUD_CDC_RX_BUFSIZE 128
-#define CFG_TUD_CDC_TX_BUFSIZE 256
+/* The board's own log lines (the STATUS line is over 360 characters) must fit
+ * in one write: tud_cdc_write() takes what fits and silently drops the rest, and
+ * a truncated diagnostic line is worse than none. */
+#define CFG_TUD_CDC_TX_BUFSIZE 1024
 #define CFG_TUD_CDC_EP_BUFSIZE 64
 #define CFG_TUD_HID_EP_BUFSIZE 16
 
