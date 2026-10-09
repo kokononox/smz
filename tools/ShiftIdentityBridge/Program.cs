@@ -20,6 +20,8 @@ internal static class Program
                 var ids=KnownUsbIdentities();
                 return ShiftUserIdentity.Hash(" dayuser ")==ShiftUserIdentity.Hash("DAYUSER")
                     &&ShiftUserIdentity.Hash("DAYUSER")!=ShiftUserIdentity.Hash("NIGHTUSER")
+                    &&ClockStamp(new DateTime(2026,10,10,7,5,0))=="TIME!|07:05"
+                    &&ClockStamp(new DateTime(2026,10,10,23,59,0))=="TIME!|23:59"
                     &&ids.Contains("VID_6BA8&PID_C5DE")&&ids.Count>=31 ? 0 : 9;
             }
             string? requested = args.Length == 2 && args[0] == "--port" ? args[1] : null;
@@ -44,6 +46,14 @@ internal static class Program
                                 ReadTimeout = 350, WriteTimeout = 1000, NewLine = "\n",
                             };
                             port.Open();
+                            // Power-loss bootstrap: a board that lost power keeps the
+                            // schedule it was flashed with but owns no wall clock, so
+                            // it can never arm a window or wake the machine by itself.
+                            // The stamp goes only to a board that says it has no clock:
+                            // re-arming a healthy board would move a real deadline, and
+                            // a stamp taken inside the lead time falls back to "one
+                            // minute from now".
+                            if (BoardNeedsClock(port)) port.WriteLine(ClockStamp(DateTime.Now));
                             port.WriteLine("SHIFT?");
                             var probe = Stopwatch.StartNew();
                             while (probe.ElapsedMilliseconds < 600)
@@ -110,6 +120,33 @@ internal static class Program
         try { if (port.IsOpen) { port.DtrEnable = false; port.Close(); } }
         catch (IOException) { }
         finally { port.Dispose(); }
+    }
+
+    // "TIME!|HH:MM" is the board's one-shot clock stamp.  Formatted with the
+    // invariant culture: the board parses ASCII digits only, and a culture with
+    // different numerals would send a stamp it has to reject.
+    private static string ClockStamp(DateTime now) =>
+        "TIME!|" + now.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+    // A board that lost power owns no wall clock and can never arm a window; a
+    // board that still has one must be left exactly as it is.  WAKE? is the only
+    // question that tells the two apart, and only the new firmware answers it:
+    // older firmware replies ERR|COMMAND|unknown=WAKE? and gets no stamp.  The
+    // answer is read off the same open port before the shift probe, so a board
+    // that cannot answer costs this attempt nothing.
+    private static bool BoardNeedsClock(SerialPort port)
+    {
+        port.WriteLine("WAKE?");
+        var probe = Stopwatch.StartNew();
+        while (probe.ElapsedMilliseconds < 400)
+        {
+            string line;
+            try { line = port.ReadLine().Trim(); }
+            catch (TimeoutException) { continue; }
+            if (!line.StartsWith("OK|WAKE|", StringComparison.Ordinal)) continue;
+            return line.Contains("|synced=0|") || line.EndsWith("|synced=0", StringComparison.Ordinal);
+        }
+        return false;
     }
 
     private static HashSet<string> KnownUsbIdentities()

@@ -19,6 +19,12 @@
  * wall anchor are RAM-only; after a board reset only the persisted decision
  * inputs survive, which is why `wake_scheduler_recovery_needed()` exists.
  *
+ * A reset is not the only way to lose the anchor: a power cut loses it too, and
+ * a brownout during an awake shift leaves no owed wake behind to recover from.
+ * `wake_scheduler_boot_clock_needed()` covers that second case -- the schedule is
+ * known from the flashed program, but no window can be armed until some host
+ * hands the sample over, and the host may be asleep.
+ *
  * Only the *start* of a window is a wake target: inside a window the machine is
  * expected to be awake and running the authored round. */
 typedef struct WakeScheduler {
@@ -46,6 +52,16 @@ bool wake_scheduler_arm_dry(WakeScheduler *w, uint32_t now, uint32_t in_ms);
 bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *minute);
 bool wake_scheduler_recovery_needed(bool host_asleep, bool pending,
                                     uint8_t attempts, uint8_t maximum);
+/* A board that lost power owns no wall clock at all, and without one it cannot
+ * arm the window it exists to wake -- so a brownout during an awake shift, which
+ * leaves nothing pending to recover, is as unrecoverable as a brownout during a
+ * wake.  The decision is therefore taken from the boot state instead: the
+ * schedule is enabled, no sample has anchored the clock yet, and budget is left. */
+bool wake_scheduler_boot_clock_needed(bool enabled, bool synced,
+                                      uint8_t attempts, uint8_t maximum);
+/* Both recovery reasons spend the same persisted budget: a brownout loop must
+ * not become a wake storm whether the board woke up owing a wake or a clock. */
+bool wake_scheduler_pulse_budget_left(uint8_t attempts, uint8_t maximum);
 void wake_scheduler_disarm(WakeScheduler *w);
 bool wake_scheduler_armed(const WakeScheduler *w);
 bool wake_scheduler_due(const WakeScheduler *w, uint32_t now);

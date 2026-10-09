@@ -31,6 +31,11 @@ v0.9.59 — انتخاب خودکار لینک در connect: اگر پورت ب�
   جواب داد (پیکو)، لینک متن‌باز PicoLink بدون نیاز به ams_key.json — کیبورد و نور
   همان‌جا روی پیکو و فرمان‌های بازو روی UART به پرو میکرو پاس داده می‌شوند؛
   وگرنه همان BoardLink رمزشده‌ی همیشگی برای اتصال مستقیم به پرو میکرو.
+v0.9.61 — مُهر ساعت در connect: برد پیکو ساعت پشتیبان‌دار ندارد و بعد از قطع برق
+  فقط پنجره‌های شیفتِ داخل برنامهٔ فلش‌شده را دارد؛ تا یک نمونهٔ ساعت نرسد هیچ
+  پنجره‌ای مسلح نمی‌شود و بیداری خودش هرگز اتفاق نمی‌افتد. اگر PONG بگوید
+  native=abvm و WAKE? بگوید synced=0، یک بار TIME!|HH:MM فرستاده می‌شود تا برد
+  دوباره مستقل شود. بردِ سالم دست‌نخورده می‌ماند (مهلت واقعی جابه‌جا نمی‌شود).
 اجرا:
   python bridge.py --pydir "C:\Users\wasteland\Documents\ams\pc"
   (--pydir = پوشه‌ای که ams_serial.py و ams_crypto.py در آن است)
@@ -185,9 +190,62 @@ class PicoLink:
                 pass
             self.ser = None
             raise PicoError("این پورت مغز پیکو نیست: " + pong[:60])
+        # v0.9.61 — the board keeps the schedule it was flashed with but owns no
+        # RTC, so a power cut leaves it unable to arm a window; the host is the
+        # only clock source, and the app is what runs on the host afterwards.
+        self._push_clock_if_needed(pong)
         # "OK|PONG|pico-light x|role=brain…|arm=promicro" ← هویت برای LEDهای اپ
         self.fw_ver = pong[len("OK|PONG|"):] if pong.startswith("OK|PONG|") else pong
         return self.port
+
+    def _push_clock_if_needed(self, pong):
+        """v0.9.61 — hand the board its wall clock back after a power cut.
+
+        A board that lost power keeps the schedule from the flashed program but
+        owns no wall anchor, so no window can be armed and its own wake can never
+        fire.  TIME! exists in the native ABVM firmware only, so the capability is
+        read off the PONG first, and WAKE? then says whether the anchor is really
+        gone: a board that still has one is left untouched, because re-arming a
+        healthy board would move a real deadline and a stamp taken inside the lead
+        time falls back to "one minute from now".  Best effort throughout — a
+        board that cannot answer costs the connection nothing.
+        """
+        if "native=abvm" not in pong:
+            return False
+        state = self._read_wake_state()
+        if state is None or "synced=0" not in state:
+            return False
+        now = time.localtime()
+        try:
+            self._send("TIME!|%02d:%02d" % (now.tm_hour, now.tm_min))
+        except Exception:
+            return False
+        return True
+
+    def _read_wake_state(self):
+        """Return the board's OK|WAKE| line, or None when it cannot answer.
+
+        Read directly instead of through command(): the reply head is WAKE while
+        the request head is WAKE?, and command() would treat that mismatch as a
+        stale reply and wait out the whole timeout.  Firmware that predates the
+        command answers ERR|COMMAND|unknown=WAKE?, which is a None here.
+        """
+        try:
+            self._send("WAKE?")
+        except Exception:
+            return None
+        deadline = time.monotonic() + 1.5
+        while True:
+            line = self._read_line(max(0.05, deadline - time.monotonic()))
+            if line is None:
+                return None
+            if line.startswith("EVT|"):
+                self.events.append(line)   # رویداد مسلح، جایگزین پاسخ نمی‌شود
+                continue
+            if line.startswith("OK|WAKE|"):
+                return line
+            if line.startswith("ERR|"):
+                return None
 
     def command(self, cmd, timeout=5.0):
         if self.ser is None:
