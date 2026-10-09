@@ -92,6 +92,27 @@ bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute) {
     return true;
 }
 
+/* A `WAKE!` arm is a test, not a schedule.  Once it has been consumed the board
+ * must hand the deadline straight back to the authored windows, otherwise one
+ * test run leaves the board unable to wake for the real window until some round
+ * happens to run another shift check -- which is exactly the failure an operator
+ * cannot see, because nothing is armed and nothing is logged.
+ *
+ * A window that is already inside the lead time is deliberately left unarmed:
+ * `wake_scheduler_sync()` falls back to "one minute from now" there, so re-arming
+ * at that moment would turn a consumed test into a wake loop.  The next clock
+ * sample picks the real window up. */
+bool wake_scheduler_rearm(WakeScheduler *w, uint32_t now) {
+    if (!w || !w->enabled || !w->synced) return false;
+    uint16_t minute = 0u;
+    if (!wake_scheduler_wall_minute(w, now, &minute)) return false;
+    uint16_t start = 0u;
+    if (!wake_scheduler_next_window_start(minute, w->day_start, w->night_start, &start))
+        return false;
+    if (wake_scheduler_minutes_until(minute, start) <= w->lead_minutes) return false;
+    return wake_scheduler_sync(w, now, minute);
+}
+
 static bool arm_manual(WakeScheduler *w, uint32_t now, uint32_t in_ms, bool dry) {
     if (!w || !in_ms) return false;
     uint32_t at = now + in_ms;

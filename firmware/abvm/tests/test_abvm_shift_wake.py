@@ -51,6 +51,32 @@ class ShiftWakeTests(unittest.TestCase):
         # The safe test path must leave before the authored round is started.
         self.assertIn('return;',block.group(1))
         self.assertNotIn('start_control',block.group(1))
+    def test_a_consumed_test_arm_hands_the_deadline_back_to_the_schedule(self):
+        sched=(ROOT/'firmware/abvm/pico/wake_scheduler.c').read_text()
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('bool wake_scheduler_rearm(WakeScheduler *w, uint32_t now)',sched)
+        # The guard must come before the sync: re-arming inside the lead time would
+        # fall back to "one minute from now" and turn a test into a wake loop.
+        self.assertLess(sched.index('<= w->lead_minutes) return false;'),
+                        sched.index('return wake_scheduler_sync(w, now, minute);'))
+        self.assertIn('wake_scheduler_rearm(&wake_scheduler,now)',main)
+        self.assertIn('EVT|WAKE|rearmed|window=%02u:%02u|in=%lu',main)
+        # Only the consumed-deadline path re-arms.  WAKE!OFF, an exhausted attempt
+        # budget and a failed pulse all stay disarmed on purpose.
+        consumed=main.index('wake_scheduler_rearm(&wake_scheduler,now)')
+        self.assertGreater(consumed,main.index('bool dry=wake_scheduler.dry;'))
+        disarm=main.rindex('wake_scheduler_disarm(&wake_scheduler);',0,consumed)
+        self.assertLess(consumed-disarm,700)
+
+    def test_the_window_test_refuses_a_stale_manual_arm(self):
+        script=(ROOT/'tools/wake-test/wake-test.ps1').read_text(encoding='utf-8-sig')
+        self.assertIn("$wakeState -match 'manual=1'",script)
+        self.assertIn("$wakeState -match 'dry=1'",script)
+        # The refusal must not send the operator to Classroom Studio: the round runs
+        # on the board, and the clock comes from wake-set-clock.cmd.
+        self.assertIn('wake-set-clock.cmd',script)
+        self.assertNotIn('Classroom Studio را باز کن',script)
+
     def test_the_board_learns_its_schedule_at_boot(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         # The authored windows travel inside the flashed program, so the board

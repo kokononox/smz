@@ -1832,6 +1832,13 @@ static void service_wake(uint32_t now) {
         wake_phase=WAKE_PHASE_IDLE;
         bool dry=wake_scheduler.dry;
         wake_scheduler_disarm(&wake_scheduler);
+        /* A test arm is a test, not a schedule.  Give the deadline straight back
+         * to the authored windows so one WAKE! run cannot leave the board unable
+         * to wake for the real window. */
+        if(wake_scheduler_rearm(&wake_scheduler,now))
+            printf("EVT|WAKE|rearmed|window=%02u:%02u|in=%lu\n",
+                   wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,
+                   (unsigned long)((wake_scheduler.deadline_ms-now)/60000u));
         ++wake_attempts;
         if(dry) {
             /* WAKE!<seconds>!dry proves the resume and stops there: no authored

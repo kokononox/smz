@@ -204,6 +204,14 @@ running: the authored windows, and the current time.
   the authored schedule. `TIME!|HH:MM` stamps the wall clock once and re-arms from
   the schedule the board read at boot, which is what lets a freshly flashed board
   wake its first window with no host software involved.
+* A consumed test arm hands the deadline straight back to the authored windows.
+  `wake_scheduler_rearm()` runs where the deadline is consumed, so one `WAKE!` run
+  cannot leave the board unable to wake for the real window until some round
+  happens to run another shift check — a failure that writes no line at all,
+  because nothing is armed and nothing fires. A window already inside the lead
+  time is deliberately left unarmed, since `wake_scheduler_sync()` falls back to
+  "one minute from now" there and re-arming would become a wake loop. `WAKE!OFF`,
+  an exhausted attempt budget and a failed pulse all stay disarmed on purpose.
 
 ### After a board reset
 

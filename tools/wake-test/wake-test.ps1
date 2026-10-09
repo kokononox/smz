@@ -187,20 +187,33 @@ $command = 'WAKE!' + $seconds
 if ($dry) { $command = $command + '!dry' }
 
 if ($window) {
-    # مهلت واقعی را نمونهٔ ساعتِ پل مسلح می‌کند، نه یک دستور دستی؛ پس قبل از
-    # خواباندن سیستم می‌خوانیم برد واقعاً منتظر چه ساعتی است.
+    # مهلت واقعی را برنامهٔ شیفت مسلح می‌کند، نه یک دستور دستی. یک مهلت دستی
+    # تست (WAKE!) زودتر از پنجره می‌سوزد و ماکرو را شروع نمی‌کند، پس اگر برد روی
+    # چنین مهلتی باشد، ساعت را دوباره می‌فرستیم تا برنامهٔ شیفت مهلت را پس بگیرد.
+    if ($wakeState -match 'manual=1' -or $wakeState -match 'dry=1') {
+        Say ''
+        Say 'برد روی یک مهلت دستی تست مسلح است، نه پنجرهٔ واقعی شیفت.' 'Yellow'
+        Say 'همان مهلت زودتر می‌سوزد و ماکرو شروع نمی‌شود، پس ساعت را دوباره' 'Yellow'
+        Say 'می‌فرستم تا مهلت از برنامهٔ شیفت مسلح شود.' 'Yellow'
+        Send-Cmd ('TIME!|{0:D2}:{1:D2}' -f (Get-Date).Hour, (Get-Date).Minute)
+        SayLines (Drain 900)
+        Send-Cmd 'WAKE?'
+        $wakeState = Drain 700
+        SayLines $wakeState
+    }
+    # وضعیت را از WAKE? تازه می‌خوانیم، نه از STATUS قدیمی.
     $armed = $false
     $synced = $false
     $targetMinute = 0
-    if ($status -match 'wake=(\d)') { $armed = ($matches[1] -eq '1') }
-    if ($status -match 'wake-synced=(\d)') { $synced = ($matches[1] -eq '1') }
-    if ($status -match 'wake-target=(\d\d):(\d\d)') { $targetMinute = ([int]$matches[1] * 60) + [int]$matches[2] }
+    if ($wakeState -match 'armed=(\d)') { $armed = ($matches[1] -eq '1') }
+    if ($wakeState -match 'synced=(\d)') { $synced = ($matches[1] -eq '1') }
+    if ($wakeState -match 'target=(\d\d):(\d\d)') { $targetMinute = ([int]$matches[1] * 60) + [int]$matches[2] }
     if ((-not $armed) -or (-not $synced) -or ($targetMinute -le 0)) {
         Say ''
         Say 'برد هنوز روی پنجرهٔ واقعی شیفت مسلح نیست.' 'Red'
-        Say 'یعنی نمونهٔ ساعت از پل به برد نرسیده است (wake-target=00:00).' 'Yellow'
-        Say 'یک بار Classroom Studio را باز کن تا چک هویت شیفت انجام شود و ساعت' 'Yellow'
-        Say 'برسد؛ بعد دوباره wake-test-window.cmd را اجرا کن.' 'Yellow'
+        Say 'یعنی یا ساعتش کوک نشده، یا پروژهٔ فلش‌شده برنامهٔ شیفت ندارد.' 'Yellow'
+        Say 'اول wake-set-clock.cmd را اجرا کن (ساعت را یک بار به برد می‌دهد)،' 'Yellow'
+        Say 'بعد دوباره wake-test-window.cmd را اجرا کن.' 'Yellow'
         try { $pico.Close() } catch { }
         return
     }

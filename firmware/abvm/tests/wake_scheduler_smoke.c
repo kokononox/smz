@@ -187,8 +187,48 @@ int main(void) {
     assert(!wake_scheduler_recovery_needed(false, true, 0u, 3u));
     assert(!wake_scheduler_recovery_needed(false, false, 0u, 3u));
 
+    /* A consumed test arm hands the deadline back to the authored windows, so one
+     * WAKE! run cannot leave the board unarmed for the real window. */
+    WakeScheduler handed = make(2u);
+    assert(wake_scheduler_sync(&handed, 0u, 600u));
+    assert(wake_scheduler_arm_dry(&handed, 10u * MIN, 60u * 1000u));
+    assert(handed.manual && handed.dry);
+    wake_scheduler_disarm(&handed);
+    assert(!wake_scheduler_armed(&handed));
+    assert(wake_scheduler_rearm(&handed, 11u * MIN));
+    assert(handed.armed && !handed.manual && !handed.dry);
+    assert(handed.next_start == 1320u);
+    assert(handed.synced_minute == 611u);
+    assert(handed.deadline_ms == 718u * MIN);
+
+    /* A window already inside the lead time must stay unarmed: re-arming there
+     * would fall back to "one minute from now" and become a wake loop.  The guard
+     * must not disarm an arm that is already held either. */
+    WakeScheduler atWindow = make(2u);
+    assert(wake_scheduler_sync(&atWindow, 0u, 1310u));
+    assert(atWindow.next_start == 1320u);
+    assert(!wake_scheduler_rearm(&atWindow, 9u * MIN));
+    assert(wake_scheduler_armed(&atWindow));
+    /* Exactly on the start the other window is next, so the handback is right. */
+    assert(wake_scheduler_rearm(&atWindow, 10u * MIN));
+    assert(atWindow.next_start == 480u);
+
+    /* No schedule, no anchor, no re-arm. */
+    WakeScheduler noSchedule;
+    wake_scheduler_init(&noSchedule, 2u);
+    assert(!wake_scheduler_rearm(&noSchedule, 0u));
+    WakeScheduler noClock = make(2u);
+    assert(!wake_scheduler_rearm(&noClock, 0u));
+    WakeScheduler offSchedule;
+    wake_scheduler_init(&offSchedule, 2u);
+    wake_scheduler_configure(&offSchedule, false, 480u, 1200u, 1320u, 360u);
+    /* A schedule that is off still anchors the wall clock, but never arms. */
+    assert(!wake_scheduler_sync(&offSchedule, 0u, 600u));
+    assert(offSchedule.synced);
+    assert(!wake_scheduler_rearm(&offSchedule, 1u * MIN));
+
     puts("wake scheduler: nearest start, lead clamp, gaps, midnight wrap, "
          "re-sync, disarm, malformed-minute, wall anchor, WAKE! arm, "
-         "manual-arm survival and bounded-recovery paths passed");
+         "manual-arm survival, re-arm handback and bounded-recovery paths passed");
     return 0;
 }

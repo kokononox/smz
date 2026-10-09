@@ -40,6 +40,7 @@ void wake_scheduler_configure(WakeScheduler *w, bool enabled,
                               uint16_t day_start, uint16_t day_end,
                               uint16_t night_start, uint16_t night_end);
 bool wake_scheduler_sync(WakeScheduler *w, uint32_t now, uint16_t minute);
+bool wake_scheduler_rearm(WakeScheduler *w, uint32_t now);
 bool wake_scheduler_arm_at(WakeScheduler *w, uint32_t now, uint32_t in_ms);
 bool wake_scheduler_arm_dry(WakeScheduler *w, uint32_t now, uint32_t in_ms);
 bool wake_scheduler_wall_minute(const WakeScheduler *w, uint32_t now, uint16_t *minute);
