@@ -1834,11 +1834,21 @@ static void service_wake(uint32_t now) {
         wake_scheduler_disarm(&wake_scheduler);
         /* A test arm is a test, not a schedule.  Give the deadline straight back
          * to the authored windows so one WAKE! run cannot leave the board unable
-         * to wake for the real window. */
+         * to wake for the real window.  A re-arm that does not happen must name
+         * itself: a board left with no deadline writes no line at all, and that
+         * silence is indistinguishable from a broken wake path. */
         if(wake_scheduler_rearm(&wake_scheduler,now))
             printf("EVT|WAKE|rearmed|window=%02u:%02u|in=%lu\n",
                    wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,
                    (unsigned long)((wake_scheduler.deadline_ms-now)/60000u));
+        else {
+            char clock[16];
+            const char *reason=!wake_scheduler.enabled?"schedule-off":
+                               !wake_scheduler.synced?"no-clock":"inside-lead";
+            printf("EVT|WAKE|rearm|skipped|reason=%s|lead=%u|wall=%s\n",
+                   reason,wake_scheduler.lead_minutes,
+                   wake_clock_text(clock,sizeof(clock)));
+        }
         ++wake_attempts;
         if(dry) {
             /* WAKE!<seconds>!dry proves the resume and stops there: no authored

@@ -194,28 +194,63 @@ $command = 'WAKE!' + $seconds
 if ($dry) { $command = $command + '!dry' }
 
 if ($window) {
-    # مهلت واقعی را برنامهٔ شیفت مسلح می‌کند، نه یک دستور دستی. یک مهلت دستی
-    # تست (WAKE!) زودتر از پنجره می‌سوزد و ماکرو را شروع نمی‌کند، پس اگر برد روی
-    # چنین مهلتی باشد، ساعت را دوباره می‌فرستیم تا برنامهٔ شیفت مهلت را پس بگیرد.
-    if ($wakeState -match 'manual=1' -or $wakeState -match 'dry=1') {
+    # مهلت واقعی را برنامه‌شیفت مسلح می‌کند، نه یک دستور دستی. یک مهلت دستی
+    # تست (WAKE!) زودتر از پنجره می‌سوزد و ماکرو را شروع نمی‌کند، و بردِ بی‌مهلت
+    # هم هیچ‌وقت خودش بیدار نمی‌شود. پس تا وقتی برد روی یک پنجرهٔ واقعی مسلح
+    # نشده، ساعت را دوباره می‌فرستیم؛ همین یک دستور مهلت را از برنامهٔ شیفت پس
+    # می‌گیرد.
+    function Read-WakeState($text) {
+        $state = [ordered]@{ armed = $false; manual = $false; dry = $false; synced = $false; target = 0 }
+        if ($text -match 'armed=(\d)') { $state.armed = ($matches[1] -eq '1') }
+        if ($text -match 'manual=(\d)') { $state.manual = ($matches[1] -eq '1') }
+        if ($text -match 'dry=(\d)') { $state.dry = ($matches[1] -eq '1') }
+        if ($text -match 'synced=(\d)') { $state.synced = ($matches[1] -eq '1') }
+        if ($text -match 'target=(\d\d):(\d\d)') { $state.target = ([int]$matches[1] * 60) + [int]$matches[2] }
+        return $state
+    }
+    function Test-OnRealWindow($state) {
+        return ($state.armed -and (-not $state.manual) -and (-not $state.dry) -and
+                $state.synced -and ($state.target -gt 0))
+    }
+
+    # وضعیت را از WAKE? تازه می‌خوانیم، نه از STATUS قدیمی.
+    $state = Read-WakeState $wakeState
+    if (-not (Test-OnRealWindow $state)) {
         Say ''
-        Say 'برد روی یک مهلت دستی تست مسلح است، نه پنجرهٔ واقعی شیفت.' 'Yellow'
-        Say 'همان مهلت زودتر می‌سوزد و ماکرو شروع نمی‌شود، پس ساعت را دوباره' 'Yellow'
-        Say 'می‌فرستم تا مهلت از برنامهٔ شیفت مسلح شود.' 'Yellow'
+        if ($state.manual -or $state.dry) {
+            Say 'برد روی یک مهلت دستی تست مسلح است، نه پنجرهٔ واقعی شیفت.' 'Yellow'
+        } else {
+            Say 'برد روی پنجرهٔ واقعی شیفت مسلح نیست.' 'Yellow'
+        }
+        Say 'ساعت را یک بار دیگر می‌فرستم تا مهلت از برنامهٔ شیفت مسلح شود.' 'Yellow'
         Send-Cmd ('TIME!|{0:D2}:{1:D2}' -f (Get-Date).Hour, (Get-Date).Minute)
-        SayLines (Drain 900)
+        $clockReply = Drain 900
+        SayLines $clockReply
+        if ($clockReply -notmatch 'OK\|TIME') {
+            # فریم‌ورهای قدیمی‌تر دستور TIME! را نمی‌شناسند و بی‌صدا نادیده
+            # می‌گیرند؛ آن‌ها ساعت را فقط از چک هویت شیفت می‌گیرند، پس تست
+            # پنجرهٔ واقعی با آن‌ها هرگز شروع نمی‌شود.
+            Say ''
+            Say 'برد به دستور TIME! جواب نداد.' 'Red'
+            Say 'یعنی فریم‌ور جدید روی برد نیست. پوشهٔ native-runtime را با بستهٔ' 'Yellow'
+            Say 'native-runtime-shift-wake-portable جایگزین کن، پروژه را دوباره' 'Yellow'
+            Say '«Native UF2» بساز و برد را فلش کن؛ بعد دوباره همین فایل را اجرا کن.' 'Yellow'
+            try { $pico.Close() } catch { }
+            return
+        }
+        if ($clockReply -match 'armed=0\|schedule=0') {
+            Say ''
+            Say 'پروژهٔ فلش‌شده برنامهٔ شیفت ندارد (پنجرهٔ روز و شب خاموش است).' 'Red'
+            Say 'در Classroom Studio برنامهٔ شیفت را روشن کن و دوباره فلش کن.' 'Yellow'
+            try { $pico.Close() } catch { }
+            return
+        }
         Send-Cmd 'WAKE?'
         $wakeState = Drain 700
         SayLines $wakeState
+        $state = Read-WakeState $wakeState
     }
-    # وضعیت را از WAKE? تازه می‌خوانیم، نه از STATUS قدیمی.
-    $armed = $false
-    $synced = $false
-    $targetMinute = 0
-    if ($wakeState -match 'armed=(\d)') { $armed = ($matches[1] -eq '1') }
-    if ($wakeState -match 'synced=(\d)') { $synced = ($matches[1] -eq '1') }
-    if ($wakeState -match 'target=(\d\d):(\d\d)') { $targetMinute = ([int]$matches[1] * 60) + [int]$matches[2] }
-    if ((-not $armed) -or (-not $synced) -or ($targetMinute -le 0)) {
+    if (-not (Test-OnRealWindow $state)) {
         Say ''
         Say 'برد هنوز روی پنجرهٔ واقعی شیفت مسلح نیست.' 'Red'
         Say 'یعنی یا ساعتش کوک نشده، یا پروژهٔ فلش‌شده برنامهٔ شیفت ندارد.' 'Yellow'
@@ -224,6 +259,9 @@ if ($window) {
         try { $pico.Close() } catch { }
         return
     }
+    $armed = $state.armed
+    $synced = $state.synced
+    $targetMinute = $state.target
     $nowMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
     # $targetMinute و $nowMinute دقیقه‌اند، ولی بقیهٔ این ابزار ثانیه می‌شمارد.
     # قبلاً همین‌جا دقیقه به‌جای ثانیه استفاده می‌شد: تخمین ۶۰ برابر کوچک می‌شد و

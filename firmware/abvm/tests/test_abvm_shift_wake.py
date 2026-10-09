@@ -67,11 +67,27 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertGreater(consumed,main.index('bool dry=wake_scheduler.dry;'))
         disarm=main.rindex('wake_scheduler_disarm(&wake_scheduler);',0,consumed)
         self.assertLess(consumed-disarm,700)
+        # A re-arm that is skipped must name its reason.  A board left with no
+        # deadline writes no line at all, which is the one failure an operator
+        # cannot see in the log.
+        self.assertIn('EVT|WAKE|rearm|skipped|reason=%s|lead=%u|wall=%s',main)
+        for reason in ('"schedule-off"','"no-clock"','"inside-lead"'):
+            self.assertIn(reason,main)
 
-    def test_the_window_test_refuses_a_stale_manual_arm(self):
+    def test_the_window_test_reclaims_the_clock_from_a_stale_or_missing_arm(self):
         script=(ROOT/'tools/wake-test/wake-test.ps1').read_text(encoding='utf-8-sig')
-        self.assertIn("$wakeState -match 'manual=1'",script)
-        self.assertIn("$wakeState -match 'dry=1'",script)
+        # A board left on a consumed test arm, or on no deadline at all, used to
+        # dead-end the window test with an instruction to run another tool.  The
+        # tool now re-sends the clock itself, because TIME! is the one command that
+        # hands the deadline back to the authored schedule.
+        self.assertIn('function Read-WakeState($text)',script)
+        self.assertIn('function Test-OnRealWindow($state)',script)
+        self.assertIn('$state.manual -or $state.dry',script)
+        self.assertIn("$clockReply -notmatch 'OK\|TIME'",script)
+        self.assertIn("$clockReply -match 'armed=0\|schedule=0'",script)
+        # A board whose firmware predates TIME! answers nothing at all, and that
+        # silence must name the missing firmware instead of looking like a fault.
+        self.assertIn('فریم\u200cور جدید روی برد نیست',script)
         # The refusal must not send the operator to Classroom Studio: the round runs
         # on the board, and the clock comes from wake-set-clock.cmd.
         self.assertIn('wake-set-clock.cmd',script)
