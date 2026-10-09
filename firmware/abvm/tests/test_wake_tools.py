@@ -67,6 +67,16 @@ class WakeTestModeLauncherTests(unittest.TestCase):
         self.assertIn("$window = ($Mode -eq 'window')", script)
         self.assertIn("$dry = -not (($Mode -eq 'full') -or $window)", script)
 
+    def test_the_window_countdown_is_seconds_not_minutes(self):
+        script = (ROOT / 'tools' / 'wake-test' / 'wake-test.ps1').read_text(encoding='utf-8-sig')
+        # $targetMinute and $nowMinute are minutes, but the estimate, the progress
+        # ticks and the watch timeout are all seconds.  Using the raw difference
+        # made the tool give up 60x too early and report "the host never came up"
+        # while the real deadline was still hours away.
+        self.assertIn('$seconds = ($targetMinute - $nowMinute) * 60', script)
+        self.assertIn('$limit = $start.AddSeconds($seconds + 180)', script)
+        self.assertNotIn('$seconds = $targetMinute - $nowMinute', script)
+
     def test_the_readme_names_every_launcher(self):
         readme = (ROOT / 'tools' / 'wake-test' / 'README-FA.txt').read_text(encoding='utf-8-sig')
         for launcher in ('wake-test.cmd', 'wake-test-full.cmd', 'wake-test-window.cmd'):

@@ -27,6 +27,13 @@ $logPath = Join-Path (Get-Location) 'wake-log.txt'
 function Add-Log($text) {
     try { Add-Content -LiteralPath $logPath -Value $text -Encoding UTF8 } catch { }
 }
+function Format-Span([int]$seconds) {
+    if ($seconds -lt 0) { $seconds = 0 }
+    $m = [int][Math]::Floor($seconds / 60)
+    if ($m -ge 60) { return ([int][Math]::Floor($m / 60)).ToString() + ' ساعت و ' + ($m % 60).ToString() + ' دقیقه' }
+    if ($m -ge 1) { return $m.ToString() + ' دقیقه' }
+    return $seconds.ToString() + ' ثانیه'
+}
 function SayLines($text) {
     foreach ($raw in ($text -split "`r?`n")) {
         $line = $raw.Trim()
@@ -218,14 +225,19 @@ if ($window) {
         return
     }
     $nowMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
-    $seconds = $targetMinute - $nowMinute
-    if ($seconds -lt 0) { $seconds = $seconds + 1440 }
+    # $targetMinute و $nowMinute دقیقه‌اند، ولی بقیهٔ این ابزار ثانیه می‌شمارد.
+    # قبلاً همین‌جا دقیقه به‌جای ثانیه استفاده می‌شد: تخمین ۶۰ برابر کوچک می‌شد و
+    # حلقهٔ تماشا هم ۶۰ برابر زودتر رها می‌کرد، پس تست پنجرهٔ واقعی همیشه
+    # «بیدار نشد» گزارش می‌داد در حالی که مهلت واقعی ساعت‌ها بعد بود.
+    $seconds = ($targetMinute - $nowMinute) * 60
+    if ($seconds -lt 0) { $seconds = $seconds + 1440 * 60 }
     $expect = $seconds - 120
     if ($expect -lt 0) { $expect = 0 }
     Say ''
     Say ('برد روی پنجرهٔ واقعی مسلح است: ' + ('{0:D2}:{1:D2}' -f [int][Math]::Floor($targetMinute / 60), ($targetMinute % 60))) 'Green'
-    Say ('پالس ۲ دقیقه قبل از این ساعت می‌رود، یعنی حدود ' + $expect + ' ثانیه دیگر.') 'Green'
-    Say ('این تست ' + [int][Math]::Floor($seconds / 60) + ' دقیقه طول می‌کشد؛ این پنجره را باز بگذار.') 'Yellow'
+    Say ('پالس ۲ دقیقه قبل از این ساعت می‌رود، یعنی حدود ' + (Format-Span $expect) + ' دیگر.') 'Green'
+    Say ('این تست ' + (Format-Span $seconds) + ' طول می‌کشد؛ این پنجره را باز بگذار.') 'Yellow'
+    Say 'برد این کار را خودش هم می‌کند؛ این پنجره فقط برای دیدن لاگ لازم است.' 'DarkGray'
     Say 'در این حالت ماکرو واقعاً اجرا می‌شود؛ دسکتاپ را در وضعیت بی‌خطر بگذار.' 'Yellow'
 } else {
     $expect = $seconds
@@ -260,7 +272,7 @@ try {
     Say 'خواباندن خودکار نشد؛ دستی از Start > Sleep بخوابان.' 'Yellow'
 }
 Say 'اگر ۱۰ ثانیه بعد سیستم هنوز بیدار است، خودت از Start > Sleep بخوابان.' 'DarkGray'
-Say ('حدود ' + $expect + ' ثانیه بعد باید خودش روشن شود.') 'White'
+Say ('حدود ' + (Format-Span $expect) + ' بعد باید خودش روشن شود.') 'White'
 Say 'این پنجره را باز بگذار؛ لاگ‌ها همین‌جا می‌آیند.' 'White'
 Say ''
 
@@ -329,7 +341,7 @@ while ((Get-Date) -lt $limit) {
     $elapsed = [int]((Get-Date) - $start).TotalSeconds
     if ($elapsed -ge ($lastNotice + 20)) {
         $lastNotice = $elapsed
-        if (-not $woke) { Say ('... ' + $elapsed + ' ثانیه گذشت، منتظر بیداری') 'DarkGray' }
+        if (-not $woke) { Say ('... ' + (Format-Span $elapsed) + ' گذشت، منتظر بیداری') 'DarkGray' }
     }
     Start-Sleep -Milliseconds 200
 }
