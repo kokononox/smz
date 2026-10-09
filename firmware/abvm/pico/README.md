@@ -128,8 +128,14 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   demand (`armed`, `manual`, `dry`, `synced`, `schedule`, `target`, `due-ms`,
   `attempts`, `phase`, `recovery`, `host`, `pico-usb`, `pico-rw`), so a wake that
   never left the board explains itself instead of looking like a dead wake path.
-  A deadline that expires while the recovery owns the path is reported once as
-  `ERR|WAKE|recovery|blocks`.
+  Every blocker reports itself once per deadline as
+  `ERR|WAKE|blocked|reason=round|recovery|calibration|state=|phase=|recovery=`,
+  because a deadline that fires nothing is otherwise invisible.
+* The wake path only stands down for a round that is actually driving the host
+  (`ABVM_STATUS_RUNNING` or `PAUSED`). Gating it on `STOPPED` disabled the whole
+  wake path after every flash, because `abvm_init()` leaves the VM in
+  `ABVM_STATUS_IDLE`: the board fired no pulse and wrote no line until an
+  operator pressed start/stop once.
 * A bridge clock sample never cancels an operator `WAKE!` test arm while the
   authored schedule is off: there is nothing to replace it with, and disarming
   there silently cancelled the only wake of the test.

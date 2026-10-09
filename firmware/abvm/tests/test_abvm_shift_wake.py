@@ -201,8 +201,17 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('wake_host_awake_at=0u;wake_due_logged=false;',main)
     def test_a_blocked_wake_names_itself(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
-        self.assertIn('ERR|WAKE|recovery|blocks|phase=%u|attempts=%u',main)
-        self.assertIn('wake_recovery_block_logged=false;',main)
+        self.assertIn('ERR|WAKE|blocked|reason=%s|state=%s|phase=%u|recovery=%u',main)
+        self.assertIn('wake_report_blocked("recovery",now);',main)
+        self.assertIn('wake_report_blocked("round",now);',main)
+        self.assertIn('wake_report_blocked("calibration",now);',main)
+        self.assertIn('wake_block_logged=false; return; }',main)
+    def test_a_freshly_booted_board_can_still_wake(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        # abvm_init leaves ABVM_STATUS_IDLE behind, so gating the wake path on
+        # STOPPED disabled it after every flash until start/stop was pressed once.
+        self.assertIn('if(vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED) {',main)
+        self.assertNotIn('if(vm.status!=ABVM_STATUS_STOPPED) {',main)
     def test_a_clock_sample_never_cancels_an_operator_test_arm(self):
         sched=(ROOT/'firmware/abvm/pico/wake_scheduler.c').read_text()
         self.assertIn('if (!w->enabled && w->manual) {',sched)

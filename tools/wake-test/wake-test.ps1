@@ -135,6 +135,11 @@ Say 'وضعیت مهلت بیداری روی برد:' 'Cyan'
 Send-Cmd 'WAKE?'
 $wakeState = Drain 700
 SayLines $wakeState
+if ($status -match 'state=(running|paused)') {
+    Say ''
+    Say 'توجه: برد الان در حال اجرای یک راند است. تا وقتی راند تمام یا متوقف نشود' 'Yellow'
+    Say 'بیداری خودکار کار نمی‌کند، چون راند خودش سیستم را بیدار نگه می‌دارد.' 'Yellow'
+}
 
 # ---- ۳) مسلح کردن بیداری ----
 $window = ($Mode -eq 'window')
@@ -221,6 +226,7 @@ $sawReplay = $false
 $lastNotice = 0
 $hostAwake = $false
 $recoveryBlocked = $false
+$blockReason = ''
 $pulseAt = $null
 $hostUpAt = $null
 $firstEnterAt = $null
@@ -248,7 +254,7 @@ while ((Get-Date) -lt $limit) {
             if ($line -match 'dismiss\|stall') { $stalled = $true }
             if ($line -match '^RPL\|') { $sawReplay = $true }
             if ($line -match 'state=host-awake') { $hostAwake = $true }
-            if ($line -match 'recovery\|blocks') { $recoveryBlocked = $true }
+            if ($line -match 'WAKE\|blocked') { $recoveryBlocked = $true; $blockReason = $line }
         }
     }
     # The COM port can disappear while the machine is asleep; the board comes
@@ -307,7 +313,7 @@ if ($hostAwake) {
     Say 'نتیجه: هیچ پالسی دیده نشد   [FAIL]' 'Red'
     Say 'دو دلیل رایج را در لاگ ببین:' 'Yellow'
     Say '  EVT|WAKE|due|...            ← چه چیزی در لحظهٔ مهلت تصمیم را گرفت' 'Yellow'
-    Say '  ERR|WAKE|recovery|blocks|.. ← مسیر بیداری در دست بازیابی بود' 'Yellow'
+    Say '  ERR|WAKE|blocked|reason=..  ← مسیر بیداری قفل بود (راند در حال اجرا، بازیابی یا کالیبراسیون)' 'Yellow'
     Say 'اگر هیچ‌کدام نبود، لاگ را برایم بفرست.' 'Yellow'
 }
 
@@ -329,7 +335,7 @@ if ($null -ne $lockedAfter) {
 if ($shotSaved) { Say '  عکس صفحه                      : wake-shot.png' 'White' }
 if ($sawReplay) { Say '  لاگ زمان خواب (RPL)            : بله — در فایل ذخیره شده' 'White' }
 if ($hostAwake) { Say '  مهلت قبل از خواب سیستم رسید    : بله — پالس عمداً نرفت' 'Red' }
-if ($recoveryBlocked) { Say '  مسیر بیداری در دست بازیابی بود : بله — ERR|WAKE|recovery|blocks' 'Yellow' }
+if ($recoveryBlocked) { Say '  مسیر بیداری قفل بود            : بله' 'Red'; Say ('    ' + $blockReason) 'Red' }
 
 Start-Sleep -Seconds 3
 Say ''

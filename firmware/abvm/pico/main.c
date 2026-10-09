@@ -118,7 +118,7 @@ static uint8_t wake_attempts;
 static uint32_t wake_deadline,wake_retry_at,wake_recovery_deadline,wake_dismiss_started;
 static bool wake_pulse_wait_logged;
 static uint32_t wake_host_awake_at;
-static bool wake_due_logged,wake_recovery_block_logged;
+static bool wake_due_logged,wake_block_logged;
 static bool pico_usb_suspended,pico_remote_wakeup_en;
 static WakeStoreState wake_store_last;
 static uint32_t wake_store_next_at;
@@ -126,6 +126,7 @@ static bool wake_store_dirty;
 static void wake_attempts_reset(void);
 static void wake_store_service(uint32_t now,bool force);
 static void print_wake_state(void);
+static void wake_report_blocked(const char *reason,uint32_t now);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -686,7 +687,7 @@ static void execute_command(char *line, uint32_t now) {
                 wake_phase=WAKE_PHASE_IDLE;wake_pulse_inflight=false;
                 wake_woke_host=false;wake_dismiss_done=false;
                 wake_dismiss_step=0u;wake_dismiss_started=0u;
-                wake_host_awake_at=0u;wake_due_logged=false;
+                wake_host_awake_at=0u;wake_due_logged=false;wake_block_logged=false;
                 wake_retry_at=now;
                 wake_attempts_reset();
                 wake_store_service(now, true);
@@ -1659,6 +1660,17 @@ static void wake_report_pulse(uint8_t attempt,bool pico,ArmMouseSubmit arm_resul
  * authored deadline is re-armed, and the machine is free to sleep again until the
  * real window.  The pulse is bounded by a persisted attempt counter so a brownout
  * loop can never become a wake storm, and an already-awake host cancels it. */
+/* A pending deadline that nothing can fire is the one failure an operator cannot
+ * see, because it writes no line at all.  Every blocker therefore names itself
+ * once per deadline, with the state it was blocked in. */
+static void wake_report_blocked(const char *reason,uint32_t now) {
+    if(wake_block_logged) return;
+    if(!wake_scheduler_armed(&wake_scheduler)||!wake_scheduler_due(&wake_scheduler,now)) return;
+    wake_block_logged=true;
+    printf("ERR|WAKE|blocked|reason=%s|state=%s|phase=%u|recovery=%u\n",
+           reason,abvm_status_name(vm.status),(unsigned)wake_phase,
+           (unsigned)wake_recovery_phase);
+}
 static void service_wake_recovery(uint32_t now) {
     if(wake_recovery_phase==WAKE_RECOVERY_PULSE) {
         if(!arm_uart_host_usb_seen()&&!pico_usb_suspended&&
@@ -1732,19 +1744,21 @@ static void service_wake(uint32_t now) {
      * deadline that expires inside that window fires nothing at all, so say so
      * once, or a blocked wake is indistinguishable from a broken one. */
     if(wake_recovery_phase!=WAKE_RECOVERY_IDLE) {
-        if(wake_scheduler_armed(&wake_scheduler)&&wake_scheduler_due(&wake_scheduler,now)&&
-           !wake_recovery_block_logged) {
-            wake_recovery_block_logged=true;
-            printf("ERR|WAKE|recovery|blocks|phase=%u|attempts=%u\n",
-                   (unsigned)wake_recovery_phase,(unsigned)wake_attempts);
-        }
+        wake_report_blocked("recovery",now);
         service_wake_recovery(now);
         return;
     }
-    wake_recovery_block_logged=false;
-    if(vm.status!=ABVM_STATUS_STOPPED) {
+    /* Only a round that is actually driving the host competes with the wake: a
+     * running or paused round keeps the machine awake by itself.  Every other
+     * state must let the wake through, including `ABVM_STATUS_IDLE`, which is
+     * what a freshly booted board sits in.  Gating on `STOPPED` silently disabled
+     * the whole wake path after every flash until an operator pressed start/stop
+     * once -- the wake fired no pulse and wrote no line, which is exactly how it
+     * behaved in the field. */
+    if(vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED) {
         wake_phase=WAKE_PHASE_IDLE;wake_pulse_inflight=false;
         wake_woke_host=false;wake_dismiss_done=false;wake_dismiss_step=0u;wake_dismiss_started=0u;
+        wake_report_blocked("round",now);
         return;
     }
     if(wake_phase==WAKE_PHASE_PULSE) {
@@ -1850,14 +1864,13 @@ static void service_wake(uint32_t now) {
     }
 #endif
     if(!wake_scheduler_armed(&wake_scheduler)||
-       !wake_scheduler_due(&wake_scheduler,now)) return;
+       !wake_scheduler_due(&wake_scheduler,now)) { wake_block_logged=false; return; }
     if((int32_t)(now-wake_retry_at)<0) return;
     if(wake_attempts>=WAKE_MAX_ATTEMPTS) {
         wake_scheduler_disarm(&wake_scheduler);
         printf("ERR|WAKE|attempt-limit|attempts=%u\n",wake_attempts);
         return;
     }
-    if(calibration_runtime_active()) return;
     if(!wake_due_logged) {
         /* One line per deadline, naming every input the decision used, so a wake
          * that never left the board explains itself in the log. */
@@ -1867,6 +1880,7 @@ static void service_wake(uint32_t now) {
                cycle_host_name(arm_uart_host_usb_state()),
                pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u);
     }
+    if(calibration_runtime_active()) { wake_report_blocked("calibration",now); return; }
     if(arm_uart_host_usb_state()==ARM_HOST_USB_UP) {
         /* The host is already awake: start the authored round without a pulse and
          * without a lock-screen dismiss, because there is no lock screen to clear
@@ -1920,7 +1934,7 @@ static void service_wake(uint32_t now) {
         /* The Pico's own resume carries no acknowledgement, so the phase machine
          * only waits on the Arduino round trip when that path was used. */
         wake_pulse_wait_logged=false;
-        wake_due_logged=false;
+        wake_due_logged=false;wake_block_logged=false;
         wake_pulse_inflight=result==ARM_MOUSE_ACCEPTED;
         wake_woke_host=true;wake_dismiss_done=false;wake_dismiss_step=0u;
         wake_phase=WAKE_PHASE_PULSE;
