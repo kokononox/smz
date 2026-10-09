@@ -117,6 +117,17 @@ sample into a monotonic deadline instead of asking for a battery-backed RTC:
   host never reports `UP` the attempt is retried after `WAKE_RETRY_MS`, up to
   `WAKE_MAX_ATTEMPTS`.
 * A host that is already awake skips the pulse and starts the round directly.
+* A verified wake leaves the machine on the Windows lock screen, and the authored
+  macro language has no click opcode at all (ABVM knows motion, keys and typing
+  only), so nothing in the project can dismiss it. After the settle the firmware
+  therefore sends one `MCLICK|left,1` and then `VK_RETURN`: the click drops the
+  lock screen, Enter signs the machine in, and the authored round starts on the
+  desktop. The step runs only for a host this board actually woke, and a click or
+  key that will not go out is logged and skipped rather than holding up the
+  shift. `WAKE_DISMISS_ENABLED`, `WAKE_DISMISS_CLICK_COMMAND`,
+  `WAKE_DISMISS_KEY` and `WAKE_DISMISS_GAP_MS` configure it. Machines that do not
+  lock on wake should set `WAKE_DISMISS_ENABLED 0`, because a stray click would
+  then land on whatever the operator is using.
 * `WAKE!<seconds>`, `WAKE!<seconds>!dry` and `WAKE!OFF` arm, arm-without-starting
   or clear a one-shot deadline on demand, so the path can be exercised without
   waiting for a real window. The `!dry` form wakes the host and then stops, which

@@ -80,6 +80,25 @@ class ShiftWakeTests(unittest.TestCase):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_MOUNT_TIMEOUT_MS 5000u',main)
         self.assertIn('(int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;',main)
+    def test_wake_clears_the_windows_lock_screen(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('#define WAKE_DISMISS_ENABLED 1',main)
+        self.assertIn('#define WAKE_DISMISS_CLICK_COMMAND "MCLICK|left,1"',main)
+        self.assertIn('#define WAKE_DISMISS_KEY 13u',main)
+        self.assertIn('arm_uart_mouse_submit_internal(WAKE_DISMISS_CLICK_COMMAND,now)',main)
+        self.assertIn('hid_keyboard_submit_trigger(WAKE_DISMISS_KEY,40u,90u,now)',main)
+        # The dismiss is only ever reached for a host this board actually woke, and
+        # it runs before the authored round takes over.
+        self.assertIn('if(wake_woke_host&&!wake_dismiss_done)',main)
+        self.assertIn('wake_woke_host=false;wake_dismiss_done=false;wake_dismiss_step=0u;',main)
+        self.assertLess(main.index('if(wake_woke_host&&!wake_dismiss_done)'),
+                        main.index('printf("EVT|WAKE|state=start|attempt=%u\\n",wake_attempts);'))
+        # Click then Enter, and neither may hold up the shift.
+        self.assertLess(main.index('EVT|WAKE|state=dismiss|step=click'),
+                        main.index('EVT|WAKE|state=dismiss|step=enter'))
+        self.assertIn('ERR|WAKE|dismiss|click=%u',main)
+        self.assertIn('ERR|WAKE|dismiss|key=%u',main)
+        self.assertIn('wake_dismiss_done=true;',main)
     def test_wake_code_stays_out_of_the_adapter_slices(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         for start,end in (("static void fail_shift_check(","static void service_game_buffs("),

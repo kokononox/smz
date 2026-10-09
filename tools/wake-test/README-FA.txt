@@ -30,7 +30,13 @@
   OK|WAKE|manual|in=60|target=19:58|dry=1
   EVT|WAKE|state=pulse|attempt=1|wall=19:58|target=19:58|lead=2|pico-rw=1|arm=1|usb=2
   EVT|WAKE|state=host-up|settle-ms=30000
+  EVT|WAKE|state=dismiss|step=click      ← کلیک برای برداشتن قفل صفحه
+  EVT|WAKE|state=dismiss|step=enter      ← اینتر برای ورود به دسکتاپ
   EVT|WAKE|state=start|attempt=1|skipped=manual-dry
+
+اگر سیستم بعد از بیداری روی «صفحهٔ قفل» ماند، یعنی یکی از این دو کار نکرده؛
+خط‌های dismiss در لاگ به تو می‌گویند کدام. اگر سیستم تو هنگام بیدار شدن قفل
+نمی‌شود (تنظیم ویندوز)، بگو تا این قدم را در فریم‌ور خاموش کنم.
 
 تفسیر نتیجه:
   [OK]  بیدار شد              → همه چیز درست است.
