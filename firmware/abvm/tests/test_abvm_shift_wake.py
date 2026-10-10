@@ -150,8 +150,12 @@ class ShiftWakeTests(unittest.TestCase):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
         self.assertIn('#define POWER_BUTTON_GRACE_DEFAULT_MS 60000u',main)
-        self.assertIn('#define POWER_BUTTON_GRACE_MIN_MS 15000u',main)
+        self.assertIn('#define POWER_BUTTON_GRACE_MIN_MS 30000u',main)
         self.assertIn('#define POWER_BUTTON_GRACE_MAX_MS 150000u',main)
+        # The floor sits above this board's own enumeration time: a board that
+        # restarted under a running host must not teach itself a cold start it
+        # never watched, and the wait must never shrink into a press on a POST.
+        self.assertIn('#define HOST_BOOT_LEARN_MIN_S 8u',main)
         self.assertIn('static uint32_t power_button_grace_ms(void)',main)
         self.assertIn('reason=boot-grace',main)
         self.assertIn('power_button_boot_at=now_ms();',main)

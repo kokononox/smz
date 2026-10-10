@@ -275,10 +275,13 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   and the grace is the machine's own cold start rather than a vendor's: the longest
   time this board has watched it take to put USB up, plus
   `POWER_BUTTON_GRACE_MARGIN_MS`, clamped to `POWER_BUTTON_GRACE_MIN_MS` …
-  `POWER_BUTTON_GRACE_MAX_MS` (15–150 s) and persisted in the wake record, so it
+  `POWER_BUTTON_GRACE_MAX_MS` (30–150 s) and persisted in the wake record, so it
   survives the same power cut that needs it. A stored value that could not have come
   from a POST counts as nothing learned, so a migrated record can only lengthen the
-  wait. `WAKE?` reports `host-boot-s=` and `pwr-grace=`, a new sample logs
+  wait. `HOST_BOOT_LEARN_MIN_S` is deliberately far above this board's own
+  enumeration time, because a board that restarted under a running host would
+  otherwise read its own few seconds as the machine's cold start — the one sample
+  that would shorten the wait into a press on a POST. `WAKE?` reports `host-boot-s=` and `pwr-grace=`, a new sample logs
   `EVT|PWRBTN|host-boot|learned-s=`, and a wait names itself once as
   `EVT|WAKE|recovery|skipped|reason=boot-grace|grace=`. Nothing here is
   vendor-specific, and the wait spends no recovery attempt: only a press does. A bus

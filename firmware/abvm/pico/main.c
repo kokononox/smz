@@ -127,12 +127,18 @@ extern size_t abvm_program_size(void);
  * survives the same power cut that needs it.  Nothing here is brand-specific --
  * what is being waited out is the machine's POST, whatever made it. */
 #define POWER_BUTTON_GRACE_DEFAULT_MS 60000u
-#define POWER_BUTTON_GRACE_MIN_MS 15000u
+#define POWER_BUTTON_GRACE_MIN_MS 30000u
 #define POWER_BUTTON_GRACE_MAX_MS 150000u
 #define POWER_BUTTON_GRACE_MARGIN_MS 10000u
 /* A sample outside this range cannot have come from a POST on this class of
- * machine, so it is treated as no sample at all. */
-#define HOST_BOOT_LEARN_MIN_S 2u
+ * machine, so it is treated as no sample at all.  The floor sits well above the
+ * few seconds this board needs to enumerate itself: a board that restarted while
+ * the host was already up sees that host on its bus almost at once, and a cold
+ * start read off that start would be this board's own enumeration time.  A grace
+ * that short is precisely the press into a running POST this feature exists to
+ * prevent, so such a sample is not a sample.  A machine that really is that quick
+ * simply keeps the default wait. */
+#define HOST_BOOT_LEARN_MIN_S 8u
 #define HOST_BOOT_LEARN_MAX_S 120u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
