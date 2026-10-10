@@ -284,7 +284,11 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   that would shorten the wait into a press on a POST. `WAKE?` reports `host-boot-s=` and `pwr-grace=`, a new sample logs
   `EVT|PWRBTN|host-boot|learned-s=`, and a wait names itself once as
   `EVT|WAKE|recovery|skipped|reason=boot-grace|grace=`. Nothing here is
-  vendor-specific, and the wait spends no recovery attempt: only a press does. A bus
+  vendor-specific, and the wait spends no recovery attempt: only a press does. The
+  board's own LED (GP25, otherwise unused) beats once every two seconds while it
+  runs and holds a longer blink on every press, because a machine that is off has
+  no console to read and an operator standing in front of it needs one signal that
+  does not depend on the machine. A bus
   the Arduino board reports suspended is a host that is present and asleep, so the
   press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses

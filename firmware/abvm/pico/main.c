@@ -1785,6 +1785,37 @@ static ArmMouseSubmit wake_pulse_arm(uint32_t now) {
 /* The power-button line is driven low before anything else in main() and is only
  * ever high for the length of one bounded press.  A floating or glitching pin
  * here is not a cosmetic problem: it is a real press on a real machine. */
+/* The board's own LED is the only thing on this hardware that can say "alive"
+ * without a host to read it: the console is the machine's own USB, so an operator
+ * standing in front of a machine that is off has no other signal at all.  It
+ * blinks slowly while the board runs, and holds a long blink when the board
+ * presses the machine's power button, so a press is visible from outside the
+ * machine it is aimed at.  GP25 is the Pico's own LED and is otherwise unused. */
+#define STATUS_LED_PIN 25u
+static uint32_t led_off_at, led_next_at;
+static bool led_lit;
+static void led_pulse(uint32_t now,uint32_t hold_ms,uint32_t then_ms) {
+    gpio_put(STATUS_LED_PIN,1);
+    led_lit=true;
+    led_off_at=now+hold_ms;
+    led_next_at=led_off_at+then_ms;
+}
+static void service_status_led(uint32_t now) {
+    if(led_lit) {
+        if((int32_t)(now-led_off_at)<0) return;
+        gpio_put(STATUS_LED_PIN,0);
+        led_lit=false;
+        return;
+    }
+    if((int32_t)(now-led_next_at)<0) return;
+    led_pulse(now,40u,1960u);
+}
+static void status_led_init(uint32_t now) {
+    gpio_init(STATUS_LED_PIN);
+    gpio_set_dir(STATUS_LED_PIN,GPIO_OUT);
+    gpio_put(STATUS_LED_PIN,0);
+    led_pulse(now,40u,1960u);
+}
 static void power_button_init(void) {
 #if POWER_BUTTON_ENABLED
     gpio_init(POWER_BUTTON_PIN);
@@ -1806,6 +1837,9 @@ static bool power_button_press(uint32_t now,uint16_t hold_ms) {
     power_button_held=true;
     power_button_release_at=now+hold_ms;
     power_button_presses=(uint8_t)(power_button_presses+1u);
+    /* A press is a real action on a machine this board cannot see: the LED says it
+     * happened, for the operator standing next to that machine. */
+    led_pulse(now,600u,1400u);
     printf("EVT|PWRBTN|press|ms=%u|count=%u\n",(unsigned)hold_ms,(unsigned)power_button_presses);
     return true;
 #else
@@ -2287,6 +2321,7 @@ int main(void) {
      * across a PC's front-panel header is a real button press, so the line has to
      * be provably low from the earliest moment this board is powered. */
     power_button_init();
+    status_led_init(now_ms());
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
@@ -2395,5 +2430,5 @@ int main(void) {
          * otherwise looks exactly like a healthy one. */
         printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                (unsigned)wake_store_last.recovery_attempts);
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_status_led(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

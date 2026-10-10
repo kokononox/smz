@@ -195,6 +195,11 @@ class ShiftWakeTests(unittest.TestCase):
         # the decision, because the console is the same USB the decision is about.
         self.assertIn('EVT|HOST|usb=%s|mounted=%u|at-s=%u',main)
         self.assertIn('reason=host-up|arm-usb=%u|mounted=%u|at-s=%u',main)
+        # The only signal that survives a machine that is off is the board's own
+        # LED: it beats while the board runs and holds longer on a real press.
+        self.assertIn('#define STATUS_LED_PIN 25u',main)
+        self.assertIn('service_status_led(now);',main)
+        self.assertIn('led_pulse(now,600u,1400u);',main)
         self.assertIn('reason=limit|attempts=%u',main)
         # The pulse waits for a real host sample before it decides, so an awake
         # host is cancelled instead of nudged by a stray mouse report.
