@@ -285,6 +285,11 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   `EVT|PWRBTN|host-boot|learned-s=`, and a wait names itself once as
   `EVT|WAKE|recovery|skipped|reason=boot-grace|grace=`. Nothing here is
   vendor-specific, and the wait spends no recovery attempt: only a press does. The
+  record a recovery was armed from is held for as long as that recovery is armed,
+  so the wait cannot overwrite the decision it is waiting on: on a machine that is
+  off there is no bus and no arm report, the live reading is always "the host is
+  not asleep", and writing it back over the arming record used to cancel the owed
+  press as `reason=limit` at the very end of the grace. The
   board's own LED (GP25, otherwise unused) beats once every two seconds while it
   runs and holds a longer blink on every press, because a machine that is off has
   no console to read and an operator standing in front of it needs one signal that

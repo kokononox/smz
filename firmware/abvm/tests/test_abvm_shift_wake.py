@@ -443,4 +443,22 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertTrue(0<int(lead.group(1))<=15)
         self.assertTrue(int(settle.group(1))>=5000)
         self.assertTrue(1<=int(attempts.group(1))<=5)
+    def test_an_owed_press_outlives_the_wait_it_is_given(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        # The record that armed a recovery is the record that authorises its
+        # press.  On a machine that is off there is no bus and no arm report, so
+        # the live reading is always "the host is not asleep": writing it back
+        # over the arming record disarmed the press exactly after the grace had
+        # been waited out for it, and the button was never pressed.
+        service=main[main.index('static void wake_store_service(uint32_t now,bool force) {'):]
+        service=service[:service.index('static bool wake_pulse_pico')]
+        self.assertIn('if(wake_recovery_phase!=WAKE_RECOVERY_IDLE) {',service)
+        self.assertIn('state.host_asleep=wake_store_last.host_asleep;',service)
+        self.assertIn('state.pending=wake_store_last.pending;',service)
+        self.assertLess(service.index('state.host_asleep=wake_store_last.host_asleep;'),
+                        service.index('bool changed='))
+        # The press still re-reads that same record before it fires.
+        self.assertIn('wake_scheduler_recovery_needed(state.host_asleep,state.pending,',main)
+        self.assertLess(main.index('uint32_t grace=power_button_grace_ms();'),
+                        main.index('wake_scheduler_recovery_needed(state.host_asleep,state.pending,'))
 if __name__=='__main__':unittest.main()

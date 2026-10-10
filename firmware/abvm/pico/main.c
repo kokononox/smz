@@ -1754,6 +1754,18 @@ static WakeStoreState wake_store_snapshot(void) {
 }
 static void wake_store_service(uint32_t now,bool force) {
     WakeStoreState state=wake_store_snapshot();
+    /* A recovery runs on the record that armed it, so that record has to outlive
+     * the recovery's own wait.  The live reading this snapshot carries cannot
+     * stand in for it: on a machine that is off there is no bus and no arm
+     * report, so the live reading is always "the host is not asleep" -- and
+     * writing it back over the arming record disarms the one press the recovery
+     * exists to make, exactly after the grace has been waited out for it.  The
+     * arming flags are held while a recovery is armed, and the record returns to
+     * live readings the moment the recovery ends. */
+    if(wake_recovery_phase!=WAKE_RECOVERY_IDLE) {
+        state.host_asleep=wake_store_last.host_asleep;
+        state.pending=wake_store_last.pending;
+    }
     bool changed=state.host_asleep!=wake_store_last.host_asleep||
                  state.pending!=wake_store_last.pending||
                  state.recovery_attempts!=wake_store_last.recovery_attempts||
