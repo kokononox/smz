@@ -186,6 +186,50 @@ class ShiftWakeTests(unittest.TestCase):
         # be reported against a later recovery.
         self.assertEqual(main.count('wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;'),
                          main.count('wake_recovery_phase=WAKE_RECOVERY_IDLE;'))
+    def test_a_powered_off_machine_is_reached_by_its_own_power_button(self):
+        # A PC in soft-off cannot be woken over USB at all: remote wake-up only
+        # resumes a bus the host suspended.  The one line that still reaches it is
+        # its own power button, kept alive by the ATX standby rail, and an
+        # optocoupler across the front-panel header turns that button into a
+        # contact this board can close without joining the two grounds.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('#define POWER_BUTTON_ENABLED 1',main)
+        self.assertIn('#define POWER_BUTTON_PIN ',main)
+        # A press that outlives the bound is a forced power-off, so the pulse is
+        # clamped on both sides and released from the main loop.
+        self.assertIn('#define POWER_BUTTON_MIN_MS 100u',main)
+        self.assertIn('#define POWER_BUTTON_MAX_MS 1500u',main)
+        self.assertIn('static void service_power_button(uint32_t now)',main)
+        self.assertLess(main.index('service_cdc(now);'),
+                        main.index('service_power_button(now);'))
+        # The line is driven low before the USB device or any actor exists, and the
+        # optocoupler is held dark across the direction change: a glitch here is a
+        # real press on a real machine.
+        self.assertLess(main.index('power_button_init();'),main.index('board_init();'))
+        init=main.index('static void power_button_init(void)')
+        self.assertLess(main.index('gpio_put(POWER_BUTTON_PIN, 0);',init),
+                        main.index('gpio_set_dir(POWER_BUTTON_PIN, GPIO_OUT);',init))
+        self.assertIn('gpio_pull_down(POWER_BUTTON_PIN);',main)
+        # It is pressed only when nothing is on this board's own USB at all: a host
+        # that is merely suspended keeps its port mounted and is woken over the bus.
+        self.assertIn('bool host_absent=POWER_BUTTON_ENABLED&&!tud_mounted();',main)
+        self.assertIn('EVT|WAKE|recovery=power-button|attempt=%u|ms=%u|pressed=%u|reason=%s',main)
+        # A powered-off PC takes the Arduino board down with it, so the
+        # arm-readiness gate must not swallow the one action that still reaches it.
+        self.assertIn('if(!host_absent&&(!arm_uart_mouse_ready()||arm_uart_mouse_busy())) {',main)
+        # The press shares the persisted recovery budget and the attempt is stored
+        # before it is sent, so a brownout loop cannot become a press storm.
+        recovery=main.index('static void service_wake_recovery(uint32_t now)')
+        press=main.index('bool pressed=power_button_press(now,POWER_BUTTON_MS);')
+        self.assertLess(main.index('calibration_store_wake_set(&state)',recovery),press)
+        self.assertIn('#define WAKE_RECOVERY_MAX_ATTEMPTS 3u',main)
+        # The operator can exercise the line without cutting the power.
+        self.assertIn('!strncmp(line, "PWRBTN", 6)',main)
+        self.assertIn('OK|PWRBTN|press|ms=%lu|count=%u',main)
+        self.assertIn('ERR|ARG|PWRBTN',main)
+        self.assertIn('ERR|PWRBTN|busy',main)
+        self.assertIn('PWRBTN-ms',main)
+        self.assertIn('|pwr-presses=%u',main)
     def test_wake_clears_the_windows_lock_screen(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_DISMISS_ENABLED 1',main)
