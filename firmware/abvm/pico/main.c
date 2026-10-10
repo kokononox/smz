@@ -2393,13 +2393,17 @@ int main(void) {
     tusb_init();
     /* A board that reset while the host was asleep can never finish enumerating:
      * the port stays suspended until something resumes it, so an unbounded wait
-     * would hang the recovery pulse forever.  An awake host still enumerates in
-     * milliseconds and keeps the full boot banner. */
+     * would hang the recovery pulse forever.  The same is true of a host that is
+     * simply off, and there the board has to stay alive on its own: a machine that
+     * is off is exactly the machine whose power button it may have to press, and a
+     * board parked in this loop never reaches that press -- or anything else.  The
+     * wait is therefore bounded whatever the recovery thinks, and the lines held
+     * back during it are replayed from RAM when a console appears, so a host that
+     * enumerates later still sees the whole boot. */
     uint32_t mount_started=now_ms();
     while (!tud_mounted()) {
         tud_task(); sleep_ms(1);
-        if (wake_recovery_phase!=WAKE_RECOVERY_IDLE&&
-            (int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;
+        if((int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;
     }
     printf("EVT|USB|mount|at-s=%u\n",(unsigned)(now_ms()/1000u));
     if (!arm_uart_mouse_probe(now_ms())) arm_fault_reported = true;

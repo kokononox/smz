@@ -198,6 +198,11 @@ class ShiftWakeTests(unittest.TestCase):
         # The only signal that survives a machine that is off is the board's own
         # LED: it beats while the board runs and holds longer on a real press.
         self.assertIn('#define STATUS_LED_PIN 25u',main)
+        # A host that is off must not park the board in the boot wait: that is the
+        # machine whose power button it may have to press, and the lines held back
+        # are replayed from RAM anyway.
+        self.assertIn('mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;',main)
+        self.assertNotIn('wake_recovery_phase!=WAKE_RECOVERY_IDLE&&',main)
         self.assertIn('service_status_led(now);',main)
         self.assertIn('led_pulse(now,600u,1400u);',main)
         self.assertIn('reason=limit|attempts=%u',main)
