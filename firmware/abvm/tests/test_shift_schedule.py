@@ -72,7 +72,9 @@ class ScheduleTests(unittest.TestCase):
  def test_actual_adapter_blocks_wrong_user_and_resets_verified_destination(self):
   with tempfile.TemporaryDirectory() as t:
    d=pathlib.Path(t);main=(ROOT/'firmware/abvm/pico/main.c').read_text()
-   adapter=main[main.index('static void fail_shift_check('):main.index('static void service_game_buffs(')]
+   # Anchor on the definition, not the bare name: a forward declaration of the same
+   # name sits far above this slice.
+   adapter=main[main.index('static void fail_shift_check(uint32_t now,const char *reason) {'):main.index('static void service_game_buffs(')]
    c=d/'adapter.c';c.write_text((ROOT/'firmware/abvm/tests/shift_schedule_adapter_smoke.c').read_text().replace('/* PRODUCTION_ADAPTER */',adapter))
    exe=self.build(d,c,[ROOT/'firmware/abvm/src/abvm_vm.c',ROOT/'firmware/abvm/pico/hid_keyboard.c',ROOT/'firmware/abvm/pico/shift_identity_runtime.c'],[ROOT/'firmware/abvm/tests/pico_stub'])
    data=source();data['pipelines']['Desktop']=data['pipelines']['Desktop'][:1]+[{'Type':'typeText','Props':{'text':'Q','hmin':10,'hmax':10},'Children':[]}]

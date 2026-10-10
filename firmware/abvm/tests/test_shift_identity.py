@@ -32,7 +32,9 @@ class ShiftIdentityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             d=pathlib.Path(temp)
             main=(ROOT/"firmware/abvm/pico/main.c").read_text()
-            adapter=main[main.index("static void fail_shift_check("):main.index("static void service_game_buffs(")]
+            # Anchor on the definition: a forward declaration of the same name sits far
+            # above this slice, so the bare name would start the slice in the wrong place.
+            adapter=main[main.index("static void fail_shift_check(uint32_t now,const char *reason) {"):main.index("static void service_game_buffs(")]
             harness=(ROOT/"firmware/abvm/tests/shift_identity_adapter_smoke.c").read_text()
             c=d/"adapter.c";c.write_text(harness.replace("/* PRODUCTION_ADAPTER */",adapter))
             exe=self.compile_c(d,c,[ROOT/"firmware/abvm/src/abvm_vm.c",ROOT/"firmware/abvm/pico/hid_keyboard.c"])

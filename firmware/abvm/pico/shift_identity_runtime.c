@@ -15,11 +15,21 @@ bool shift_schedule_valid(uint16_t ds,uint16_t de,uint16_t ns,uint16_t ne) {
     for(uint16_t m=0u;m<1440u;++m)if(inside(m,ds,de)&&inside(m,ns,ne))return false;
     return true;
 }
+ShiftKind shift_kind_at_minute(uint16_t minute,uint16_t day_start,uint16_t day_end,
+                               uint16_t night_start,uint16_t night_end) {
+    /* A disabled schedule loads as four zeros, and "00:00-00:00" is the wrap
+     * case of `inside()`, which would then claim every minute belongs to the
+     * day shift.  An unconfigured schedule owns no window at all. */
+    if(minute>=1440u||day_start>=1440u||day_end>=1440u||night_start>=1440u||
+       night_end>=1440u||day_start==day_end||night_start==night_end)return SHIFT_GLOBAL;
+    if(inside(minute,day_start,day_end))return SHIFT_DAY;
+    if(inside(minute,night_start,night_end))return SHIFT_NIGHT;
+    return SHIFT_GLOBAL; /* an uncovered minute is intentionally ignored */
+}
 ShiftKind shift_identity_expected(const ShiftIdentityRuntime *s) {
     if(!s||!s->schedule_enabled||!s->clock_received)return SHIFT_GLOBAL;
-    if(inside(s->minute,s->day_start,s->day_end))return SHIFT_DAY;
-    if(inside(s->minute,s->night_start,s->night_end))return SHIFT_NIGHT;
-    return SHIFT_GLOBAL; /* an uncovered minute is intentionally ignored */
+    return shift_kind_at_minute(s->minute,s->day_start,s->day_end,
+                                s->night_start,s->night_end);
 }
 bool shift_identity_load(ShiftIdentityRuntime *s,const uint8_t *p,uint32_t size,uint32_t seed) {
     if(!s||!p||!((size==88u&&!memcmp(p,"SFT1",4u)&&p[4]==1u)||

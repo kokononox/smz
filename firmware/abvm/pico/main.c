@@ -210,6 +210,7 @@ static uint32_t power_button_grace_ms(void);
 static void led_dim(void);
 static void led_flash(uint32_t now,uint32_t hold_ms);
 static void led_set_dim(uint16_t level);
+static void fail_shift_check(uint32_t now,const char *reason);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -1423,6 +1424,36 @@ static void service_cycle_events(void) {
         }
     }
 }
+/* A round can outlive the window it was started in: the last round of a shift
+ * may still be fishing when the next window opens, and then the machine does not
+ * belong on the user it is running as.  Waiting for the next window *start* would
+ * sleep it through a whole shift instead, so the board answers the window
+ * question itself.  It already owns both halves of the answer -- a wall-clock
+ * anchor from the last accepted bridge sample, and the identity it verified at
+ * the start of the round that is now ending -- so the comparison needs no host
+ * software, no hotkey and no reply timeout.  Anything the board cannot answer
+ * (no schedule, no clock, no verified identity) leaves the authored Finish
+ * exactly as it was: an unanswerable question must never invent a switch. */
+typedef struct FinishDecision {
+    uint16_t route;    /* the switch route owed, or 0 for the authored Finish */
+    uint16_t minute;   /* wall minute used, 1440 when the clock is unknown */
+    ShiftKind expected;
+    const char *reason;
+} FinishDecision;
+static FinishDecision finish_decision(uint32_t now) {
+    FinishDecision decision={0u,1440u,SHIFT_GLOBAL,"no-schedule"};
+    if(!shift_identity.schedule_enabled)return decision;
+    decision.reason="no-clock";
+    if(!wake_scheduler_wall_minute(&wake_scheduler,now,&decision.minute))return decision;
+    decision.expected=shift_kind_at_minute(decision.minute,shift_identity.day_start,
+        shift_identity.day_end,shift_identity.night_start,shift_identity.night_end);
+    if(decision.expected==SHIFT_GLOBAL){decision.reason="gap";return decision;}
+    if(shift_identity.selected==SHIFT_GLOBAL){decision.reason="identity-unknown";return decision;}
+    if(shift_identity.selected==decision.expected){decision.reason="window-same";return decision;}
+    decision.route=decision.expected==SHIFT_DAY?shift_identity.day_route:shift_identity.night_route;
+    decision.reason="window-turned";
+    return decision;
+}
 static void service_cycle(uint32_t now) {
     service_cycle_events();
     bool arm_seen=arm_uart_host_usb_seen();
@@ -1466,10 +1497,45 @@ static void service_cycle(uint32_t now) {
             printf("ERR|SHIFT|reason=switch-reboot-timeout|action=paused|resume=startup-recheck\n");
         }else{cycle_runtime_fail(9u);buzzer_watchdog_alarm_start(now);}
     } else if(action==CYCLE_ACTION_START_FINISH) {
+        /* The decision is taken before any authored step runs: the authored
+         * Finish closes the game and sleeps the machine, and a machine that is
+         * asleep cannot be switched to the user the next window belongs to. */
+        FinishDecision finish=finish_decision(now);
+        if(finish.route) {
+            /* Persist the attempt BEFORE the authored restart steps, exactly as
+             * the bridge-driven check does, so a reboot in the middle of the
+             * route still counts as an attempt. */
+            if(calibration_store_shift_attempts()>=shift_identity.max_attempts) {
+                printf("ERR|CYCLE|finish|action=switch-blocked|reason=attempt-limit|target=%s|minute=%u\n",
+                       finish.expected==SHIFT_DAY?"day":"night",finish.minute);
+                fail_shift_check(now,"finish-switch-limit");return;
+            }
+            if(!cycle_runtime_begin_shift(finish.route,(uint8_t)finish.expected,
+                                          shift_identity.max_attempts,now)) {
+                printf("ERR|CYCLE|finish|action=switch-blocked|reason=marker-write|target=%s|minute=%u\n",
+                       finish.expected==SHIFT_DAY?"day":"night",finish.minute);
+                fail_shift_check(now,"finish-switch-marker");return;
+            }
+        }
         pending_sound_whisper=false;
         guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
         hid_keyboard_discard_completion();
         arm_uart_mouse_discard_completion();
+        if(finish.route) {
+            printf("EVT|CYCLE|finish|action=switch|target=%s|route=%u|attempt=%u|minute=%u|verified=%s|origin=board\n",
+                   finish.expected==SHIFT_DAY?"day":"night",finish.route,
+                   (unsigned)calibration_store_shift_attempts(),finish.minute,
+                   shift_identity.selected==SHIFT_DAY?"day":"night");
+            service_cycle_events();
+            shift_checkpoint=false;hid_keyboard_set_shift(0u);
+            shift_identity_forget(&shift_identity);
+            if(!abvm_start_route(&vm,finish.route,now)) {
+                cycle_runtime_fail(8u);buzzer_watchdog_alarm_start(now);
+            }
+            return;
+        }
+        printf("EVT|CYCLE|finish|action=finish|reason=%s|minute=%u\n",
+               finish.reason,finish.minute);
         if(abvm_start_route(&vm,cycle_runtime_finish_route(),now)) {
             cycle_runtime_begin_finish();service_cycle_events();
         } else {

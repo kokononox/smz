@@ -314,6 +314,63 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   enabled in the BIOS. A board that is dead while the PC is off cannot press
   anything, so a separate 5 V supply is the alternative.
 
+## The last round of a shift
+
+A round is not aligned to a window. Five rounds of 110–130 minutes fill a ten
+hour shift, but the last one can still be fishing when the next window opens, and
+then the machine does not belong on the user it is running as. Until this change
+the board could only run the authored Finish at that point, and Finish sleeps the
+machine — so a round that ended at 04:35 slept through the whole day shift that
+had just started, and nothing woke the machine until the night window came round
+again a day later.
+
+The board now answers that question itself, before any authored step runs:
+
+* Both halves of the answer are already on the board.
+  `wake_scheduler_wall_minute()` turns the last accepted bridge sample into the
+  current minute of day, and `shift_identity.selected` holds the identity the
+  *current* round verified: the `SFT2` descriptor is reloaded at every shift
+  check, so a value that survived into the last round was set by that round's own
+  check and still describes the user the round is running as.
+* `shift_kind_at_minute()` is the one window function behind both answers, so a
+  board holding an anchor and a board holding a fresh bridge reply cannot
+  disagree about the same minute. Start is inclusive, end is exclusive, and an
+  uncovered minute owns no window.
+* A turned-over window (`selected != expected`, both known) makes the board run
+  the authored switch route instead of Finish, and it persists the attempt before
+  that route's first step exactly as the bridge-driven switch does, so a reboot
+  in the middle of the route still counts as an attempt.
+* Everything else keeps the authored Finish, which is the whole point of the
+  fallbacks: no flashed schedule, no wall anchor (`reason=no-clock`), an uncovered
+  minute (`reason=gap`), an identity this round never verified
+  (`reason=identity-unknown`), or a window that has not turned over
+  (`reason=window-same`). An unanswerable question never invents a switch.
+* Nothing here needs the bridge, a hotkey or a reply timeout, so the finish moment
+  cannot end in a 60 s wait, an alarm, or a Pause.
+* If the owed switch cannot be taken — the attempt budget is spent, or the attempt
+  marker cannot be written — the board stops loudly instead of sleeping quietly
+  through a shift: `ERR|CYCLE|finish|action=switch-blocked|reason=attempt-limit`
+  or `reason=marker-write`, followed by the usual alarm and Pause.
+
+The two verdicts read as:
+
+```
+EVT|CYCLE|finish|action=switch|target=day|route=16|attempt=1|minute=273|verified=night|origin=board
+EVT|CYCLE|finish|action=finish|reason=window-same|minute=250
+```
+
+`minute` is the board's own wall minute at the decision (273 is 04:33), and
+`verified` is the identity the round had confirmed — read before the check is
+forgotten, so the line always names what the decision was taken from. `origin=board`
+is what tells this decision apart from the same switch taken by a bridge-driven
+shift check.
+
+The authored switch routes are still the authored routes: they set the
+destination boot user and restart the machine, and the round that follows them is
+verified by the ordinary Startup shift check, which is what returns the five-round
+counter to round 1. Nothing is spliced into them, and no route is run that the
+operator did not write.
+
 ## Build one identity
 
 ```bash

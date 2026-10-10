@@ -407,7 +407,10 @@ class ShiftWakeTests(unittest.TestCase):
 
     def test_wake_code_stays_out_of_the_adapter_slices(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
-        for start,end in (("static void fail_shift_check(","static void service_game_buffs("),
+        # Anchor on the definition, not on the bare name: the forward declaration
+        # that lets the cycle stop a round loudly sits far above these slices.
+        for start,end in (("static void fail_shift_check(uint32_t now,const char *reason) {",
+                           "static void service_game_buffs("),
                           ("static void service_game_buffs(","static void service_vm(")):
             block=main[main.index(start):main.index(end)]
             self.assertNotIn('wake_scheduler',block)
@@ -475,4 +478,88 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('wake_scheduler_recovery_needed(state.host_asleep,state.pending,',main)
         self.assertLess(main.index('uint32_t grace=power_button_grace_ms();'),
                         main.index('wake_scheduler_recovery_needed(state.host_asleep,state.pending,'))
+    def test_the_last_rounds_window_question_is_answered_by_the_board_itself(self):
+        with tempfile.TemporaryDirectory() as t:
+            exe=pathlib.Path(t)/'shift'
+            subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror',
+                '-I'+str(ROOT/'firmware/abvm/pico'),
+                str(ROOT/'firmware/abvm/pico/shift_identity_runtime.c'),
+                str(ROOT/'firmware/abvm/tests/shift_identity_smoke.c'),
+                '-o',str(exe)],check=True)
+            subprocess.run([str(exe)],check=True)
+        runtime=(ROOT/'firmware/abvm/pico/shift_identity_runtime.c').read_text()
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        self.assertIn('ShiftKind shift_kind_at_minute(uint16_t minute,uint16_t day_start,uint16_t day_end,',runtime)
+        # The runtime's own answer and the board's answer must be one function of
+        # one minute, or the two would disagree about the same wall clock.
+        self.assertIn('return shift_kind_at_minute(s->minute,s->day_start,s->day_end,',runtime)
+        self.assertIn('static FinishDecision finish_decision(uint32_t now) {',main)
+        helper=main[main.index('static FinishDecision finish_decision(uint32_t now) {'):]
+        helper=helper[:helper.index('static void service_cycle(uint32_t now) {')]
+        # Both halves of the answer are already on the board: the wall anchor the
+        # last bridge sample left behind, and the identity verified at the start
+        # of the round that is ending.
+        self.assertIn('wake_scheduler_wall_minute(&wake_scheduler,now,&decision.minute)',helper)
+        self.assertIn('shift_identity.selected==decision.expected',helper)
+        # No hotkey, no bridge reply, no timeout, and therefore no alarm risk.
+        self.assertNotIn('shift_identity_begin',helper)
+        self.assertNotIn('shift_launch_pending',helper)
+        self.assertIn('if((vm.route_id!=1u&&vm.route_id!=3u)||shift_checkpoint||',main)
+    def test_a_turned_over_window_switches_instead_of_sleeping_through_a_shift(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        block=re.search(r'else if\(action==CYCLE_ACTION_START_FINISH\) \{(.*?)\n    \}\n\}',main,re.S)
+        self.assertIsNotNone(block)
+        body=block.group(1)
+        # The decision has to come first: the authored Finish closes the game and
+        # sleeps the machine, and a sleeping machine cannot be switched.
+        self.assertLess(body.index('finish_decision(now)'),
+                        body.index('abvm_start_route(&vm,cycle_runtime_finish_route(),now)'))
+        # The attempt is persisted before any authored restart step, so a reboot
+        # in the middle of the switch route still counts as an attempt.
+        self.assertLess(body.index('cycle_runtime_begin_shift(finish.route,(uint8_t)finish.expected,'),
+                        body.index('abvm_start_route(&vm,finish.route,now)'))
+        self.assertIn('shift_identity_forget(&shift_identity);',body)
+        # The switch is named with the numbers an operator needs to read it back,
+        # and the verified identity is read before the check is forgotten.
+        self.assertIn('EVT|CYCLE|finish|action=switch|target=%s|route=%u|attempt=%u|minute=%u|verified=%s|origin=board',main)
+        self.assertIn('EVT|CYCLE|finish|action=finish|reason=%s|minute=%u',main)
+        self.assertLess(body.index('verified=%s|origin=board'),
+                        body.index('shift_identity_forget(&shift_identity);'))
+    def test_an_unanswerable_window_question_never_invents_a_switch(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        helper=main[main.index('static FinishDecision finish_decision(uint32_t now) {'):]
+        helper=helper[:helper.index('static void service_cycle(uint32_t now) {')]
+        # Route 0 is the only value that leaves the authored Finish in charge.
+        self.assertIn('FinishDecision decision={0u,1440u,SHIFT_GLOBAL,"no-schedule"};',helper)
+        route=helper.index('decision.route=decision.expected==SHIFT_DAY?')
+        # A schedule that is not flashed, a board with no wall anchor, an
+        # uncovered minute, an identity the round never verified, and a window
+        # that has not turned over all end the same way: the authored Finish.
+        for reason in ('if(!shift_identity.schedule_enabled)return decision;',
+                       'if(!wake_scheduler_wall_minute(&wake_scheduler,now,&decision.minute))return decision;',
+                       'if(decision.expected==SHIFT_GLOBAL){decision.reason="gap";return decision;}',
+                       'if(shift_identity.selected==SHIFT_GLOBAL){decision.reason="identity-unknown";return decision;}',
+                       'if(shift_identity.selected==decision.expected){decision.reason="window-same";return decision;}'):
+            self.assertIn(reason,helper)
+            self.assertLess(helper.index(reason),route)
+        self.assertIn('decision.reason="window-turned";',helper)
+    def test_a_finish_switch_is_bounded_and_loud(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        block=re.search(r'else if\(action==CYCLE_ACTION_START_FINISH\) \{(.*?)\n    \}\n\}',main,re.S)
+        self.assertIsNotNone(block)
+        body=block.group(1)
+        self.assertIn('static void fail_shift_check(uint32_t now,const char *reason);',main)
+        self.assertLess(main.index('static void fail_shift_check(uint32_t now,const char *reason);'),
+                        main.index('static void service_cycle(uint32_t now) {'))
+        # The same bound the bridge-driven switch obeys, and a loud stop instead
+        # of a silent sleep when the owed switch cannot be taken.
+        self.assertIn('if(calibration_store_shift_attempts()>=shift_identity.max_attempts) {',body)
+        self.assertIn('fail_shift_check(now,"finish-switch-limit");return;',body)
+        self.assertIn('fail_shift_check(now,"finish-switch-marker");return;',body)
+        self.assertIn('ERR|CYCLE|finish|action=switch-blocked|reason=attempt-limit',main)
+        self.assertIn('ERR|CYCLE|finish|action=switch-blocked|reason=marker-write',main)
+        self.assertLess(body.index('fail_shift_check(now,"finish-switch-limit");return;'),
+                        body.index('abvm_start_route(&vm,finish.route,now)'))
+        self.assertLess(body.index('fail_shift_check(now,"finish-switch-marker");return;'),
+                        body.index('abvm_start_route(&vm,finish.route,now)'))
 if __name__=='__main__':unittest.main()
