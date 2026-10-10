@@ -191,6 +191,10 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('#define WAKE_HOST_SAMPLE_TIMEOUT_MS 5000u',main)
         self.assertIn('wake_scheduler_recovery_needed(',main)
         self.assertIn('reason=host-up',main)
+        # The helper board's verdict and this board's own mount state travel with
+        # the decision, because the console is the same USB the decision is about.
+        self.assertIn('EVT|HOST|usb=%s|mounted=%u|at-s=%u',main)
+        self.assertIn('reason=host-up|arm-usb=%u|mounted=%u|at-s=%u',main)
         self.assertIn('reason=limit|attempts=%u',main)
         # The pulse waits for a real host sample before it decides, so an awake
         # host is cancelled instead of nudged by a stray mouse report.

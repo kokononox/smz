@@ -1879,9 +1879,25 @@ static void wake_learn_host_boot(uint32_t now) {
     printf("EVT|PWRBTN|host-boot|learned-s=%u|grace=%u\n",
            (unsigned)seconds,(unsigned)power_button_grace_ms());
 }
+/* The helper board's verdict on the machine's USB is the one input an operator
+ * cannot see anywhere else, and it is what decides whether a press is safe: the
+ * console is this board's own USB, so a log read after the fact has to carry it.
+ * Every change is stamped with the clock the grace is measured against, which is
+ * what makes a replay readable as a timeline. */
+static uint8_t host_usb_logged_state=0xffu;
+static void log_arm_host_state(uint32_t now) {
+    if(!arm_uart_host_usb_seen()) return;
+    uint8_t state=(uint8_t)arm_uart_host_usb_state();
+    if(state==host_usb_logged_state) return;
+    host_usb_logged_state=state;
+    printf("EVT|HOST|usb=%s|mounted=%u|at-s=%u\n",
+           state==ARM_HOST_USB_UP?"UP":(state==ARM_HOST_USB_SUSPEND?"SUSPEND":"DOWN"),
+           tud_mounted()?1u:0u,(unsigned)(now/1000u));
+}
 static void service_wake_recovery(uint32_t now) {
     /* A host that came up on its own is this machine teaching the board how long
      * its cold start is, and that is the only number the button grace needs. */
+    log_arm_host_state(now);
     wake_learn_host_boot(now);
     /* A clock acquisition ends the moment the sample it was pulsing for arrives:
      * the host that can send it is up by definition, and the deadline it re-arms
@@ -1899,7 +1915,8 @@ static void service_wake_recovery(uint32_t now) {
         if(wake_host_up()) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
             wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
-            printf("EVT|WAKE|recovery|skipped|reason=host-up\n");
+            printf("EVT|WAKE|recovery|skipped|reason=host-up|arm-usb=%u|mounted=%u|at-s=%u\n",
+                   (unsigned)arm_uart_host_usb_state(),tud_mounted()?1u:0u,(unsigned)(now/1000u));
             return;
         }
         if(calibration_runtime_active()) return;
@@ -1931,8 +1948,8 @@ static void service_wake_recovery(uint32_t now) {
             if((int32_t)(now-power_button_boot_at)<(int32_t)grace) {
                 if(!power_button_grace_logged) {
                     power_button_grace_logged=true;
-                    printf("EVT|WAKE|recovery|skipped|reason=boot-grace|grace=%u|host-boot-s=%u\n",
-                           (unsigned)grace,(unsigned)host_boot_learned_value());
+                    printf("EVT|WAKE|recovery|skipped|reason=boot-grace|grace=%u|host-boot-s=%u|at-s=%u\n",
+                           (unsigned)grace,(unsigned)host_boot_learned_value(),(unsigned)(now/1000u));
                 }
                 return;
             }
@@ -2349,6 +2366,7 @@ int main(void) {
         if (wake_recovery_phase!=WAKE_RECOVERY_IDLE&&
             (int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;
     }
+    printf("EVT|USB|mount|at-s=%u\n",(unsigned)(now_ms()/1000u));
     if (!arm_uart_mouse_probe(now_ms())) arm_fault_reported = true;
     if (!program_verified) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
