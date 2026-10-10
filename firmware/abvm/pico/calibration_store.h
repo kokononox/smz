@@ -31,6 +31,13 @@ typedef struct WakeStoreState {
     bool pending;
     uint8_t recovery_attempts;
     uint16_t next_start;
+    /* The longest cold start this board has watched this machine take to put its
+     * USB up, in seconds; 0 means nothing has been measured yet.  A host that is
+     * still in POST looks exactly like a host that is off -- nothing of ours is
+     * on its bus either way -- so the power-button line waits this out instead of
+     * pressing a button into a running POST.  It is the machine's own number, not
+     * a vendor's, so the same firmware holds back on any of them. */
+    uint16_t host_boot_s;
 } WakeStoreState;
 bool calibration_store_wake_get(WakeStoreState *state);
 bool calibration_store_wake_set(const WakeStoreState *state);

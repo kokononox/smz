@@ -114,6 +114,26 @@ extern size_t abvm_program_size(void);
 #define POWER_BUTTON_MS 300u
 #define POWER_BUTTON_MIN_MS 100u
 #define POWER_BUTTON_MAX_MS 1500u
+/* A host that is still in POST is indistinguishable from a host that is off:
+ * until its own USB stack comes up, nothing of ours is on its bus at all.  A
+ * board that powered up together with the machine -- the power cut that restarted
+ * both -- would therefore read "off" a few seconds in and press a power button
+ * into a running POST, and a machine answers that by shutting down again, undoing
+ * the very BIOS setting that brought it back.
+ *
+ * The press is held back for a grace instead, and the grace is this machine's own
+ * cold start rather than a vendor's: the longest time this board has watched the
+ * host take to put its USB up, plus a margin, persisted in the wake record so it
+ * survives the same power cut that needs it.  Nothing here is brand-specific --
+ * what is being waited out is the machine's POST, whatever made it. */
+#define POWER_BUTTON_GRACE_DEFAULT_MS 60000u
+#define POWER_BUTTON_GRACE_MIN_MS 15000u
+#define POWER_BUTTON_GRACE_MAX_MS 150000u
+#define POWER_BUTTON_GRACE_MARGIN_MS 10000u
+/* A sample outside this range cannot have come from a POST on this class of
+ * machine, so it is treated as no sample at all. */
+#define HOST_BOOT_LEARN_MIN_S 2u
+#define HOST_BOOT_LEARN_MAX_S 120u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
@@ -155,12 +175,22 @@ static bool wake_store_dirty;
 static bool power_button_held;
 static uint32_t power_button_release_at;
 static uint8_t power_button_presses;
+/* The grace is measured from this board's own boot, because that is the only
+ * moment at which "nothing on our bus" can mean "the host is booting" as well as
+ * "the host is off".  The origin moves to the press once one is sent: after that
+ * the host's cold start began with the press, not with this board. */
+static uint32_t power_button_boot_at;
+static uint32_t host_boot_origin_at;
+static uint16_t host_boot_learned_s;
+static bool host_boot_measured,power_button_grace_logged;
 static void wake_attempts_reset(void);
 static void wake_store_service(uint32_t now,bool force);
 static void print_wake_state(void);
 static void wake_report_blocked(const char *reason,uint32_t now);
 static const char *wake_recovery_reason_text(void);
 static bool power_button_press(uint32_t now,uint16_t hold_ms);
+static uint16_t host_boot_learned_value(void);
+static uint32_t power_button_grace_ms(void);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -1301,14 +1331,15 @@ static const char *wake_recovery_reason_text(void) {
 static void print_wake_state(void) {
     bool armed=wake_scheduler_armed(&wake_scheduler);
     long due_ms=armed?(long)(int32_t)(wake_scheduler.deadline_ms-now_ms()):0l;
-    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s|pwr-presses=%u\n",
+    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s|pwr-presses=%u|host-boot-s=%u|pwr-grace=%u\n",
            armed?1u:0u,wake_scheduler.manual?1u:0u,wake_scheduler.dry?1u:0u,
            wake_scheduler.synced?1u:0u,wake_scheduler.enabled?1u:0u,
            wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,due_ms,
            (unsigned)wake_attempts,(unsigned)wake_phase,(unsigned)wake_recovery_phase,
            cycle_host_name(arm_uart_host_usb_state()),
            pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u,
-           wake_recovery_reason_text(),(unsigned)power_button_presses);
+           wake_recovery_reason_text(),(unsigned)power_button_presses,
+           (unsigned)host_boot_learned_value(),(unsigned)power_button_grace_ms());
 }
 static void service_cycle_events(void) {
     CycleEvent event;
@@ -1710,6 +1741,9 @@ static WakeStoreState wake_store_snapshot(void) {
     state.host_asleep=wake_host_asleep();
     state.pending=wake_scheduler_armed(&wake_scheduler)||wake_recovery_phase!=WAKE_RECOVERY_IDLE;
     state.next_start=wake_scheduler.next_start;
+    /* A sample taken this session has to travel with the decision, or the next
+     * power cut would find the record still empty and wait the default again. */
+    if(host_boot_learned_s>state.host_boot_s) state.host_boot_s=host_boot_learned_s;
     return state;
 }
 static void wake_store_service(uint32_t now,bool force) {
@@ -1717,7 +1751,8 @@ static void wake_store_service(uint32_t now,bool force) {
     bool changed=state.host_asleep!=wake_store_last.host_asleep||
                  state.pending!=wake_store_last.pending||
                  state.recovery_attempts!=wake_store_last.recovery_attempts||
-                 state.next_start!=wake_store_last.next_start;
+                 state.next_start!=wake_store_last.next_start||
+                 state.host_boot_s!=wake_store_last.host_boot_s;
     if(!changed&&!wake_store_dirty) return;
     if(!force&&(int32_t)(now-wake_store_next_at)<0) { wake_store_dirty=true; return; }
     if(!calibration_store_wake_set(&state)) { wake_store_dirty=true; return; }
@@ -1805,7 +1840,43 @@ static void wake_report_blocked(const char *reason,uint32_t now) {
            reason,abvm_status_name(vm.status),(unsigned)wake_phase,
            (unsigned)wake_recovery_phase);
 }
+/* The learned cold start is what the grace has to clear.  A stored value that
+ * could not have come from a POST is treated as nothing learned, so a migrated or
+ * corrupted record can only ever lengthen the wait, never shorten it. */
+static uint16_t host_boot_learned_value(void) {
+    uint16_t stored=wake_store_last.host_boot_s;
+    if(stored<HOST_BOOT_LEARN_MIN_S||stored>HOST_BOOT_LEARN_MAX_S) stored=0u;
+    if(host_boot_learned_s>stored) stored=host_boot_learned_s;
+    return stored;
+}
+static uint32_t power_button_grace_ms(void) {
+    uint16_t learned=host_boot_learned_value();
+    if(!learned) return POWER_BUTTON_GRACE_DEFAULT_MS;
+    uint32_t grace=(uint32_t)learned*1000u+POWER_BUTTON_GRACE_MARGIN_MS;
+    if(grace<POWER_BUTTON_GRACE_MIN_MS) grace=POWER_BUTTON_GRACE_MIN_MS;
+    if(grace>POWER_BUTTON_GRACE_MAX_MS) grace=POWER_BUTTON_GRACE_MAX_MS;
+    return grace;
+}
+/* The only number this machine has to teach the board is how long its own cold
+ * start takes to put USB up, and the board learns it from the start it can
+ * attribute: a start it did not press into.  A press moves the origin, so the
+ * sample stays "time from the host's power-on to its USB", whichever way the host
+ * was powered on. */
+static void wake_learn_host_boot(uint32_t now) {
+    if(host_boot_measured||!tud_mounted()||!host_boot_origin_at) return;
+    host_boot_measured=true;
+    uint32_t seconds=(now-host_boot_origin_at)/1000u;
+    if(seconds<HOST_BOOT_LEARN_MIN_S||seconds>HOST_BOOT_LEARN_MAX_S) return;
+    if(seconds<=(uint32_t)host_boot_learned_value()) return;
+    host_boot_learned_s=(uint16_t)seconds;
+    wake_store_dirty=true;
+    printf("EVT|PWRBTN|host-boot|learned-s=%u|grace=%u\n",
+           (unsigned)seconds,(unsigned)power_button_grace_ms());
+}
 static void service_wake_recovery(uint32_t now) {
+    /* A host that came up on its own is this machine teaching the board how long
+     * its cold start is, and that is the only number the button grace needs. */
+    wake_learn_host_boot(now);
     /* A clock acquisition ends the moment the sample it was pulsing for arrives:
      * the host that can send it is up by definition, and the deadline it re-arms
      * is the real one.  Checked before the phase dispatch so a board that only
@@ -1840,6 +1911,25 @@ static void service_wake_recovery(uint32_t now) {
             printf("ERR|WAKE|recovery|skipped|reason=arm|ready=%u|busy=%u\n",
                    arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u);
             return;
+        }
+        /* A suspended bus reported by the Arduino board is a host that is present
+         * and asleep: a press wakes that machine and must not be delayed.  A bus
+         * that is neither mounted nor known asleep is a host that is off -- or one
+         * that is still in POST, which reads exactly the same from here.  Only
+         * that second reading is waited out, and the wait spends no attempt:
+         * only a press does. */
+        bool host_known_asleep=arm_uart_host_usb_seen()&&
+                               arm_uart_host_usb_state()==ARM_HOST_USB_SUSPEND;
+        if(host_absent&&!host_known_asleep) {
+            uint32_t grace=power_button_grace_ms();
+            if((int32_t)(now-power_button_boot_at)<(int32_t)grace) {
+                if(!power_button_grace_logged) {
+                    power_button_grace_logged=true;
+                    printf("EVT|WAKE|recovery|skipped|reason=boot-grace|grace=%u|host-boot-s=%u\n",
+                           (unsigned)grace,(unsigned)host_boot_learned_value());
+                }
+                return;
+            }
         }
         WakeStoreState state;
         if(!calibration_store_wake_get(&state)) {
@@ -1879,6 +1969,9 @@ static void service_wake_recovery(uint32_t now) {
          * shares the one budget with the bus pulses and a brownout loop cannot
          * become a storm of button presses. */
         if(host_absent) {
+            /* The host's cold start begins with this press, so whatever this boot
+             * measures is measured from here and not from this board's own boot. */
+            host_boot_origin_at=now;
             bool pressed=power_button_press(now,POWER_BUTTON_MS);
             wake_recovery_phase=WAKE_RECOVERY_WAIT;
             wake_recovery_deadline=now+WAKE_RECOVERY_TIMEOUT_MS;
@@ -2207,6 +2300,13 @@ int main(void) {
          * the anchor itself and leaves no decision at all, which is why the
          * second reason exists. */
         (void)calibration_store_wake_get(&wake_store_last);
+        /* The button grace is counted from here: this is the moment at which a
+         * silent bus can still be a machine in POST rather than a machine that is
+         * off, and the moment the host's cold start begins when both powered up
+         * together. */
+        power_button_boot_at=now_ms();
+        host_boot_origin_at=power_button_boot_at;
+        host_boot_learned_s=0u;host_boot_measured=false;power_button_grace_logged=false;
         if(wake_scheduler_recovery_needed(wake_store_last.host_asleep,
                                           wake_store_last.pending,
                                           wake_store_last.recovery_attempts,

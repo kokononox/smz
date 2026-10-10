@@ -123,13 +123,64 @@ class ShiftWakeTests(unittest.TestCase):
 
     def test_persisted_wake_record_is_versioned(self):
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
-        self.assertIn('#define CAL_VERSION 6u',store)
+        self.assertIn('#define CAL_VERSION 7u',store)
         self.assertIn('typedef struct LegacyCalibrationPayloadV5',store)
         self.assertIn('legacy_v5_record_valid(v5a,binding)',store)
         self.assertIn('offsetof(CalibrationPayload,wake_flags)',store)
+        # The learned cold start lands in the two bytes v6 left as trailing
+        # padding, so a v6 record and a v7 record are the same size and the
+        # migration copies the named prefix instead of reading the padding.
+        self.assertIn('typedef struct LegacyCalibrationPayloadV6',store)
+        self.assertIn('legacy_v6_record_valid(v6a,binding)',store)
+        self.assertIn('offsetof(CalibrationPayload,host_boot_s)',store)
+        self.assertIn('_Static_assert(sizeof(CalibrationPayload)==sizeof(LegacyCalibrationPayloadV6),',store)
         self.assertIn('_Static_assert(sizeof(CalibrationRecord) <= FLASH_PAGE_SIZE',store)
         # A record that has not changed must never erase a flash sector.
-        self.assertIn('current.payload.wake_next_start==state->next_start)return true;',store)
+        self.assertIn('current.payload.wake_next_start==state->next_start&&',store)
+        self.assertIn('current.payload.host_boot_s==state->host_boot_s)return true;',store)
+    def test_the_power_button_waits_out_the_machines_own_post(self):
+        # A host that is still in POST looks exactly like a host that is off: until
+        # its own USB stack comes up, nothing of ours is on its bus at all.  A board
+        # that powered up together with the machine -- the power cut that restarted
+        # both -- would therefore read "off" a few seconds in and press a button
+        # into a running POST, and a machine answers that by shutting down again,
+        # which undoes the very BIOS setting that brought it back.  The grace is
+        # this machine's own cold start, learned and persisted, so nothing here
+        # belongs to one vendor's hardware: what is waited out is the POST.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
+        self.assertIn('#define POWER_BUTTON_GRACE_DEFAULT_MS 60000u',main)
+        self.assertIn('#define POWER_BUTTON_GRACE_MIN_MS 15000u',main)
+        self.assertIn('#define POWER_BUTTON_GRACE_MAX_MS 150000u',main)
+        self.assertIn('static uint32_t power_button_grace_ms(void)',main)
+        self.assertIn('reason=boot-grace',main)
+        self.assertIn('power_button_boot_at=now_ms();',main)
+        # A stored value that could not have come from a POST is nothing learned,
+        # so a migrated or corrupted record can only ever lengthen the wait.
+        self.assertIn('if(stored<HOST_BOOT_LEARN_MIN_S||stored>HOST_BOOT_LEARN_MAX_S) stored=0u;',main)
+        # The sample is the machine's own power-on-to-USB time, and the origin
+        # moves with a press so it stays the same quantity either way.
+        self.assertIn('EVT|PWRBTN|host-boot|learned-s=%u|grace=%u',main)
+        self.assertIn('host_boot_origin_at=now;',main)
+        self.assertIn('host_boot_learned_s=0u;host_boot_measured=false;power_button_grace_logged=false;',main)
+        # It travels with the decision it belongs to, or the next power cut would
+        # find the record empty and wait the default all over again.
+        self.assertIn('if(host_boot_learned_s>state.host_boot_s) state.host_boot_s=host_boot_learned_s;',main)
+        self.assertIn('state.host_boot_s!=wake_store_last.host_boot_s;',main)
+        self.assertIn('uint16_t host_boot_s;',store)
+        self.assertIn('state->host_boot_s=current.payload.host_boot_s;',store)
+        # The wait spends no attempt, and it sits before the budget is charged:
+        # only a press costs one.
+        recovery=main.index('static void service_wake_recovery(uint32_t now)')
+        self.assertLess(main.index('bool host_known_asleep=',recovery),
+                        main.index('reason=boot-grace',recovery))
+        self.assertLess(main.index('reason=boot-grace',recovery),
+                        main.index('calibration_store_wake_set(&state)',recovery))
+        # A bus the Arduino board reports suspended is a host that is present and
+        # asleep, so the press that wakes it is never delayed.
+        self.assertIn('arm_uart_host_usb_state()==ARM_HOST_USB_SUSPEND;',main)
+        self.assertIn('if(host_absent&&!host_known_asleep) {',main)
+        self.assertIn('|host-boot-s=%u|pwr-grace=%u',main)
     def test_recovery_pulse_is_bounded_and_never_fires_at_an_awake_host(self):
         main=(ROOT/'firmware/abvm/pico/main.c').read_text()
         self.assertIn('#define WAKE_RECOVERY_MAX_ATTEMPTS 3u',main)

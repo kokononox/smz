@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 6u
+#define CAL_VERSION 7u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -39,6 +39,10 @@ typedef struct CalibrationPayload {
     uint8_t wake_flags;
     uint8_t wake_recovery;
     uint16_t wake_next_start;
+    /* Learned cold start of this machine, in seconds; 0 = never measured.  It
+     * lands in the two bytes v6 left as trailing padding, so a v6 record and a v7
+     * record are the same size and the migration is a copy of the named fields. */
+    uint16_t host_boot_s;
 } CalibrationPayload;
 typedef struct LegacyCalibrationPayloadV5 {
     uint8_t binding[32];
@@ -66,6 +70,27 @@ typedef struct CalibrationRecord {
     uint32_t crc32;
     CalibrationPayload payload;
 } CalibrationRecord;
+/* v6 is the record the learned cold start was added to.  Its shape is spelled out
+ * rather than inferred so the migration below copies the named prefix it shares
+ * with v7 and never reinterprets whatever happened to sit in the padding. */
+typedef struct LegacyCalibrationPayloadV6 {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
+    uint8_t wake_flags;
+    uint8_t wake_recovery;
+    uint16_t wake_next_start;
+} LegacyCalibrationPayloadV6;
+typedef struct LegacyCalibrationRecordV6 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV6 payload;
+} LegacyCalibrationRecordV6;
+_Static_assert(sizeof(CalibrationPayload)==sizeof(LegacyCalibrationPayloadV6),
+               "the learned cold start must reuse the v6 trailing padding");
 
 typedef struct LegacyCalibrationPayloadV2 {
     uint8_t binding[32];
@@ -131,6 +156,12 @@ static bool legacy_v5_record_valid(const LegacyCalibrationRecordV5 *r,const uint
     memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
     return r->crc32==crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v6_record_valid(const LegacyCalibrationRecordV6 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=6u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -162,6 +193,21 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV6 *v6a=(const LegacyCalibrationRecordV6 *)a,*v6b=(const LegacyCalibrationRecordV6 *)b;
+        bool v6av=legacy_v6_record_valid(v6a,binding),v6bv=legacy_v6_record_valid(v6b,binding);
+        const LegacyCalibrationRecordV6 *v6=NULL;
+        if(v6av&&(!v6bv||(int32_t)(v6a->sequence-v6b->sequence)>0)){v6=v6a;active_offset=CAL_OFFSET_A;}
+        else if(v6bv){v6=v6b;active_offset=CAL_OFFSET_B;}
+        if(v6){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v6->sequence;
+            /* Copy the fields v6 and v7 share, and start the new one empty: a
+             * record written before the field existed has no cold start in it, and
+             * reading the padding it used to carry would invent one. */
+            memcpy(&current.payload,&v6->payload,offsetof(CalibrationPayload,host_boot_s));
+            current.payload.host_boot_s=0u;
+            return;
+        }
         const LegacyCalibrationRecordV5 *v5a=(const LegacyCalibrationRecordV5 *)a,*v5b=(const LegacyCalibrationRecordV5 *)b;
         bool v5av=legacy_v5_record_valid(v5a,binding),v5bv=legacy_v5_record_valid(v5b,binding);
         const LegacyCalibrationRecordV5 *v5=NULL;
@@ -360,6 +406,7 @@ bool calibration_store_wake_get(WakeStoreState *state){
     state->pending=(current.payload.wake_flags&2u)!=0u;
     state->recovery_attempts=current.payload.wake_recovery;
     state->next_start=current.payload.wake_next_start;
+    state->host_boot_s=current.payload.host_boot_s;
     return true;
 }
 /* Called from the main loop, so it is deliberately write-free when nothing the
@@ -370,11 +417,13 @@ bool calibration_store_wake_set(const WakeStoreState *state){
     uint8_t flags=wake_flags_of(state->host_asleep,state->pending);
     if(current.payload.wake_flags==flags&&
        current.payload.wake_recovery==state->recovery_attempts&&
-       current.payload.wake_next_start==state->next_start)return true;
+       current.payload.wake_next_start==state->next_start&&
+       current.payload.host_boot_s==state->host_boot_s)return true;
     CalibrationRecord before=current;uint32_t offset=active_offset;
     current.payload.wake_flags=flags;
     current.payload.wake_recovery=state->recovery_attempts;
     current.payload.wake_next_start=state->next_start;
+    current.payload.host_boot_s=state->host_boot_s;
     return persist_transaction(before,offset);
 }
 bool calibration_store_wake_recovery_reset(void){

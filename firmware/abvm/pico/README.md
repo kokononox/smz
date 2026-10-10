@@ -266,6 +266,24 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   press if its own USB cable is out. Set Windows to ignore the power button
   ("Do nothing") before wiring this line: a stray press is then a no-op, while a
   real one still boots a machine that is off.
+* A host that is still in POST looks exactly like a host that is off: until its own
+  USB stack comes up, nothing of ours is on its bus either. A board that powered up
+  together with the machine — the power cut that restarted both — would therefore
+  read "off" a few seconds in and press a button into a running POST, and a machine
+  answers that by shutting down again, undoing the very BIOS setting that brought it
+  back. The press is held back for `POWER_BUTTON_GRACE_DEFAULT_MS` (60 s) instead,
+  and the grace is the machine's own cold start rather than a vendor's: the longest
+  time this board has watched it take to put USB up, plus
+  `POWER_BUTTON_GRACE_MARGIN_MS`, clamped to `POWER_BUTTON_GRACE_MIN_MS` …
+  `POWER_BUTTON_GRACE_MAX_MS` (15–150 s) and persisted in the wake record, so it
+  survives the same power cut that needs it. A stored value that could not have come
+  from a POST counts as nothing learned, so a migrated record can only lengthen the
+  wait. `WAKE?` reports `host-boot-s=` and `pwr-grace=`, a new sample logs
+  `EVT|PWRBTN|host-boot|learned-s=`, and a wait names itself once as
+  `EVT|WAKE|recovery|skipped|reason=boot-grace|grace=`. Nothing here is
+  vendor-specific, and the wait spends no recovery attempt: only a press does. A bus
+  the Arduino board reports suspended is a host that is present and asleep, so the
+  press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses
   (`WAKE_RECOVERY_MAX_ATTEMPTS`), so a brownout loop cannot become a storm of
   button presses, and it names itself as
