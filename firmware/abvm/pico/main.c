@@ -5,6 +5,7 @@
 #include <string.h>
 #include "bsp/board.h"
 #include "pico/stdlib.h"
+#include "hardware/pwm.h"
 #include "tusb.h"
 #include "abvm_vm.h"
 #include "arm_uart_mouse.h"
@@ -28,6 +29,15 @@ extern size_t abvm_program_size(void);
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
 #define WHISPER_REPEAT_ROUTE_ID 12u
+/* The board's own status LED: dim and steady while the board runs, bright only
+ * for a power-up or a real power-button press.  The design note sits with the
+ * LED block further down; the numbers live here because the console command that
+ * sets the level is parsed before that block. */
+#define STATUS_LED_PIN 25u
+#define STATUS_LED_PWM_WRAP 999u        /* ~1 kHz at the default 125 MHz clock */
+#define STATUS_LED_DIM_LEVEL 20u        /* 2% duty: visible, not a beacon */
+#define STATUS_LED_BOOT_MS 600u
+#define STATUS_LED_PRESS_MS 600u
 /* Autonomous shift wake.  The Pico owns no RTC, so the bridge clock sample taken
  * at each shift identity check is converted into a monotonic deadline.  A window
  * start is therefore woken this many minutes early, and the machine is given a
@@ -197,6 +207,9 @@ static const char *wake_recovery_reason_text(void);
 static bool power_button_press(uint32_t now,uint16_t hold_ms);
 static uint16_t host_boot_learned_value(void);
 static uint32_t power_button_grace_ms(void);
+static void led_dim(void);
+static void led_flash(uint32_t now,uint32_t hold_ms);
+static void led_set_dim(uint16_t level);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -821,6 +834,22 @@ static void execute_command(char *line, uint32_t now) {
         else if(!valid) printf("ERR|ARG|PWRBTN\n");
         else if(!power_button_press(now,(uint16_t)ms)) printf("ERR|PWRBTN|busy\n");
         else printf("OK|PWRBTN|press|ms=%lu|count=%u\n",ms,(unsigned)power_button_presses);
+    }
+    else if (!strncmp(line, "LED!", 4)) {
+        /* How bright a glow in a dark room should be is judged by eye and not in
+         * code, so the duty cycle is a live setting: 0 turns the light off, 999
+         * is the same bright level a press flash uses.  Volatile on purpose --
+         * the next power-up returns the board to its documented default. */
+        char *argument=line+4;
+        if(*argument=='|')++argument;
+        char *end=NULL;
+        unsigned long level=*argument?strtoul(argument,&end,10):0ul;
+        bool valid=*argument&&end&&!*end&&level<=STATUS_LED_PWM_WRAP;
+        if(!valid) printf("ERR|ARG|LED\n");
+        else {
+            led_set_dim((uint16_t)level);
+            printf("OK|LED|dim=%u\n",(unsigned)level);
+        }
     }
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -1800,33 +1829,50 @@ static ArmMouseSubmit wake_pulse_arm(uint32_t now) {
 /* The board's own LED is the only thing on this hardware that can say "alive"
  * without a host to read it: the console is the machine's own USB, so an operator
  * standing in front of a machine that is off has no other signal at all.  It
- * blinks slowly while the board runs, and holds a long blink when the board
- * presses the machine's power button, so a press is visible from outside the
- * machine it is aimed at.  GP25 is the Pico's own LED and is otherwise unused. */
-#define STATUS_LED_PIN 25u
-static uint32_t led_off_at, led_next_at;
-static bool led_lit;
-static void led_pulse(uint32_t now,uint32_t hold_ms,uint32_t then_ms) {
-    gpio_put(STATUS_LED_PIN,1);
-    led_lit=true;
-    led_off_at=now+hold_ms;
-    led_next_at=led_off_at+then_ms;
+ * therefore burns dim and steady while the board runs -- a glow that can be found
+ * from across the room without being a beacon in it, and one that draws a few
+ * percent of what a lit LED draws, which is what keeps it alive for years of
+ * shifts.  A pulse every two seconds was the earlier answer and it is worse on
+ * both counts: brighter, and a moving light in the corner of the room.  Only two
+ * events are worth a bright flash -- this board's own power-up, so a board that
+ * just restarted can be told from one that has been running, and the moment it
+ * presses the machine's power button, which is otherwise invisible from outside
+ * the machine it is aimed at.  The duty cycle is a live setting (`LED!<0-999>`,
+ * 0 turns the light off) because the right level is judged by eye, not in code.
+ * GP25 is the Pico's own LED and is otherwise unused; it is PWM slice 4 channel
+ * B, whose slice partner GP24 this firmware does not use.  The numbers are with
+ * the pin constants at the top of this file. */
+static uint16_t led_dim_level=STATUS_LED_DIM_LEVEL;
+static uint32_t led_bright_until;
+static bool led_bright;
+static void led_level(uint16_t level) {
+    pwm_set_gpio_level(STATUS_LED_PIN,level);
+}
+static void led_dim(void) {
+    led_bright=false;
+    led_level(led_dim_level);
+}
+static void led_flash(uint32_t now,uint32_t hold_ms) {
+    led_bright=true;
+    led_bright_until=now+hold_ms;
+    led_level(STATUS_LED_PWM_WRAP);
+}
+static void led_set_dim(uint16_t level) {
+    led_dim_level=level;
+    if(!led_bright) led_dim();
 }
 static void service_status_led(uint32_t now) {
-    if(led_lit) {
-        if((int32_t)(now-led_off_at)<0) return;
-        gpio_put(STATUS_LED_PIN,0);
-        led_lit=false;
-        return;
-    }
-    if((int32_t)(now-led_next_at)<0) return;
-    led_pulse(now,40u,1960u);
+    /* A flash is the exception and never the state: whatever was flashed for,
+     * the board goes back to its glow and stays there. */
+    if(led_bright&&(int32_t)(now-led_bright_until)>=0) led_dim();
 }
 static void status_led_init(uint32_t now) {
-    gpio_init(STATUS_LED_PIN);
-    gpio_set_dir(STATUS_LED_PIN,GPIO_OUT);
-    gpio_put(STATUS_LED_PIN,0);
-    led_pulse(now,40u,1960u);
+    gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);
+    pwm_config config=pwm_get_default_config();
+    pwm_config_set_wrap(&config,STATUS_LED_PWM_WRAP);
+    pwm_init(pwm_gpio_to_slice_num(STATUS_LED_PIN),&config,true);
+    led_dim();
+    led_flash(now,STATUS_LED_BOOT_MS);
 }
 static void power_button_init(void) {
 #if POWER_BUTTON_ENABLED
@@ -1851,7 +1897,7 @@ static bool power_button_press(uint32_t now,uint16_t hold_ms) {
     power_button_presses=(uint8_t)(power_button_presses+1u);
     /* A press is a real action on a machine this board cannot see: the LED says it
      * happened, for the operator standing next to that machine. */
-    led_pulse(now,600u,1400u);
+    led_flash(now,STATUS_LED_PRESS_MS);
     printf("EVT|PWRBTN|press|ms=%u|count=%u\n",(unsigned)hold_ms,(unsigned)power_button_presses);
     return true;
 #else
@@ -2423,7 +2469,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",

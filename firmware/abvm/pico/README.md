@@ -290,10 +290,14 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   off there is no bus and no arm report, the live reading is always "the host is
   not asleep", and writing it back over the arming record used to cancel the owed
   press as `reason=limit` at the very end of the grace. The
-  board's own LED (GP25, otherwise unused) beats once every two seconds while it
-  runs and holds a longer blink on every press, because a machine that is off has
-  no console to read and an operator standing in front of it needs one signal that
-  does not depend on the machine. A bus
+  board's own LED (GP25, otherwise unused) burns dim and steady while it runs and
+  flashes bright only on a power-up or a real press, because a machine that is off
+  has no console to read and an operator standing in front of it needs one signal
+  that does not depend on the machine: a glow can be seen from across the room
+  without being a beacon in it, and it draws a few percent of what a lit LED
+  draws, which is what keeps it alive for years of shifts. The duty cycle is a
+  live setting -- `LED!<0-999>`, `0` turns the light off -- because the right
+  level is judged by eye, not in code. A bus
   the Arduino board reports suspended is a host that is present and asleep, so the
   press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses

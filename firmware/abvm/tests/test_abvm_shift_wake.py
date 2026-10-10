@@ -196,15 +196,29 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('EVT|HOST|usb=%s|mounted=%u|at-s=%u',main)
         self.assertIn('reason=host-up|arm-usb=%u|mounted=%u|at-s=%u',main)
         # The only signal that survives a machine that is off is the board's own
-        # LED: it beats while the board runs and holds longer on a real press.
+        # LED.  It burns dim and steady while the board runs -- a pulse every two
+        # seconds was both brighter and a moving light in the room -- and only a
+        # power-up or a real press is allowed a bright flash.
         self.assertIn('#define STATUS_LED_PIN 25u',main)
+        self.assertIn('#define STATUS_LED_DIM_LEVEL 20u',main)
+        self.assertIn('gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);',main)
+        self.assertIn('pwm_set_gpio_level(STATUS_LED_PIN,level);',main)
+        self.assertIn('led_flash(now,STATUS_LED_PRESS_MS);',main)
+        self.assertIn('led_flash(now,STATUS_LED_BOOT_MS);',main)
+        self.assertIn('if(led_bright&&(int32_t)(now-led_bright_until)>=0) led_dim();',main)
+        self.assertNotIn('gpio_put(STATUS_LED_PIN',main)
+        # The level is judged by eye, so it is settable from the console and the
+        # default is documented rather than guessed at flash time.
+        self.assertIn('!strncmp(line, "LED!", 4)',main)
+        self.assertIn('led_set_dim((uint16_t)level);',main)
+        self.assertIn('printf("OK|LED|dim=%u\\n",(unsigned)level);',main)
+        self.assertIn('PWRBTN-ms,LED!0-999',main)
         # A host that is off must not park the board in the boot wait: that is the
         # machine whose power button it may have to press, and the lines held back
         # are replayed from RAM anyway.
         self.assertIn('mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;',main)
         self.assertNotIn('wake_recovery_phase!=WAKE_RECOVERY_IDLE&&',main)
         self.assertIn('service_status_led(now);',main)
-        self.assertIn('led_pulse(now,600u,1400u);',main)
         self.assertIn('reason=limit|attempts=%u',main)
         # The pulse waits for a real host sample before it decides, so an awake
         # host is cancelled instead of nudged by a stray mouse report.
