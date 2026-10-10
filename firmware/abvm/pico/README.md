@@ -237,6 +237,49 @@ spent:
   often than `WAKE_STORE_MIN_INTERVAL_MS`, because every write erases a 4 KiB
   sector.
 
+### When the machine is fully off
+
+Remote wake-up only resumes a bus the host suspended, so a PC in soft-off cannot
+be reached over USB by anything: neither the Pico's own resume nor the Arduino
+board's `RMWKUP` has a bus to drive. The one line that still reaches it is its own
+power button, which the ATX standby rail keeps alive whenever the PSU has mains.
+
+* An optocoupler across the front-panel `PWR_BTN` header turns that button into a
+  floating contact this board can close. A PC817/EL817 is enough: the button
+  circuit is a pull-up with microamps through it, far inside the part's 50 mA /
+  35 V output rating, and because it is an optocoupler the PC's ground never meets
+  this board's.
+* `POWER_BUTTON_PIN` defaults to GP7, which is free: the firmware claims GP3 and
+  GP4 for the buttons, GP6 for the buzzer, GP16/GP17 for the ARM UART and
+  GP20/GP21 for the light sensor's I2C0.
+* Wiring: `GPIOn → 330–470 Ω → PC817 pin 1 (anode)`, `PC817 pin 2 (cathode) →
+  board GND`, `PC817 pin 4 (collector) → PWR_BTN +`, `PC817 pin 3 (emitter) →
+  PWR_BTN −`. If the header polarity is unknown, swap pins 3 and 4, or use two
+  PC817s back to back so the contact is polarity-free.
+* The press is momentary and bounded on both sides (`POWER_BUTTON_MIN_MS` 100 …
+  `POWER_BUTTON_MAX_MS` 1500, default `POWER_BUTTON_MS` 300) and is always
+  released from the main loop: holding the button for four seconds is a forced
+  power-off.
+* The board presses it only when nothing is on its own USB at all
+  (`!tud_mounted()`). A host that is merely suspended keeps the port mounted and
+  is woken over the bus instead, so a machine that is already running only sees a
+  press if its own USB cable is out. Set Windows to ignore the power button
+  ("Do nothing") before wiring this line: a stray press is then a no-op, while a
+  real one still boots a machine that is off.
+* The press spends the same persisted recovery budget as the bus pulses
+  (`WAKE_RECOVERY_MAX_ATTEMPTS`), so a brownout loop cannot become a storm of
+  button presses, and it names itself as
+  `EVT|WAKE|recovery=power-button|attempt=|ms=|pressed=|reason=` followed by
+  `EVT|PWRBTN|press` and `EVT|PWRBTN|release`. `WAKE?` reports `pwr-presses=`.
+* The line can be exercised without cutting any power: `PWRBTN` presses for the
+  default hold and `PWRBTN|<ms>` for an explicit one, both inside the same bounds.
+  Run it with the target machine off, or with Windows set to ignore its power
+  button, and read the two `EVT|PWRBTN` lines back.
+* If this board is powered from the PC's own USB port, the feature needs that port
+  to keep its 5 V in soft-off: leave ErP/EuP disabled and USB standby power
+  enabled in the BIOS. A board that is dead while the PC is off cannot press
+  anything, so a separate 5 V supply is the alternative.
+
 ## Build one identity
 
 ```bash

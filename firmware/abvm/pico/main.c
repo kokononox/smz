@@ -92,6 +92,28 @@ extern size_t abvm_program_size(void);
 /* The persisted record is written only when the recovery decision changes, and
  * never more often than this, so a flapping USB state cannot burn the slot. */
 #define WAKE_STORE_MIN_INTERVAL_MS 30000u
+/* A machine that is fully off cannot be woken over USB: remote wake-up only
+ * resumes a bus the host suspended, so neither the Pico's own resume nor the
+ * Arduino board's RMWKUP has anything to drive from S5.  The one line that still
+ * reaches a PC in soft-off is its own power button, which the ATX standby rail
+ * keeps alive whenever the PSU has mains.  An optocoupler across the front-panel
+ * header turns that button into a floating contact the board can close, and
+ * because it is an optocoupler the two grounds stay separate -- the PC's ground
+ * must never meet this board's.
+ *
+ * The press has to be momentary: holding the button for four seconds is a forced
+ * power-off.  The line is therefore bounded on both sides and always released.
+ * The board only presses it when nothing is on its own USB at all -- a host that
+ * is merely suspended keeps the port mounted and is woken over the bus instead --
+ * so a machine that is already running only sees a press if its own USB cable is
+ * out.  Set Windows to ignore the power button ("Do nothing") before wiring this
+ * line: a stray press is then a no-op, while a real one still boots a machine
+ * that is off. */
+#define POWER_BUTTON_ENABLED 1
+#define POWER_BUTTON_PIN 7u
+#define POWER_BUTTON_MS 300u
+#define POWER_BUTTON_MIN_MS 100u
+#define POWER_BUTTON_MAX_MS 1500u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
@@ -130,11 +152,15 @@ static bool pico_usb_suspended,pico_remote_wakeup_en;
 static WakeStoreState wake_store_last;
 static uint32_t wake_store_next_at;
 static bool wake_store_dirty;
+static bool power_button_held;
+static uint32_t power_button_release_at;
+static uint8_t power_button_presses;
 static void wake_attempts_reset(void);
 static void wake_store_service(uint32_t now,bool force);
 static void print_wake_state(void);
 static void wake_report_blocked(const char *reason,uint32_t now);
 static const char *wake_recovery_reason_text(void);
+static bool power_button_press(uint32_t now,uint16_t hold_ms);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -740,6 +766,26 @@ static void execute_command(char *line, uint32_t now) {
                        hour, minute, wake_scheduler.enabled ? 1u : 0u);
         }
     }
+    else if (!strncmp(line, "PWRBTN", 6)) {
+        /* Operator hardware test for the power-button line.  An optocoupler across
+         * a front-panel header is a real press on a real machine, so the pulse is
+         * bounded on both sides, always released, and never left held.  Run it
+         * with the target machine off, or with Windows set to ignore its power
+         * button, and read the two EVT lines back. */
+        char *argument=line+6;
+        if(*argument=='|')++argument;
+        char *end=NULL;
+        unsigned long ms=(unsigned long)POWER_BUTTON_MS;
+        bool valid=true;
+        if(*argument) {
+            ms=strtoul(argument,&end,10);
+            valid=end&&!*end&&ms>=POWER_BUTTON_MIN_MS&&ms<=POWER_BUTTON_MAX_MS;
+        }
+        if(!POWER_BUTTON_ENABLED) printf("ERR|PWRBTN|disabled\n");
+        else if(!valid) printf("ERR|ARG|PWRBTN\n");
+        else if(!power_button_press(now,(uint16_t)ms)) printf("ERR|PWRBTN|busy\n");
+        else printf("OK|PWRBTN|press|ms=%lu|count=%u\n",ms,(unsigned)power_button_presses);
+    }
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
         if (light_sensor_latest(&lux, &age, now))
@@ -1255,14 +1301,14 @@ static const char *wake_recovery_reason_text(void) {
 static void print_wake_state(void) {
     bool armed=wake_scheduler_armed(&wake_scheduler);
     long due_ms=armed?(long)(int32_t)(wake_scheduler.deadline_ms-now_ms()):0l;
-    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s\n",
+    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s|pwr-presses=%u\n",
            armed?1u:0u,wake_scheduler.manual?1u:0u,wake_scheduler.dry?1u:0u,
            wake_scheduler.synced?1u:0u,wake_scheduler.enabled?1u:0u,
            wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,due_ms,
            (unsigned)wake_attempts,(unsigned)wake_phase,(unsigned)wake_recovery_phase,
            cycle_host_name(arm_uart_host_usb_state()),
            pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u,
-           wake_recovery_reason_text());
+           wake_recovery_reason_text(),(unsigned)power_button_presses);
 }
 static void service_cycle_events(void) {
     CycleEvent event;
@@ -1695,6 +1741,45 @@ static ArmMouseSubmit wake_pulse_arm(uint32_t now) {
     (void)now;return ARM_MOUSE_UNSUPPORTED;
 #endif
 }
+/* The power-button line is driven low before anything else in main() and is only
+ * ever high for the length of one bounded press.  A floating or glitching pin
+ * here is not a cosmetic problem: it is a real press on a real machine. */
+static void power_button_init(void) {
+#if POWER_BUTTON_ENABLED
+    gpio_init(POWER_BUTTON_PIN);
+    gpio_pull_down(POWER_BUTTON_PIN);   /* the optocoupler stays dark across the
+                                         * direction change below */
+    gpio_put(POWER_BUTTON_PIN, 0);
+    gpio_set_dir(POWER_BUTTON_PIN, GPIO_OUT);
+#endif
+    power_button_held=false;
+    power_button_release_at=0u;
+    power_button_presses=0u;
+}
+static bool power_button_press(uint32_t now,uint16_t hold_ms) {
+#if POWER_BUTTON_ENABLED
+    if(power_button_held) return false;
+    if(hold_ms<POWER_BUTTON_MIN_MS) hold_ms=POWER_BUTTON_MIN_MS;
+    if(hold_ms>POWER_BUTTON_MAX_MS) hold_ms=POWER_BUTTON_MAX_MS;
+    gpio_put(POWER_BUTTON_PIN,1);
+    power_button_held=true;
+    power_button_release_at=now+hold_ms;
+    power_button_presses=(uint8_t)(power_button_presses+1u);
+    printf("EVT|PWRBTN|press|ms=%u|count=%u\n",(unsigned)hold_ms,(unsigned)power_button_presses);
+    return true;
+#else
+    (void)now;(void)hold_ms;return false;
+#endif
+}
+/* Released from the main loop, never from a blocking wait: a press that outlives
+ * POWER_BUTTON_MAX_MS is a forced power-off. */
+static void service_power_button(uint32_t now) {
+    if(!power_button_held) return;
+    if((int32_t)(now-power_button_release_at)<0) return;
+    power_button_held=false;
+    gpio_put(POWER_BUTTON_PIN,0);
+    printf("EVT|PWRBTN|release\n");
+}
 static void wake_report_pulse(uint8_t attempt,bool pico,ArmMouseSubmit arm_result) {
     char clock[16];
     printf("EVT|WAKE|state=pulse|attempt=%u|wall=%s|target=%02u:%02u|lead=%u|pico-rw=%u|arm=%u|usb=%u\n",
@@ -1741,7 +1826,11 @@ static void service_wake_recovery(uint32_t now) {
             return;
         }
         if(calibration_runtime_active()) return;
-        if(!arm_uart_mouse_ready()||arm_uart_mouse_busy()) {
+        /* A powered-off PC takes the Arduino board down with it, so the
+         * arm-readiness gate below must not swallow the one action that still
+         * reaches that machine. */
+        bool host_absent=POWER_BUTTON_ENABLED&&!tud_mounted();
+        if(!host_absent&&(!arm_uart_mouse_ready()||arm_uart_mouse_busy())) {
             /* The normal wake path is blocked while the recovery runs, so a
              * board that cannot be reached must not hold the phase: give up
              * after the deadline instead of parking the wake machine. */
@@ -1783,6 +1872,22 @@ static void service_wake_recovery(uint32_t now) {
         }
         wake_store_last=state;wake_store_dirty=false;
         wake_store_next_at=now+WAKE_STORE_MIN_INTERVAL_MS;
+        /* Nothing is on our own bus at all, so the host is not suspended: it is
+         * off.  No remote wake-up can reach a machine in soft-off, and the
+         * Arduino board has no bus to drive either, so its own power button is
+         * the only line left.  The attempt was persisted above, so this press
+         * shares the one budget with the bus pulses and a brownout loop cannot
+         * become a storm of button presses. */
+        if(host_absent) {
+            bool pressed=power_button_press(now,POWER_BUTTON_MS);
+            wake_recovery_phase=WAKE_RECOVERY_WAIT;
+            wake_recovery_deadline=now+WAKE_RECOVERY_TIMEOUT_MS;
+            printf("EVT|WAKE|recovery=power-button|attempt=%u|ms=%u|pressed=%u|reason=%s\n",
+                   (unsigned)state.recovery_attempts,(unsigned)POWER_BUTTON_MS,
+                   pressed?1u:0u,wake_recovery_reason_text());
+            if(!pressed) printf("ERR|PWRBTN|busy|reason=%s\n",wake_recovery_reason_text());
+            return;
+        }
         bool pico=wake_pulse_pico();
         ArmMouseSubmit arm_result=wake_pulse_arm(now);
         wake_recovery_phase=WAKE_RECOVERY_WAIT;
@@ -2062,6 +2167,10 @@ static void configure_buzzer_cues(void){
     }
 }
 int main(void) {
+    /* First statement, before the USB device or any actor exists: an optocoupler
+     * across a PC's front-panel header is a real button press, so the line has to
+     * be provably low from the earliest moment this board is powered. */
+    power_button_init();
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
@@ -2139,7 +2248,8 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?\n");
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms\n",
+           (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",
                wake_scheduler.enabled?1u:0u,
@@ -2161,5 +2271,5 @@ int main(void) {
          * otherwise looks exactly like a healthy one. */
         printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                (unsigned)wake_store_last.recovery_attempts);
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }
