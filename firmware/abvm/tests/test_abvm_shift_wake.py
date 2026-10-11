@@ -562,4 +562,118 @@ class ShiftWakeTests(unittest.TestCase):
                         body.index('abvm_start_route(&vm,finish.route,now)'))
         self.assertLess(body.index('fail_shift_check(now,"finish-switch-marker");return;'),
                         body.index('abvm_start_route(&vm,finish.route,now)'))
+    def test_a_clockless_board_asks_the_host_for_its_clock(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        challenge=main[main.index('else if (!strcmp(line,"SHIFT?")) {'):]
+        challenge=challenge[:challenge.index('else if (!strncmp(line,"SHIFT!|",7)||!strncmp(line,"SHIFT2!|",8)) {')]
+        # A board that lost power keeps the schedule it was flashed with and no
+        # wall anchor, so the handshake is the only door left to a clock.  A check
+        # in flight still owns the answer, and a board that already has a clock is
+        # never offered a second one.
+        self.assertLess(challenge.index('shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY'),
+                        challenge.index('wake_scheduler.enabled&&!wake_scheduler.synced'))
+        self.assertIn('else if(wake_scheduler.enabled&&!wake_scheduler.synced) {',challenge)
+        self.assertIn('printf("OK|SHIFT-CHALLENGE|%08lx|clock=1\\n"',challenge)
+        self.assertIn('printf("ERR|SHIFT|not-waiting\\n");',challenge)
+        self.assertIn('EVT|CLOCK|challenge|nonce=%08lx',challenge)
+        reply=main[main.index('else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce&&'):]
+        reply=reply[:reply.index('if(accepted) printf(')]
+        self.assertIn('!wake_scheduler.synced) {',reply)
+        # No check is in flight, so no identity verdict may be applied to this
+        # reply: only the stamp is taken, and the acknowledgement is sent so the
+        # host tool releases the port instead of waiting out its own timeout.
+        self.assertIn('wake_scheduler_sync(&wake_scheduler,now,minute)',reply)
+        self.assertIn('OK|CLOCK|stamp|minute=%u|window=%02u:%02u|in=%lu|lead=%u',reply)
+        self.assertIn('OK|SHIFT-ACCEPTED|%08lx',reply)
+        self.assertNotIn('shift_identity_reply_clock',reply)
+        self.assertNotIn('shift_identity.selected',reply)
+        self.assertIn('return;',reply)
+    def test_the_clock_request_is_a_keystroke_that_needs_nobody_new(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        clock=main[main.index('static bool clock_request_allowed(void) {'):]
+        clock=clock[:clock.index('static void service_wake(uint32_t now) {')]
+        # The request is the authored shift step's own keys, so the host tool that
+        # answers a check answers this too: nothing new is installed anywhere.
+        self.assertIn('key.flags=shift_identity.key_count;',clock)
+        self.assertIn('key.operand_c=shift_identity.hold_min;key.operand_d=shift_identity.hold_max;',clock)
+        self.assertIn('key.operand_b|=(uint32_t)shift_identity.keys[i]<<(8u*i);',clock)
+        self.assertIn('shift_identity.key_count>0u;',clock)
+        # Only a board with no clock asks, and only while nothing else owns the
+        # machine: a round in flight reaches the bridge through its own check.
+        self.assertIn('wake_scheduler.enabled&&!wake_scheduler.synced&&',clock)
+        self.assertIn('!clock_request_done&&wake_recovery_phase==WAKE_RECOVERY_IDLE&&',clock)
+        self.assertIn('!shift_checkpoint&&!calibration_runtime_active()&&',clock)
+        self.assertIn('vm.status!=ABVM_STATUS_RUNNING&&vm.status!=ABVM_STATUS_PAUSED&&',clock)
+        # A press is a keystroke on a live desktop: the host has to be up first.
+        self.assertIn('if(!wake_host_up()) { clock_request_waiting=false; return; }',clock)
+        # Bounded, named, and it gives up loudly instead of asking forever.
+        self.assertIn('CLOCK_REQUEST_SETTLE_MS',main)
+        self.assertIn('CLOCK_REQUEST_RETRY_MS',main)
+        self.assertIn('#define CLOCK_REQUEST_MAX_ATTEMPTS 3u',main)
+        self.assertIn('EVT|CLOCK|request|state=waiting|settle-ms=%u|host=%s',clock)
+        self.assertIn('EVT|CLOCK|request|attempt=%u|keys=%u|at-s=%u',clock)
+        self.assertIn('ERR|CLOCK|no-host|attempts=%u|hint=TIME!',clock)
+        self.assertIn('service_clock_request(now); service_boot_resume(now);',main)
+    def test_a_session_that_survives_a_power_cut_is_decided_by_the_window(self):
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        window=main[main.index('static bool shift_window_open(uint16_t *minute_out,ShiftKind *kind_out) {'):]
+        window=window[:window.index('static void service_boot_resume')]
+        # Both halves of the answer are on the board already: the schedule it was
+        # flashed with, and the wall anchor the clock sample just handed over.
+        self.assertIn('wake_scheduler_wall_minute(&wake_scheduler,now_ms(),&minute)',window)
+        self.assertIn('shift_kind_at_minute(minute,shift_identity.day_start,shift_identity.day_end,',window)
+        self.assertIn('return kind!=SHIFT_GLOBAL;',window)
+        boot=main[main.index('static void service_boot_resume(uint32_t now) {'):]
+        boot=boot[:boot.index('static void service_wake(uint32_t now) {')]
+        # A session found at boot is adopted inside a shift and dropped in the rest
+        # window between two shifts, which is not work time.
+        self.assertIn('if(cycle_runtime_session_pending()) {',boot)
+        self.assertIn('cycle_runtime_session_drop();',boot)
+        self.assertIn('EVT|CYCLE|resume|skipped|reason=rest-window|minute=%u',boot)
+        self.assertIn('cycle_runtime_session_adopt(now)',boot)
+        self.assertIn('EVT|CYCLE|resume|decision=adopted|minute=%u|window=%s',boot)
+        self.assertLess(boot.index('cycle_runtime_session_drop();'),
+                        boot.index('cycle_runtime_session_adopt(now)'))
+        # No session survived, but the board lost power inside a shift: the machine
+        # came up with nothing running and this shift is the one it must serve.
+        # Only a clockless boot proves the cut, and an operator stop is a decision
+        # about this session that no boot may undo.
+        self.assertIn('board_booted_clockless&&clocked&&!operator_stopped_since_boot&&',boot)
+        self.assertIn('EVT|CYCLE|start|reason=power-cut|minute=%u|window=%s',boot)
+        self.assertIn('board_booted_clockless=wake_scheduler.enabled&&!wake_scheduler.synced;',main)
+        stop=main[main.index('static void stop_control(uint32_t now) {'):]
+        stop=stop[:stop.index('printf("OK|GUARD|OFF\\n")')]
+        self.assertIn('operator_stopped_since_boot=true;',stop)
+    def test_the_round_itself_is_the_marker_a_boot_reads(self):
+        runtime=(ROOT/'firmware/abvm/pico/cycle_runtime.c').read_text()
+        store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
+        header=(ROOT/'firmware/abvm/pico/calibration_store.h').read_text()
+        # The marker used to live only across the restart, so a power cut in the
+        # middle of a round left the next boot with nothing to recognise.  It now
+        # outlives the round it belongs to and is cleared by every terminal path.
+        self.assertIn('bool calibration_store_cycle_mark_live(void);',header)
+        self.assertIn('bool calibration_store_cycle_mark_live(void){',store)
+        start=runtime[runtime.index('bool cycle_runtime_manual_start(uint32_t now) {'):]
+        start=start[:start.index('void cycle_runtime_manual_stop(void) {')]
+        self.assertIn('calibration_store_cycle_mark_live()',start)
+        complete=runtime[runtime.index('bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {'):]
+        complete=complete[:complete.index('void cycle_runtime_fail(uint8_t stage) {')]
+        self.assertIn('if(!calibration_store_cycle_mark_live()){',complete)
+        self.assertNotIn('calibration_store_cycle_clear_armed()',complete)
+        # A session found at boot waits outside every phase: whether the shift it
+        # belongs to is still open is a question only a wall clock can answer, and
+        # nothing may be blocked while the board waits for one.
+        boot=runtime[runtime.index('bool cycle_runtime_init(const AbvmVm *vm,uint32_t now) {'):]
+        boot=boot[:boot.index('bool cycle_runtime_available(void)')]
+        self.assertIn('cycle.resume_pending=true;',boot)
+        self.assertNotIn('cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;',boot)
+        self.assertIn('emit(CYCLE_EVENT_ARMED_AT_BOOT);',boot)
+        adopt=runtime[runtime.index('bool cycle_runtime_session_adopt(uint32_t now) {'):]
+        adopt=adopt[:adopt.index('void cycle_runtime_session_drop(void) {')]
+        self.assertIn('calibration_store_cycle_mark_live()',adopt)
+        self.assertIn('cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;',adopt)
+        self.assertIn('cycle.down_seen=true;',adopt)
+        drop=runtime[runtime.index('void cycle_runtime_session_drop(void) {'):]
+        drop=drop[:drop.index('bool cycle_runtime_waiting_for_usb(void)')]
+        self.assertIn('(void)calibration_store_cycle_reset();',drop)
 if __name__=='__main__':unittest.main()

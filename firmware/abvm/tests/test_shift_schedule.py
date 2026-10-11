@@ -54,7 +54,9 @@ class ScheduleTests(unittest.TestCase):
     (void)cycle_runtime_route_complete(16u,90002u);
     (void)cycle_runtime_service(90003u,true,ARM_HOST_USB_UP,true);
     if(!require(cycle_runtime_service(92003u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,"warm switch cannot mistake old USB UP for a reboot"))return 1;
-    if(!require(cycle_runtime_init(&vm,90003u),"power loss restores pending switch"))return 1;
+    if(!require(cycle_runtime_init(&vm,90003u),"power loss restores pending switch")||
+       !require(cycle_runtime_session_pending(),"power loss leaves the switch pending")||
+       !require(cycle_runtime_session_adopt(90003u),"the pending switch is adopted once the clock is back"))return 1;
     (void)cycle_runtime_service(90004u,true,ARM_HOST_USB_UP,true);
     if(!require(cycle_runtime_service(92004u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_START_STARTUP,"corrective restart starts Startup"))return 1;
     cycle_runtime_begin_startup();

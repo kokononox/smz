@@ -77,6 +77,9 @@ wake-test.ps1 قدیمی است.
 
 بعد از قطع برق برد، این دو خط را در لاگ ببین (هر دو فقط وقتی می‌آیند که برد
 ساعتی نداشته باشد؛ برد سالم هیچ‌کدام را نمی‌نویسد):
+  EVT|CLOCK|request|state=waiting|settle-ms=20000|host=UP     ← برد خودش کلید را می‌زند
+  EVT|CLOCK|request|attempt=1|keys=2|at-s=22
+  OK|CLOCK|stamp|minute=1200|window=18:30|in=150|lead=2        ← بریج ساعت را داد
   EVT|WAKE|recovery|armed|reason=clock|target=18:30|attempts=0
       ← برق برگشت، برد پنجره‌ها را از پروژهٔ فلش‌شده دارد ولی ساعت ندارد؛
         تصمیم گرفت یک بار سیستم را بیدار کند تا ساعت را بگیرد.

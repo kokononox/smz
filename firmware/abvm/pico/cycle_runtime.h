@@ -46,6 +46,14 @@ typedef struct CycleEvent {
 
 bool cycle_runtime_init(const AbvmVm *vm, uint32_t now);
 bool cycle_runtime_available(void);
+/* A session found in flash at this board's own boot.  It is held outside every
+ * phase until the board can answer whether the shift it belongs to is still open:
+ * the wall clock it needs is gone with the power, and nothing may be blocked while
+ * it waits for one. */
+bool cycle_runtime_session_pending(void);
+bool cycle_runtime_session_live(void);
+bool cycle_runtime_session_adopt(uint32_t now);
+void cycle_runtime_session_drop(void);
 bool cycle_runtime_waiting_for_usb(void);
 bool cycle_runtime_restart_critical(void);
 void cycle_runtime_hold(uint32_t now);

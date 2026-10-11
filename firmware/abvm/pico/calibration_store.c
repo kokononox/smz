@@ -360,6 +360,11 @@ bool calibration_store_cycle_clear_armed(void){
     current.payload.cycle_armed=0u;
     return persist();
 }
+bool calibration_store_cycle_mark_live(void){
+    if(current.payload.cycle_armed==0xa5u)return true;
+    current.payload.cycle_armed=0xa5u;
+    return persist();
+}
 bool calibration_store_cycle_reset(void){
     if(!current.payload.cycle_armed&&!current.payload.cycle_count)return true;
     current.payload.cycle_armed=0u;

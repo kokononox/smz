@@ -371,6 +371,93 @@ verified by the ordinary Startup shift check, which is what returns the five-rou
 counter to round 1. Nothing is spliced into them, and no route is run that the
 operator did not write.
 
+## A power cut, a shift, and the clock this board does not have
+
+The board owns no battery-backed clock. It keeps time from the samples the host
+hands it, so a power cut leaves it holding the schedule it was flashed with and no
+wall anchor at all: no window can be armed, and the first autonomous wake of a
+shift is impossible. The only source of that clock is the host software that
+answers the shift handshake — and after a power cut nothing on the host runs it,
+which is why an operator had to run `wake-set-clock.cmd` by hand at every outage.
+
+There is no way for host software to run "by itself" here: something on Windows has
+to launch it, and the two usual answers (a scheduled task, a Startup entry) are
+exactly the resident auto-run this tooling was built to avoid. So the board asks,
+with the keys the authored shift step already carries (`shift_identity.keys` plus
+`hold_min`/`hold_max`): Windows launches the Nth pinned taskbar app when this board
+presses Win+N, which is how the shift bridge is already launched, and that bridge
+stamps the port it hears a challenge from before it sends any verdict
+(`BoardNeedsClock` → `WAKE?` → `TIME!|HH:MM`). Nothing is installed, nothing stays
+resident, and the tool runs, stamps and exits.
+
+Two firmware facts were missing for that to work, and both are here:
+
+* `SHIFT?` offers the challenge when this board has no clock and no check is in
+  flight (`OK|SHIFT-CHALLENGE|<nonce>|clock=1`), so the host tool has a port to
+  stamp. A check in flight still owns the answer, and a board that already has a
+  clock is never offered a second one.
+* A `SHIFT2!` reply that carries a stamp is accepted outside a check for the clock
+  alone: no identity verdict is applied to it (the hash is read past, never
+  believed), the wake deadline is re-armed from the sample exactly as a check's
+  stamp does, and the acknowledgement is still sent so the tool releases the port
+  instead of waiting out its own timeout.
+
+The press is bounded on every side. It waits for the host to be up, settles
+`CLOCK_REQUEST_SETTLE_MS` (20 s) so a desktop that is still loading is not typed at,
+then retries every `CLOCK_REQUEST_RETRY_MS` (30 s) at most
+`CLOCK_REQUEST_MAX_ATTEMPTS` (3) times. It never fires while a round is driving the
+host, while a shift check is in flight (that check reaches the bridge by itself),
+while a light or sound calibration owns both buttons, or while the recovery that
+brings the host up still owns the wake. It stops on the first stamp, because
+re-stamping a board that already has a clock would move a real deadline. A host that
+never answers is named rather than left silent:
+
+```
+EVT|CLOCK|challenge|nonce=1f3a9c02
+EVT|CLOCK|request|state=waiting|settle-ms=20000|host=UP
+EVT|CLOCK|request|attempt=1|keys=2|at-s=22
+OK|CLOCK|stamp|minute=1200|window=18:30|in=150|lead=2
+ERR|CLOCK|no-host|attempts=3|hint=TIME!
+```
+
+The manual `TIME!|HH:MM` stamp still works exactly as before, and `WAKE?` still
+reports `synced=`, so the old path is the fallback rather than the requirement.
+
+### A session that survives the cut
+
+The clock only gets the board back to arming windows. The other half is what it
+should do with the shift it was in the middle of, and that had a hole of its own:
+the persisted marker spanned the restart rather than the round, so it was clear for
+the whole length of a round and a board that came back after a cut in the middle of
+one resumed nothing. The marker now belongs to the session
+(`calibration_store_cycle_mark_live()`: set when a round arms and again when
+Startup completes, cleared by Finish, stop, failure and a confirmed switch), so a
+boot that finds it has proof a round was interrupted.
+
+That boot does not resume on the spot. Whether the shift the session belongs to is
+still open is a question only a wall clock can answer, and the board has none yet,
+so the session waits in `resume_pending` — deliberately outside every phase, where
+it blocks nothing. That is what keeps the rest window quiet and the next window's
+wake armed while the board waits for its clock.
+
+When a clock sample arrives, the decision is the board's own and needs no bridge:
+`shift_window_open()` asks the same `shift_kind_at_minute()` question the finish
+decision uses, from the anchor the sample left behind and the schedule the program
+carried.
+
+* Inside a shift the session is adopted (`EVT|CYCLE|resume|decision=adopted`),
+  which opens the USB/desktop gate the same way a driven restart does and replays
+  the authored Startup with the round count preserved.
+* In the rest window it is dropped (`EVT|CYCLE|resume|skipped|reason=rest-window`)
+  and the window that is still armed starts the next shift.
+* A board that lost power *inside* a shift window and has no session to adopt
+  starts one (`EVT|CYCLE|start|reason=power-cut`), because the machine came up
+  with nothing running and that shift is the one it must serve.
+
+Only a clockless boot proves the cut — the RAM anchor cannot survive one — so an
+ordinary board reset never starts a session by itself, the rest window never does,
+and an operator stop is never undone inside the same window.
+
 ## Build one identity
 
 ```bash

@@ -25,6 +25,7 @@ typedef struct CycleState {
     bool up_timing;
     bool desktop_timing;
     bool held;
+    bool resume_pending;
     uint8_t startup_gate;
     uint8_t phase;
     uint8_t max_restarts;
@@ -112,13 +113,40 @@ bool cycle_runtime_init(const AbvmVm *vm,uint32_t now) {
     cycle.available=true;
     cycle.prng=now^read_u32(vm->header.program_sha256);
     if(cycle.auto_resume&&(calibration_store_cycle_armed()||calibration_store_shift_target())){
-        cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;
-        cycle.down_seen=true; /* an armed marker present at Pico boot proves a reboot */
+        /* A live marker at this board's own boot is the one proof a session was
+         * interrupted -- and, because the marker now outlives the round it belongs
+         * to, it is set for a power cut in the middle of a round as well as for a
+         * restart this board drove.  It is not yet the answer to "resume it":
+         * that depends on whether the shift it belongs to is still open, and only
+         * a wall clock can say.  This board has none, so the session waits here,
+         * outside every phase, where it blocks nothing. */
+        cycle.resume_pending=true;
         emit(CYCLE_EVENT_ARMED_AT_BOOT);
     }
     return true;
 }
 bool cycle_runtime_available(void){return cycle.available;}
+bool cycle_runtime_session_pending(void){return cycle.available&&cycle.resume_pending;}
+bool cycle_runtime_session_live(void){
+    return cycle.available&&(cycle.resume_pending||cycle.phase!=CYCLE_IDLE);
+}
+bool cycle_runtime_session_adopt(uint32_t now) {
+    if(!cycle.available||!calibration_store_cycle_mark_live())return false;
+    cycle.resume_pending=false;
+    cycle.phase=CYCLE_WAIT_USB;cycle.shift_wait_since=now;
+    /* A session that had to survive a boot is itself the proof the machine went
+     * down with this board, which is the same evidence a driven restart waits
+     * for before it replays Startup. */
+    cycle.down_seen=true;cycle.up_timing=false;cycle.desktop_timing=false;
+    cycle.last_host_state=ARM_HOST_USB_UNKNOWN;
+    return true;
+}
+void cycle_runtime_session_drop(void) {
+    if(!cycle.available)return;
+    cycle.resume_pending=false;
+    cycle.phase=CYCLE_IDLE;cycle.deadline=0u;
+    (void)calibration_store_cycle_reset();
+}
 bool cycle_runtime_waiting_for_usb(void){
     return cycle.phase==CYCLE_WAIT_USB||cycle.phase==CYCLE_AFTER;
 }
@@ -145,6 +173,12 @@ bool cycle_runtime_manual_start(uint32_t now) {
     /* A stale terminal count must never select Finish in a new operator
      * session.  Do not arm the run unless the persistent reset succeeded. */
     if(!calibration_store_cycle_reset()){
+        cycle.phase=CYCLE_IDLE;cycle.deadline=0u;
+        emit(CYCLE_EVENT_FAILED);return false;
+    }
+    /* Mark the session, not just the restart: this marker is what a board that
+     * comes back after a power cut reads to find out that a round was running. */
+    if(!calibration_store_cycle_mark_live()){
         cycle.phase=CYCLE_IDLE;cycle.deadline=0u;
         emit(CYCLE_EVENT_FAILED);return false;
     }
@@ -263,7 +297,10 @@ bool cycle_runtime_route_complete(uint16_t route_id,uint32_t now) {
         return false;
     }
     if(cycle.phase==CYCLE_STARTUP&&route_id==cycle.startup_route){
-        if(!calibration_store_cycle_clear_armed()){
+        /* The round that follows Startup is a live session again: the marker must
+         * stay set for its whole length, or a power cut in the middle of it would
+         * leave a boot with nothing to resume. */
+        if(!calibration_store_cycle_mark_live()){
             cycle.phase=CYCLE_WAIT_USB;emit(CYCLE_EVENT_FAILED);return false;
         }
         emit(CYCLE_EVENT_STARTUP_COMPLETE);
