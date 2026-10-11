@@ -290,14 +290,20 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   off there is no bus and no arm report, the live reading is always "the host is
   not asleep", and writing it back over the arming record used to cancel the owed
   press as `reason=limit` at the very end of the grace. The
-  board's own LED (GP25, otherwise unused) burns dim and steady while it runs and
-  flashes bright only on a power-up or a real press, because a machine that is off
-  has no console to read and an operator standing in front of it needs one signal
-  that does not depend on the machine: a glow can be seen from across the room
-  without being a beacon in it, and it draws a few percent of what a lit LED
-  draws, which is what keeps it alive for years of shifts. The duty cycle is a
-  live setting -- `LED!<0-999>`, `0` turns the light off -- because the right
-  level is judged by eye, not in code. A bus
+  board's own LED (GP25, otherwise unused) burns steady while it runs and flashes
+  bright only on a power-up or a real press, because a machine that is off has no
+  console to read and an operator standing in front of it needs one signal that
+  does not depend on the machine. It burns at two levels, because the two things
+  worth telling apart from across the room are a board that is powered and idle
+  and a board with work in hand: the idle glow is `STATUS_LED_DIM_LEVEL` (2%
+  duty), found without being a beacon in the room and drawing a few percent of
+  what a lit LED draws, which is what keeps it alive for years of shifts, and the
+  working glow is `STATUS_LED_WORK_LEVEL` (50% duty), shown for as long as the
+  board holds work -- a live cycle, the rest between rounds included, or a running
+  or paused macro. Both levels are live settings and both are deliberately
+  volatile: `LED!<0-999>` sets the idle glow and `LEDW!<0-999>` the working one
+  (`0` turns the light off in either), because the right level is judged by eye,
+  not in code. A bus
   the Arduino board reports suspended is a host that is present and asleep, so the
   press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses
