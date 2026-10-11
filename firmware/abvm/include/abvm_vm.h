@@ -134,6 +134,15 @@ typedef struct AbvmVm {
 
 int abvm_init(AbvmVm *vm, const uint8_t *image, size_t image_size);
 int abvm_start_route(AbvmVm *vm, uint16_t route_id, uint32_t now);
+/*
+ * Start a route with its opening settle left out.  A route whose first authored
+ * step is a delay begins with that delay, and a host that has already proved the
+ * machine is up has nothing left to wait for.  Only a delay is ever skipped: the
+ * first instruction is inspected, and a route that begins with anything else
+ * starts exactly where it always did.
+ */
+int abvm_start_route_without_opening_delay(AbvmVm *vm, uint16_t route_id,
+                                           uint32_t now);
 int abvm_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now);
 /*
  * Replace the currently running interrupt without touching its suspended

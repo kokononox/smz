@@ -54,6 +54,10 @@ bool cycle_runtime_session_pending(void);
 bool cycle_runtime_session_live(void);
 bool cycle_runtime_session_adopt(uint32_t now);
 void cycle_runtime_session_drop(void);
+/* A session that came back from a power cut never finished its round, so the
+ * settle the Startup route opens with -- the rest that follows a round which did
+ * finish -- is not owed to it.  Only that one route's opening delay is left out. */
+bool cycle_runtime_skip_startup_settle(void);
 bool cycle_runtime_waiting_for_usb(void);
 bool cycle_runtime_restart_critical(void);
 void cycle_runtime_hold(uint32_t now);

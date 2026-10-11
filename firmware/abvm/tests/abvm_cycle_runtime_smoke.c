@@ -49,6 +49,10 @@ int main(int argc,char **argv){
                 "deadline")||
        !require(cycle_runtime_begin_after(1000u),"arm after")||
        !require(marker_armed&&marker_count==1u,"persistent marker"))return 1;
+    /* A restart this board drove is not a power cut: the round finished, so the
+     * rest between rounds is still owed and must never be left out. */
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "a driven restart still owes the rest"))return 1;
     drain();
     (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN,true);drain();
     if(!require(!cycle_runtime_route_complete(cycle_runtime_after_route(),1200u),
@@ -62,6 +66,8 @@ int main(int argc,char **argv){
        !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"USB and Desktop stable"))return 1;
     cycle_runtime_begin_startup();
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "the rest is owed once, not held"))return 1;
     CycleEvent startup_event;
     if(!require(cycle_runtime_take_event(&startup_event)&&
                 startup_event.type==CYCLE_EVENT_STARTUP_START&&
@@ -106,6 +112,10 @@ int main(int argc,char **argv){
                 "boot stable early")||
        !require(cycle_runtime_service(2000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"armed boot authority"))return 1;
+    /* The round this session was playing never finished, so the rest that
+     * follows a finished round is not owed to it. */
+    if(!require(cycle_runtime_skip_startup_settle(),
+                "a round a power cut interrupted is not owed the rest"))return 1;
 
     /* The rest window between two shifts is not work time: a session that survives
      * a power cut into one is dropped, not resumed, and the count goes with it. */
@@ -122,6 +132,8 @@ int main(int argc,char **argv){
                 "dropping the session clears the marker and the count")||
        !require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "a dropped session stays idle"))return 1;
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "a dropped session owes nothing"))return 1;
 
     /* A complete AutoCycle session owns five persistent restart transitions.
      * Clearing the one-shot armed byte after Startup must preserve the count,

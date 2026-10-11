@@ -682,4 +682,49 @@ class ShiftWakeTests(unittest.TestCase):
         drop=runtime[runtime.index('void cycle_runtime_session_drop(void) {'):]
         drop=drop[:drop.index('bool cycle_runtime_waiting_for_usb(void)')]
         self.assertIn('(void)calibration_store_cycle_reset();',drop)
+    def test_a_round_a_power_cut_interrupted_is_not_owed_the_rest(self):
+        # The settle the Startup route opens with is the rest between rounds.  A
+        # session that survived a power cut never finished its round, so the board
+        # enters that route without the delay it opens with -- and only that delay:
+        # every authored step after it still runs.  A restart the board drove is
+        # untouched and still waits the rest out in full.
+        main=(ROOT/'firmware/abvm/pico/main.c').read_text()
+        startup=main[main.index('} else if(action==CYCLE_ACTION_START_STARTUP) {'):]
+        startup=startup[:startup.index('} else if(action==CYCLE_ACTION_SHIFT_STALLED) {')]
+        self.assertIn('bool skip_settle=cycle_runtime_skip_startup_settle();',startup)
+        self.assertIn('abvm_start_route_without_opening_delay(&vm,cycle_runtime_startup_route(),now)',startup)
+        self.assertIn('abvm_start_route(&vm,cycle_runtime_startup_route(),now)',startup)
+        self.assertIn('EVT|CYCLE|startup|settle=skipped|reason=power-cut',startup)
+        # The stalled-switch path replays Startup after a reboot this board drove,
+        # so it keeps the rest: it must never reach for the settle-free entry.
+        stalled=main[main.index('} else if(action==CYCLE_ACTION_SHIFT_STALLED) {'):]
+        stalled=stalled[:stalled.index('} else if(action==CYCLE_ACTION_START_FINISH) {')]
+        self.assertNotIn('without_opening_delay',stalled)
+        runtime=(ROOT/'firmware/abvm/pico/cycle_runtime.c').read_text()
+        adopt=runtime[runtime.index('bool cycle_runtime_session_adopt(uint32_t now) {'):]
+        adopt=adopt[:adopt.index('void cycle_runtime_session_drop(void) {')]
+        self.assertIn('cycle.skip_settle=true;',adopt)
+        drop=runtime[runtime.index('void cycle_runtime_session_drop(void) {'):]
+        drop=drop[:drop.index('bool cycle_runtime_skip_startup_settle(void)')]
+        self.assertIn('cycle.skip_settle=false;',drop)
+        after=runtime[runtime.index('bool cycle_runtime_begin_after(uint32_t now) {'):]
+        after=after[:after.index('void cycle_runtime_begin_startup(void) {')]
+        self.assertIn('cycle.skip_settle=false;',after)
+        shift=runtime[runtime.index('bool cycle_runtime_begin_shift('):]
+        shift=shift[:shift.index('bool cycle_runtime_shift_confirmed')]
+        self.assertIn('cycle.skip_settle=false;',shift)
+        start=runtime[runtime.index('void cycle_runtime_begin_startup(void) {'):]
+        start=start[:start.index('void cycle_runtime_begin_finish')]
+        self.assertIn('cycle.skip_settle=false;',start)
+        # The VM leaves out a delay and nothing else, and never the END that closes
+        # a route with no steps left to run.
+        vm=(ROOT/'firmware/abvm/src/abvm_vm.c').read_text()
+        skip=vm[vm.index('int abvm_start_route_without_opening_delay('):]
+        skip=skip[:skip.index('\n}\n')]
+        self.assertIn('opening.opcode == ABVM_OP_DELAY',skip)
+        self.assertIn('route.length > 1u',skip)
+        self.assertIn('vm->lanes[0].pc++;',skip)
+        self.assertIn('vm->lanes[0].due = now;',skip)
+        # A route that opens with an action is entered exactly where it always was.
+        self.assertIn('return enter_route(vm, &route, now);',vm)
 if __name__=='__main__':unittest.main()

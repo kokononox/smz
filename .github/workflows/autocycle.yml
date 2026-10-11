@@ -77,6 +77,9 @@ jobs:
             python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj /tmp/abvm-native-smoke.abp --routes Game Whisper
             cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_vm_smoke.c -o /tmp/abvm-native-smoke
             /tmp/abvm-native-smoke /tmp/abvm-native-smoke.abp
+            python tools/abvm.py compile firmware/abvm/tests/abvm_settle_smoke.amsj /tmp/abvm-settle-smoke.abp --routes Startup Game
+            cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_settle_smoke.c -o /tmp/abvm-settle-smoke
+            /tmp/abvm-settle-smoke /tmp/abvm-settle-smoke.abp
             cc -std=c11 -Wall -Wextra -Werror \
               -Ifirmware/abvm/tests/pico_stub -Ifirmware/abvm/include -Ifirmware/abvm/pico \
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/light_sensor.c \

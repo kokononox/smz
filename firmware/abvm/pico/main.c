@@ -1544,8 +1544,18 @@ static void service_cycle(uint32_t now) {
         release_all_actors(now);
         hid_keyboard_discard_completion();
         arm_uart_mouse_discard_completion();
-        if(abvm_start_route(&vm,cycle_runtime_startup_route(),now)) {
+        /* A session that survived a power cut is not owed the settle the Startup
+         * route opens with: that wait is the rest between rounds, and this round
+         * never finished.  Only the route's opening delay is left out -- every
+         * authored step after it still runs, so the machine is still relaunched
+         * and the shift check still runs. */
+        bool skip_settle=cycle_runtime_skip_startup_settle();
+        int started=skip_settle?
+            abvm_start_route_without_opening_delay(&vm,cycle_runtime_startup_route(),now):
+            abvm_start_route(&vm,cycle_runtime_startup_route(),now);
+        if(started) {
             cycle_runtime_begin_startup();service_cycle_events();
+            if(skip_settle)printf("EVT|CYCLE|startup|settle=skipped|reason=power-cut\n");
         } else {
             cycle_runtime_fail(2u);service_cycle_events();
         }

@@ -26,6 +26,7 @@ typedef struct CycleState {
     bool desktop_timing;
     bool held;
     bool resume_pending;
+    bool skip_settle;
     uint8_t startup_gate;
     uint8_t phase;
     uint8_t max_restarts;
@@ -76,6 +77,7 @@ static void arm_run(uint32_t now,bool resumed) {
     uint32_t duration=choose_duration();
     cycle.phase=CYCLE_RUN;
     cycle.deadline=now+duration;
+    cycle.skip_settle=false;
     cycle.down_seen=false;
     cycle.up_timing=false;
     cycle.desktop_timing=false;
@@ -139,14 +141,17 @@ bool cycle_runtime_session_adopt(uint32_t now) {
      * for before it replays Startup. */
     cycle.down_seen=true;cycle.up_timing=false;cycle.desktop_timing=false;
     cycle.last_host_state=ARM_HOST_USB_UNKNOWN;
+    cycle.skip_settle=true;
     return true;
 }
 void cycle_runtime_session_drop(void) {
     if(!cycle.available)return;
     cycle.resume_pending=false;
+    cycle.skip_settle=false;
     cycle.phase=CYCLE_IDLE;cycle.deadline=0u;
     (void)calibration_store_cycle_reset();
 }
+bool cycle_runtime_skip_startup_settle(void){return cycle.skip_settle;}
 bool cycle_runtime_waiting_for_usb(void){
     return cycle.phase==CYCLE_WAIT_USB||cycle.phase==CYCLE_AFTER;
 }
@@ -256,6 +261,7 @@ bool cycle_runtime_begin_shift(uint16_t route,uint8_t target,uint8_t maximum,uin
        !calibration_store_shift_begin(target,maximum))return false;
     cycle.switch_route=route;cycle.phase=CYCLE_AFTER;cycle.down_seen=false;
     cycle.up_timing=false;cycle.desktop_timing=false;cycle.held=false;
+    cycle.skip_settle=false;
     cycle.last_host_state=ARM_HOST_USB_UNKNOWN;return true;
 }
 bool cycle_runtime_shift_confirmed(uint32_t now) {
@@ -273,13 +279,14 @@ bool cycle_runtime_begin_after(uint32_t now) {
         cycle.phase=CYCLE_IDLE;emit(CYCLE_EVENT_BLOCKED);return false;
     }
     cycle.phase=CYCLE_AFTER;cycle.down_seen=false;cycle.up_timing=false;
-    cycle.desktop_timing=false;
+    cycle.desktop_timing=false;cycle.skip_settle=false;
     cycle.last_host_state=ARM_HOST_USB_UNKNOWN;
     emit(CYCLE_EVENT_AFTER_START);cycle.pending.route_id=cycle.after_route;
     return true;
 }
 void cycle_runtime_begin_startup(void) {
     cycle.phase=CYCLE_STARTUP;
+    cycle.skip_settle=false;
     emit(CYCLE_EVENT_STARTUP_START);cycle.pending.route_id=cycle.startup_route;
     cycle.pending.startup_gate=cycle.startup_gate;
 }

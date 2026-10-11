@@ -1,0 +1,15 @@
+{
+ "pipelineVersion": 6,
+ "pipelines": {
+  "Startup": [
+   {"Type":"delay","Props":{"minMs":300000,"maxMs":600000},"Children":[],"Name":"","Delay":0,"IsDisabled":false},
+   {"Type":"keystroke","Props":{"key":"3","modWin":true,"holdMin":0,"holdMax":0},"Children":[],"Name":"","Delay":0,"IsDisabled":false},
+   {"Type":"delay","Props":{"minMs":6000,"maxMs":10000},"Children":[],"Name":"","Delay":0,"IsDisabled":false},
+   {"Type":"keystroke","Props":{"key":"1","modWin":true,"holdMin":0,"holdMax":0},"Children":[],"Name":"","Delay":0,"IsDisabled":false}
+  ],
+  "Game": [
+   {"Type":"keystroke","Props":{"key":"7","holdMin":80,"holdMax":180},"Children":[],"Name":"","Delay":0,"IsDisabled":false},
+   {"Type":"keystroke","Props":{"key":"8","holdMin":80,"holdMax":180},"Children":[],"Name":"","Delay":0,"IsDisabled":false}
+  ]
+ }
+}

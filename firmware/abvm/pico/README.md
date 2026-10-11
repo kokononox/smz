@@ -462,6 +462,48 @@ Only a clockless boot proves the cut — the RAM anchor cannot survive one — s
 ordinary board reset never starts a session by itself, the rest window never does,
 and an operator stop is never undone inside the same window.
 
+## The rest between rounds is owed to a round that finished
+
+The authored `Startup` route opens with a settle — the rest between rounds — and
+the board runs that one route in two situations: after a round ends, when it has
+just driven the machine's restart, and when a session comes back from a power cut.
+The settle is right for the first and pointless for the second: the machine that
+came back from a cut booted on its own, and the board has already waited for it to
+be up (`ARM_HOST_USB_UP`, `usb_stable_ms`, and the desktop gate or its fallback)
+before it starts that route at all. A round a power cut interrupted never finished,
+so it is not owed a rest.
+
+The board can tell the two apart, so it does:
+
+* `cycle_runtime_session_adopt()` — the power-cut path — arms the skip.
+* `cycle_runtime_begin_after()` (a round that ended), `cycle_runtime_begin_shift()`
+  (a switch the board drove), and `arm_run()` all clear it, so a restart this board
+  drove still waits the rest out in full.
+* `cycle_runtime_begin_startup()` consumes it once, so it can never outlive the
+  start it belongs to.
+
+What is left out is exactly one thing: the delay the route opens with.
+`abvm_start_route_without_opening_delay()` places the lane at the route's first
+instruction — nothing has run yet — inspects that instruction, and steps over it
+only when it is an `ABVM_OP_DELAY`. A route that opens with an action starts
+exactly where it always did, and `route.length > 1u` keeps the `END` that closes a
+one-step route from being stepped over. Every authored step after the settle still
+runs, so the machine is still relaunched and the shift check still runs.
+
+The decision names itself once:
+
+```
+EVT|CYCLE|startup|settle=skipped|reason=power-cut
+```
+
+Read it beside the line that produced it. `EVT|CYCLE|start|reason=power-cut` or
+`EVT|CYCLE|resume|decision=adopted` means the next `startup-start` will have no
+settle in front of it. A round that finished normally shows `startup-start` with no
+skip line at all, and its rest is untouched.
+
+The macro needs no change for any of this: the settle stays authored in the route,
+and only the situation decides whether it is waited out.
+
 ## Build one identity
 
 ```bash
