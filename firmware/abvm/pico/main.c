@@ -772,14 +772,20 @@ static void execute_command(char *line, uint32_t now) {
                 else printf("EVT|WAKE|disarmed|reason=schedule-off\n");
             }
         }
-        else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce&&
-                !wake_scheduler.synced) {
+        else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce) {
             /* The stamp the board asked for, arriving through the handshake it
              * offered.  No check is in flight, so no identity verdict is applied:
              * the hash in this line is read past, not believed.  The
              * acknowledgement is still sent, because the host tool releases the
              * port and exits on it instead of waiting out its own timeout. */
             clock_request_pending=false;
+            /* A tool that carries its own one-shot stamp sends `TIME!` first and
+             * then this reply, so by the time it arrives the board already keeps
+             * time.  The stamp is then left alone -- re-syncing would move a real
+             * deadline for nothing -- and the reply is still acknowledged. */
+            if(wake_scheduler.synced)
+                printf("OK|CLOCK|skipped|reason=synced|minute=%u\n",minute);
+            else {
             wake_attempts_reset();
             (void)calibration_store_wake_recovery_reset();
             if(wake_scheduler_sync(&wake_scheduler,now,minute))
@@ -789,6 +795,7 @@ static void execute_command(char *line, uint32_t now) {
                        wake_scheduler.lead_minutes);
             else printf("OK|CLOCK|stamp|minute=%u|armed=0|schedule=%u\n",
                         minute,wake_scheduler.enabled?1u:0u);
+            }
             printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
             return;
         }

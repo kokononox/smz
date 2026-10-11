@@ -576,9 +576,15 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('printf("OK|SHIFT-CHALLENGE|%08lx|clock=1\\n"',challenge)
         self.assertIn('printf("ERR|SHIFT|not-waiting\\n");',challenge)
         self.assertIn('EVT|CLOCK|challenge|nonce=%08lx',challenge)
-        reply=main[main.index('else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce&&'):]
+        reply=main[main.index('else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce)'):]
         reply=reply[:reply.index('if(accepted) printf(')]
-        self.assertIn('!wake_scheduler.synced) {',reply)
+        # A tool that carries its own one-shot stamp sends `TIME!` first, so the
+        # board may already keep time by the time this reply arrives: the stamp is
+        # left alone rather than re-synced over a real deadline, and the reply is
+        # still acknowledged.
+        self.assertIn('OK|CLOCK|skipped|reason=synced|minute=%u',reply)
+        self.assertLess(reply.index('if(wake_scheduler.synced)'),
+                        reply.index('wake_scheduler_sync(&wake_scheduler,now,minute)'))
         # No check is in flight, so no identity verdict may be applied to this
         # reply: only the stamp is taken, and the acknowledgement is sent so the
         # host tool releases the port instead of waiting out its own timeout.

@@ -400,7 +400,11 @@ Two firmware facts were missing for that to work, and both are here:
   alone: no identity verdict is applied to it (the hash is read past, never
   believed), the wake deadline is re-armed from the sample exactly as a check's
   stamp does, and the acknowledgement is still sent so the tool releases the port
-  instead of waiting out its own timeout.
+  instead of waiting out its own timeout. A tool that carries its own one-shot
+  stamp sends `TIME!` first, so the reply that follows finds the board already
+  keeping time: that stamp is left alone rather than re-synced over a real
+  deadline (`OK|CLOCK|skipped|reason=synced`), and the reply is still
+  acknowledged. Both shapes of tool therefore work, and neither needs an update.
 
 The press is bounded on every side. It waits for the host to be up, settles
 `CLOCK_REQUEST_SETTLE_MS` (20 s) so a desktop that is still loading is not typed at,
