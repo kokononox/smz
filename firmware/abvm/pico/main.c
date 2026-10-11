@@ -5,6 +5,7 @@
 #include <string.h>
 #include "bsp/board.h"
 #include "pico/stdlib.h"
+#include "hardware/pwm.h"
 #include "tusb.h"
 #include "abvm_vm.h"
 #include "arm_uart_mouse.h"
@@ -28,6 +29,16 @@ extern size_t abvm_program_size(void);
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
 #define WHISPER_REPEAT_ROUTE_ID 12u
+/* The board's own status LED: steady, at one of two levels, bright only for a
+ * power-up or a real power-button press.  The design note sits with the LED block
+ * further down; the numbers live here because the console commands that set the
+ * two levels are parsed before that block. */
+#define STATUS_LED_PIN 25u
+#define STATUS_LED_PWM_WRAP 999u        /* 125 kHz at the default 125 MHz clock */
+#define STATUS_LED_DIM_LEVEL 100u       /* 10% duty: idle, visible, not a beacon */
+#define STATUS_LED_WORK_LEVEL 500u      /* 50% duty: the board has work in hand */
+#define STATUS_LED_BOOT_MS 600u
+#define STATUS_LED_PRESS_MS 600u
 /* Autonomous shift wake.  The Pico owns no RTC, so the bridge clock sample taken
  * at each shift identity check is converted into a monotonic deadline.  A window
  * start is therefore woken this many minutes early, and the machine is given a
@@ -114,6 +125,32 @@ extern size_t abvm_program_size(void);
 #define POWER_BUTTON_MS 300u
 #define POWER_BUTTON_MIN_MS 100u
 #define POWER_BUTTON_MAX_MS 1500u
+/* A host that is still in POST is indistinguishable from a host that is off:
+ * until its own USB stack comes up, nothing of ours is on its bus at all.  A
+ * board that powered up together with the machine -- the power cut that restarted
+ * both -- would therefore read "off" a few seconds in and press a power button
+ * into a running POST, and a machine answers that by shutting down again, undoing
+ * the very BIOS setting that brought it back.
+ *
+ * The press is held back for a grace instead, and the grace is this machine's own
+ * cold start rather than a vendor's: the longest time this board has watched the
+ * host take to put its USB up, plus a margin, persisted in the wake record so it
+ * survives the same power cut that needs it.  Nothing here is brand-specific --
+ * what is being waited out is the machine's POST, whatever made it. */
+#define POWER_BUTTON_GRACE_DEFAULT_MS 60000u
+#define POWER_BUTTON_GRACE_MIN_MS 30000u
+#define POWER_BUTTON_GRACE_MAX_MS 150000u
+#define POWER_BUTTON_GRACE_MARGIN_MS 10000u
+/* A sample outside this range cannot have come from a POST on this class of
+ * machine, so it is treated as no sample at all.  The floor sits well above the
+ * few seconds this board needs to enumerate itself: a board that restarted while
+ * the host was already up sees that host on its bus almost at once, and a cold
+ * start read off that start would be this board's own enumeration time.  A grace
+ * that short is precisely the press into a running POST this feature exists to
+ * prevent, so such a sample is not a sample.  A machine that really is that quick
+ * simply keeps the default wait. */
+#define HOST_BOOT_LEARN_MIN_S 8u
+#define HOST_BOOT_LEARN_MAX_S 120u
 
 typedef struct Button { uint pin; bool raw, stable, long_sent, consumed; uint32_t changed_at, pressed_at; } Button;
 typedef enum ButtonEvent { BUTTON_NONE, BUTTON_DOWN, BUTTON_SHORT, BUTTON_LONG } ButtonEvent;
@@ -155,12 +192,50 @@ static bool wake_store_dirty;
 static bool power_button_held;
 static uint32_t power_button_release_at;
 static uint8_t power_button_presses;
+/* The grace is measured from this board's own boot, because that is the only
+ * moment at which "nothing on our bus" can mean "the host is booting" as well as
+ * "the host is off".  The origin moves to the press once one is sent: after that
+ * the host's cold start began with the press, not with this board. */
+static uint32_t power_button_boot_at;
+static uint32_t host_boot_origin_at;
+static uint16_t host_boot_learned_s;
+static bool host_boot_measured,power_button_grace_logged;
 static void wake_attempts_reset(void);
 static void wake_store_service(uint32_t now,bool force);
 static void print_wake_state(void);
 static void wake_report_blocked(const char *reason,uint32_t now);
 static const char *wake_recovery_reason_text(void);
 static bool power_button_press(uint32_t now,uint16_t hold_ms);
+static uint16_t host_boot_learned_value(void);
+static uint32_t power_button_grace_ms(void);
+static void led_glow(void);
+static void led_flash(uint32_t now,uint32_t hold_ms);
+static void led_set_dim(uint16_t level);
+static void led_set_work(uint16_t level);
+static void fail_shift_check(uint32_t now,const char *reason);
+/* The clock request.  A board that lost power owns no wall clock and can never arm
+ * a window, and the only source of one is the host software that answers the shift
+ * handshake.  That software is already launched by a pinned taskbar program --
+ * Windows starts the Nth pinned app when this board presses Win+N -- so the request
+ * is made with the very keys the authored shift step carries.  No new host file, no
+ * scheduled task, nothing resident: the tool runs, stamps the port, and exits. */
+#define CLOCK_REQUEST_SETTLE_MS 20000u
+#define CLOCK_REQUEST_RETRY_MS 30000u
+#define CLOCK_REQUEST_MAX_ATTEMPTS 3u
+static uint8_t clock_request_attempts;
+static uint32_t clock_request_at,clock_request_nonce;
+static bool clock_request_waiting,clock_request_pending,clock_request_done;
+/* True when this boot began without a wall clock, which is what a power cut leaves
+ * behind: the RAM anchor cannot survive the cut.  It is the only proof the board
+ * has that the machine went down with it rather than being switched on by an
+ * operator, and it gates the one decision that starts a session by itself. */
+static bool board_booted_clockless;
+/* An operator stop is a decision about this session, not a state to be repaired:
+ * the boot-time start must never undo it inside the same shift window. */
+static bool operator_stopped_since_boot;
+static void service_clock_request(uint32_t now);
+static void service_boot_resume(uint32_t now);
+static bool wake_host_up(void);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
@@ -559,6 +634,7 @@ static void start_control(uint32_t now) {
 static void stop_control(uint32_t now) {
     shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
     shift_checkpoint=false;
+    operator_stopped_since_boot=true;
 
     buzzer_watchdog_alarm_stop();
     guard_runtime_stop(); abvm_stop(&vm, now); release_all_actors(now);
@@ -638,6 +714,17 @@ static void execute_command(char *line, uint32_t now) {
     else if (!strcmp(line,"SHIFT?")) {
         if(shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY)
             printf("OK|SHIFT-CHALLENGE|%08lx%s\n",(unsigned long)shift_identity.nonce,shift_identity.schedule_enabled?"|clock=1":"");
+        else if(wake_scheduler.enabled&&!wake_scheduler.synced) {
+            /* No clock, no window, and no other way to ask: this handshake is the
+             * one door the host software opens, and that software stamps the port
+             * the challenge came from before it sends any verdict.  Answering here
+             * is what lets a board that lost power fetch its own clock instead of
+             * waiting for an operator with a cable. */
+            clock_request_nonce=(uint32_t)((now^(now>>11))|1u);
+            clock_request_pending=true;
+            printf("EVT|CLOCK|challenge|nonce=%08lx\n",(unsigned long)clock_request_nonce);
+            printf("OK|SHIFT-CHALLENGE|%08lx|clock=1\n",(unsigned long)clock_request_nonce);
+        }
         else printf("ERR|SHIFT|not-waiting\n");
     }
     else if (!strncmp(line,"SHIFT!|",7)||!strncmp(line,"SHIFT2!|",8)) {
@@ -686,6 +773,33 @@ static void execute_command(char *line, uint32_t now) {
                            wake_scheduler.lead_minutes);
                 else printf("EVT|WAKE|disarmed|reason=schedule-off\n");
             }
+        }
+        else if(valid&&with_clock&&clock_request_pending&&nonce==clock_request_nonce) {
+            /* The stamp the board asked for, arriving through the handshake it
+             * offered.  No check is in flight, so no identity verdict is applied:
+             * the hash in this line is read past, not believed.  The
+             * acknowledgement is still sent, because the host tool releases the
+             * port and exits on it instead of waiting out its own timeout. */
+            clock_request_pending=false;
+            /* A tool that carries its own one-shot stamp sends `TIME!` first and
+             * then this reply, so by the time it arrives the board already keeps
+             * time.  The stamp is then left alone -- re-syncing would move a real
+             * deadline for nothing -- and the reply is still acknowledged. */
+            if(wake_scheduler.synced)
+                printf("OK|CLOCK|skipped|reason=synced|minute=%u\n",minute);
+            else {
+            wake_attempts_reset();
+            (void)calibration_store_wake_recovery_reset();
+            if(wake_scheduler_sync(&wake_scheduler,now,minute))
+                printf("OK|CLOCK|stamp|minute=%u|window=%02u:%02u|in=%lu|lead=%u\n",
+                       minute,wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,
+                       (unsigned long)((wake_scheduler.deadline_ms-now)/60000u),
+                       wake_scheduler.lead_minutes);
+            else printf("OK|CLOCK|stamp|minute=%u|armed=0|schedule=%u\n",
+                        minute,wake_scheduler.enabled?1u:0u);
+            }
+            printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
+            return;
         }
         if(accepted) printf("OK|SHIFT-ACCEPTED|%08lx\n",(unsigned long)nonce);
         else printf("ERR|SHIFT|invalid-or-unknown-user\n");
@@ -785,6 +899,36 @@ static void execute_command(char *line, uint32_t now) {
         else if(!valid) printf("ERR|ARG|PWRBTN\n");
         else if(!power_button_press(now,(uint16_t)ms)) printf("ERR|PWRBTN|busy\n");
         else printf("OK|PWRBTN|press|ms=%lu|count=%u\n",ms,(unsigned)power_button_presses);
+    }
+    else if (!strncmp(line, "LED!", 4)) {
+        /* How bright a glow in a dark room should be is judged by eye and not in
+         * code, so the duty cycle is a live setting: 0 turns the light off, 999
+         * is the same bright level a press flash uses.  Volatile on purpose --
+         * the next power-up returns the board to its documented default. */
+        char *argument=line+4;
+        if(*argument=='|')++argument;
+        char *end=NULL;
+        unsigned long level=*argument?strtoul(argument,&end,10):0ul;
+        bool valid=*argument&&end&&!*end&&level<=STATUS_LED_PWM_WRAP;
+        if(!valid) printf("ERR|ARG|LED\n");
+        else {
+            led_set_dim((uint16_t)level);
+            printf("OK|LED|dim=%u\n",(unsigned)level);
+        }
+    }
+    else if (!strncmp(line, "LEDW!", 5)) {
+        /* The same rule as the idle glow above, for the level the board shows
+         * while it has work in hand.  Also volatile on purpose. */
+        char *argument=line+5;
+        if(*argument=='|')++argument;
+        char *end=NULL;
+        unsigned long level=*argument?strtoul(argument,&end,10):0ul;
+        bool valid=*argument&&end&&!*end&&level<=STATUS_LED_PWM_WRAP;
+        if(!valid) printf("ERR|ARG|LEDW\n");
+        else {
+            led_set_work((uint16_t)level);
+            printf("OK|LED|work=%u\n",(unsigned)level);
+        }
     }
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
@@ -1301,14 +1445,15 @@ static const char *wake_recovery_reason_text(void) {
 static void print_wake_state(void) {
     bool armed=wake_scheduler_armed(&wake_scheduler);
     long due_ms=armed?(long)(int32_t)(wake_scheduler.deadline_ms-now_ms()):0l;
-    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s|pwr-presses=%u\n",
+    printf("OK|WAKE|armed=%u|manual=%u|dry=%u|synced=%u|schedule=%u|target=%02u:%02u|due-ms=%ld|attempts=%u|phase=%u|recovery=%u|host=%s|pico-usb=%u|pico-rw=%u|recovery-reason=%s|pwr-presses=%u|host-boot-s=%u|pwr-grace=%u\n",
            armed?1u:0u,wake_scheduler.manual?1u:0u,wake_scheduler.dry?1u:0u,
            wake_scheduler.synced?1u:0u,wake_scheduler.enabled?1u:0u,
            wake_scheduler.next_start/60u,wake_scheduler.next_start%60u,due_ms,
            (unsigned)wake_attempts,(unsigned)wake_phase,(unsigned)wake_recovery_phase,
            cycle_host_name(arm_uart_host_usb_state()),
            pico_usb_suspended?1u:0u,pico_remote_wakeup_en?1u:0u,
-           wake_recovery_reason_text(),(unsigned)power_button_presses);
+           wake_recovery_reason_text(),(unsigned)power_button_presses,
+           (unsigned)host_boot_learned_value(),(unsigned)power_button_grace_ms());
 }
 static void service_cycle_events(void) {
     CycleEvent event;
@@ -1357,6 +1502,36 @@ static void service_cycle_events(void) {
         }
     }
 }
+/* A round can outlive the window it was started in: the last round of a shift
+ * may still be fishing when the next window opens, and then the machine does not
+ * belong on the user it is running as.  Waiting for the next window *start* would
+ * sleep it through a whole shift instead, so the board answers the window
+ * question itself.  It already owns both halves of the answer -- a wall-clock
+ * anchor from the last accepted bridge sample, and the identity it verified at
+ * the start of the round that is now ending -- so the comparison needs no host
+ * software, no hotkey and no reply timeout.  Anything the board cannot answer
+ * (no schedule, no clock, no verified identity) leaves the authored Finish
+ * exactly as it was: an unanswerable question must never invent a switch. */
+typedef struct FinishDecision {
+    uint16_t route;    /* the switch route owed, or 0 for the authored Finish */
+    uint16_t minute;   /* wall minute used, 1440 when the clock is unknown */
+    ShiftKind expected;
+    const char *reason;
+} FinishDecision;
+static FinishDecision finish_decision(uint32_t now) {
+    FinishDecision decision={0u,1440u,SHIFT_GLOBAL,"no-schedule"};
+    if(!shift_identity.schedule_enabled)return decision;
+    decision.reason="no-clock";
+    if(!wake_scheduler_wall_minute(&wake_scheduler,now,&decision.minute))return decision;
+    decision.expected=shift_kind_at_minute(decision.minute,shift_identity.day_start,
+        shift_identity.day_end,shift_identity.night_start,shift_identity.night_end);
+    if(decision.expected==SHIFT_GLOBAL){decision.reason="gap";return decision;}
+    if(shift_identity.selected==SHIFT_GLOBAL){decision.reason="identity-unknown";return decision;}
+    if(shift_identity.selected==decision.expected){decision.reason="window-same";return decision;}
+    decision.route=decision.expected==SHIFT_DAY?shift_identity.day_route:shift_identity.night_route;
+    decision.reason="window-turned";
+    return decision;
+}
 static void service_cycle(uint32_t now) {
     service_cycle_events();
     bool arm_seen=arm_uart_host_usb_seen();
@@ -1385,8 +1560,18 @@ static void service_cycle(uint32_t now) {
         release_all_actors(now);
         hid_keyboard_discard_completion();
         arm_uart_mouse_discard_completion();
-        if(abvm_start_route(&vm,cycle_runtime_startup_route(),now)) {
+        /* A session that survived a power cut is not owed the settle the Startup
+         * route opens with: that wait is the rest between rounds, and this round
+         * never finished.  Only the route's opening delay is left out -- every
+         * authored step after it still runs, so the machine is still relaunched
+         * and the shift check still runs. */
+        bool skip_settle=cycle_runtime_skip_startup_settle();
+        int started=skip_settle?
+            abvm_start_route_without_opening_delay(&vm,cycle_runtime_startup_route(),now):
+            abvm_start_route(&vm,cycle_runtime_startup_route(),now);
+        if(started) {
             cycle_runtime_begin_startup();service_cycle_events();
+            if(skip_settle)printf("EVT|CYCLE|startup|settle=skipped|reason=power-cut\n");
         } else {
             cycle_runtime_fail(2u);service_cycle_events();
         }
@@ -1400,10 +1585,45 @@ static void service_cycle(uint32_t now) {
             printf("ERR|SHIFT|reason=switch-reboot-timeout|action=paused|resume=startup-recheck\n");
         }else{cycle_runtime_fail(9u);buzzer_watchdog_alarm_start(now);}
     } else if(action==CYCLE_ACTION_START_FINISH) {
+        /* The decision is taken before any authored step runs: the authored
+         * Finish closes the game and sleeps the machine, and a machine that is
+         * asleep cannot be switched to the user the next window belongs to. */
+        FinishDecision finish=finish_decision(now);
+        if(finish.route) {
+            /* Persist the attempt BEFORE the authored restart steps, exactly as
+             * the bridge-driven check does, so a reboot in the middle of the
+             * route still counts as an attempt. */
+            if(calibration_store_shift_attempts()>=shift_identity.max_attempts) {
+                printf("ERR|CYCLE|finish|action=switch-blocked|reason=attempt-limit|target=%s|minute=%u\n",
+                       finish.expected==SHIFT_DAY?"day":"night",finish.minute);
+                fail_shift_check(now,"finish-switch-limit");return;
+            }
+            if(!cycle_runtime_begin_shift(finish.route,(uint8_t)finish.expected,
+                                          shift_identity.max_attempts,now)) {
+                printf("ERR|CYCLE|finish|action=switch-blocked|reason=marker-write|target=%s|minute=%u\n",
+                       finish.expected==SHIFT_DAY?"day":"night",finish.minute);
+                fail_shift_check(now,"finish-switch-marker");return;
+            }
+        }
         pending_sound_whisper=false;
         guard_runtime_stop();abvm_stop(&vm,now);release_all_actors(now);
         hid_keyboard_discard_completion();
         arm_uart_mouse_discard_completion();
+        if(finish.route) {
+            printf("EVT|CYCLE|finish|action=switch|target=%s|route=%u|attempt=%u|minute=%u|verified=%s|origin=board\n",
+                   finish.expected==SHIFT_DAY?"day":"night",finish.route,
+                   (unsigned)calibration_store_shift_attempts(),finish.minute,
+                   shift_identity.selected==SHIFT_DAY?"day":"night");
+            service_cycle_events();
+            shift_checkpoint=false;hid_keyboard_set_shift(0u);
+            shift_identity_forget(&shift_identity);
+            if(!abvm_start_route(&vm,finish.route,now)) {
+                cycle_runtime_fail(8u);buzzer_watchdog_alarm_start(now);
+            }
+            return;
+        }
+        printf("EVT|CYCLE|finish|action=finish|reason=%s|minute=%u\n",
+               finish.reason,finish.minute);
         if(abvm_start_route(&vm,cycle_runtime_finish_route(),now)) {
             cycle_runtime_begin_finish();service_cycle_events();
         } else {
@@ -1710,14 +1930,30 @@ static WakeStoreState wake_store_snapshot(void) {
     state.host_asleep=wake_host_asleep();
     state.pending=wake_scheduler_armed(&wake_scheduler)||wake_recovery_phase!=WAKE_RECOVERY_IDLE;
     state.next_start=wake_scheduler.next_start;
+    /* A sample taken this session has to travel with the decision, or the next
+     * power cut would find the record still empty and wait the default again. */
+    if(host_boot_learned_s>state.host_boot_s) state.host_boot_s=host_boot_learned_s;
     return state;
 }
 static void wake_store_service(uint32_t now,bool force) {
     WakeStoreState state=wake_store_snapshot();
+    /* A recovery runs on the record that armed it, so that record has to outlive
+     * the recovery's own wait.  The live reading this snapshot carries cannot
+     * stand in for it: on a machine that is off there is no bus and no arm
+     * report, so the live reading is always "the host is not asleep" -- and
+     * writing it back over the arming record disarms the one press the recovery
+     * exists to make, exactly after the grace has been waited out for it.  The
+     * arming flags are held while a recovery is armed, and the record returns to
+     * live readings the moment the recovery ends. */
+    if(wake_recovery_phase!=WAKE_RECOVERY_IDLE) {
+        state.host_asleep=wake_store_last.host_asleep;
+        state.pending=wake_store_last.pending;
+    }
     bool changed=state.host_asleep!=wake_store_last.host_asleep||
                  state.pending!=wake_store_last.pending||
                  state.recovery_attempts!=wake_store_last.recovery_attempts||
-                 state.next_start!=wake_store_last.next_start;
+                 state.next_start!=wake_store_last.next_start||
+                 state.host_boot_s!=wake_store_last.host_boot_s;
     if(!changed&&!wake_store_dirty) return;
     if(!force&&(int32_t)(now-wake_store_next_at)<0) { wake_store_dirty=true; return; }
     if(!calibration_store_wake_set(&state)) { wake_store_dirty=true; return; }
@@ -1744,6 +1980,92 @@ static ArmMouseSubmit wake_pulse_arm(uint32_t now) {
 /* The power-button line is driven low before anything else in main() and is only
  * ever high for the length of one bounded press.  A floating or glitching pin
  * here is not a cosmetic problem: it is a real press on a real machine. */
+/* The board's own LED is the only thing on this hardware that can say "alive"
+ * without a host to read it: the console is the machine's own USB, so an operator
+ * standing in front of a machine that is off has no other signal at all.  It
+ * therefore burns steady while the board runs, and it burns at two levels rather
+ * than one, because the two things an operator wants to tell apart are a board
+ * that is powered and idle and a board that has work in hand.  Idle is a dim glow
+ * (STATUS_LED_DIM_LEVEL, 10% duty): found from across the room without being a
+ * beacon in it, and a fraction of what a lit LED draws, which is what keeps it
+ * alive for years of shifts.  It was 2% at first and that was a mistake worth
+ * naming: a level chosen to be gentle was a level the operator could not see at
+ * all, so an idle board looked like an unpowered one.  Working is the same glow at
+ * STATUS_LED_WORK_LEVEL
+ * (50% duty), read from the far end of the room, and a board inside a live cycle
+ * shows it for the whole shift, the rest between rounds included, because that is
+ * a board with work in hand.  A pulse every two seconds was the earlier answer and
+ * it is worse on both counts: brighter than the signal needs to be, and a moving
+ * light in the corner of the room.  Only two events are worth a bright flash --
+ * this board's own power-up, so a board that just restarted can be told from one
+ * that has been running, and the moment it presses the machine's power button,
+ * which is otherwise invisible from outside the machine it is aimed at.  Both glow
+ * levels are live settings (`LED!<0-999>` for the idle glow, `LEDW!<0-999>` for
+ * the working glow, 0 turns the light off) because the right level is judged by
+ * eye, not in code.  GP25 is the Pico's own LED and is otherwise unused; it is PWM
+ * slice 4 channel B, whose slice partner GP24 this firmware does not use.  The
+ * numbers are with the pin constants at the top of this file. */
+static uint16_t led_dim_level=STATUS_LED_DIM_LEVEL;
+static uint16_t led_work_level=STATUS_LED_WORK_LEVEL;
+static uint32_t led_bright_until;
+static bool led_bright;
+static bool led_working;   /* the glow the board was last told to show */
+static void led_level(uint16_t level) {
+    /* The claim on the pin is re-made on every repaint instead of being trusted,
+     * because it was taken away once: the USB stack's own board_init() calls
+     * gpio_init(PICO_DEFAULT_LED_PIN), which is GP25, and that puts the pin back
+     * on SIO as a plain output driven low.  A level written to a slice that no
+     * longer reaches the pin is a light that never comes on -- which is exactly
+     * what the first PWM firmware did, while the blinking SIO firmware before it
+     * lit normally.  One register write per repaint, and the repaint happens only
+     * when the level actually changes. */
+    gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);
+    pwm_set_gpio_level(STATUS_LED_PIN,level);
+}
+/* "Working" is not a guess at intent: it is the board holding work.  A live cycle
+ * is a shift this board is running -- armed, adopted, waiting for the host, or in
+ * the rest between rounds -- and a running or paused macro is the board driving
+ * the machine right now, whether or not a cycle is behind it. */
+static bool led_work_pending(void) {
+    return cycle_runtime_session_live()||vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED;
+}
+static void led_glow(void) {
+    led_bright=false;
+    led_level(led_working?led_work_level:led_dim_level);
+}
+static void led_flash(uint32_t now,uint32_t hold_ms) {
+    led_bright=true;
+    led_bright_until=now+hold_ms;
+    led_level(STATUS_LED_PWM_WRAP);
+}
+static void led_set_dim(uint16_t level) {
+    led_dim_level=level;
+    if(!led_bright&&!led_working) led_glow();
+}
+static void led_set_work(uint16_t level) {
+    led_work_level=level;
+    if(!led_bright&&led_working) led_glow();
+}
+static void service_status_led(uint32_t now) {
+    /* A flash is the exception and never the state, and so is the level: whatever
+     * happened, the board goes back to the glow its work deserves and stays
+     * there.  The level is only rewritten when it changes, so a glow that is
+     * already right is left alone. */
+    bool working=led_work_pending();
+    if(working!=led_working) {
+        led_working=working;
+        if(!led_bright) led_glow();
+    }
+    if(led_bright&&(int32_t)(now-led_bright_until)>=0) led_glow();
+}
+static void status_led_init(uint32_t now) {
+    gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);
+    pwm_config config=pwm_get_default_config();
+    pwm_config_set_wrap(&config,STATUS_LED_PWM_WRAP);
+    pwm_init(pwm_gpio_to_slice_num(STATUS_LED_PIN),&config,true);
+    led_glow();
+    led_flash(now,STATUS_LED_BOOT_MS);
+}
 static void power_button_init(void) {
 #if POWER_BUTTON_ENABLED
     gpio_init(POWER_BUTTON_PIN);
@@ -1765,6 +2087,9 @@ static bool power_button_press(uint32_t now,uint16_t hold_ms) {
     power_button_held=true;
     power_button_release_at=now+hold_ms;
     power_button_presses=(uint8_t)(power_button_presses+1u);
+    /* A press is a real action on a machine this board cannot see: the LED says it
+     * happened, for the operator standing next to that machine. */
+    led_flash(now,STATUS_LED_PRESS_MS);
     printf("EVT|PWRBTN|press|ms=%u|count=%u\n",(unsigned)hold_ms,(unsigned)power_button_presses);
     return true;
 #else
@@ -1805,7 +2130,59 @@ static void wake_report_blocked(const char *reason,uint32_t now) {
            reason,abvm_status_name(vm.status),(unsigned)wake_phase,
            (unsigned)wake_recovery_phase);
 }
+/* The learned cold start is what the grace has to clear.  A stored value that
+ * could not have come from a POST is treated as nothing learned, so a migrated or
+ * corrupted record can only ever lengthen the wait, never shorten it. */
+static uint16_t host_boot_learned_value(void) {
+    uint16_t stored=wake_store_last.host_boot_s;
+    if(stored<HOST_BOOT_LEARN_MIN_S||stored>HOST_BOOT_LEARN_MAX_S) stored=0u;
+    if(host_boot_learned_s>stored) stored=host_boot_learned_s;
+    return stored;
+}
+static uint32_t power_button_grace_ms(void) {
+    uint16_t learned=host_boot_learned_value();
+    if(!learned) return POWER_BUTTON_GRACE_DEFAULT_MS;
+    uint32_t grace=(uint32_t)learned*1000u+POWER_BUTTON_GRACE_MARGIN_MS;
+    if(grace<POWER_BUTTON_GRACE_MIN_MS) grace=POWER_BUTTON_GRACE_MIN_MS;
+    if(grace>POWER_BUTTON_GRACE_MAX_MS) grace=POWER_BUTTON_GRACE_MAX_MS;
+    return grace;
+}
+/* The only number this machine has to teach the board is how long its own cold
+ * start takes to put USB up, and the board learns it from the start it can
+ * attribute: a start it did not press into.  A press moves the origin, so the
+ * sample stays "time from the host's power-on to its USB", whichever way the host
+ * was powered on. */
+static void wake_learn_host_boot(uint32_t now) {
+    if(host_boot_measured||!tud_mounted()||!host_boot_origin_at) return;
+    host_boot_measured=true;
+    uint32_t seconds=(now-host_boot_origin_at)/1000u;
+    if(seconds<HOST_BOOT_LEARN_MIN_S||seconds>HOST_BOOT_LEARN_MAX_S) return;
+    if(seconds<=(uint32_t)host_boot_learned_value()) return;
+    host_boot_learned_s=(uint16_t)seconds;
+    wake_store_dirty=true;
+    printf("EVT|PWRBTN|host-boot|learned-s=%u|grace=%u\n",
+           (unsigned)seconds,(unsigned)power_button_grace_ms());
+}
+/* The helper board's verdict on the machine's USB is the one input an operator
+ * cannot see anywhere else, and it is what decides whether a press is safe: the
+ * console is this board's own USB, so a log read after the fact has to carry it.
+ * Every change is stamped with the clock the grace is measured against, which is
+ * what makes a replay readable as a timeline. */
+static uint8_t host_usb_logged_state=0xffu;
+static void log_arm_host_state(uint32_t now) {
+    if(!arm_uart_host_usb_seen()) return;
+    uint8_t state=(uint8_t)arm_uart_host_usb_state();
+    if(state==host_usb_logged_state) return;
+    host_usb_logged_state=state;
+    printf("EVT|HOST|usb=%s|mounted=%u|at-s=%u\n",
+           state==ARM_HOST_USB_UP?"UP":(state==ARM_HOST_USB_SUSPEND?"SUSPEND":"DOWN"),
+           tud_mounted()?1u:0u,(unsigned)(now/1000u));
+}
 static void service_wake_recovery(uint32_t now) {
+    /* A host that came up on its own is this machine teaching the board how long
+     * its cold start is, and that is the only number the button grace needs. */
+    log_arm_host_state(now);
+    wake_learn_host_boot(now);
     /* A clock acquisition ends the moment the sample it was pulsing for arrives:
      * the host that can send it is up by definition, and the deadline it re-arms
      * is the real one.  Checked before the phase dispatch so a board that only
@@ -1822,7 +2199,8 @@ static void service_wake_recovery(uint32_t now) {
         if(wake_host_up()) {
             wake_recovery_phase=WAKE_RECOVERY_IDLE;
             wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
-            printf("EVT|WAKE|recovery|skipped|reason=host-up\n");
+            printf("EVT|WAKE|recovery|skipped|reason=host-up|arm-usb=%u|mounted=%u|at-s=%u\n",
+                   (unsigned)arm_uart_host_usb_state(),tud_mounted()?1u:0u,(unsigned)(now/1000u));
             return;
         }
         if(calibration_runtime_active()) return;
@@ -1840,6 +2218,25 @@ static void service_wake_recovery(uint32_t now) {
             printf("ERR|WAKE|recovery|skipped|reason=arm|ready=%u|busy=%u\n",
                    arm_uart_mouse_ready()?1u:0u,arm_uart_mouse_busy()?1u:0u);
             return;
+        }
+        /* A suspended bus reported by the Arduino board is a host that is present
+         * and asleep: a press wakes that machine and must not be delayed.  A bus
+         * that is neither mounted nor known asleep is a host that is off -- or one
+         * that is still in POST, which reads exactly the same from here.  Only
+         * that second reading is waited out, and the wait spends no attempt:
+         * only a press does. */
+        bool host_known_asleep=arm_uart_host_usb_seen()&&
+                               arm_uart_host_usb_state()==ARM_HOST_USB_SUSPEND;
+        if(host_absent&&!host_known_asleep) {
+            uint32_t grace=power_button_grace_ms();
+            if((int32_t)(now-power_button_boot_at)<(int32_t)grace) {
+                if(!power_button_grace_logged) {
+                    power_button_grace_logged=true;
+                    printf("EVT|WAKE|recovery|skipped|reason=boot-grace|grace=%u|host-boot-s=%u|at-s=%u\n",
+                           (unsigned)grace,(unsigned)host_boot_learned_value(),(unsigned)(now/1000u));
+                }
+                return;
+            }
         }
         WakeStoreState state;
         if(!calibration_store_wake_get(&state)) {
@@ -1879,6 +2276,9 @@ static void service_wake_recovery(uint32_t now) {
          * shares the one budget with the bus pulses and a brownout loop cannot
          * become a storm of button presses. */
         if(host_absent) {
+            /* The host's cold start begins with this press, so whatever this boot
+             * measures is measured from here and not from this board's own boot. */
+            host_boot_origin_at=now;
             bool pressed=power_button_press(now,POWER_BUTTON_MS);
             wake_recovery_phase=WAKE_RECOVERY_WAIT;
             wake_recovery_deadline=now+WAKE_RECOVERY_TIMEOUT_MS;
@@ -1917,6 +2317,104 @@ static void service_wake_recovery(uint32_t now) {
         printf("ERR|WAKE|recovery=no-resume|usb=%u\n",(unsigned)arm_uart_host_usb_state());
     }
 }
+/* Only a board with no clock asks, and it asks with the keys the authored shift
+ * step already carries -- so the host tool that answers that step is the one that
+ * answers this, with nothing new installed anywhere.  Nothing else may own the
+ * keyboard while the press is built: a round in flight already reaches the bridge
+ * through its own check, and a calibration owns both buttons. */
+static bool clock_request_allowed(void) {
+    return wake_scheduler.enabled&&!wake_scheduler.synced&&
+           !clock_request_done&&wake_recovery_phase==WAKE_RECOVERY_IDLE&&
+           !shift_checkpoint&&!calibration_runtime_active()&&
+           vm.status!=ABVM_STATUS_RUNNING&&vm.status!=ABVM_STATUS_PAUSED&&
+           shift_identity.key_count>0u;
+}
+static void service_clock_request(uint32_t now) {
+    if(!clock_request_allowed()) { clock_request_waiting=false; return; }
+    /* The press is a keystroke on a live desktop: there is no point sending it at
+     * a machine that has not finished coming up, and the recovery that brings the
+     * host up owns the machine until it is done. */
+    if(!wake_host_up()) { clock_request_waiting=false; return; }
+    if(!clock_request_waiting) {
+        clock_request_waiting=true;clock_request_at=now+CLOCK_REQUEST_SETTLE_MS;
+        printf("EVT|CLOCK|request|state=waiting|settle-ms=%u|host=%s\n",
+               (unsigned)CLOCK_REQUEST_SETTLE_MS,cycle_host_name(arm_uart_host_usb_state()));
+        return;
+    }
+    if((int32_t)(now-clock_request_at)<0)return;
+    if(hid_keyboard_locked()||arm_uart_mouse_busy())return;
+    AbvmEvent key={0};key.opcode=ABVM_OP_KEY;key.lane=SHIFT_KEY_LANE;
+    key.flags=shift_identity.key_count;
+    key.operand_c=shift_identity.hold_min;key.operand_d=shift_identity.hold_max;
+    for(uint8_t i=0u;i<key.flags;++i)key.operand_b|=(uint32_t)shift_identity.keys[i]<<(8u*i);
+    HidKeyboardSubmit result=hid_keyboard_submit(&vm,&key,now);
+    if(result==HID_KEYBOARD_BUSY)return;
+    ++clock_request_attempts;
+    if(result==HID_KEYBOARD_ACCEPTED)
+        printf("EVT|CLOCK|request|attempt=%u|keys=%u|at-s=%u\n",
+               (unsigned)clock_request_attempts,(unsigned)key.flags,(unsigned)(now/1000u));
+    else
+        printf("ERR|CLOCK|request|attempt=%u|submit=%u\n",
+               (unsigned)clock_request_attempts,(unsigned)result);
+    if(clock_request_attempts>=CLOCK_REQUEST_MAX_ATTEMPTS) {
+        clock_request_done=true;
+        printf("ERR|CLOCK|no-host|attempts=%u|hint=TIME!\n",
+               (unsigned)clock_request_attempts);
+        return;
+    }
+    clock_request_at=now+CLOCK_REQUEST_RETRY_MS;
+}
+
+/* The window question, answered by the board itself.  The schedule travelled
+ * inside the flashed program, and the wall anchor arrives with the clock sample
+ * the host hands over, so no bridge is needed to tell a shift still in progress
+ * from the rest window between two shifts. */
+static bool shift_window_open(uint16_t *minute_out,ShiftKind *kind_out) {
+    uint16_t minute=0u;
+    if(!wake_scheduler_wall_minute(&wake_scheduler,now_ms(),&minute))return false;
+    ShiftKind kind=shift_kind_at_minute(minute,shift_identity.day_start,shift_identity.day_end,
+                                        shift_identity.night_start,shift_identity.night_end);
+    if(minute_out)*minute_out=minute;
+    if(kind_out)*kind_out=kind;
+    return kind!=SHIFT_GLOBAL;
+}
+static void service_boot_resume(uint32_t now) {
+    bool clocked=wake_scheduler.synced;
+    if(cycle_runtime_session_pending()) {
+        uint16_t minute=0u;ShiftKind kind=SHIFT_GLOBAL;
+        /* With no authored schedule there is no window to be inside of, and the
+         * clock the board lacks is worth waiting for: nothing is blocked while it
+         * does, so the session simply waits where it is. */
+        if(!wake_scheduler.enabled&&!clocked)return;
+        bool open=clocked&&wake_scheduler.enabled&&shift_window_open(&minute,&kind);
+        if(clocked&&wake_scheduler.enabled&&!open) {
+            /* The shift this session belonged to is over: the machine is in the
+             * rest window, which is not work time.  Drop it, and let the authored
+             * window that is still armed start the next one. */
+            cycle_runtime_session_drop();
+            printf("EVT|CYCLE|resume|skipped|reason=rest-window|minute=%u\n",minute);
+            return;
+        }
+        if(cycle_runtime_session_adopt(now))
+            printf("EVT|CYCLE|resume|decision=adopted|minute=%u|window=%s\n",minute,
+                   kind==SHIFT_DAY?"day":kind==SHIFT_NIGHT?"night":"none");
+        return;
+    }
+    /* No session survived, but the board lost power inside a shift window: the
+     * machine came up with nothing running, and this shift is the one it must
+     * serve.  Only a clockless boot proves the power cut, so an ordinary reset
+     * never starts a session by itself, the rest window never does, and an
+     * operator stop is never undone. */
+    if(board_booted_clockless&&clocked&&!operator_stopped_since_boot&&
+       !cycle_runtime_session_live()) {
+        uint16_t minute=0u;ShiftKind kind=SHIFT_GLOBAL;
+        if(!wake_scheduler.enabled||!shift_window_open(&minute,&kind))return;
+        if(cycle_runtime_session_adopt(now))
+            printf("EVT|CYCLE|start|reason=power-cut|minute=%u|window=%s\n",minute,
+                   kind==SHIFT_DAY?"day":"night");
+    }
+}
+
 static void service_wake(uint32_t now) {
     /* Recovery owns the wake path while it runs: the host is asleep and there is
      * no clock sample to re-arm from until the pulse brings the bridge back.  A
@@ -2172,6 +2670,12 @@ int main(void) {
      * be provably low from the earliest moment this board is powered. */
     power_button_init();
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
+    /* After board_init(), never before it: the USB stack's own board_init() claims
+     * GP25 as a plain GPIO output, which takes the pin off the PWM slice this
+     * board's light lives on.  Setting the light up last is what makes it visible;
+     * the level writes re-make the claim anyway, in case another actor claims the
+     * pin later. */
+    status_led_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
@@ -2201,12 +2705,24 @@ int main(void) {
                 schedule_from_program=true;
             }
         }
+        /* A boot that begins without a wall clock is a boot that lost power: the
+         * RAM anchor cannot survive a cut.  That is the one fact the board can
+         * never learn later, so it is latched here, right after the schedule the
+         * program carried has been read. */
+        board_booted_clockless=wake_scheduler.enabled&&!wake_scheduler.synced;
         /* A board reset loses the RAM deadline but not the decision behind it:
          * the persisted record still knows whether the host was asleep with a
          * wake owed, and that is enough to recover the clock.  A power cut loses
          * the anchor itself and leaves no decision at all, which is why the
          * second reason exists. */
         (void)calibration_store_wake_get(&wake_store_last);
+        /* The button grace is counted from here: this is the moment at which a
+         * silent bus can still be a machine in POST rather than a machine that is
+         * off, and the moment the host's cold start begins when both powered up
+         * together. */
+        power_button_boot_at=now_ms();
+        host_boot_origin_at=power_button_boot_at;
+        host_boot_learned_s=0u;host_boot_measured=false;power_button_grace_logged=false;
         if(wake_scheduler_recovery_needed(wake_store_last.host_asleep,
                                           wake_store_last.pending,
                                           wake_store_last.recovery_attempts,
@@ -2235,20 +2751,25 @@ int main(void) {
     tusb_init();
     /* A board that reset while the host was asleep can never finish enumerating:
      * the port stays suspended until something resumes it, so an unbounded wait
-     * would hang the recovery pulse forever.  An awake host still enumerates in
-     * milliseconds and keeps the full boot banner. */
+     * would hang the recovery pulse forever.  The same is true of a host that is
+     * simply off, and there the board has to stay alive on its own: a machine that
+     * is off is exactly the machine whose power button it may have to press, and a
+     * board parked in this loop never reaches that press -- or anything else.  The
+     * wait is therefore bounded whatever the recovery thinks, and the lines held
+     * back during it are replayed from RAM when a console appears, so a host that
+     * enumerates later still sees the whole boot. */
     uint32_t mount_started=now_ms();
     while (!tud_mounted()) {
         tud_task(); sleep_ms(1);
-        if (wake_recovery_phase!=WAKE_RECOVERY_IDLE&&
-            (int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;
+        if((int32_t)(now_ms()-(mount_started+WAKE_MOUNT_TIMEOUT_MS))>=0) break;
     }
+    printf("EVT|USB|mount|at-s=%u\n",(unsigned)(now_ms()/1000u));
     if (!arm_uart_mouse_probe(now_ms())) arm_fault_reported = true;
     if (!program_verified) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",
@@ -2271,5 +2792,5 @@ int main(void) {
          * otherwise looks exactly like a healthy one. */
         printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                (unsigned)wake_store_last.recovery_attempts);
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_buttons(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_status_led(now); service_buttons(now); service_clock_request(now); service_boot_resume(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
 }

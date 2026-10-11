@@ -266,6 +266,50 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   press if its own USB cable is out. Set Windows to ignore the power button
   ("Do nothing") before wiring this line: a stray press is then a no-op, while a
   real one still boots a machine that is off.
+* A host that is still in POST looks exactly like a host that is off: until its own
+  USB stack comes up, nothing of ours is on its bus either. A board that powered up
+  together with the machine — the power cut that restarted both — would therefore
+  read "off" a few seconds in and press a button into a running POST, and a machine
+  answers that by shutting down again, undoing the very BIOS setting that brought it
+  back. The press is held back for `POWER_BUTTON_GRACE_DEFAULT_MS` (60 s) instead,
+  and the grace is the machine's own cold start rather than a vendor's: the longest
+  time this board has watched it take to put USB up, plus
+  `POWER_BUTTON_GRACE_MARGIN_MS`, clamped to `POWER_BUTTON_GRACE_MIN_MS` …
+  `POWER_BUTTON_GRACE_MAX_MS` (30–150 s) and persisted in the wake record, so it
+  survives the same power cut that needs it. A stored value that could not have come
+  from a POST counts as nothing learned, so a migrated record can only lengthen the
+  wait. `HOST_BOOT_LEARN_MIN_S` is deliberately far above this board's own
+  enumeration time, because a board that restarted under a running host would
+  otherwise read its own few seconds as the machine's cold start — the one sample
+  that would shorten the wait into a press on a POST. `WAKE?` reports `host-boot-s=` and `pwr-grace=`, a new sample logs
+  `EVT|PWRBTN|host-boot|learned-s=`, and a wait names itself once as
+  `EVT|WAKE|recovery|skipped|reason=boot-grace|grace=`. Nothing here is
+  vendor-specific, and the wait spends no recovery attempt: only a press does. The
+  record a recovery was armed from is held for as long as that recovery is armed,
+  so the wait cannot overwrite the decision it is waiting on: on a machine that is
+  off there is no bus and no arm report, the live reading is always "the host is
+  not asleep", and writing it back over the arming record used to cancel the owed
+  press as `reason=limit` at the very end of the grace. The
+  board's own LED (GP25, otherwise unused) burns steady while it runs and flashes
+  bright only on a power-up or a real press, because a machine that is off has no
+  console to read and an operator standing in front of it needs one signal that
+  does not depend on the machine. It burns at two levels, because the two things
+  worth telling apart from across the room are a board that is powered and idle
+  and a board with work in hand: the idle glow is `STATUS_LED_DIM_LEVEL` (10%
+  duty), found without being a beacon in the room and drawing a fraction of what a
+  lit LED draws, and the working glow is `STATUS_LED_WORK_LEVEL` (50% duty), shown
+  for as long as the board holds work -- a live cycle, the rest between rounds
+  included, or a running or paused macro. Both levels are live settings and both
+  are deliberately volatile: `LED!<0-999>` sets the idle glow and `LEDW!<0-999>`
+  the working one (`0` turns the light off in either), because the right level is
+  judged by eye, not in code. Two numbers here were learned the hard way. The
+  idle level started at 2% and was invisible in a lit room, so an idle board read
+  as an unpowered one. And the light is PWM on GP25, which the USB stack's own
+  `board_init()` claims as a plain GPIO output: a setup that ran before it lit
+  nothing at any level, so `status_led_init()` now runs after `board_init()` and
+  `led_level()` re-makes the pin claim on every repaint. A bus
+  the Arduino board reports suspended is a host that is present and asleep, so the
+  press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses
   (`WAKE_RECOVERY_MAX_ATTEMPTS`), so a brownout loop cannot become a storm of
   button presses, and it names itself as
@@ -279,6 +323,196 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   to keep its 5 V in soft-off: leave ErP/EuP disabled and USB standby power
   enabled in the BIOS. A board that is dead while the PC is off cannot press
   anything, so a separate 5 V supply is the alternative.
+
+## The last round of a shift
+
+A round is not aligned to a window. Five rounds of 110–130 minutes fill a ten
+hour shift, but the last one can still be fishing when the next window opens, and
+then the machine does not belong on the user it is running as. Until this change
+the board could only run the authored Finish at that point, and Finish sleeps the
+machine — so a round that ended at 04:35 slept through the whole day shift that
+had just started, and nothing woke the machine until the night window came round
+again a day later.
+
+The board now answers that question itself, before any authored step runs:
+
+* Both halves of the answer are already on the board.
+  `wake_scheduler_wall_minute()` turns the last accepted bridge sample into the
+  current minute of day, and `shift_identity.selected` holds the identity the
+  *current* round verified: the `SFT2` descriptor is reloaded at every shift
+  check, so a value that survived into the last round was set by that round's own
+  check and still describes the user the round is running as.
+* `shift_kind_at_minute()` is the one window function behind both answers, so a
+  board holding an anchor and a board holding a fresh bridge reply cannot
+  disagree about the same minute. Start is inclusive, end is exclusive, and an
+  uncovered minute owns no window.
+* A turned-over window (`selected != expected`, both known) makes the board run
+  the authored switch route instead of Finish, and it persists the attempt before
+  that route's first step exactly as the bridge-driven switch does, so a reboot
+  in the middle of the route still counts as an attempt.
+* Everything else keeps the authored Finish, which is the whole point of the
+  fallbacks: no flashed schedule, no wall anchor (`reason=no-clock`), an uncovered
+  minute (`reason=gap`), an identity this round never verified
+  (`reason=identity-unknown`), or a window that has not turned over
+  (`reason=window-same`). An unanswerable question never invents a switch.
+* Nothing here needs the bridge, a hotkey or a reply timeout, so the finish moment
+  cannot end in a 60 s wait, an alarm, or a Pause.
+* If the owed switch cannot be taken — the attempt budget is spent, or the attempt
+  marker cannot be written — the board stops loudly instead of sleeping quietly
+  through a shift: `ERR|CYCLE|finish|action=switch-blocked|reason=attempt-limit`
+  or `reason=marker-write`, followed by the usual alarm and Pause.
+
+The two verdicts read as:
+
+```
+EVT|CYCLE|finish|action=switch|target=day|route=16|attempt=1|minute=273|verified=night|origin=board
+EVT|CYCLE|finish|action=finish|reason=window-same|minute=250
+```
+
+`minute` is the board's own wall minute at the decision (273 is 04:33), and
+`verified` is the identity the round had confirmed — read before the check is
+forgotten, so the line always names what the decision was taken from. `origin=board`
+is what tells this decision apart from the same switch taken by a bridge-driven
+shift check.
+
+The authored switch routes are still the authored routes: they set the
+destination boot user and restart the machine, and the round that follows them is
+verified by the ordinary Startup shift check, which is what returns the five-round
+counter to round 1. Nothing is spliced into them, and no route is run that the
+operator did not write.
+
+## A power cut, a shift, and the clock this board does not have
+
+The board owns no battery-backed clock. It keeps time from the samples the host
+hands it, so a power cut leaves it holding the schedule it was flashed with and no
+wall anchor at all: no window can be armed, and the first autonomous wake of a
+shift is impossible. The only source of that clock is the host software that
+answers the shift handshake — and after a power cut nothing on the host runs it,
+which is why an operator had to run `wake-set-clock.cmd` by hand at every outage.
+
+There is no way for host software to run "by itself" here: something on Windows has
+to launch it, and the two usual answers (a scheduled task, a Startup entry) are
+exactly the resident auto-run this tooling was built to avoid. So the board asks,
+with the keys the authored shift step already carries (`shift_identity.keys` plus
+`hold_min`/`hold_max`): Windows launches the Nth pinned taskbar app when this board
+presses Win+N, which is how the shift bridge is already launched, and that bridge
+stamps the port it hears a challenge from before it sends any verdict
+(`BoardNeedsClock` → `WAKE?` → `TIME!|HH:MM`). Nothing is installed, nothing stays
+resident, and the tool runs, stamps and exits.
+
+Two firmware facts were missing for that to work, and both are here:
+
+* `SHIFT?` offers the challenge when this board has no clock and no check is in
+  flight (`OK|SHIFT-CHALLENGE|<nonce>|clock=1`), so the host tool has a port to
+  stamp. A check in flight still owns the answer, and a board that already has a
+  clock is never offered a second one.
+* A `SHIFT2!` reply that carries a stamp is accepted outside a check for the clock
+  alone: no identity verdict is applied to it (the hash is read past, never
+  believed), the wake deadline is re-armed from the sample exactly as a check's
+  stamp does, and the acknowledgement is still sent so the tool releases the port
+  instead of waiting out its own timeout. A tool that carries its own one-shot
+  stamp sends `TIME!` first, so the reply that follows finds the board already
+  keeping time: that stamp is left alone rather than re-synced over a real
+  deadline (`OK|CLOCK|skipped|reason=synced`), and the reply is still
+  acknowledged. Both shapes of tool therefore work, and neither needs an update.
+
+The press is bounded on every side. It waits for the host to be up, settles
+`CLOCK_REQUEST_SETTLE_MS` (20 s) so a desktop that is still loading is not typed at,
+then retries every `CLOCK_REQUEST_RETRY_MS` (30 s) at most
+`CLOCK_REQUEST_MAX_ATTEMPTS` (3) times. It never fires while a round is driving the
+host, while a shift check is in flight (that check reaches the bridge by itself),
+while a light or sound calibration owns both buttons, or while the recovery that
+brings the host up still owns the wake. It stops on the first stamp, because
+re-stamping a board that already has a clock would move a real deadline. A host that
+never answers is named rather than left silent:
+
+```
+EVT|CLOCK|challenge|nonce=1f3a9c02
+EVT|CLOCK|request|state=waiting|settle-ms=20000|host=UP
+EVT|CLOCK|request|attempt=1|keys=2|at-s=22
+OK|CLOCK|stamp|minute=1200|window=18:30|in=150|lead=2
+ERR|CLOCK|no-host|attempts=3|hint=TIME!
+```
+
+The manual `TIME!|HH:MM` stamp still works exactly as before, and `WAKE?` still
+reports `synced=`, so the old path is the fallback rather than the requirement.
+
+### A session that survives the cut
+
+The clock only gets the board back to arming windows. The other half is what it
+should do with the shift it was in the middle of, and that had a hole of its own:
+the persisted marker spanned the restart rather than the round, so it was clear for
+the whole length of a round and a board that came back after a cut in the middle of
+one resumed nothing. The marker now belongs to the session
+(`calibration_store_cycle_mark_live()`: set when a round arms and again when
+Startup completes, cleared by Finish, stop, failure and a confirmed switch), so a
+boot that finds it has proof a round was interrupted.
+
+That boot does not resume on the spot. Whether the shift the session belongs to is
+still open is a question only a wall clock can answer, and the board has none yet,
+so the session waits in `resume_pending` — deliberately outside every phase, where
+it blocks nothing. That is what keeps the rest window quiet and the next window's
+wake armed while the board waits for its clock.
+
+When a clock sample arrives, the decision is the board's own and needs no bridge:
+`shift_window_open()` asks the same `shift_kind_at_minute()` question the finish
+decision uses, from the anchor the sample left behind and the schedule the program
+carried.
+
+* Inside a shift the session is adopted (`EVT|CYCLE|resume|decision=adopted`),
+  which opens the USB/desktop gate the same way a driven restart does and replays
+  the authored Startup with the round count preserved.
+* In the rest window it is dropped (`EVT|CYCLE|resume|skipped|reason=rest-window`)
+  and the window that is still armed starts the next shift.
+* A board that lost power *inside* a shift window and has no session to adopt
+  starts one (`EVT|CYCLE|start|reason=power-cut`), because the machine came up
+  with nothing running and that shift is the one it must serve.
+
+Only a clockless boot proves the cut — the RAM anchor cannot survive one — so an
+ordinary board reset never starts a session by itself, the rest window never does,
+and an operator stop is never undone inside the same window.
+
+## The rest between rounds is owed to a round that finished
+
+The authored `Startup` route opens with a settle — the rest between rounds — and
+the board runs that one route in two situations: after a round ends, when it has
+just driven the machine's restart, and when a session comes back from a power cut.
+The settle is right for the first and pointless for the second: the machine that
+came back from a cut booted on its own, and the board has already waited for it to
+be up (`ARM_HOST_USB_UP`, `usb_stable_ms`, and the desktop gate or its fallback)
+before it starts that route at all. A round a power cut interrupted never finished,
+so it is not owed a rest.
+
+The board can tell the two apart, so it does:
+
+* `cycle_runtime_session_adopt()` — the power-cut path — arms the skip.
+* `cycle_runtime_begin_after()` (a round that ended), `cycle_runtime_begin_shift()`
+  (a switch the board drove), and `arm_run()` all clear it, so a restart this board
+  drove still waits the rest out in full.
+* `cycle_runtime_begin_startup()` consumes it once, so it can never outlive the
+  start it belongs to.
+
+What is left out is exactly one thing: the delay the route opens with.
+`abvm_start_route_without_opening_delay()` places the lane at the route's first
+instruction — nothing has run yet — inspects that instruction, and steps over it
+only when it is an `ABVM_OP_DELAY`. A route that opens with an action starts
+exactly where it always did, and `route.length > 1u` keeps the `END` that closes a
+one-step route from being stepped over. Every authored step after the settle still
+runs, so the machine is still relaunched and the shift check still runs.
+
+The decision names itself once:
+
+```
+EVT|CYCLE|startup|settle=skipped|reason=power-cut
+```
+
+Read it beside the line that produced it. `EVT|CYCLE|start|reason=power-cut` or
+`EVT|CYCLE|resume|decision=adopted` means the next `startup-start` will have no
+settle in front of it. A round that finished normally shows `startup-start` with no
+skip line at all, and its rest is untouched.
+
+The macro needs no change for any of this: the settle stays authored in the route,
+and only the situation decides whether it is waited out.
 
 ## Build one identity
 

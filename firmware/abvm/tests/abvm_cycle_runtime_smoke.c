@@ -14,6 +14,9 @@ bool calibration_store_cycle_arm_next(uint8_t maximum){
     marker_armed=true;++marker_count;return true;
 }
 bool calibration_store_cycle_clear_armed(void){marker_armed=false;return true;}
+/* The live-session marker: set for a whole round, so a power cut in the middle of
+ * one is still recognisable at the next boot. */
+bool calibration_store_cycle_mark_live(void){marker_armed=true;return true;}
 bool calibration_store_cycle_reset(void){
     if(!marker_reset_ok)return false;
     marker_armed=false;marker_count=0u;return true;
@@ -46,6 +49,10 @@ int main(int argc,char **argv){
                 "deadline")||
        !require(cycle_runtime_begin_after(1000u),"arm after")||
        !require(marker_armed&&marker_count==1u,"persistent marker"))return 1;
+    /* A restart this board drove is not a power cut: the round finished, so the
+     * rest between rounds is still owed and must never be left out. */
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "a driven restart still owes the rest"))return 1;
     drain();
     (void)cycle_runtime_service(1100u,true,ARM_HOST_USB_DOWN,true);drain();
     if(!require(!cycle_runtime_route_complete(cycle_runtime_after_route(),1200u),
@@ -59,6 +66,8 @@ int main(int argc,char **argv){
        !require(cycle_runtime_service(4400u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"USB and Desktop stable"))return 1;
     cycle_runtime_begin_startup();
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "the rest is owed once, not held"))return 1;
     CycleEvent startup_event;
     if(!require(cycle_runtime_take_event(&startup_event)&&
                 startup_event.type==CYCLE_EVENT_STARTUP_START&&
@@ -66,7 +75,8 @@ int main(int argc,char **argv){
                 "Desktop-light startup gate"))return 1;
     if(!require(cycle_runtime_route_complete(cycle_runtime_startup_route(),4500u),
                 "startup complete")||
-       !require(!marker_armed&&marker_count==1u,"one-shot clear")||
+       !require(marker_armed&&marker_count==1u,
+                "a resumed round stays marked live for its whole length")||
        !require(cycle_runtime_service(5499u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "resumed deadline early")||
        !require(cycle_runtime_service(5500u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_EXPIRE,
@@ -89,10 +99,41 @@ int main(int argc,char **argv){
     marker_armed=true;marker_count=1u;
     if(!require(cycle_runtime_init(&vm,0u),"boot descriptor"))return 1;
     drain();
-    if(!require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
+    /* A session found at boot is not resumed on the spot: whether the shift it
+     * belongs to is still open is a question only a wall clock can answer, and the
+     * board has none until the host hands one over.  Nothing is blocked while it
+     * waits, so it waits outside every phase. */
+    if(!require(cycle_runtime_session_pending(),"boot finds the interrupted session")||
+       !require(cycle_runtime_session_live(),"a pending session is a live session")||
+       !require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
+                "a pending session starts nothing on its own")||
+       !require(cycle_runtime_session_adopt(0u),"adopt the session")||
+       !require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
                 "boot stable early")||
        !require(cycle_runtime_service(2000u,true,ARM_HOST_USB_UP,true)==
                     CYCLE_ACTION_START_STARTUP,"armed boot authority"))return 1;
+    /* The round this session was playing never finished, so the rest that
+     * follows a finished round is not owed to it. */
+    if(!require(cycle_runtime_skip_startup_settle(),
+                "a round a power cut interrupted is not owed the rest"))return 1;
+
+    /* The rest window between two shifts is not work time: a session that survives
+     * a power cut into one is dropped, not resumed, and the count goes with it. */
+    cycle_runtime_manual_stop();
+    marker_armed=true;marker_count=2u;
+    if(!require(cycle_runtime_init(&vm,0u),"rest-window boot descriptor")||
+       !require(cycle_runtime_session_pending(),"rest-window session is pending")||
+       !require(cycle_runtime_session_adopt(0u),"rest-window session adopt")||
+       !require(cycle_runtime_session_live(),"adopted session is live"))return 1;
+    cycle_runtime_session_drop();
+    if(!require(!cycle_runtime_session_pending()&&!cycle_runtime_session_live(),
+                "a dropped session is no longer pending or live")||
+       !require(!marker_armed&&!marker_count,
+                "dropping the session clears the marker and the count")||
+       !require(cycle_runtime_service(0u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,
+                "a dropped session stays idle"))return 1;
+    if(!require(!cycle_runtime_skip_startup_settle(),
+                "a dropped session owes nothing"))return 1;
 
     /* A complete AutoCycle session owns five persistent restart transitions.
      * Clearing the one-shot armed byte after Startup must preserve the count,
@@ -119,8 +160,8 @@ int main(int argc,char **argv){
         if(!require(cycle_runtime_route_complete(
                         cycle_runtime_startup_route(),now+3200u),
                         "five-cycle Startup complete")||
-           !require(!marker_armed&&marker_count==round,
-                        "five-cycle count survives Startup"))return 1;
+           !require(marker_armed&&marker_count==round,
+                        "five-cycle count survives Startup and the round stays live"))return 1;
         drain();now+=3200u;
     }
     if(!require(cycle_runtime_service(now+1000u,true,ARM_HOST_USB_UP,true)==

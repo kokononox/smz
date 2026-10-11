@@ -15,6 +15,11 @@ bool calibration_store_cycle_armed(void);
 uint8_t calibration_store_cycle_count(void);
 bool calibration_store_cycle_arm_next(uint8_t maximum);
 bool calibration_store_cycle_clear_armed(void);
+/* A session, not a restart: the marker has to outlive the round it belongs to,
+ * because a power cut in the middle of a round is exactly the case a boot has to
+ * recognise.  `cycle_arm_next` only marks the restart window, so the round itself
+ * is marked here and cleared by every terminal path. */
+bool calibration_store_cycle_mark_live(void);
 bool calibration_store_cycle_reset(void);
 uint8_t calibration_store_shift_attempts(void);
 uint8_t calibration_store_shift_target(void);
@@ -31,6 +36,13 @@ typedef struct WakeStoreState {
     bool pending;
     uint8_t recovery_attempts;
     uint16_t next_start;
+    /* The longest cold start this board has watched this machine take to put its
+     * USB up, in seconds; 0 means nothing has been measured yet.  A host that is
+     * still in POST looks exactly like a host that is off -- nothing of ours is
+     * on its bus either way -- so the power-button line waits this out instead of
+     * pressing a button into a running POST.  It is the machine's own number, not
+     * a vendor's, so the same firmware holds back on any of them. */
+    uint16_t host_boot_s;
 } WakeStoreState;
 bool calibration_store_wake_get(WakeStoreState *state);
 bool calibration_store_wake_set(const WakeStoreState *state);

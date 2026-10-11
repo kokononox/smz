@@ -459,14 +459,37 @@ static int load_route(AbvmVm *vm, const AbvmRoute *route, uint32_t now) {
     return 1;
 }
 
+static int enter_route(AbvmVm *vm, const AbvmRoute *route, uint32_t now) {
+    ++vm->route_generation;
+    memset(&vm->suspended, 0, sizeof(vm->suspended));
+    vm->pending_release = 1;
+    return load_route(vm, route, now);
+}
+
 int abvm_start_route(AbvmVm *vm, uint16_t route_id, uint32_t now) {
     AbvmRoute route;
     if (!vm || vm->status == ABVM_STATUS_FAULT ||
         !find_route(vm, route_id, &route)) return 0;
-    ++vm->route_generation;
-    memset(&vm->suspended, 0, sizeof(vm->suspended));
-    vm->pending_release = 1;
-    return load_route(vm, &route, now);
+    return enter_route(vm, &route, now);
+}
+
+int abvm_start_route_without_opening_delay(AbvmVm *vm, uint16_t route_id,
+                                           uint32_t now) {
+    AbvmRoute route;
+    if (!vm || vm->status == ABVM_STATUS_FAULT ||
+        !find_route(vm, route_id, &route)) return 0;
+    if (!enter_route(vm, &route, now)) return 0;
+    /* The lane is at the route's first instruction and nothing has run yet, so
+     * the only thing that can be left out here is a delay.  A route that opens
+     * with an action keeps it, and the END that closes a one-step route is never
+     * stepped over. */
+    AbvmInstruction opening;
+    if (route.length > 1u && instruction_at(vm, vm->lanes[0].pc, &opening) &&
+        opening.opcode == ABVM_OP_DELAY) {
+        vm->lanes[0].pc++;
+        vm->lanes[0].due = now;
+    }
+    return 1;
 }
 
 int abvm_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now) {
