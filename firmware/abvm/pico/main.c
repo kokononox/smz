@@ -34,8 +34,8 @@ extern size_t abvm_program_size(void);
  * further down; the numbers live here because the console commands that set the
  * two levels are parsed before that block. */
 #define STATUS_LED_PIN 25u
-#define STATUS_LED_PWM_WRAP 999u        /* ~1 kHz at the default 125 MHz clock */
-#define STATUS_LED_DIM_LEVEL 20u        /* 2% duty: idle, visible, not a beacon */
+#define STATUS_LED_PWM_WRAP 999u        /* 125 kHz at the default 125 MHz clock */
+#define STATUS_LED_DIM_LEVEL 100u       /* 10% duty: idle, visible, not a beacon */
 #define STATUS_LED_WORK_LEVEL 500u      /* 50% duty: the board has work in hand */
 #define STATUS_LED_BOOT_MS 600u
 #define STATUS_LED_PRESS_MS 600u
@@ -1986,9 +1986,12 @@ static ArmMouseSubmit wake_pulse_arm(uint32_t now) {
  * therefore burns steady while the board runs, and it burns at two levels rather
  * than one, because the two things an operator wants to tell apart are a board
  * that is powered and idle and a board that has work in hand.  Idle is a dim glow
- * (STATUS_LED_DIM_LEVEL, 2% duty): found from across the room without being a
- * beacon in it, and a few percent of what a lit LED draws, which is what keeps it
- * alive for years of shifts.  Working is the same glow at STATUS_LED_WORK_LEVEL
+ * (STATUS_LED_DIM_LEVEL, 10% duty): found from across the room without being a
+ * beacon in it, and a fraction of what a lit LED draws, which is what keeps it
+ * alive for years of shifts.  It was 2% at first and that was a mistake worth
+ * naming: a level chosen to be gentle was a level the operator could not see at
+ * all, so an idle board looked like an unpowered one.  Working is the same glow at
+ * STATUS_LED_WORK_LEVEL
  * (50% duty), read from the far end of the room, and a board inside a live cycle
  * shows it for the whole shift, the rest between rounds included, because that is
  * a board with work in hand.  A pulse every two seconds was the earlier answer and
@@ -2008,6 +2011,15 @@ static uint32_t led_bright_until;
 static bool led_bright;
 static bool led_working;   /* the glow the board was last told to show */
 static void led_level(uint16_t level) {
+    /* The claim on the pin is re-made on every repaint instead of being trusted,
+     * because it was taken away once: the USB stack's own board_init() calls
+     * gpio_init(PICO_DEFAULT_LED_PIN), which is GP25, and that puts the pin back
+     * on SIO as a plain output driven low.  A level written to a slice that no
+     * longer reaches the pin is a light that never comes on -- which is exactly
+     * what the first PWM firmware did, while the blinking SIO firmware before it
+     * lit normally.  One register write per repaint, and the repaint happens only
+     * when the level actually changes. */
+    gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);
     pwm_set_gpio_level(STATUS_LED_PIN,level);
 }
 /* "Working" is not a guess at intent: it is the board holding work.  A live cycle
@@ -2657,8 +2669,13 @@ int main(void) {
      * across a PC's front-panel header is a real button press, so the line has to
      * be provably low from the earliest moment this board is powered. */
     power_button_init();
-    status_led_init(now_ms());
     board_init(); hid_keyboard_init(); arm_uart_mouse_init(); light_sensor_init(now_ms()); buzzer_init();
+    /* After board_init(), never before it: the USB stack's own board_init() claims
+     * GP25 as a plain GPIO output, which takes the pin off the PWM slice this
+     * board's light lives on.  Setting the light up last is what makes it visible;
+     * the level writes re-make the claim anyway, in case another actor claims the
+     * pin later. */
+    status_led_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();

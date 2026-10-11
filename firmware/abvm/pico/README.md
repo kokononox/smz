@@ -295,15 +295,19 @@ power button, which the ATX standby rail keeps alive whenever the PSU has mains.
   console to read and an operator standing in front of it needs one signal that
   does not depend on the machine. It burns at two levels, because the two things
   worth telling apart from across the room are a board that is powered and idle
-  and a board with work in hand: the idle glow is `STATUS_LED_DIM_LEVEL` (2%
-  duty), found without being a beacon in the room and drawing a few percent of
-  what a lit LED draws, which is what keeps it alive for years of shifts, and the
-  working glow is `STATUS_LED_WORK_LEVEL` (50% duty), shown for as long as the
-  board holds work -- a live cycle, the rest between rounds included, or a running
-  or paused macro. Both levels are live settings and both are deliberately
-  volatile: `LED!<0-999>` sets the idle glow and `LEDW!<0-999>` the working one
-  (`0` turns the light off in either), because the right level is judged by eye,
-  not in code. A bus
+  and a board with work in hand: the idle glow is `STATUS_LED_DIM_LEVEL` (10%
+  duty), found without being a beacon in the room and drawing a fraction of what a
+  lit LED draws, and the working glow is `STATUS_LED_WORK_LEVEL` (50% duty), shown
+  for as long as the board holds work -- a live cycle, the rest between rounds
+  included, or a running or paused macro. Both levels are live settings and both
+  are deliberately volatile: `LED!<0-999>` sets the idle glow and `LEDW!<0-999>`
+  the working one (`0` turns the light off in either), because the right level is
+  judged by eye, not in code. Two numbers here were learned the hard way. The
+  idle level started at 2% and was invisible in a lit room, so an idle board read
+  as an unpowered one. And the light is PWM on GP25, which the USB stack's own
+  `board_init()` claims as a plain GPIO output: a setup that ran before it lit
+  nothing at any level, so `status_led_init()` now runs after `board_init()` and
+  `led_level()` re-makes the pin claim on every repaint. A bus
   the Arduino board reports suspended is a host that is present and asleep, so the
   press that wakes it is never delayed.
 * The press spends the same persisted recovery budget as the bus pulses

@@ -200,7 +200,7 @@ class ShiftWakeTests(unittest.TestCase):
         # was both brighter and a moving light in the room -- and only a power-up
         # or a real press is allowed a bright flash.
         self.assertIn('#define STATUS_LED_PIN 25u',main)
-        self.assertIn('#define STATUS_LED_DIM_LEVEL 20u',main)
+        self.assertIn('#define STATUS_LED_DIM_LEVEL 100u',main)
         self.assertIn('gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);',main)
         self.assertIn('pwm_set_gpio_level(STATUS_LED_PIN,level);',main)
         self.assertIn('led_flash(now,STATUS_LED_PRESS_MS);',main)
@@ -224,6 +224,15 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('led_set_work((uint16_t)level);',main)
         self.assertIn('printf("OK|LED|work=%u\\n",(unsigned)level);',main)
         self.assertIn('PWRBTN-ms,LED!0-999,LEDW!0-999',main)
+        # The pin is not this board's to keep: the USB stack's own board_init()
+        # calls gpio_init(PICO_DEFAULT_LED_PIN), which is GP25, and that returns
+        # the pin to a plain SIO output driven low.  The first PWM firmware set
+        # the light up before board_init() and never lit at all, while the
+        # blinking SIO firmware before it lit normally -- so the claim is made
+        # after board_init() and re-made on every repaint.
+        self.assertIn('gpio_set_function(STATUS_LED_PIN,GPIO_FUNC_PWM);\n    pwm_set_gpio_level(STATUS_LED_PIN,level);',main)
+        self.assertLess(main.index('board_init(); hid_keyboard_init();'),
+                        main.index('status_led_init(now_ms());'))
         # A host that is off must not park the board in the boot wait: that is the
         # machine whose power button it may have to press, and the lines held back
         # are replayed from RAM anyway.
