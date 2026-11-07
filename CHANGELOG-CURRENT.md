@@ -1,3 +1,10 @@
+# Optional second key for Pico game buffs — test build
+
+- Each buff can optionally send a separate follow-up key immediately after the first key is released. It is off for existing projects. The existing after-consumption pause and renewal timer start only after the second key completes.
+- Pico-safe keyboard choices are exposed in the editor. A versioned GBF descriptor and UF2 template feature check prevent silently flashing the option into older firmware. The previous one-key descriptor remains unchanged when no follow-up is enabled.
+- Pause or interruption takes priority over input; an interrupted pair is retried at a safe Game checkpoint rather than counted as consumed. Hardware behavior remains to be tested.
+- Validation: 114 ABVM host tests pass, including new actual scheduler, compiler, legacy-template rejection, and production VM/keyboard adapter sequencing checks. The legacy restart-to-game CI smoke stub and expectation were aligned with the existing live-session marker contract. Windows and Pico builds must still run in CI.
+
 # Machine-independent power-on recovery — experimental
 
 Base: `main` at `7651e5a1`. No stable-branch merge and no hardware flashing is performed by this change.

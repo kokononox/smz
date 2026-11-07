@@ -16,7 +16,8 @@ static GameBuffRuntime game_buffs;
 static bool buff_checkpoint, buff_key_inflight;
 static uint8_t buff_lane;
 static uint32_t game_fishing_elapsed, game_age_at, buff_status_at, buff_generation;
-static unsigned buff_presses, cast_presses, catch_presses;
+static unsigned buff_presses, cast_presses, catch_presses, follow_presses;
+static bool follow_mode, expecting_follow;
 static bool overlay, paused, released = true;
 static uint32_t elapsed_seen;
 bool tud_mounted(void) { return true; }
@@ -28,7 +29,8 @@ bool tud_hid_keyboard_report(uint8_t report_id,uint8_t mods,const uint8_t keys[6
         assert(!paused);
         assert(released);released=false;
         /* HID number 8=37, number 7=36, F=9 */
-        if(keys[0]==37u) { assert(!overlay);++buff_presses; }
+        if(keys[0]==37u) { assert(!overlay);assert(!expecting_follow);++buff_presses;expecting_follow=follow_mode; }
+        else if(keys[0]==35u && follow_mode) { assert(expecting_follow);expecting_follow=false;++follow_presses; }
         else if(keys[0]==36u) { assert(!game_buff_pending(&game_buffs,vm.now));++cast_presses; }
         else if(keys[0]==9u)++catch_presses;
         else assert(false);
@@ -52,7 +54,8 @@ static void release_all_actors(uint32_t now) {
 /* PRODUCTION_ADAPTER */
 
 int main(int argc,char **argv) {
-    assert(argc==2);
+    assert(argc==2 || argc==3);
+    follow_mode=argc==3;
     FILE *f=fopen(argv[1],"rb");assert(f);
     fseek(f,0,SEEK_END);long size=ftell(f);rewind(f);
     uint8_t *image=malloc((size_t)size);assert(image);
@@ -110,6 +113,7 @@ int main(int argc,char **argv) {
     fprintf(stderr,"interrupt=%u pause=%u resume=%u overlay=%u vm=%u route=%u phase=%u consumed=%u presses=%u casts=%u\n",interruption,pause_test,resumed,overlay,vm.status,vm.route_id,game_buffs.phase,game_buffs.consumed_mask,buff_presses,cast_presses);
     assert(interruption&&pause_test&&resumed);
     assert(buff_presses>2u&&cast_presses>2u&&catch_presses>0u&&timeouts>0u);
+    if(follow_mode) assert(follow_presses>2u && buff_presses-follow_presses<=1u);
     assert(elapsed_seen>1000u);
     uint32_t generation=vm.route_generation;
     assert(abvm_start_route(&vm,8u,10000u));

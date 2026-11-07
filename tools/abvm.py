@@ -638,7 +638,8 @@ class Compiler:
             raise AbvmError("gameBuffs must contain at most 16 buffs")
         enabled = [n for n in buffs if not disabled(n)]
         if enabled:
-            payload = bytearray(BUFF_HEADER.pack(b"GBF1", 1, len(enabled), 0))
+            buff_version = 2 if any(props(n).get("followEnabled", False) for n in enabled) else 1
+            payload = bytearray(BUFF_HEADER.pack(b"GBF1", buff_version, len(enabled), 0))
             for n in enabled:
                 if step_type(n) != "keystroke":
                     raise AbvmError("buff must be a keystroke")
@@ -655,7 +656,13 @@ class Compiler:
                 for j in range(0, 8, 2):
                     if not 0 <= values[j] <= values[j+1] <= 0x7fffffff or (j in (0,4) and values[j] == 0):
                         raise AbvmError("invalid buff interval/hold/delay range")
-                payload.extend(BUFF_ROW.pack(sum(k << (8*i) for i,k in enumerate(keys)), len(keys), *values))
+                row = bytearray(BUFF_ROW.pack(sum(k << (8*i) for i,k in enumerate(keys)), len(keys), *values))
+                if p.get("followEnabled", False):
+                    follow_key = vk(p.get("followKey"))
+                    if not 1 <= follow_key <= 255:
+                        raise AbvmError("invalid buff follow-up key")
+                    row[5] = follow_key
+                payload.extend(row)
             self.buff_constant = self.pool.add(CONST_BUFF, bytes(payload))
         fatigue_minutes = integer(source.get("gameMouseFatigueMinutes"), 135)
         if not 1 <= fatigue_minutes <= 1440:
@@ -1662,10 +1669,13 @@ class Verifier:
                 if len(payload) < BUFF_HEADER.size:
                     raise AbvmError("truncated buff descriptor")
                 magic, version, count, reserved = BUFF_HEADER.unpack_from(payload)
-                if magic != b"GBF1" or version != 1 or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
+                if magic != b"GBF1" or version not in (1, 2) or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
                     raise AbvmError("invalid buff descriptor")
                 for index in range(count):
-                    packed, width, *values = BUFF_ROW.unpack_from(payload, BUFF_HEADER.size + index * BUFF_ROW.size)
+                    offset = BUFF_HEADER.size + index * BUFF_ROW.size
+                    packed, width, *values = BUFF_ROW.unpack_from(payload, offset)
+                    if payload[offset + 6] or payload[offset + 7] or (version == 1 and payload[offset + 5]):
+                        raise AbvmError("invalid buff follow-up descriptor")
                     keys = [(packed >> (8*k)) & 255 for k in range(width)]
                     if not 1 <= width <= 4 or 0 in keys or len(set(keys)) != width or (width < 4 and packed >> (width*8)):
                         raise AbvmError("invalid buff key combo")

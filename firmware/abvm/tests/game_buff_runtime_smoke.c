@@ -119,8 +119,31 @@ static void random_and_validation(void) {
     game_buff_new_game(&r);assert(!game_buff_pending(&r,0u));
     printf("shuffle: %u/999 transitions changed\n",different);
 }
+static void follow_up(void) {
+    GameBuffRuntime r; GameBuffConfig c=config('8', 1000u); c.follow_key='6';
+    c.before_min_ms=c.before_max_ms=0u; c.after_min_ms=c.after_max_ms=10u;
+    assert(game_buff_init(&r,&c,1u,3u)); game_buff_new_game(&r);
+    assert(game_buff_service(&r,0u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(!r.follow_pending); assert(game_buff_key_accepted(&r));
+    assert(game_buff_key_finished(&r,100u)); assert(r.follow_pending);
+    assert(!r.consumed_mask && r.phase==GAME_BUFF_REQUEST);
+    GameBuffGate blocked=safe; blocked.paused=true;
+    assert(game_buff_service(&r,100u,blocked).kind==GAME_BUFF_EVENT_NONE);
+    assert(game_buff_service(&r,100u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); game_buff_key_cancelled(&r);
+    assert(!r.follow_pending && !r.consumed_mask); /* interrupted second retries whole pair */
+    assert(game_buff_service(&r,101u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,201u));
+    assert(r.follow_pending); assert(game_buff_service(&r,201u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,301u));
+    assert(!r.follow_pending && r.phase==GAME_BUFF_AFTER && !r.consumed_mask);
+    assert(game_buff_service(&r,310u,safe).kind==GAME_BUFF_EVENT_NONE);
+    assert(game_buff_service(&r,311u,safe).kind==GAME_BUFF_EVENT_CONSUMED);
+    assert(r.last_consumed[0]==311u && r.due[0]==1311u);
+    game_buff_new_game(&r); assert(!r.follow_pending && !r.consumed_mask);
+}
 int main(void) {
-    timing();priority_and_retry();rollover();random_and_validation();
+    follow_up(); timing();priority_and_retry();rollover();random_and_validation();
     puts("Pico game buff scheduler contracts passed");
     return 0;
 }

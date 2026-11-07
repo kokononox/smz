@@ -66,6 +66,8 @@ public partial class MainViewModel
             .Concat(new FieldDef[] {
                 new("__name", "نام باف", FieldKind.Text, existing?.Name ?? "باف جدید"),
                 new("__enabled", "فعال", FieldKind.Check, "true"),
+                new("followEnabled", "کلید دوم پس از کلید باف فعال شود", FieldKind.Check, "false"),
+                new("followKey", "کلید دوم — بلافاصله پس از رها شدن کلید باف", FieldKind.Combo, "F", KeyMap.KeyNames.Where(GameBuffValidation.IsSupportedFollowKey).ToArray(), HideWhenKey: "followEnabled", HideUnlessValue: "true"),
                 new("renewMinMinutes", "حداقل فاصلهٔ تجدید (دقیقه)", FieldKind.Float, "54"),
                 new("renewMaxMinutes", "حداکثر فاصلهٔ تجدید (دقیقه)", FieldKind.Float, "56"),
                 new("beforeMinMs", "حداقل مکث قبل از مصرف (ms)", FieldKind.Int, "33"),
