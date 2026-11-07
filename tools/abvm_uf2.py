@@ -81,6 +81,9 @@ def inject(template:bytes,program:bytes):
             flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
             if b"EVT|BUFF|state=new-game|count=%u" not in flash:
                 raise Uf2Error("UF2 template lacks the Pico buff runtime; select a matching GameBuff test-build template")
+            if any(kind == 10 and payload[:5] == b"GBF1\x02" for kind, _, payload in verified.constants):
+                if b"EVT|BUFF|follow-key=v2" not in flash:
+                    raise Uf2Error("UF2 template lacks the second buff key runtime; select the matching new template")
     if len(program)>capacity: raise Uf2Error(f"program exceeds slot capacity ({len(program)} > {capacity})")
     digest=hashlib.sha256(program).digest(); _write(memory,address+16,_SLOT_META.pack(SLOT_VERSION,SLOT_HEADER_SIZE,capacity,len(program))); _write(memory,address+32,digest); _write(memory,address+SLOT_HEADER_SIZE,program+bytes(capacity-len(program)))
     result=b"".join(bytes(b.raw) for b in sorted(blocks,key=lambda b:b.number)); check=parse(result); cm=_address_map(check); ca,cc,cs=locate_slot(check)
