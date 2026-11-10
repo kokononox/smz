@@ -1,5 +1,7 @@
 # Physical light calibration tolerance — test build
 
+- A second lightweight artifact omits only the unchanged self-contained Shift Bridge; the original full artifact is still available. The lightweight package retains the board communication bridge and all 30 Pico templates. Users can keep using the already-pinned compatible Shift Bridge in its existing location.
+
 - Physical calibration now uses a configurable board-stored default as centre ± tolerance, with 0.1 lux resolution. Existing records default to 1 lux; the old spread/2 plus margin formula is no longer used.
 - Studio can exchange the default tolerance, measured centres and exact effective ranges with the board. The board clips only facing edges at the midpoint and refuses duplicate centres. The transfer is one A/B flash transaction and is blocked while running or calibrating.
 - Calibration records migrate from v7 and preserve wake/shift/cycle data. Project-bound calibration records are still bound to the program digest: back up profiles in Studio before flashing a changed project, then send them back. Old records did not store measured centres separately, so their centre is inferred from the saved range.
