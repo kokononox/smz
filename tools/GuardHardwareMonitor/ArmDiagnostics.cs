@@ -69,6 +69,7 @@ internal sealed class ArmDiagnostics
             _ => $"unknown code {HostUsb}"
         };
         var status = $"Pico ARM ready={Ready ?? "unknown"}; version={Version ?? "unknown"}; USB={usb}.";
+        if (!string.IsNullOrEmpty(Fault)) status += $" Last fault={Fault}.";
         if (Fault?.Contains("INCOMPATIBLE|HVER", StringComparison.OrdinalIgnoreCase) == true)
             return status + " Pico received an HVER reply missing required REL/ASND capabilities. Check the installed Pro Micro firmware and version.";
         if (Fault?.Contains("ERR|UNKNOWN", StringComparison.OrdinalIgnoreCase) == true)
