@@ -20,7 +20,14 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Test diagnostics
-        run: dotnet run --project tests/GuardMonitorDiagnostics/GuardMonitorDiagnostics.csproj -c Release
+        shell: pwsh
+        run: |
+          dotnet run --project tests/GuardMonitorDiagnostics/GuardMonitorDiagnostics.csproj -c Release 2>&1 | Tee-Object -FilePath test-output.txt
+          if ($LASTEXITCODE -ne 0) {
+            $detail = (Get-Content test-output.txt -Tail 12) -join ' | '
+            Write-Output "::error::$detail"
+            exit 1
+          }
       - name: Restore
         run: dotnet restore tools/GuardHardwareMonitor/GuardHardwareMonitor.csproj
       - name: Build
