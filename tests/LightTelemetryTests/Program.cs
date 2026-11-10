@@ -78,6 +78,18 @@ catch (LightCalibrationDumpProtocolException)
 Check(LightCalibrationDumpParser.Parse(
         "OK|CALDUMP|LIGHT|revision=0|mask=0000|profiles=none").Profiles.Count == 0,
     "empty board calibration dump is represented explicitly");
+var sync = BoardLightSync.Parse("OK|CALSYNC|tolerance=20|revision=42|profiles=80:115:100,116:150:130,290:310:300,390:410:400,490:510:500,590:610:600,690:710:700,790:810:800,890:910:900");
+var syncTargets = LightStateDefaults.CreateInitialProfiles();
+BoardLightSync.Apply(sync, syncTargets);
+var syncFirst = syncTargets.Single(x => x.Id == "desktop");
+Check(sync.Tolerance == 20 && syncFirst.LuxCenter == 10 && syncFirst.LuxMin == 8 && syncFirst.LuxMax == 11.5,
+    "board sync preserves a measured centre and asymmetric effective bounds");
+var syncCommand = BoardLightSync.BuildCommand(syncTargets, 2);
+Check(syncCommand.StartsWith("CALSYNC|SET|20|80:115:100,116:150:130,"), "board sync roundtrip preserves exact asymmetric bounds");
+syncFirst.LuxTolerance = 3;
+Check(syncFirst.LuxMin == 7 && syncFirst.LuxMax == 13, "editing tolerance starts a new symmetric candidate");
+try { BoardLightSync.Parse("OK|CALSYNC|tolerance=20|revision=42|profiles=80:115:100"); Check(false, "sync rejects partial snapshots"); }
+catch (FormatException) { Check(true, "sync rejects partial snapshots"); }
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");
 Check(new[] { 100, 250, 500 }.All(ms =>

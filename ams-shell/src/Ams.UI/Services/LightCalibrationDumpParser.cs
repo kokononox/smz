@@ -91,6 +91,8 @@ public static class LightCalibrationDumpParser
         {
             target.LuxCenter = range.CenterLux;
             target.LuxTolerance = range.ToleranceLux;
+            target.LuxLowOverride = null;
+            target.LuxHighOverride = null;
         }
         return changes.Length;
     }

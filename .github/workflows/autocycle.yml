@@ -110,6 +110,7 @@ jobs:
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_shift_identity.py
             python firmware/abvm/tests/test_shift_schedule.py
+            python firmware/abvm/tests/test_light_range_fit.py
             python firmware/abvm/tests/test_abvm_shift_wake.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py
@@ -329,6 +330,37 @@ jobs:
             ams-shell/src/Ams.UI/bin/Release/net8.0-windows/**
             windows-tests.log
             light-telemetry-tests.log
+          retention-days: 14
+          if-no-files-found: error
+      - name: Stage lightweight output without the unchanged shift bridge
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          $stage = Join-Path $env:RUNNER_TEMP 'classroom-studio-light'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item -Path "$out/*" -Destination $stage -Recurse -Force
+          Remove-Item -Recurse -Force "$stage/shift-bridge" -ErrorAction Stop
+          if (Test-Path "$stage/shift-bridge") { throw 'Shift bridge was not removed' }
+          if (-not (Test-Path "$stage/ClassroomStudio.exe")) { throw 'Classroom Studio missing' }
+          if (-not (Test-Path "$stage/bridge/bridge.py")) { throw 'Board serial bridge missing' }
+          $templates = @(Get-ChildItem "$stage/native-runtime" -Filter 'runtime-*.uf2' -File)
+          if ($templates.Count -ne 30) { throw "Expected 30 Pico templates, got $($templates.Count)" }
+          if (-not (Test-Path "$stage/native-runtime/index.json")) { throw 'Template index missing' }
+          @(
+            'The shift-bridge folder is intentionally excluded to reduce download size.',
+            'Keep using your already-pinned compatible ClassroomShiftBridge.exe at its existing location.',
+            'The much older October 8 build lacks the later clock bootstrap; use the newer existing bridge.',
+            'If you need a bridge for a new installation, get it from the full artifact of the same run.',
+            'Do not remove the separate bridge folder: it is used for board communication.',
+            'All 30 Pico native-runtime templates are included.'
+          ) | Set-Content "$stage/README-LIGHT-PACKAGE.txt" -Encoding utf8
+      - name: Upload lightweight Windows output
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-studio-no-shift-bridge
+          path: ${{ runner.temp }}/classroom-studio-light/**
           retention-days: 14
           if-no-files-found: error
       - name: Report Windows failure tail

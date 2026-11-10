@@ -1263,8 +1263,10 @@ class Compiler:
             cue = integer(item.get("calibrationCue"), numeric_id)
             if not all(value >= 0 for value in (center, tolerance, hysteresis, stable, cooldown)):
                 raise AbvmError("Native Guard profile has a negative value: " + profile_id)
-            low = max(0, int(round((center - tolerance) * 10)))
-            high = int(round((center + tolerance) * 10))
+            low = max(0, int(round(float(item.get("luxMin", max(0, center - tolerance))) * 10)))
+            high = int(round(float(item.get("luxMax", center + tolerance)) * 10))
+            if low > round(center * 10) or high < round(center * 10):
+                raise AbvmError("Native Guard bounds do not contain center: " + profile_id)
             if high > 10_000_000 or stable > 3_600_000 or cooldown > 3_600_000:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
             if cue not in range(0, 101):

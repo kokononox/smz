@@ -240,7 +240,7 @@ static bool wake_host_up(void);
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
-static char command[256];
+static char command[512];
 static size_t command_length;
 static bool arm_fault_reported;
 static bool ui_sound_calibration_pending;
@@ -575,6 +575,42 @@ static void print_light_calibration_dump(void) {
      */
     printf("OK|CALDUMP|LIGHT|revision=%lu|mask=%04x|profiles=%s\n",
            (unsigned long)calibration_store_revision(),mask,profiles);
+}
+/* Compact complete snapshot: lows/highs are effective Guard ranges, not only
+ * the records physically calibrated so far. Centres remain independent. */
+static void print_light_sync(void){
+    uint32_t low[9],high[9],center[9];char profiles[300];size_t used=0;
+    if(!calibration_runtime_light_snapshot(low,high,center)){printf("ERR|STATE|CALSYNC\n");return;}
+    for(uint8_t i=0;i<9u;i++){
+        int n=snprintf(profiles+used,sizeof(profiles)-used,"%s%lu:%lu:%lu",i?",":"",
+            (unsigned long)low[i],(unsigned long)high[i],(unsigned long)center[i]);
+        if(n<0||(size_t)n>=sizeof(profiles)-used){printf("ERR|INTERNAL|CALSYNC\n");return;}
+        used+=(size_t)n;
+    }
+    printf("OK|CALSYNC|tolerance=%u|revision=%lu|profiles=%s\n",
+           calibration_store_light_tolerance(),(unsigned long)calibration_store_revision(),profiles);
+}
+static bool parse_sync_uint(char **cursor,char delimiter,uint32_t *value){
+    char *p=*cursor,*end=NULL;
+    if(*p<'0'||*p>'9')return false;
+    unsigned long n=strtoul(p,&end,10);
+    if(!end||end==p||*end!=delimiter||n>1000000ul)return false;
+    *value=(uint32_t)n;*cursor=delimiter?end+1:end;return true;
+}
+static void set_light_sync(char *p){
+    uint32_t low[9],high[9],center[9],tolerance;
+    if(guard_runtime_running()||vm.status==ABVM_STATUS_RUNNING||vm.status==ABVM_STATUS_PAUSED||calibration_runtime_active()){
+        printf("ERR|BUSY|CALSYNC\n");return;
+    }
+    if(!parse_sync_uint(&p,'|',&tolerance)||tolerance<1u||tolerance>10000u){printf("ERR|ARG|CALSYNC\n");return;}
+    for(uint8_t i=0;i<9u;i++){
+        if(!parse_sync_uint(&p,':',&low[i])||!parse_sync_uint(&p,':',&high[i])||
+           !parse_sync_uint(&p,i==8u?'\0':',',&center[i])){printf("ERR|ARG|CALSYNC\n");return;}
+    }
+    if(!calibration_runtime_light_sync(low,high,center,(uint16_t)tolerance)){
+        printf("ERR|FIT-OR-SAVE|CALSYNC\n");return;
+    }
+    printf("OK|CALSYNC|SET\n");
 }
 static void release_all_actors(uint32_t now) {
     if(shift_checkpoint && shift_identity.phase!=SHIFT_FAILED) {
@@ -1148,6 +1184,8 @@ static void execute_command(char *line, uint32_t now) {
         printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 8u : 0u, calibration_runtime_mode());
     else if (!strcmp(line, "CALDUMP|LIGHT"))
         print_light_calibration_dump();
+    else if (!strcmp(line,"CALSYNC|GET")) print_light_sync();
+    else if (!strncmp(line,"CALSYNC|SET|",12)) set_light_sync(line+12);
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strcmp(line, "WHISPER-REPEAT")) { if (abvm_interrupt_route(&vm, WHISPER_REPEAT_ROUTE_ID, now)) printf("CONTROL|interrupt|route=WhisperRepeat\n"); else printf("ERR|CONTROL|interrupt\n"); }
     else if (!strncmp(line, "SOUND ", 6)) { uint16_t profile = (uint16_t)strtoul(line + 6, NULL, 10); printf("%s|SOUND|profile=%u\n", abvm_sound_detected(&vm, profile, now) ? "OK" : "MISS", profile); }
