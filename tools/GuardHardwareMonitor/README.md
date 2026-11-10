@@ -28,3 +28,9 @@ Run `GuardHardwareMonitor.exe` directly, or:
 ```
 
 All output is written under `diagnostics`.
+
+## ARM diagnostics (2.1)
+
+The monitor interprets existing PONG and ARM error events and reports the evidence and plausible checks. USB state is cached on the Pico, not a live electrical test. A failure does not identify a particular wire or component. PING does not include the fault detail; an ERR event must have been observed to report it. No ARM probing, Guard, HID, mouse, keyboard, calibration, or firmware changes are performed. Existing logs are unchanged; ARM-DIAG is also saved to JSONL and the session summary. On reconnect diagnosis is reset, since cached state may be stale.
+
+Use `Start-Pico-Port.cmd` and enter the Pico COM port to avoid scanning other devices. The legacy `Start-Monitor.cmd` scans all serial ports and opens them with DTR: some devices can reset on open and each candidate receives PING. Do not run either while another application needs the serial port. No physical wiring should be changed while powered.

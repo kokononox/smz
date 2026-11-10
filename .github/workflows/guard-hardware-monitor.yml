@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "tools/GuardHardwareMonitor/**"
+      - "tests/GuardMonitorDiagnostics/**"
       - ".github/workflows/guard-hardware-monitor.yml"
 
 permissions:
@@ -18,6 +19,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - name: Test diagnostics
+        run: dotnet run --project tests/GuardMonitorDiagnostics/GuardMonitorDiagnostics.csproj -c Release
       - name: Restore
         run: dotnet restore tools/GuardHardwareMonitor/GuardHardwareMonitor.csproj
       - name: Build
@@ -28,12 +31,21 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item tools/GuardHardwareMonitor/README.md artifacts/GuardHardwareMonitor-win-x64/README.md
+          Copy-Item tools/GuardHardwareMonitor/README-FA.md artifacts/GuardHardwareMonitor-win-x64/README-FA.md
           @'
           @echo off
           cd /d "%~dp0"
           GuardHardwareMonitor.exe %*
           pause
           '@ | Set-Content -Encoding ascii artifacts/GuardHardwareMonitor-win-x64/Start-Monitor.cmd
+          @'
+          @echo off
+          cd /d "%~dp0"
+          set /p PICO_PORT=Enter Pico COM port (example COM14):
+          if not defined PICO_PORT exit /b 1
+          GuardHardwareMonitor.exe --port "%PICO_PORT%"
+          pause
+          '@ | Set-Content -Encoding ascii artifacts/GuardHardwareMonitor-win-x64/Start-Pico-Port.cmd
           Compress-Archive -Path artifacts/GuardHardwareMonitor-win-x64/* -DestinationPath artifacts/GuardHardwareMonitor-win-x64.zip -Force
           (Get-FileHash artifacts/GuardHardwareMonitor-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/sha256.txt
       - uses: actions/upload-artifact@v4

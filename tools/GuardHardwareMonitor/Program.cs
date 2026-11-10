@@ -10,7 +10,7 @@ namespace GuardHardwareMonitor;
 
 internal static partial class Program
 {
-    private const string Version = "2.0.0";
+    private const string Version = "2.1.0";
     private static readonly object ConsoleLock = new();
     private static readonly object LogLock = new();
     private static readonly CancellationTokenSource Stop = new();
@@ -21,6 +21,7 @@ internal static partial class Program
     private static bool _useColor = true;
     private static DateTimeOffset? _startWithoutStateAt;
     private static ProfileSet? _profiles;
+    private static ArmDiagnostics _armDiagnostics = new();
 
     public static async Task<int> Main(string[] args)
     {
@@ -92,7 +93,7 @@ internal static partial class Program
         }
         finally
         {
-            var summary = Stats.Render(_profiles);
+            var summary = Stats.Render(_profiles) + "ARM diagnosis: " + _armDiagnostics.Render() + Environment.NewLine;
             File.WriteAllText(summaryPath, summary, new UTF8Encoding(false));
             lock (ConsoleLock)
             {
@@ -116,6 +117,7 @@ internal static partial class Program
             Console.WriteLine($"RAW LOG : {Path.GetFullPath(rawPath)}");
             Console.WriteLine($"JSONL   : {Path.GetFullPath(jsonPath)}");
             Console.WriteLine("Safety  : only PING is sent automatically. No Guard/HID command is sent.");
+            Console.WriteLine("PORTS   : Prefer --port COMx; scanning opens COM ports and may reset other devices.");
             Console.WriteLine("Keys    : [S] summary  [P] ping  [R] reconnect  [Q] quit");
             Console.WriteLine();
         }
@@ -159,6 +161,8 @@ internal static partial class Program
                             Success("PICO", $"connected {name} · {line}");
                             Stats.Port = name;
                             Stats.Firmware = line;
+                            _armDiagnostics = new ArmDiagnostics();
+                            HandleLine(line);
                             return candidate;
                         }
                     }
@@ -226,7 +230,7 @@ internal static partial class Program
             if (_startWithoutStateAt is { } started &&
                 DateTimeOffset.Now - started > TimeSpan.FromSeconds(4))
             {
-                Warn("DIAG", "Start was accepted, but no stable STATE/ROUTE followed. The current lux likely matches no profile. Run with --bundle to see profile ranges, then recalibrate the active stage.");
+                Warn("DIAG", "Start was accepted, but no stable STATE/ROUTE followed. Possible causes include ARM readiness, light/profile mismatch or other errors; inspect the log. --bundle can show profile ranges. Do not recalibrate based on this warning alone.");
                 Stats.StartWithoutStateWarnings++;
                 _startWithoutStateAt = null;
             }
@@ -246,7 +250,7 @@ internal static partial class Program
                         Stop.Cancel();
                         break;
                     case ConsoleKey.S:
-                        lock (ConsoleLock) Console.WriteLine(Stats.Render(_profiles));
+                        lock (ConsoleLock) { Console.WriteLine(Stats.Render(_profiles)); Console.WriteLine("ARM diagnosis: " + _armDiagnostics.Render()); }
                         break;
                     case ConsoleKey.P:
                         port.WriteLine("PING");
@@ -291,6 +295,12 @@ internal static partial class Program
         var category = Classify(payload);
         UpdateStats(category, payload);
         WriteJson(category, payload, line, deviceTick);
+        var diagnosis = _armDiagnostics.Observe(payload);
+        if (diagnosis is not null)
+        {
+            Info("ARM-DIAG", diagnosis);
+            WriteJson("ARM-DIAG", diagnosis, line, deviceTick);
+        }
 
         switch (category)
         {
@@ -533,8 +543,8 @@ internal sealed class Options
                 case "--help":
                 case "-h":
                     Console.WriteLine("""
-GuardHardwareMonitor 2.0
-  --port COM31              Pin Pico port; default scans all COM ports safely
+GuardHardwareMonitor 2.1
+  --port COM31              Use Pico port only; default scans COM ports (may reset devices)
   --bundle <path>           ZIP, folder, or guard-calibration.json for lux diagnosis
   --ping-seconds <2..300>   Safe PING interval; default 10
   --rescan-seconds <1..60>  Reconnect delay; default 3
