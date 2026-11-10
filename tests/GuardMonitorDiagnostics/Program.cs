@@ -21,4 +21,8 @@ var legacy = new ArmDiagnostics();
 Check(legacy.Observe("OK|PONG|portable|role=brain")!.Contains("unavailable"), "legacy fields unknown");
 var down = new ArmDiagnostics();
 Check(down.Observe(pong.Replace("arm-usb=3", "arm-usb=1"))!.Contains("DOWN"), "USB down");
+var offline = new ArmDiagnostics();
+Check(offline.ObserveLogLine("[21:26:25.341] board identity: " + pong + " -> pico=on, arm=off")!.Contains("Not ready"), "Classroom log PONG");
+Check(offline.ObserveLogLine("[20:51:45.454] [FAIL] ERR|GUARD|ARM|ready=0|version=unknown|detail=reply=ERR|UNKNOWN")!.Contains("unrecognized-command"), "monitor log error");
+Check(offline.ObserveLogLine("[20:51:48] CONTROL|pause-ignored|state=stopped") is null, "offline unrelated event");
 Console.WriteLine("Guard monitor diagnostics: all checks passed");

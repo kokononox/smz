@@ -30,6 +30,18 @@ internal static partial class Program
         Console.Title = $"GuardHardwareMonitor {Version}";
 
         var options = Options.Parse(args);
+        if (options.AnalyzeLogPath is not null)
+        {
+            var offline = new ArmDiagnostics();
+            var found = false;
+            foreach (var line in File.ReadLines(options.AnalyzeLogPath))
+            {
+                var report = offline.ObserveLogLine(line);
+                if (report is not null) { Console.WriteLine("ARM-DIAG: " + report); found = true; }
+            }
+            if (!found) Console.WriteLine("No supported Pico PONG or ARM error records found.");
+            return found ? 0 : 1;
+        }
         _useColor = !options.NoColor && !Console.IsOutputRedirected;
         Directory.CreateDirectory(options.DiagnosticsDirectory);
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
@@ -517,6 +529,7 @@ internal sealed class Options
     public int ProbeTimeoutMs { get; private set; } = 1500;
     public bool NoColor { get; private set; }
     public string? BundlePath { get; private set; }
+    public string? AnalyzeLogPath { get; private set; }
     public string DiagnosticsDirectory { get; private set; } = "diagnostics";
 
     public static Options Parse(string[] args)
@@ -538,6 +551,7 @@ internal sealed class Options
                 case "--rescan-seconds": o.RescanSeconds = Math.Clamp(int.Parse(Next(), CultureInfo.InvariantCulture), 1, 60); break;
                 case "--probe-timeout-ms": o.ProbeTimeoutMs = Math.Clamp(int.Parse(Next(), CultureInfo.InvariantCulture), 300, 10000); break;
                 case "--bundle": o.BundlePath = Next(); break;
+                case "--analyze-log": o.AnalyzeLogPath = Next(); break;
                 case "--diagnostics": o.DiagnosticsDirectory = Next(); break;
                 case "--no-color": o.NoColor = true; break;
                 case "--help":
@@ -546,6 +560,7 @@ internal sealed class Options
 GuardHardwareMonitor 2.1
   --port COM31              Use Pico port only; default scans COM ports (may reset devices)
   --bundle <path>           ZIP, folder, or guard-calibration.json for lux diagnosis
+  --analyze-log <path>      Analyze an existing text log without opening any port
   --ping-seconds <2..300>   Safe PING interval; default 10
   --rescan-seconds <1..60>  Reconnect delay; default 3
   --diagnostics <folder>    Log directory; default diagnostics

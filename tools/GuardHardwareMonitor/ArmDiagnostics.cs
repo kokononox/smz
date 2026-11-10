@@ -9,6 +9,21 @@ internal sealed class ArmDiagnostics
     public string? Fault { get; private set; }
     private string? _lastReport;
 
+    // Extract a device record from a monitor or Classroom text log; never opens a port.
+    public string? ObserveLogLine(string text)
+    {
+        foreach (string marker in new[] { "ERR|GUARD|ARM|", "ERR|ARM|", "OK|PONG|" })
+        {
+            int start = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (start < 0) continue;
+            string record = text[start..];
+            int end = record.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '"' });
+            if (end >= 0) record = record[..end];
+            return Observe(record);
+        }
+        return null;
+    }
+
     public string? Observe(string line)
     {
         if (line.StartsWith("OK|PONG|", StringComparison.Ordinal))
