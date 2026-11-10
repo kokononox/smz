@@ -333,7 +333,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
       - name: Stage lightweight output without the unchanged shift bridge
-        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance'
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
         shell: pwsh
         run: |
           $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
@@ -350,12 +350,13 @@ jobs:
           @(
             'The shift-bridge folder is intentionally excluded to reduce download size.',
             'Keep using your already-pinned compatible ClassroomShiftBridge.exe at its existing location.',
+            'The much older October 8 build lacks the later clock bootstrap; use the newer existing bridge.',
             'If you need a bridge for a new installation, get it from the full artifact of the same run.',
             'Do not remove the separate bridge folder: it is used for board communication.',
             'All 30 Pico native-runtime templates are included.'
           ) | Set-Content "$stage/README-LIGHT-PACKAGE.txt" -Encoding utf8
       - name: Upload lightweight Windows output
-        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance'
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
         uses: actions/upload-artifact@v4
         with:
           name: classroom-studio-no-shift-bridge
