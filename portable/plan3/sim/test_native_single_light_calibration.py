@@ -22,21 +22,15 @@ assert "calibration_store_light_set" not in yellow
 assert "mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s" in runtime
 assert "saved=0" not in runtime
 
-# Reuse the approved portable policy in tenths of lux: fixed centers, a
-# 0.3-lux integer-safe gap, and a 0.5-lux minimum half-width. The new candidate
-# gives up tolerance before an existing neighbour is changed.
-assert "#define LIGHT_FIT_GAP_TENTHS 3u" in runtime
-assert "#define LIGHT_FIT_MIN_TENTHS 5u" in runtime
-candidate_take = runtime.index(
-    "available=tolerances[selected]>LIGHT_FIT_MIN_TENTHS"
-)
-neighbour_take = runtime.index(
-    "available=tolerances[i]>LIGHT_FIT_MIN_TENTHS"
-)
-assert candidate_take < neighbour_take
+# Preserve measured centres and trim only facing edges, with one tenth separation.
+fit = (pico / "light_range_fit.h").read_text(encoding="utf-8")
+assert "light_ranges_fit(lows,highs,centers,&changed)" in runtime
 assert "reason=centers-too-close" in runtime
-assert "reason=centers-identical" in runtime
 assert "fit=%u|adjusted=%u|revision=%lu" in runtime
+assert "center[a]+(center[b]-center[a])/2u" in fit
+assert "hi[a]=split" in fit and "lo[b]=split+1u" in fit
+assert "calibration_store_light_tolerance()" in runtime
+assert "r.average_tenths" in runtime
 
 # A successful auto-fit has its own audible acknowledgement, while an exact
 # centre collision stays on the error path and is not saved.
@@ -51,9 +45,9 @@ assert "calibration_overlap_adjusted" in buzzer
 # Candidate plus any adjusted neighbours are one CRC-protected flash
 # transaction; unrelated saved profiles and sound/cycle calibration survive.
 for text in (store, store_h):
-    assert "calibration_store_light_update" in text
+    assert "calibration_store_light_sync" in text
 assert "CalibrationRecord before=current" in store
-assert "current.payload.light_mask|=update_mask" in store
+assert "current.payload.light_mask|=mask" in store
 assert "if(persist())return true" in store
 assert "current=before;active_offset=before_offset" in store
 

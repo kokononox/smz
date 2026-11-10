@@ -170,6 +170,8 @@ public sealed class ReadOnlyLightGateCoordinator
                 profile.Enabled,
                 profile.LuxCenter.ToString("R", CultureInfo.InvariantCulture),
                 profile.LuxTolerance.ToString("R", CultureInfo.InvariantCulture),
+                profile.LuxMin.ToString("R", CultureInfo.InvariantCulture),
+                profile.LuxMax.ToString("R", CultureInfo.InvariantCulture),
                 profile.StableDurationMs,
                 profile.HysteresisLux.ToString("R", CultureInfo.InvariantCulture)))
             .ToArray();
@@ -195,6 +197,8 @@ public sealed class ReadOnlyLightGateCoordinator
         bool Enabled,
         string LuxCenter,
         string LuxTolerance,
+        string LuxMin,
+        string LuxMax,
         int StableDurationMs,
         string HysteresisLux);
 }

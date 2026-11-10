@@ -8,8 +8,22 @@ public class LightStateProfile
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public bool Enabled { get; set; } = true;
-    public double LuxCenter { get; set; }
-    public double LuxTolerance { get; set; } = 2;
+    private double _luxCenter;
+    private double _luxTolerance = 2;
+    public double LuxCenter
+    {
+        get => _luxCenter;
+        set { if (_luxCenter != value) { _luxCenter = value; LuxLowOverride = LuxHighOverride = null; } }
+    }
+    public double LuxTolerance
+    {
+        get => _luxTolerance;
+        set { if (_luxTolerance != value) { _luxTolerance = value; LuxLowOverride = LuxHighOverride = null; } }
+    }
+    // A fitted range can be asymmetric around the measured centre. Null means
+    // derive a fresh symmetric range from the editable centre and tolerance.
+    public double? LuxLowOverride { get; set; }
+    public double? LuxHighOverride { get; set; }
     public int StableDurationMs { get; set; } = 750;
     public double HysteresisLux { get; set; } = 1;
     /// <summary>
@@ -31,13 +45,16 @@ public class LightStateProfile
     public int CalibrationCueTempo { get; set; } = 100;
     public int CalibrationCueStyleVersion { get; set; }
 
-    [JsonIgnore] public double LuxMin => Math.Max(0, LuxCenter - LuxTolerance);
-    [JsonIgnore] public double LuxMax => LuxCenter + LuxTolerance;
+    [JsonIgnore] public double LuxMin => LuxLowOverride ?? Math.Max(0, LuxCenter - LuxTolerance);
+    [JsonIgnore] public double LuxMax => LuxHighOverride ?? (LuxCenter + LuxTolerance);
     [JsonIgnore] public bool IsValid =>
         !string.IsNullOrWhiteSpace(Id)
         && !string.IsNullOrWhiteSpace(Name)
         && double.IsFinite(LuxCenter) && LuxCenter >= 0
         && double.IsFinite(LuxTolerance) && LuxTolerance >= 0
+        && (LuxLowOverride is null) == (LuxHighOverride is null)
+        && double.IsFinite(LuxMin) && double.IsFinite(LuxMax)
+        && LuxMin >= 0 && LuxMin <= LuxCenter && LuxCenter <= LuxMax
         && StableDurationMs >= 0
         && double.IsFinite(HysteresisLux) && HysteresisLux >= 0
         && LightCooldownMs is >= 0 and <= 3600000
