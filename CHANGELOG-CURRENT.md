@@ -11,7 +11,7 @@
 
 - Pico buffs may configure a nonblocking delay after the first key is released and before the optional follow-up key. Zero remains the default; the after-consumption pause and renewal timer still begin only after the second key finishes.
 - Sound Watch can be set to alarm after a chosen consecutive-timeout streak. The default remains one timeout; a successful Catch resets the streak. Updated UF2 templates are required for either new opt-in descriptor.
-- Windows day/night usernames continue using portable settings when writable and now save atomically to the current user's LocalAppData when the install folder is read-only. The settings fields update as they are edited.
+- Windows day/night usernames are project-scoped: they are stored in `.amsj`, restored into the Status tab when a project opens, and cleared when an imported project has no usernames. Native UF2 export hashes the usernames from the active workspace.
 - Validation: all 118 ABVM Python/native-C tests pass. The Windows .NET build and physical Pico/hardware check remain pending.
 
 
@@ -125,8 +125,9 @@ Base: `feat/pico-shift-wake` at `5e3f53e6` (19 commits, top of the stacked chain
 - Unknown user, timeout, or a bridge left connected causes siren and Pause.
   Resume retries the same checkpoint with a new request. No cached reply grants
   a later check. This is accidental-system checking, not security authentication.
-- Global Windows day/night usernames are editable in Status and stored in app
-  settings. Export hashes use the exact same shared normalizer as the helper.
+- Windows day/night usernames are editable in Status and stored in the `.amsj`
+  project. Import restores or clears both fields; Native export hashes the active
+  workspace values with the same normalizer as the helper.
 - Type Text has Global/Shift scope, preserves Global fallback and chooses the
   day/night input on Pico. Missing day/night input is rejected at edit/save.
 - Temporary self-contained Windows x64 helper exits after releasing COM; no

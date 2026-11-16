@@ -17,6 +17,8 @@ public static class PipelineWorkspaceSerializer
         public List<StepNode> gameBuffs { get; set; } = new();
         public int gameMouseFatigueMinutes { get; set; } = 135;
         public ShiftScheduleSettings shiftSchedule { get; set; } = new();
+        public string dayWindowsUser { get; set; } = "";
+        public string nightWindowsUser { get; set; } = "";
     }
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -35,6 +37,8 @@ public static class PipelineWorkspaceSerializer
             gameBuffs = workspace.GameBuffs.ToList(),
             gameMouseFatigueMinutes = workspace.GameMouseFatigueMinutes,
             shiftSchedule = workspace.ShiftSchedule,
+            dayWindowsUser = (workspace.DayWindowsUser ?? "").Trim(),
+            nightWindowsUser = (workspace.NightWindowsUser ?? "").Trim(),
         };
         foreach (var tab in workspace.Tabs)
             envelope.pipelines[CanonicalName(tab.Kind)] = tab.Steps.ToList();
@@ -75,10 +79,12 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
+        workspace.DayWindowsUser = ReadOptionalUsername(root, "dayWindowsUser");
+        workspace.NightWindowsUser = ReadOptionalUsername(root, "nightWindowsUser");
         if(root.TryGetProperty("shiftSchedule",out var schedule)) {
             workspace.ShiftSchedule=schedule.Deserialize<ShiftScheduleSettings>()??new();
             workspace.ShiftSchedule.Validate();
@@ -143,6 +149,16 @@ public static class PipelineWorkspaceSerializer
         if (!hasDc || workspace[PipelineKind.Dc].Steps.Count == 0)
             workspace.EnsureDcDefaults();
         return workspace;
+    }
+
+    private static string ReadOptionalUsername(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var value)
+            || value.ValueKind == JsonValueKind.Null)
+            return "";
+        if (value.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"'{propertyName}' must be a string.");
+        return (value.GetString() ?? "").Trim();
     }
 
     /// <summary>

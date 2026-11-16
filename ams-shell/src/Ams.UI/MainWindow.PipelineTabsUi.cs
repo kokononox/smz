@@ -139,7 +139,7 @@ internal static class PipelineTabsUiBootstrap
 
         var identity = new StackPanel { Margin=new Thickness(0,0,0,18) };
         identity.Children.Add(new TextBlock { Text="تنظیمات کلی — کاربران ویندوز شیفت‌ها", FontSize=20, Foreground=Brush("#F5F7FA") });
-        identity.Children.Add(new TextBlock { Text="نام Username ویندوز را وارد کنید، نه Display name. تغییر نام‌ها با Export Native UF2 روی برد اعمال می‌شود. ClassroomStudio هنگام اجرای بریج موقت باید Disconnect باشد.", TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
+        identity.Children.Add(new TextBlock { Text="Username ویندوز را وارد کنید، نه Display name. این نام‌ها همراه فایل پروژهٔ .amsj ذخیره می‌شوند؛ با بازکردن پروژه، مقادیر همین‌جا جایگزین یا خالی می‌شوند. Export Native UF2 آن‌ها را روی برد اعمال می‌کند. هنگام اجرای بریج موقت، ClassroomStudio باید Disconnect باشد.", TextWrapping=TextWrapping.Wrap, Foreground=Brush("#AAB3C2"), Margin=new Thickness(0,6,0,8) });
         foreach(var entry in new[] { ("کاربر روز",nameof(MainViewModel.DayWindowsUser)),("کاربر شب",nameof(MainViewModel.NightWindowsUser)) }) {
             var row=new StackPanel { Orientation=Orientation.Horizontal,Margin=new Thickness(0,4,0,4) };
             row.Children.Add(new TextBlock { Text=entry.Item1,Width=90,Foreground=Brush("#F5F7FA") });

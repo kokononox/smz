@@ -86,8 +86,6 @@ public static class DocumentService
 public sealed class AppSettings
 {
     /// <summary>Default AUTO: BoardLink scans KNOWN_VIDS and finds the board on any COM (§14.3 / §15.5).</summary>
-    public string DayWindowsUser { get; set; } = "";
-    public string NightWindowsUser { get; set; } = "";
     public string Port { get; set; } = "AUTO";
     public string PythonDir { get; set; } = "";
     public string ToolkitDir { get; set; } = "";

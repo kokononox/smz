@@ -24,11 +24,11 @@ public static class ShiftTextValidation
         }
     }
 
-    public static (string day, string night) UserHashes(AppSettings settings)
+    public static (string day, string night) UserHashes(PipelineWorkspace workspace)
     {
-        if (string.IsNullOrWhiteSpace(settings.DayWindowsUser) || string.IsNullOrWhiteSpace(settings.NightWindowsUser))
+        if (string.IsNullOrWhiteSpace(workspace.DayWindowsUser) || string.IsNullOrWhiteSpace(workspace.NightWindowsUser))
             throw new FormatException("نام کاربر ویندوز روز و شب را در تنظیمات شیفت وارد کنید.");
-        string day = ShiftUserIdentity.Hash(settings.DayWindowsUser), night = ShiftUserIdentity.Hash(settings.NightWindowsUser);
+        string day = ShiftUserIdentity.Hash(workspace.DayWindowsUser), night = ShiftUserIdentity.Hash(workspace.NightWindowsUser);
         if (day == night) throw new FormatException("نام کاربران روز و شب باید متفاوت باشند.");
         return (day, night);
     }

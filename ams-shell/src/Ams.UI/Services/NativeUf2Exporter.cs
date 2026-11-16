@@ -44,7 +44,7 @@ public static class NativeUf2Exporter
             if(workspace.ShiftSchedule.enabled&&!workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps)))
                 throw new InvalidDataException("بررسی ساعت به استپ تأیید شیفت در Desktop و Startup نیاز دارد.");
             if(workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps))) {
-                var hashes=ShiftTextValidation.UserHashes(settings);
+                var hashes=ShiftTextValidation.UserHashes(workspace);
                 root["nativeShift"]=new JsonObject { ["dayHash"]=hashes.day,["nightHash"]=hashes.night };
             }
             root["nativeGuard"] = BuildNativeGuard();
