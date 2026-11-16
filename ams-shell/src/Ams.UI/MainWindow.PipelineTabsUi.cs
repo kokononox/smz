@@ -144,7 +144,7 @@ internal static class PipelineTabsUiBootstrap
             var row=new StackPanel { Orientation=Orientation.Horizontal,Margin=new Thickness(0,4,0,4) };
             row.Children.Add(new TextBlock { Text=entry.Item1,Width=90,Foreground=Brush("#F5F7FA") });
             var input=new TextBox { Width=260,FlowDirection=FlowDirection.LeftToRight };
-            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2) { Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.LostFocus });
+            input.SetBinding(TextBox.TextProperty,new Binding(entry.Item2) { Source=vm,Mode=BindingMode.TwoWay,UpdateSourceTrigger=UpdateSourceTrigger.PropertyChanged });
             row.Children.Add(input);identity.Children.Add(row);
         }
         var scheduleCheck=new CheckBox { Content="بررسی بازهٔ شیفت و سوییچ خودکار",Foreground=Brush("#F5F7FA"),Margin=new Thickness(0,8,0,8) };

@@ -16,6 +16,7 @@ typedef struct GameBuffConfig {
     uint8_t key_count;
     uint8_t keys[GAME_BUFF_MAX_KEYS]; /* Pico virtual-key combination */
     uint8_t follow_key; /* optional separate key, 0 disables */
+    uint16_t follow_delay_ms; /* nonblocking delay after first key release */
     uint32_t interval_min_ms, interval_max_ms;
     uint32_t before_min_ms, before_max_ms;
     uint32_t hold_min_ms, hold_max_ms;
@@ -34,7 +35,7 @@ typedef struct GameBuffGate {
 
 typedef enum GameBuffPhase {
     GAME_BUFF_IDLE, GAME_BUFF_BEFORE, GAME_BUFF_REQUEST,
-    GAME_BUFF_KEY, GAME_BUFF_AFTER
+    GAME_BUFF_KEY, GAME_BUFF_FOLLOW_DELAY, GAME_BUFF_AFTER
 } GameBuffPhase;
 
 typedef enum GameBuffEventKind {

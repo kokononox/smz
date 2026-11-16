@@ -5,15 +5,23 @@
 static uint32_t le32(const uint8_t *p) {
     return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);
 }
+static uint16_t le16(const uint8_t *p) {
+    return (uint16_t)p[0]|((uint16_t)p[1]<<8);
+}
 bool game_buff_load(GameBuffRuntime *r, const uint8_t *p, uint32_t size, uint32_t seed) {
-    if (!p || size < 8u || memcmp(p,"GBF1",4u) || (p[4] != 1u && p[4] != 2u) ||
+    if (!p || size < 8u || memcmp(p,"GBF1",4u) ||
+        (p[4] != 1u && p[4] != 2u && p[4] != 3u) ||
         !p[5] || p[5]>GAME_BUFF_MAX || p[6] || p[7] || size != 8u+(uint32_t)p[5]*40u) return false;
     GameBuffConfig c[GAME_BUFF_MAX] = {0};
     for (uint8_t i=0u;i<p[5];++i) {
         const uint8_t *row=p+8u+(uint32_t)i*40u;
         c[i].enabled=true;c[i].key_count=row[4];
-        if (!row[4] || row[4]>4u || (p[4] == 1u && row[5]) || row[6] || row[7]) return false;
-        c[i].follow_key = p[4] == 2u ? row[5] : 0u;
+        if (!row[4] || row[4]>4u ||
+            (p[4] == 1u && (row[5] || row[6] || row[7])) ||
+            (p[4] == 2u && (row[6] || row[7]))) return false;
+        c[i].follow_key = p[4] >= 2u ? row[5] : 0u;
+        c[i].follow_delay_ms = p[4] == 3u ? le16(row+6u) : 0u;
+        if (c[i].follow_delay_ms && !c[i].follow_key) return false;
         memcpy(c[i].keys,row,row[4]);
         for (uint8_t k=row[4];k<4u;++k) if(row[k]) return false;
         c[i].interval_min_ms=le32(row+8u);c[i].interval_max_ms=le32(row+12u);
@@ -74,6 +82,7 @@ bool game_buff_init(GameBuffRuntime *r, const GameBuffConfig *config,
         const GameBuffConfig *c = &config[i];
         if (!c->enabled) continue;
         if (!c->key_count || c->key_count > GAME_BUFF_MAX_KEYS ||
+            (c->follow_delay_ms && !c->follow_key) ||
             !range_valid(c->interval_min_ms, c->interval_max_ms, true) ||
             !range_valid(c->before_min_ms, c->before_max_ms, false) ||
             !range_valid(c->hold_min_ms, c->hold_max_ms, true) ||
@@ -130,6 +139,8 @@ GameBuffEvent game_buff_service(GameBuffRuntime *r, uint32_t now,
         event.next_due = r->due[index];
         return event;
     }
+    if (r->phase == GAME_BUFF_FOLLOW_DELAY && reached(now, r->deadline))
+        r->phase = GAME_BUFF_REQUEST;
     if (!allowed(gate)) return event;
     if (r->phase == GAME_BUFF_IDLE) {
         if (r->queue_pos >= r->queue_count) batch(r, now);
@@ -158,9 +169,12 @@ bool game_buff_key_finished(GameBuffRuntime *r, uint32_t now) {
     if (!r || !r->session || r->phase != GAME_BUFF_KEY) return false;
     const GameBuffConfig *c = &r->config[r->current];
     if (c->follow_key && !r->follow_pending) {
-        /* Next safe service sends the second key as soon as the first is released. */
+        /* The second key is scheduled from the first key's release, without
+         * blocking the Pico loop or extending the post-consumption timer. */
         r->follow_pending = true;
-        r->phase = GAME_BUFF_REQUEST;
+        r->deadline = now + c->follow_delay_ms;
+        r->phase = c->follow_delay_ms
+            ? GAME_BUFF_FOLLOW_DELAY : GAME_BUFF_REQUEST;
         return true;
     }
     r->follow_pending = false;

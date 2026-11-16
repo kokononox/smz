@@ -19,6 +19,11 @@ public static class GameBuffValidation
         if (!KeyMap.VK.ContainsKey(key)) throw new FormatException("کلید باف معتبر نیست.");
         if (PropEx.GetBool(p, "followEnabled") && !IsSupportedFollowKey(PropEx.GetString(p, "followKey")))
             throw new FormatException("کلید دوم باف معتبر نیست.");
+        int followDelay = PropEx.GetInt(p, "followDelayMs");
+        if (followDelay < 0 || followDelay > 60_000)
+            throw new FormatException("وقفهٔ کلید دوم باید بین ۰ تا ۶۰۰۰۰ میلی‌ثانیه باشد.");
+        if (followDelay > 0 && !PropEx.GetBool(p, "followEnabled"))
+            throw new FormatException("وقفهٔ کلید دوم فقط با فعال‌بودن کلید دوم مجاز است.");
         var modifiers = new[] { "modCtrl", "modShift", "modAlt", "modWin" }.Count(k => PropEx.GetBool(p, k));
         if (modifiers > 3) throw new FormatException("حداکثر سه Modifier همراه کلید مجاز است.");
         double lo = PropEx.GetDouble(p, "renewMinMinutes", 54), hi = PropEx.GetDouble(p, "renewMaxMinutes", 56);

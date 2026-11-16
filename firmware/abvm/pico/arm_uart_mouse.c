@@ -1220,7 +1220,8 @@ ArmSoundSubmit arm_uart_sound_arm(const AbvmVm *vm, const AbvmEvent *event, uint
         return ARM_SOUND_UNSUPPORTED;
     if (!arm_ready || state==ARM_FAULT||state==ARM_HALT||sound_pending||sound_active) return ARM_SOUND_BUSY;
     const uint8_t *payload; uint32_t size;
-    if (!abvm_constant(vm,event->constant_id,ABVM_CONST_SOUND,&payload,&size)||size!=8u)
+    if (!abvm_constant(vm,event->constant_id,ABVM_CONST_SOUND,&payload,&size)||
+        (size!=8u&&size!=12u))
         return ARM_SOUND_INVALID;
     sound_profile=read_u16_le(payload); sound_threshold=read_u16_le(payload+2u);
     sound_result_latched=false;

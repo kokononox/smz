@@ -196,6 +196,7 @@ public static class PipelineWorkspaceSerializer
                     SetDefault("responseRoute", "splash");
                     SetDefault("timeoutMinSec", Math.Clamp(profile.TimeoutMinSec, 1, 300));
                     SetDefault("timeoutMaxSec", Math.Clamp(profile.TimeoutMaxSec, 1, 300));
+                    SetDefault("timeoutAlarmAfter", 1);
                     SetDefault("onTimeout", "continue");
                     SetDefault("insertIfElse", false);
                     SetDefault("armed", false);
