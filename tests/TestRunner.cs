@@ -92,7 +92,19 @@ class TestRunner
             "Pico buffs round-trip food consumption delays");
         Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
             "Pico buffs round-trip configurable intervals and fatigue duration");
+        testBuff.Props["followEnabled"]=true; testBuff.Props["followKey"]="6";
+        testBuff.Props["followDelayMs"]=250;
+        GameBuffValidation.Validate(testBuff);
+        var followReload=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(buffWorkspace));
+        Assert(PropEx.GetBool(followReload.GameBuffs[0].Props,"followEnabled")
+            &&PropEx.GetString(followReload.GameBuffs[0].Props,"followKey")=="6"
+            &&PropEx.GetInt(followReload.GameBuffs[0].Props,"followDelayMs")==250,
+            "Optional Pico follow-up key and delay survive macro save/load");
+        Assert(!GameBuffValidation.IsSupportedFollowKey("DELETE") && GameBuffValidation.IsSupportedFollowKey("6"),
+            "Follow-up choices match native keyboard support");
         Assert(StepDefinitions.Get("buffCheckpoint").Fields.Count==0,"Pico buff safe boundary is a visible structural step");
+        Assert(StepDefinitions.Get("waitForSound").Fields.Any(f=>f.Key=="timeoutAlarmAfter"&&f.Default=="1"),
+            "Sound Watch preserves per-timeout alarms by default");
         testBuff.Props["renewMaxMinutes"]=53.0;
         bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }
         Assert(badBuff,"Pico buff validation rejects inverted intervals");
@@ -3683,6 +3695,7 @@ class TestRunner
         var p57bridge = File.ReadAllText(System.IO.Path.Combine(_p57root, "ams-shell", "bridge", "bridge.py"));
         var p57pp = V27ReadSrc(Path.Combine("Services", "PortablePaths.cs"));
         var p57doc = V27ReadSrc(Path.Combine("Services", "DocumentService.cs"));
+        var p57settingsUi = File.ReadAllText(Path.Combine(_p57root, "ams-shell", "src", "Ams.UI", "MainWindow.PipelineTabsUi.cs"));
         var p57pbb = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
         var p57vm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
         var p57csp = V27ReadSrc("Ams.UI.csproj");
@@ -3708,6 +3721,11 @@ class TestRunner
             "v0.9.58: no hardcoded wasteland path in DocumentService defaults");
         Assert(p57doc.Contains("Directory.Exists") && p57doc.Contains("SerialPort.GetPortNames"),
             "v0.9.58: AppSettings.Load sanitizes stale paths");
+        Assert(p57doc.Contains("Environment.SpecialFolder.LocalApplicationData")
+               && p57doc.Contains("WriteAtomically") && p57doc.Contains("File.Move(temporary, path, overwrite: true)"),
+            "Settings fall back to per-user storage and save atomically when the app folder is read-only");
+        Assert(p57settingsUi.Contains("UpdateSourceTrigger.PropertyChanged"),
+            "Windows shift usernames persist as they are edited");
         Assert(p57vm.Contains("PortablePaths.FirstExistingDir"),
             "v0.9.58: CreateBridge prefers bundled bridge dir over settings");
         Assert(p57pbb.Contains("PortablePaths.FindPython()"),
