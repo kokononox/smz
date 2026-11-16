@@ -310,7 +310,7 @@ static void load_whisper_profile(void) {
         cursor+=8u;
         if(cursor+size>end)return;
         const uint8_t *payload=vm.image+cursor;
-        if(kind==ABVM_CONST_SOUND&&size==8u) {
+        if(kind==ABVM_CONST_SOUND&&(size==8u||size==12u)) {
             uint16_t id=local_u16(payload);
             uint32_t packed=local_u32(payload+4u);
             uint16_t detector=local_u16(payload+2u);
@@ -1392,7 +1392,6 @@ static void service_mouse(uint32_t now) {
                    profile,peak,arm_uart_sound_threshold(),
                    arm_uart_sound_minimum(),
                    arm_uart_sound_uses_calibration()?"saved":"project");
-            if(!global_sound_enabled)buzzer_play(BUZZER_CUE_TIMEOUT, now);
         }
     }
     if(ui_sound_trigger_pending&&(int32_t)(now-ui_sound_trigger_due)>=0){
@@ -1828,6 +1827,8 @@ static void service_vm(uint32_t now) {
                     arm_uart_mouse_set_game_elapsed(0u);game_age_at=now;
                     printf("EVT|BUFF|state=new-game|count=%u\n",game_buffs.count);
                     printf("EVT|BUFF|follow-key=v2\n");
+                    if(payload[4]==3u)
+                        printf("EVT|BUFF|follow-delay=v3\n");
                 }
                 buff_lane=event.lane;buff_checkpoint=true;break;
             }
@@ -1870,7 +1871,8 @@ static void service_vm(uint32_t now) {
                 const uint8_t *descriptor;uint32_t descriptor_size;
                 uint16_t profile=0u;
                 if(abvm_constant(&vm,event.constant_id,ABVM_CONST_SOUND,
-                                 &descriptor,&descriptor_size)&&descriptor_size==8u)
+                                 &descriptor,&descriptor_size)&&
+                   (descriptor_size==8u||descriptor_size==12u))
                     profile=local_u16(descriptor);
                 printf("WATCH|armed|lane=%u|profile=%u|timeout=%lu|source=arm-global\n",
                        event.lane,profile,(unsigned long)event.operand_b);
@@ -1885,6 +1887,13 @@ static void service_vm(uint32_t now) {
             else { printf("ERR|ARM|sound-arm|lane=%u|profile=%u|reason=%u\n", event.lane, event.operand_a, sound); abvm_stop(&vm, now); }
             break;
         }
+        case ABVM_EVENT_WATCH_TIMEOUT_ALARM:
+            printf("WATCH|timeout-alarm|lane=%u|profile=%u|misses=%lu|after=%lu\n",
+                   event.lane,event.operand_a,
+                   (unsigned long)event.operand_b,
+                   (unsigned long)event.operand_c);
+            if(!global_sound_enabled)buzzer_play(BUZZER_CUE_TIMEOUT,now);
+            break;
         case ABVM_EVENT_RELEASE_ALL: release_all_actors(now); printf("HID|release-all|queued\n"); break;
         case ABVM_EVENT_INTERRUPT_RESUME: printf("CONTROL|interrupt-resume|route=%u\n", vm.route_id); break;
         case ABVM_EVENT_ROUTE_COMPLETE: {
@@ -2776,7 +2785,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",

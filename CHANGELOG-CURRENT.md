@@ -1,3 +1,10 @@
+# Consecutive fishing timeout alert and delayed buff follow-up — test build
+
+- Pico buffs may configure a nonblocking delay after the first key is released and before the optional follow-up key. Zero remains the default; the after-consumption pause and renewal timer still begin only after the second key finishes.
+- Sound Watch can be set to alarm after a chosen consecutive-timeout streak. The default remains one timeout; a successful Catch resets the streak. Updated UF2 templates are required for either new opt-in descriptor.
+- Windows day/night usernames continue using portable settings when writable and now save atomically to the current user's LocalAppData when the install folder is read-only. The settings fields update as they are edited.
+- Validation: all 118 ABVM Python/native-C tests pass. The Windows .NET build and physical Pico/hardware check remain pending.
+
 # Optional second key for Pico game buffs — test build
 
 - Each buff can optionally send a separate follow-up key immediately after the first key is released. It is off for existing projects. The existing after-consumption pause and renewal timer start only after the second key completes.

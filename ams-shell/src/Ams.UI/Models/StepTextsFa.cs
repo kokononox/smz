@@ -92,6 +92,7 @@ public static class StepTextsFa
         ["responseRoute"] = "رفتار تشخیص (inline یا Splash scoped)",
         ["timeoutMinSec"] = "حداقل Timeout هر پرتاب (ثانیه)",
         ["timeoutMaxSec"] = "حداکثر Timeout هر پرتاب (ثانیه)",
+        ["waitForSound:timeoutAlarmAfter"] = "اعلان پس از چند Timeout پیاپی (۱ = هر بار)",
         ["armed"] = "واکنش مسلح: برد خودش هنگام تشخیص کلیک می‌کند (TRGSND)",
         ["act"] = "دکمه‌ی کلیک مسلح",
         ["reactMin"] = "واکنش — حداقل (ms)",

@@ -27,4 +27,21 @@ class AbvmUf2Tests(unittest.TestCase):
     def test_rejects_ambiguous_slot(self):
         blocks=parse(make_uf2(b"ABP1old",1024)); blocks[0].payload[16:16+len(SLOT_MAGIC)]=SLOT_MAGIC; ambiguous=b"".join(bytes(b.raw) for b in blocks)
         with self.assertRaisesRegex(Uf2Error,"exactly one ABVM slot"): inject(ambiguous,b"ABP1new")
+    def test_timeout_alarm_requires_matching_runtime(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+        import abvm
+        source={"pipelines":{"Game":[{
+            "Type":"waitForSound","Props":{
+                "calibrationId":2,"threshold":40,"minDurationMs":20,
+                "timeoutMinSec":1,"timeoutMaxSec":1,"timeoutAlarmAfter":2,
+            },"Children":[],"Delay":0,
+        }]}}
+        program=abvm.Compiler().compile_amsj(source,("Game",)).image
+        old=make_uf2(b"ABP1old",32768)
+        with self.assertRaisesRegex(Uf2Error,"consecutive sound-timeout"):
+            inject(old,program)
+        updated=bytearray(old)
+        marker=b"watch-timeout-alarm=v1"
+        updated[32:32+len(marker)]=marker
+        inject(bytes(updated),program)
 if __name__=="__main__": unittest.main()

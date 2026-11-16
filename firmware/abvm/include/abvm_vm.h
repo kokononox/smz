@@ -31,6 +31,7 @@ typedef enum AbvmEventType {
     ABVM_EVENT_INTERRUPT_RESUME = 4,
     ABVM_EVENT_RELEASE_ALL = 5,
     ABVM_EVENT_FAULT = 6,
+    ABVM_EVENT_WATCH_TIMEOUT_ALARM = 7,
 } AbvmEventType;
 
 typedef enum AbvmFrameType {
@@ -66,6 +67,8 @@ typedef struct AbvmLane {
     uint32_t watch_deadline;
     uint16_t watch_profile;
     uint16_t watch_constant;
+    uint8_t watch_alarm_after;
+    uint8_t watch_miss_streak;
     uint8_t frame_count;
     uint8_t active;
     uint8_t terminal;
