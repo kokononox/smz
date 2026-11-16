@@ -15,6 +15,7 @@ typedef struct GameBuffConfig {
     bool enabled;
     uint8_t key_count;
     uint8_t keys[GAME_BUFF_MAX_KEYS]; /* Pico virtual-key combination */
+    uint8_t follow_key; /* optional separate key, 0 disables */
     uint32_t interval_min_ms, interval_max_ms;
     uint32_t before_min_ms, before_max_ms;
     uint32_t hold_min_ms, hold_max_ms;
@@ -56,6 +57,7 @@ typedef struct GameBuffRuntime {
     uint8_t queue[GAME_BUFF_MAX], queue_count, queue_pos, count, current;
     GameBuffPhase phase;
     bool session;
+    bool follow_pending;
 } GameBuffRuntime;
 
 bool game_buff_load(GameBuffRuntime *runtime, const uint8_t *payload, uint32_t size, uint32_t seed);

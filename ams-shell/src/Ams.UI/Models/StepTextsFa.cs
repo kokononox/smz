@@ -207,6 +207,7 @@ public static class StepTextsFa
         ["keystroke:holdMax"] = "حداکثر نگه‌داشت (ms) — ۰ = پیش‌فرض فریم‌ور (firmware 1.7+)",
         ["waitForSound:holdMin"] = "نگه‌داشت — حداقل (ms)",
         ["waitForSound:holdMax"] = "نگه‌داشت — حداکثر (ms)",
+        ["waitForSound:timeoutAlarmAfter"] = "اعلان پس از چند Timeout پیاپی (۱ = هر بار)",
 
         // v0.9.41 - these three are step-qualified, so they belong in FaByStep;
         // v0.9.39 put them in the shared table, where Has()/Get() could never see them.

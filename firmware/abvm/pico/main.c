@@ -593,6 +593,8 @@ static void release_all_actors(uint32_t now) {
          * unfinished buff, not already-completed entries in the shuffled batch. */
         if (buff_checkpoint && vm.route_id!=GAME_ROUTE_ID &&
             game_buffs.phase==GAME_BUFF_AFTER) game_buffs.phase=GAME_BUFF_REQUEST;
+        if (buff_checkpoint && game_buffs.phase==GAME_BUFF_REQUEST && game_buffs.follow_pending)
+            game_buffs.follow_pending=false; /* interrupted between keys: retry pair */
         hid_keyboard_release_all();
     }
  arm_uart_mouse_release_all(now);
@@ -1761,8 +1763,12 @@ static void service_game_buffs(uint32_t now) {
     if(event.kind==GAME_BUFF_EVENT_KEY_REQUEST) {
         const GameBuffConfig *c=&game_buffs.config[event.index];
         AbvmEvent key={0};key.opcode=ABVM_OP_KEY;key.lane=BUFF_KEY_LANE;
-        key.flags=c->key_count;key.operand_c=key.operand_d=event.hold_ms;
-        for(uint8_t i=0u;i<c->key_count;++i)key.operand_b|=(uint32_t)c->keys[i]<<(8u*i);
+        key.operand_c=key.operand_d=event.hold_ms;
+        if (game_buffs.follow_pending) { key.flags=1u; key.operand_b=c->follow_key; }
+        else {
+            key.flags=c->key_count;
+            for(uint8_t i=0u;i<c->key_count;++i)key.operand_b|=(uint32_t)c->keys[i]<<(8u*i);
+        }
         HidKeyboardSubmit result=hid_keyboard_submit(&vm,&key,now);
         if(result==HID_KEYBOARD_ACCEPTED) {
             buff_key_inflight=game_buff_key_accepted(&game_buffs);
@@ -1821,6 +1827,7 @@ static void service_vm(uint32_t now) {
                     game_buff_new_game(&game_buffs);game_fishing_elapsed=0u;
                     arm_uart_mouse_set_game_elapsed(0u);game_age_at=now;
                     printf("EVT|BUFF|state=new-game|count=%u\n",game_buffs.count);
+                    printf("EVT|BUFF|follow-key=v2\n");
                 }
                 buff_lane=event.lane;buff_checkpoint=true;break;
             }

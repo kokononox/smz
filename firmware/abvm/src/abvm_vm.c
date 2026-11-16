@@ -296,7 +296,7 @@ static int verify_image(AbvmVm *vm) {
         if (ins.opcode == ABVM_OP_BUFF) {
             if (ins.flags > 1u || ins.operand_b || ins.operand_c || ins.operand_d ||
                 !constant_at(vm,ins.operand_a,ABVM_CONST_BUFF,&payload,&size) ||
-                size < 8u || memcmp(payload,"GBF1",4u) || payload[4] != 1u ||
+                size < 8u || memcmp(payload,"GBF1",4u) || (payload[4] != 1u && payload[4] != 2u) ||
                 !payload[5] || payload[5] > 16u || read_u16(payload+6u) ||
                 size != 8u + (uint32_t)payload[5] * 40u)
                 return fail(vm,"buff descriptor");

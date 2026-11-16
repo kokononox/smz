@@ -92,6 +92,14 @@ class TestRunner
             "Pico buffs round-trip food consumption delays");
         Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
             "Pico buffs round-trip configurable intervals and fatigue duration");
+        testBuff.Props["followEnabled"]=true; testBuff.Props["followKey"]="6";
+        GameBuffValidation.Validate(testBuff);
+        var followReload=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(buffWorkspace));
+        Assert(PropEx.GetBool(followReload.GameBuffs[0].Props,"followEnabled")
+            &&PropEx.GetString(followReload.GameBuffs[0].Props,"followKey")=="6",
+            "Optional Pico follow-up key survives macro save/load");
+        Assert(!GameBuffValidation.IsSupportedFollowKey("DELETE") && GameBuffValidation.IsSupportedFollowKey("6"),
+            "Follow-up choices match native keyboard support");
         Assert(StepDefinitions.Get("buffCheckpoint").Fields.Count==0,"Pico buff safe boundary is a visible structural step");
         testBuff.Props["renewMaxMinutes"]=53.0;
         bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }

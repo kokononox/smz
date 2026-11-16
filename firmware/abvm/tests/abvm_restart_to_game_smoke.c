@@ -18,6 +18,7 @@ bool calibration_store_cycle_arm_next(uint8_t maximum){
     marker_armed=true;++marker_count;return true;
 }
 bool calibration_store_cycle_clear_armed(void){marker_armed=false;return true;}
+bool calibration_store_cycle_mark_live(void){marker_armed=true;return true;}
 bool calibration_store_cycle_reset(void){marker_armed=false;marker_count=0u;return true;}
 bool light_sensor_latest(uint32_t *lux_tenths,uint32_t *age_ms,uint32_t now){
     (void)lux_tenths;(void)age_ms;(void)now;return false;
@@ -73,7 +74,7 @@ int main(int argc,char **argv){
                 "start route 3"))return 1;
     cycle_runtime_begin_startup();drain_cycle();
     if(!require(cycle_runtime_route_complete(3u,4500u),"complete Startup")||
-       !require(!marker_armed&&marker_count==1u,"clear one-shot marker")||
+       !require(marker_armed&&marker_count==1u,"live-session marker retained")||
        !require(guard_runtime_start_after_restart(4500u),"start post-restart Guard")||
        !require(guard_runtime_stage()==1u&&guard_runtime_expected_profile()==2u,
                 "Desktop skipped; Login expected"))return 1;
