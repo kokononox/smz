@@ -165,21 +165,30 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
           install_dir="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1"
-          curl --fail --location \
+          mkdir -p "$install_dir"
+          if curl --fail --location \
             --retry 5 --retry-all-errors --retry-delay 5 \
             --connect-timeout 30 --max-time 600 \
             --output "$archive" \
-            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
-          mkdir -p "$install_dir"
-          tar -xJf "$archive" -C "$install_dir" --strip-components=1
-          test -x "$install_dir/bin/arm-none-eabi-gcc"
+            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'; then
+            tar -xJf "$archive" -C "$install_dir" --strip-components=1
+            test -x "$install_dir/bin/arm-none-eabi-gcc"
+          else
+            echo "::warning::Arm's 14.2 download is unavailable; installing Ubuntu's packaged bare-metal compiler."
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
+            command -v arm-none-eabi-gcc
+          fi
       - name: Add and verify ARM toolchain
         shell: bash
         run: |
           set -euo pipefail
           toolchain_bin="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1/bin"
-          echo "$toolchain_bin" >> "$GITHUB_PATH"
-          "$toolchain_bin/arm-none-eabi-gcc" --version
+          if [ -x "$toolchain_bin/arm-none-eabi-gcc" ]; then
+            echo "$toolchain_bin" >> "$GITHUB_PATH"
+          fi
+          command -v arm-none-eabi-gcc
+          arm-none-eabi-gcc --version
           command -v ninja
       - name: Compile ABP and build UF2
         shell: bash
