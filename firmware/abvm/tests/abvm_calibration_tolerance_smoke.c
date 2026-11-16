@@ -165,12 +165,36 @@ static int run_split_overlap_case(uint32_t tolerance,
     return 1;
 }
 
+static int run_unresolvable_overlap_case(void) {
+    /* Even after trimming both facing edges to the 0.5 Lux minimum, these
+     * centers cannot retain the configured safety gap. */
+    seed_profiles(20u, 20005u, 20u);
+    calibration_runtime_init(NULL);
+    if (!require(calibration_runtime_blue_long(0u), "enter close-center calibration") ||
+        !require(calibration_runtime_yellow_short(0u), "start close-center sample")) return 0;
+    sample_result.valid = true;
+    sample_result.minimum_lux = 2000u;
+    sample_result.maximum_lux = 2000u;
+    sample_result.average_lux = 2000u;
+    sample_result.samples = 25u;
+    sample_pending = true;
+    calibration_runtime_service(5000u);
+    char event[192];
+    if (!require(store_calls == 0u, "unresolvable ranges are not saved") ||
+        !require(calibration_runtime_take_event(event, sizeof(event)),
+                 "close-center fit error is reported") ||
+        !require(strstr(event, "reason=centers-too-close") != NULL,
+                 "fit reports centers that cannot be separated")) return 0;
+    return 1;
+}
+
 int main(void) {
     if (!run_saved_floor_case(20u)) return 1; /* configured ±2.0 Lux */
     if (!run_saved_floor_case(30u)) return 1; /* configured ±3.0 Lux */
     if (!run_split_overlap_case(20u, 20030u)) return 1; /* ±2 Lux; 3 Lux apart */
     if (!run_split_overlap_case(30u, 20050u)) return 1; /* ±3 Lux; 5 Lux apart */
     if (!run_split_overlap_case(20u, 19970u)) return 1; /* reverse direction */
+    if (!run_unresolvable_overlap_case()) return 1;
     puts("physical-button light calibration tolerance smoke passed");
     return 0;
 }
