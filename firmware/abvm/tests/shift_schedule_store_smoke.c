@@ -35,6 +35,15 @@ static void load_v6(AbvmVm *vm){
  memcpy(bytes+sizeof(old.sequence),&old.payload,sizeof(old.payload));old.crc32=crc32_bytes(bytes,sizeof(bytes));
  memcpy(test_flash+CAL_OFFSET_A,&old,sizeof(old));
 }
+static void load_v7(AbvmVm *vm){
+ LegacyCalibrationRecordV7 old={0};old.magic=CAL_MAGIC;old.version=7;old.size=sizeof(old.payload);old.sequence=40;
+ memcpy(old.payload.binding,vm->header.program_sha256,32);old.payload.light_mask=1;
+ old.payload.light_low[0]=80;old.payload.light_high[0]=120;old.payload.host_boot_s=42;
+ old.payload.wake_flags=3;old.payload.shift_attempts=2;
+ uint8_t bytes[sizeof(old.sequence)+sizeof(old.payload)];memcpy(bytes,&old.sequence,sizeof(old.sequence));
+ memcpy(bytes+sizeof(old.sequence),&old.payload,sizeof(old.payload));old.crc32=crc32_bytes(bytes,sizeof(bytes));
+ memcpy(test_flash+CAL_OFFSET_A,&old,sizeof(old));
+}
 int main(void){
  test_flash=malloc(PICO_FLASH_SIZE_BYTES);assert(test_flash);memset(test_flash,255,PICO_FLASH_SIZE_BYTES);
  AbvmVm vm={0};memset(vm.header.program_sha256,0x11,32);load_v4(&vm);calibration_store_init(&vm);
@@ -69,5 +78,18 @@ int main(void){
  calibration_store_init(&vm);
  WakeStoreState reloaded={0};assert(calibration_store_wake_get(&reloaded));
  assert(reloaded.host_boot_s==31&&reloaded.next_start==1234&&reloaded.recovery_attempts==1);
+ memset(test_flash,255,PICO_FLASH_SIZE_BYTES);load_v7(&vm);calibration_store_init(&vm);
+ assert(calibration_store_light_tolerance()==10u);
+ assert(calibration_store_wake_get(&wake)&&wake.host_boot_s==42&&wake.host_asleep&&wake.pending);
+ assert(calibration_store_light_get(1,&lo,&hi)&&lo==80&&hi==120);
+ uint32_t lows[9]={80},highs[9]={115},centers[9]={100},saved_center=0;
+ assert(calibration_store_light_sync(1,lows,highs,centers,20));
+ calibration_store_init(&vm);assert(calibration_store_light_tolerance()==20u);
+ assert(calibration_store_light_get(1,&lo,&hi)&&lo==80&&hi==115);
+ assert(calibration_store_light_center(1,&saved_center)&&saved_center==100);
+ assert(calibration_store_wake_get(&wake)&&wake.host_boot_s==42);
+ corrupt_write=true;highs[0]=110;assert(!calibration_store_light_sync(1,lows,highs,centers,30));
+ assert(calibration_store_light_tolerance()==20u&&calibration_store_light_get(1,&lo,&hi)&&hi==115);
+ corrupt_write=false;calibration_store_init(&vm);assert(calibration_store_light_tolerance()==20u);
  free(test_flash);puts("actual NVM v6: v4/v6 migration, learned cold start, power loss, attempt limit, atomic successful reset and rollback passed");return 0;
 }

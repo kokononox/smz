@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 7u
+#define CAL_VERSION 8u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -27,6 +27,27 @@ typedef struct LegacyCalibrationPayloadV4 {
     uint16_t sound_silence[SOUND_PROFILE_COUNT];
     uint16_t sound_peak[SOUND_PROFILE_COUNT];
 } LegacyCalibrationPayloadV4;
+typedef struct LegacyCalibrationPayloadV7 {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
+    /* bit0 host asleep at last observation, bit1 a wake was still owed */
+    uint8_t wake_flags;
+    uint8_t wake_recovery;
+    uint16_t wake_next_start;
+    /* Learned cold start of this machine, in seconds; 0 = never measured.  It
+     * lands in the two bytes v6 left as trailing padding, so a v6 record and a v7
+     * record are the same size and the migration is a copy of the named fields. */
+    uint16_t host_boot_s;
+} LegacyCalibrationPayloadV7;
+typedef struct LegacyCalibrationRecordV7 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV7 payload;
+} LegacyCalibrationRecordV7;
 typedef struct CalibrationPayload {
     uint8_t binding[32];
     uint16_t light_mask;
@@ -43,6 +64,9 @@ typedef struct CalibrationPayload {
      * lands in the two bytes v6 left as trailing padding, so a v6 record and a v7
      * record are the same size and the migration is a copy of the named fields. */
     uint16_t host_boot_s;
+    uint32_t light_center[LIGHT_PROFILE_COUNT];
+    uint16_t light_center_mask;
+    uint16_t light_default_tolerance; /* 0 = legacy/default 1.0 lux */
 } CalibrationPayload;
 typedef struct LegacyCalibrationPayloadV5 {
     uint8_t binding[32];
@@ -89,7 +113,7 @@ typedef struct LegacyCalibrationRecordV6 {
     uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
     LegacyCalibrationPayloadV6 payload;
 } LegacyCalibrationRecordV6;
-_Static_assert(sizeof(CalibrationPayload)==sizeof(LegacyCalibrationPayloadV6),
+_Static_assert(sizeof(LegacyCalibrationPayloadV7)==sizeof(LegacyCalibrationPayloadV6),
                "the learned cold start must reuse the v6 trailing padding");
 
 typedef struct LegacyCalibrationPayloadV2 {
@@ -162,6 +186,12 @@ static bool legacy_v6_record_valid(const LegacyCalibrationRecordV6 *r,const uint
     memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
     return r->crc32==crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v7_record_valid(const LegacyCalibrationRecordV7 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=7u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -193,6 +223,17 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV7 *v7a=(const LegacyCalibrationRecordV7 *)a,*v7b=(const LegacyCalibrationRecordV7 *)b;
+        bool v7av=legacy_v7_record_valid(v7a,binding),v7bv=legacy_v7_record_valid(v7b,binding);
+        const LegacyCalibrationRecordV7 *v7=NULL;
+        if(v7av&&(!v7bv||(int32_t)(v7a->sequence-v7b->sequence)>0)){v7=v7a;active_offset=CAL_OFFSET_A;}
+        else if(v7bv){v7=v7b;active_offset=CAL_OFFSET_B;}
+        if(v7){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v7->sequence;
+            memcpy(&current.payload,&v7->payload,sizeof(v7->payload));
+            return;
+        }
         const LegacyCalibrationRecordV6 *v6a=(const LegacyCalibrationRecordV6 *)a,*v6b=(const LegacyCalibrationRecordV6 *)b;
         bool v6av=legacy_v6_record_valid(v6a,binding),v6bv=legacy_v6_record_valid(v6b,binding);
         const LegacyCalibrationRecordV6 *v6=NULL;
@@ -329,6 +370,30 @@ bool calibration_store_light_update(uint16_t update_mask,const uint32_t lows[9],
         current.payload.light_high[i]=highs[i];
     }
     current.payload.light_mask|=update_mask;
+    current.payload.light_center_mask&=(uint16_t)~update_mask;
+    if(persist())return true;
+    current=before;active_offset=before_offset;return false;
+}
+uint16_t calibration_store_light_tolerance(void){
+    return current.payload.light_default_tolerance ? current.payload.light_default_tolerance : 10u;
+}
+bool calibration_store_light_center(uint8_t id,uint32_t *center){
+    if(id<1u||id>9u||!center||!(current.payload.light_center_mask&(1u<<(id-1u))))return false;
+    *center=current.payload.light_center[id-1u];return true;
+}
+/* One A/B transaction for tolerance, centres and selected profile ranges. */
+bool calibration_store_light_sync(uint16_t mask,const uint32_t lows[9],const uint32_t highs[9],
+                                  const uint32_t centers[9],uint16_t tolerance){
+    if(!mask||(mask&~0x1ffu)||!lows||!highs||!centers||tolerance<1u||tolerance>10000u)return false;
+    for(uint8_t i=0;i<9u;i++)if(mask&(1u<<i))
+        if(lows[i]>centers[i]||centers[i]>highs[i]||highs[i]>1000000u)return false;
+    CalibrationRecord before=current;uint32_t before_offset=active_offset;
+    for(uint8_t i=0;i<9u;i++)if(mask&(1u<<i)){
+        current.payload.light_low[i]=lows[i];current.payload.light_high[i]=highs[i];
+        current.payload.light_center[i]=centers[i];
+    }
+    current.payload.light_mask|=mask;current.payload.light_center_mask|=mask;
+    current.payload.light_default_tolerance=tolerance;
     if(persist())return true;
     current=before;active_offset=before_offset;return false;
 }

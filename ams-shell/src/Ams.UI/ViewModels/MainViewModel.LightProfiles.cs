@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Text.Json;
 using Ams.UI.Models;
 using Ams.UI.Services;
 
@@ -12,6 +14,28 @@ public partial class MainViewModel
     private string _lightStateConfidenceDisplay = "—";
     private string _lightStateWarning = "";
     private string _lightProfileSaveStatus = "اعداد فعلی فرضی و قابل تنظیم‌اند.";
+    private static string PhysicalTolerancePath => Path.Combine(AppContext.BaseDirectory, "light-physical-tolerance.json");
+    private static double LoadPhysicalTolerance()
+    {
+        try { var n = JsonSerializer.Deserialize<double>(File.ReadAllText(PhysicalTolerancePath)); return n is >= 0.1 and <= 1000 && double.IsFinite(n) ? n : 1.0; }
+        catch { return 1.0; }
+    }
+    private double _physicalCalibrationToleranceLux = LoadPhysicalTolerance();
+    public double PhysicalCalibrationToleranceLux
+    {
+        get => _physicalCalibrationToleranceLux;
+        set => SetProperty(ref _physicalCalibrationToleranceLux, value);
+    }
+    private void SavePhysicalTolerance()
+    {
+        var n = PhysicalCalibrationToleranceLux;
+        if (!double.IsFinite(n) || n < 0.1 || n > 1000 || Math.Abs(n * 10 - Math.Round(n * 10)) > 0.000001)
+            throw new InvalidOperationException("تلورانس پیش‌فرض باید از ۰٫۱ تا ۱۰۰۰ با گام ۰٫۱ لوکس باشد.");
+        var tmp = PhysicalTolerancePath + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(n));
+        File.Move(tmp, PhysicalTolerancePath, overwrite: true);
+    }
+
 
     public ObservableCollection<LightStateProfile> LightStateProfiles { get; }
         = new(LightStateProfileStore.Load());
@@ -71,6 +95,7 @@ public partial class MainViewModel
 
         try
         {
+            SavePhysicalTolerance();
             LightStateProfileStore.Save(normalized);
             _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
             _lastClassifiedChartVersion = -1;
@@ -98,6 +123,19 @@ public partial class MainViewModel
         try
         {
             LightProfileSaveStatus = "در حال خواندن کالیبراسیون نوری از برد…";
+            var syncReply = await _bridge.SendAsync("CALSYNC|GET", 3);
+            if (syncReply.StartsWith("OK|CALSYNC|", StringComparison.Ordinal))
+            {
+                var snapshot = BoardLightSync.Parse(syncReply);
+                BoardLightSync.Apply(snapshot, LightStateProfiles);
+                PhysicalCalibrationToleranceLux = snapshot.Tolerance / 10.0;
+                if (!SaveLightStateProfiles()) return false;
+                LightProfileSaveStatus = $"۹ پروفایل و تلورانس پیش‌فرض از برد وارد و ذخیره شد · revision {snapshot.Revision}.";
+                return true;
+            }
+            if (syncReply != "ERR|COMMAND|unknown=CALSYNC|GET")
+                throw new InvalidOperationException(syncReply);
+
             var reply = await _bridge.SendAsync("CALDUMP|LIGHT", 3);
             if (reply == "ERR|COMMAND|unknown=CALDUMP|LIGHT")
             {
@@ -115,7 +153,7 @@ public partial class MainViewModel
             var imported = LightCalibrationDumpParser.Apply(dump, LightStateProfiles);
             if (!SaveLightStateProfiles()) return false;
             LightProfileSaveStatus =
-                $"{imported} پروفایل از برد وارد و ذخیره شد · revision {dump.Revision}.";
+                $"{imported} پروفایل از برد قدیمی وارد شد · تلورانس پیش‌فرض قابل خواندن نبود · revision {dump.Revision}.";
             return true;
         }
         catch (Exception ex)
@@ -123,6 +161,41 @@ public partial class MainViewModel
             LightProfileSaveStatus = ex.Message.Contains("ERR|TIMEOUT|CALDUMP", StringComparison.Ordinal)
                 ? "برد پاسخ CALDUMP نداد؛ Native UF2 همین نسخه را روی برد فلش و دوباره متصل کنید."
                 : "وارد کردن از برد ناموفق بود: " + ex.Message;
+            return false;
+        }
+    }
+
+    public async Task<bool> SendLightStateProfilesToBoardAsync()
+    {
+        if (_bridge is null || Connection != ConnectionState.Connected || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+        try
+        {
+            var command = BoardLightSync.BuildCommand(LightStateProfiles, PhysicalCalibrationToleranceLux);
+            if (!SaveLightStateProfiles()) return false;
+            LightProfileSaveStatus = "در حال ارسال پروفایل‌ها و تلورانس به برد…";
+            var reply = await _bridge.SendAsync(command, 5);
+            if (reply != "OK|CALSYNC|SET")
+            {
+                LightProfileSaveStatus = reply.StartsWith("ERR|COMMAND|unknown=", StringComparison.Ordinal)
+                    ? "فریمور قدیمی است؛ ابتدا Native UF2 همین نسخه را روی برد فلش کنید."
+                    : "ارسال به برد انجام نشد؛ اجرای برد و کالیبراسیون را متوقف و مقادیر را بررسی کنید: " + reply;
+                return false;
+            }
+            // Read the fitted bounds back: the board can trim facing edges.
+            var snapshot = BoardLightSync.Parse(await _bridge.SendAsync("CALSYNC|GET", 3));
+            BoardLightSync.Apply(snapshot, LightStateProfiles);
+            PhysicalCalibrationToleranceLux = snapshot.Tolerance / 10.0;
+            if (!SaveLightStateProfiles()) return false;
+            LightProfileSaveStatus = $"پروفایل‌ها و تلورانس روی برد ذخیره و بازه‌های نهایی وارد شدند · revision {snapshot.Revision}.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "ارسال یا خواندن تأیید برد ناموفق بود: " + ex.Message + "؛ پیش از تلاش دوباره، از برد وارد کنید.";
             return false;
         }
     }

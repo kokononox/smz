@@ -18,6 +18,7 @@ typedef struct LightCalibrationResult {
     uint32_t minimum_lux;
     uint32_t maximum_lux;
     uint32_t average_lux;
+    uint32_t average_tenths;
     uint32_t samples;
 } LightCalibrationResult;
 
