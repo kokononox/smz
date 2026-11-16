@@ -23,17 +23,16 @@ assert "mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s" in runtime
 assert "saved=0" not in runtime
 
 # Reuse the approved portable policy in tenths of lux: fixed centers, a
-# 0.3-lux integer-safe gap, and a 0.5-lux minimum half-width. The new candidate
-# gives up tolerance before an existing neighbour is changed.
+# 0.3-lux integer-safe gap, and a 0.5-lux minimum half-width. Configured
+# tolerance is the default, and overlapping facing edges share the adjustment.
 assert "#define LIGHT_FIT_GAP_TENTHS 3u" in runtime
 assert "#define LIGHT_FIT_MIN_TENTHS 5u" in runtime
-candidate_take = runtime.index(
-    "available=tolerances[selected]>LIGHT_FIT_MIN_TENTHS"
-)
-neighbour_take = runtime.index(
-    "available=tolerances[i]>LIGHT_FIT_MIN_TENTHS"
-)
-assert candidate_take < neighbour_take
+assert "uint32_t selected_tolerance=maximum(maximum(center-low,high-center)," in runtime
+assert "uint32_t required=highs[left]+LIGHT_FIT_GAP_TENTHS;" in runtime
+assert "uint32_t trim_left=excess/2u+excess%2u;" in runtime
+assert "uint32_t trim_right=excess/2u;" in runtime
+assert "highs[left]-=trim_left;" in runtime
+assert "lows[right]+=trim_right;" in runtime
 assert "reason=centers-too-close" in runtime
 assert "reason=centers-identical" in runtime
 assert "fit=%u|adjusted=%u|revision=%lu" in runtime

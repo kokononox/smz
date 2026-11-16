@@ -3,9 +3,9 @@
 Base: `main` at `7651e5a1`. No hardware flashing or physical-board test is performed by this change.
 
 - Problem: Classroom Studio profile tolerances were present in the flashed project, but the Pico's physical-button light calibration could narrow a profile to the firmware's generic minimum (0.5–1 Lux), even when the configured tolerance was larger.
-- Root cause: the physical-calibration fit replaced the selected profile's configured range with a sample-derived range and allowed overlap fitting to shrink profiles to a fixed 0.5 Lux floor.
-- Change: capture each profile's configured tolerance from the project ranges before loading saved board calibration; use it as a minimum during button-driven calibration and overlap fitting. If configured ranges cannot be made distinguishable without violating those minimums, reject the fit instead of silently narrowing them.
-- Validation: the host-side C11 regression smoke compiles the actual calibration runtime with `-Wall -Wextra -Werror` and verifies ±2.0 Lux, ±3.0 Lux, and an impossible-overlap case. GitHub Actions runs the same test on this PR.
+- Root cause: physical calibration did not reliably retain the configured tolerance, and overlap fitting did not split collisions between neighboring light profiles.
+- Change: capture each profile's configured tolerance before loading saved board calibration and use it as the starting width for physical-button calibration. When neighboring ranges overlap, trim their facing bounds approximately equally, preserve their outer bounds and a 0.3 Lux gap, and reject only if the centers are too close to retain the 0.5 Lux minimum half-width.
+- Validation: the host-side C11 regression smoke compiles the actual calibration runtime with `-Wall -Wextra -Werror` and verifies default ±2.0 Lux and ±3.0 Lux ranges, overlap splitting in both directions, and an unresolvable close-center case. GitHub Actions runs the same test on this PR.
 - Hardware result: none yet. A matching Native UF2 must be built and flashed before testing the physical-button flow. Next verify that a profile set to ±2 Lux remains ±2 Lux after calibration with Classroom Studio closed, then import the saved profile in the Status tab.
 
 # Power-off recovery over the machine's own power button — experimental
