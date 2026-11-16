@@ -372,6 +372,7 @@ public static class StepDefinitions
                 new("responseRoute", "Detection behavior", FieldKind.Combo, "inline", new[] { "inline", "splash" }),
                 new("timeoutMinSec", "Splash timeout minimum (seconds)", FieldKind.Int, "18"),
                 new("timeoutMaxSec", "Splash timeout maximum (seconds)", FieldKind.Int, "22"),
+                new("timeoutAlarmAfter", "Timeout warning after consecutive misses (1 = every timeout)", FieldKind.Int, "1"),
                 new("onTimeout", "On timeout", FieldKind.Combo, "global", new[] { "global", "stopWithAlarm", "stopQuiet", "continue" }),
                 new("armCuePreset", "Buzzer feedback after a successful Catch", FieldKind.Combo, "off", new[]
                     { "off", "short", "double", "notification", "warning", "success", "error", "rising", "falling", "custom" }),
@@ -397,7 +398,7 @@ public static class StepDefinitions
                 : PropEx.GetBool(s.Props, "armed")
                     ? $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · trigger ≥{PropEx.GetInt(s.Props, "threshold", 90)} → {PropEx.GetString(s.Props, "act", "left")} click (armed)"
                     : PropEx.GetString(s.Props, "responseRoute", "inline") == "splash"
-                        ? $"Catch sound ID {PropEx.GetInt(s.Props, "calibrationId", 2)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · timeout {PropEx.GetInt(s.Props, "timeoutMinSec", 18)}–{PropEx.GetInt(s.Props, "timeoutMaxSec", 22)}s · detected → child response"
+                        ? $"Catch sound ID {PropEx.GetInt(s.Props, "calibrationId", 2)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · timeout {PropEx.GetInt(s.Props, "timeoutMinSec", 18)}–{PropEx.GetInt(s.Props, "timeoutMaxSec", 22)}s · alarm after {PropEx.GetInt(s.Props, "timeoutAlarmAfter", 1)} consecutive timeout(s) · detected → child response"
                         : $"Sound ID {PropEx.GetInt(s.Props, "calibrationId", 1)} · Peak {PropEx.GetInt(s.Props, "peakMin", 0)}–{PropEx.GetInt(s.Props, "peakMax", 511)} · P{PropEx.GetInt(s.Props, "soundPriority", 0)} · timeout {PropEx.GetInt(s.Props, "timeoutMs", 20000)}ms · {TimeoutPolicyText(s)}",
             Commands = s =>
             {
