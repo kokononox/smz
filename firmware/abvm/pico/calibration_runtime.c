@@ -35,9 +35,9 @@ typedef struct CalibrationState {
     char event[192]; bool event_pending;
 } CalibrationState;
 static CalibrationState cal;
-/* Floor for each profile, captured from the compiled Classroom Studio ranges
- * before saved calibrations are overlaid. Physical-button calibration must not
- * silently narrow a user-configured LuxTolerance. */
+/* Default tolerance for each profile, captured from compiled Classroom Studio
+ * ranges before saved calibrations are overlaid. Neighboring overlaps can trim
+ * their facing bounds to split the shared interval. */
 static uint32_t configured_light_tolerance[LIGHT_PROFILE_COUNT];
 static void emit(const char *format,...){va_list a;va_start(a,format);vsnprintf(cal.event,sizeof(cal.event),format,a);va_end(a);cal.event_pending=true;}
 static void apply_saved_light(void){for(uint8_t id=1;id<=LIGHT_PROFILE_COUNT;++id){uint32_t lo,hi;if(calibration_store_light_get(id,&lo,&hi))guard_runtime_set_profile_range(id,lo,hi);}}
@@ -79,7 +79,6 @@ bool calibration_runtime_yellow_short(uint32_t now){
 }
 static uint32_t maximum(uint32_t a,uint32_t b){return a>b?a:b;}
 static uint32_t minimum(uint32_t a,uint32_t b){return a<b?a:b;}
-static uint32_t distance(uint32_t a,uint32_t b){return a>b?a-b:b-a;}
 static void range_from_center(uint32_t center,uint32_t tolerance,
                               uint32_t *low,uint32_t *high){
     *low=center>tolerance?center-tolerance:0u;
@@ -88,8 +87,7 @@ static void range_from_center(uint32_t center,uint32_t tolerance,
 static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
                                uint32_t samples){
     uint32_t lows[LIGHT_PROFILE_COUNT],highs[LIGHT_PROFILE_COUNT];
-    uint32_t centers[LIGHT_PROFILE_COUNT],tolerances[LIGHT_PROFILE_COUNT];
-    uint32_t minimum_tolerances[LIGHT_PROFILE_COUNT];
+    uint32_t centers[LIGHT_PROFILE_COUNT];
     bool adjusted_profile[LIGHT_PROFILE_COUNT]={false};
     uint8_t selected=(uint8_t)(cal.profile-1u);
     uint16_t update_mask=(uint16_t)(1u<<selected);
@@ -101,67 +99,70 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
                  guard_runtime_profile_name(cal.profile));return false;
         }
         centers[i]=lows[i]+(highs[i]-lows[i])/2u;
-        tolerances[i]=maximum(centers[i]-lows[i],highs[i]-centers[i]);
-        minimum_tolerances[i]=configured_light_tolerance[i];
-        if(minimum_tolerances[i]<LIGHT_FIT_MIN_TENTHS)
-            minimum_tolerances[i]=LIGHT_FIT_MIN_TENTHS;
-        /* A legacy saved range can be narrower than the project setting. Bring
-         * it back to its configured floor before fitting this calibration. */
-        if(tolerances[i]<minimum_tolerances[i]){
-            tolerances[i]=minimum_tolerances[i];
-            range_from_center(centers[i],tolerances[i],&lows[i],&highs[i]);
+        uint32_t tolerance=maximum(centers[i]-lows[i],highs[i]-centers[i]);
+        uint32_t configured=configured_light_tolerance[i];
+        /* Start from the configured width, even if a previous saved range is
+         * narrower. Any collision is handled by trimming only facing edges. */
+        if(tolerance<configured){
+            range_from_center(centers[i],configured,&lows[i],&highs[i]);
             update_mask|=(uint16_t)(1u<<i);
             fitted=true;
             if(i!=selected){adjusted_profile[i]=true;++adjusted;}
         }
     }
-    lows[selected]=low;highs[selected]=high;centers[selected]=center;
-    tolerances[selected]=maximum(maximum(center-low,high-center),
-                                 minimum_tolerances[selected]);
+    uint32_t selected_tolerance=maximum(maximum(center-low,high-center),
+                                        configured_light_tolerance[selected]);
+    centers[selected]=center;
+    range_from_center(center,selected_tolerance,&lows[selected],&highs[selected]);
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
         if(i==selected)continue;
-        uint32_t apart=distance(centers[selected],centers[i]);
         /*
          * Two environments with the same measured centre are not physically
          * distinguishable.  Do not manufacture two tiny ranges around the
          * same value; fail closed and ask the operator to change the scene.
          */
-        if(apart==0u){
+        if(centers[selected]==centers[i]){
             emit("ERR|CAL|FIT|id=%s|with=%s|reason=centers-identical|gap=%u",
                  guard_runtime_profile_name(cal.profile),
                  guard_runtime_profile_name((uint8_t)(i+1u)),
                  LIGHT_FIT_GAP_TENTHS);
             return false;
         }
-        uint32_t allowance=apart>LIGHT_FIT_GAP_TENTHS?
-            apart-LIGHT_FIT_GAP_TENTHS:0u;
-        uint32_t combined=tolerances[selected]+tolerances[i];
-        if(combined<=allowance)continue;
-        uint32_t excess=combined-allowance;
-        uint32_t available=tolerances[selected]>minimum_tolerances[selected]?
-            tolerances[selected]-minimum_tolerances[selected]:0u;
-        uint32_t take=minimum(excess,available);
-        tolerances[selected]-=take;excess-=take;
-        if(take)fitted=true;
-        available=tolerances[i]>minimum_tolerances[i]?
-            tolerances[i]-minimum_tolerances[i]:0u;
-        take=minimum(excess,available);
-        tolerances[i]-=take;excess-=take;
-        if(take){
-            fitted=true;
-            if(!adjusted_profile[i]){++adjusted;adjusted_profile[i]=true;}
-            update_mask|=(uint16_t)(1u<<i);
-            range_from_center(centers[i],tolerances[i],&lows[i],&highs[i]);
-        }
-        if(excess){
+        /* Split overlap between adjacent positions by trimming each facing
+         * edge about equally, while preserving their outer edges and a small
+         * non-overlap gap. */
+        uint8_t left=centers[selected]<centers[i]?selected:i;
+        uint8_t right=centers[selected]<centers[i]?i:selected;
+        uint32_t required=highs[left]+LIGHT_FIT_GAP_TENTHS;
+        if(required<=lows[right])continue;
+        uint32_t excess=required-lows[right];
+        uint32_t left_min=centers[left]+LIGHT_FIT_MIN_TENTHS;
+        uint32_t right_max=centers[right]>LIGHT_FIT_MIN_TENTHS?
+            centers[right]-LIGHT_FIT_MIN_TENTHS:0u;
+        uint32_t can_trim_left=highs[left]>left_min?highs[left]-left_min:0u;
+        uint32_t can_trim_right=right_max>lows[right]?right_max-lows[right]:0u;
+        uint32_t trim_left=excess/2u+excess%2u;
+        uint32_t trim_right=excess/2u;
+        if(trim_left>can_trim_left)trim_left=can_trim_left;
+        if(trim_right>can_trim_right)trim_right=can_trim_right;
+        uint32_t remaining=excess-trim_left-trim_right;
+        uint32_t extra=minimum(remaining,can_trim_left-trim_left);
+        trim_left+=extra;remaining-=extra;
+        extra=minimum(remaining,can_trim_right-trim_right);
+        trim_right+=extra;remaining-=extra;
+        if(remaining){
             emit("ERR|CAL|FIT|id=%s|with=%s|reason=centers-too-close|gap=%u",
                  guard_runtime_profile_name(cal.profile),
                  guard_runtime_profile_name((uint8_t)(i+1u)),
                  LIGHT_FIT_GAP_TENTHS);
             return false;
         }
+        highs[left]-=trim_left;
+        lows[right]+=trim_right;
+        update_mask|=(uint16_t)((1u<<left)|(1u<<right));
+        fitted=true;
+        if(!adjusted_profile[i]){++adjusted;adjusted_profile[i]=true;}
     }
-    range_from_center(center,tolerances[selected],&lows[selected],&highs[selected]);
     if(!calibration_store_light_update(update_mask,lows,highs)){
         emit("ERR|CAL|SAVE|kind=light|id=%s",
              guard_runtime_profile_name(cal.profile));return false;

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #define PROFILE_COUNT 9u
+#define FIT_GAP_TENTHS 3u
 
 static uint32_t profile_low[PROFILE_COUNT];
 static uint32_t profile_high[PROFILE_COUNT];
@@ -112,11 +113,9 @@ static int run_saved_floor_case(uint32_t configured_tolerance) {
     return 1;
 }
 
-static int run_overlap_floor_case(void) {
-    /* Centers are only 3 Lux apart, so two configured ±2 Lux ranges cannot be
-     * made disjoint. Calibration must fail rather than silently shrink either
-     * configured tolerance below 2 Lux. */
-    seed_profiles(20u, 20030u, 20u);
+static int run_split_overlap_case(uint32_t tolerance,
+                                  uint32_t neighbor_center) {
+    seed_profiles(tolerance, neighbor_center, tolerance);
     calibration_runtime_init(NULL);
     if (!require(calibration_runtime_blue_long(0u), "enter overlap calibration") ||
         !require(calibration_runtime_yellow_short(0u), "start overlap sample")) return 0;
@@ -128,17 +127,50 @@ static int run_overlap_floor_case(void) {
     sample_pending = true;
     calibration_runtime_service(5000u);
     char event[192];
-    if (!require(store_calls == 0u, "impossible configured ranges are not saved") ||
-        !require(calibration_runtime_take_event(event, sizeof(event)), "fit error is reported") ||
-        !require(strstr(event, "reason=centers-too-close") != NULL,
-                 "fit reports that configured ranges cannot be separated")) return 0;
+    uint32_t selected_low = 20000u - tolerance;
+    uint32_t selected_high = 20000u + tolerance;
+    uint32_t neighbor_low = neighbor_center - tolerance;
+    uint32_t neighbor_high = neighbor_center + tolerance;
+    bool selected_is_left = 20000u < neighbor_center;
+    uint32_t left_high = selected_is_left ? selected_high : neighbor_high;
+    uint32_t right_low = selected_is_left ? neighbor_low : selected_low;
+    uint32_t excess = left_high + FIT_GAP_TENTHS - right_low;
+    uint32_t trim_left = excess / 2u + excess % 2u;
+    uint32_t trim_right = excess / 2u;
+    uint32_t expected_selected_low = selected_is_left ?
+        selected_low : selected_low + trim_right;
+    uint32_t expected_selected_high = selected_is_left ?
+        selected_high - trim_left : selected_high;
+    uint32_t expected_neighbor_low = selected_is_left ?
+        neighbor_low + trim_right : neighbor_low;
+    uint32_t expected_neighbor_high = selected_is_left ?
+        neighbor_high : neighbor_high - trim_left;
+    if (!require(store_calls == 1u, "overlap split is persisted") ||
+        !require((stored_mask & 3u) == 3u, "both adjacent profiles are persisted") ||
+        !require(stored_low[0] == expected_selected_low,
+                 "selected profile's bounds are fitted on the correct side") ||
+        !require(stored_high[0] == expected_selected_high,
+                 "selected profile's bounds are fitted on the correct side") ||
+        !require(stored_low[1] == expected_neighbor_low,
+                 "neighbor profile's bounds are fitted on the correct side") ||
+        !require(stored_high[1] == expected_neighbor_high,
+                 "neighbor profile's bounds are fitted on the correct side") ||
+        !require((selected_is_left ? stored_low[1] - stored_high[0] :
+                                     stored_low[0] - stored_high[1]) == FIT_GAP_TENTHS,
+                 "split preserves the non-overlap gap") ||
+        !require(calibration_runtime_take_event(event, sizeof(event)),
+                 "split success is reported") ||
+        !require(strstr(event, "mode=saved") != NULL,
+                 "overlapping configured ranges are saved after splitting")) return 0;
     return 1;
 }
 
 int main(void) {
     if (!run_saved_floor_case(20u)) return 1; /* configured ±2.0 Lux */
     if (!run_saved_floor_case(30u)) return 1; /* configured ±3.0 Lux */
-    if (!run_overlap_floor_case()) return 1;
+    if (!run_split_overlap_case(20u, 20030u)) return 1; /* ±2 Lux; 3 Lux apart */
+    if (!run_split_overlap_case(30u, 20050u)) return 1; /* ±3 Lux; 5 Lux apart */
+    if (!run_split_overlap_case(20u, 19970u)) return 1; /* reverse direction */
     puts("physical-button light calibration tolerance smoke passed");
     return 0;
 }
