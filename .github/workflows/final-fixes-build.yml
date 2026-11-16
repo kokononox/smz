@@ -5,6 +5,17 @@ on:
     branches: [fix/classroom-studio-final-20260914]
   pull_request:
     branches: [main]
+    # This one-off patch/build workflow only applies to the files it edits.
+    # Keep unrelated firmware PRs from running its brittle source-rewrite step.
+    paths:
+      - 'ams-shell/src/Ams.UI/Models/StepDefinitions.cs'
+      - 'ams-shell/src/Ams.UI/Services/RunEngine.cs'
+      - 'ams-shell/src/Ams.UI/Services/ScriptGenerator.cs'
+      - 'ams-shell/src/Ams.UI/Services/PlanExporter.cs'
+      - 'ams-shell/src/Ams.UI/Models/StepTextsFa.cs'
+      - 'ams-shell/src/Ams.UI/MainWindow.FooterUi.cs'
+      - 'ams-shell/src/Ams.UI/Services/PicoFirmwareExporter.cs'
+      - 'firmware/autocycle-hostusb-v5/code.py'
 
 permissions:
   contents: write
