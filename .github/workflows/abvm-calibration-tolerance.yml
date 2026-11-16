@@ -1,0 +1,31 @@
+name: ABVM physical light calibration tolerance
+
+on:
+  pull_request:
+    paths:
+      - 'firmware/abvm/pico/calibration_runtime.c'
+      - 'firmware/abvm/tests/abvm_calibration_tolerance_smoke.c'
+      - 'firmware/abvm/tests/test_abvm_calibration_tolerance.py'
+      - '.github/workflows/abvm-calibration-tolerance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/abvm/pico/calibration_runtime.c'
+      - 'firmware/abvm/tests/abvm_calibration_tolerance_smoke.c'
+      - 'firmware/abvm/tests/test_abvm_calibration_tolerance.py'
+      - '.github/workflows/abvm-calibration-tolerance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and exercise physical calibration tolerance
+        run: python firmware/abvm/tests/test_abvm_calibration_tolerance.py
