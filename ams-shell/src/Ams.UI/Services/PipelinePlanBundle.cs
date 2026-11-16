@@ -111,6 +111,12 @@ public static class PipelinePlanBundle
         {
             foreach (var node in nodes)
             {
+                if (!node.IsDisabled && node.Type == "waitForSound")
+                {
+                    int alarmAfter = PropEx.GetInt(node.Props, "timeoutAlarmAfter", 1);
+                    if (alarmAfter is < 1 or > 255)
+                        errors.Add(tab + ": تعداد Timeout پیاپی برای اعلان باید بین ۱ تا ۲۵۵ باشد.");
+                }
                 if (!node.IsDisabled && node.Type == "waitForSound"
                     && !PropEx.GetBool(node.Props, "armed")
                     && !PropEx.GetBool(node.Props, "insertIfElse"))

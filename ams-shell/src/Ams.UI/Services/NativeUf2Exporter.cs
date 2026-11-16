@@ -95,6 +95,8 @@ public static class NativeUf2Exporter
                 ["enabled"] = profile.Enabled,
                 ["luxCenter"] = profile.LuxCenter,
                 ["luxTolerance"] = profile.LuxTolerance,
+                ["luxMin"] = profile.LuxMin,
+                ["luxMax"] = profile.LuxMax,
                 ["stableDurationMs"] = profile.StableDurationMs,
                 ["hysteresisLux"] = profile.HysteresisLux,
                 ["lightCooldownMs"] = profile.LightCooldownMs,
