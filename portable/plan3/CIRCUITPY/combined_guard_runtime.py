@@ -342,11 +342,47 @@ class Combined:
         if vk == 164: return 226
         if vk == 91: return 227
         return 8
+    @staticmethod
+    def _text_key(ch):
+        """Return (USB HID usage, Shift required) for one US-layout ASCII character."""
+        value = ord(ch)
+        if 97 <= value <= 122: return value - 93, False
+        if 65 <= value <= 90: return value - 61, True
+        if 49 <= value <= 57: return value - 19, False
+        if value == 48: return 39, False
+        if ch == " ": return 44, False
+        if ch in ("\n", "\r"): return 40, False
+        if ch == "\t": return 43, False
+        if ch == "\b": return 42, False
+        shifted_digits = "!@#$%^&*()"
+        index = shifted_digits.find(ch)
+        if index >= 0:
+            return (30 + index if index < 9 else 39), True
+        # Each pair is the unshifted/shifted character on the same US key.
+        punctuation = "-_=+[{]}\\|;:'\"`~,.<>/?"
+        index = punctuation.find(ch)
+        if index >= 0:
+            usages = (45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56)
+            return usages[index // 2], bool(index & 1)
+        raise ValueError("unsupported character for US keyboard: %r" % ch)
+
     def type_text(self, text, hmin, hmax, ctx):
         for ch in text:
             if not ctx.gate(): raise RuntimeError("route aborted")
-            code = self.key(ord(ch.upper())) if ch.isalnum() else self.key(32 if ch == " " else 13)
-            self.keyboard.press(code); self.keyboard.release(code)
+            code, shifted = self._text_key(ch)
+            shift_pressed = False
+            key_pressed = False
+            try:
+                if shifted:
+                    self.keyboard.press(225)  # Left Shift modifier (HID 0xE1).
+                    shift_pressed = True
+                self.keyboard.press(code)
+                key_pressed = True
+                # Keep the key-down report visible for at least one USB poll.
+                if not ctx.sleep_ms(10): raise RuntimeError("route aborted")
+            finally:
+                if key_pressed: self.keyboard.release(code)
+                if shift_pressed: self.keyboard.release(225)
             if not ctx.sleep_ms(hmax if hmax > hmin else hmin): raise RuntimeError("route aborted")
     def emit(self, line):
         try: self.usb.write((line + "\n").encode())
