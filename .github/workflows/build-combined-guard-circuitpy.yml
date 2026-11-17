@@ -1,0 +1,48 @@
+name: Build Combined Guard CircuitPython bundle
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'portable/plan3/CIRCUITPY/**'
+      - 'portable/plan3/sim/test_type_text_shift.py'
+      - '.github/workflows/build-combined-guard-circuitpy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Verify and package CircuitPython bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stage, verify, and compile bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir=portable/plan3/CIRCUITPY
+          stage="$RUNNER_TEMP/Pico-Combined-Guard-CIRCUITPY"
+          mkdir -p "$stage"
+          cp "$source_dir/README-FLASH.md" "$source_dir/SHA256SUMS.txt" "$stage/"
+          while read -r _ name; do
+            cp "$source_dir/$name" "$stage/$name"
+          done < "$source_dir/SHA256SUMS.txt"
+          (cd "$stage" && sha256sum -c SHA256SUMS.txt)
+          python -m py_compile "$stage"/*.py
+          find "$stage" -type d -name __pycache__ -prune -exec rm -rf {} +
+          (cd "$stage" && zip -qr "$RUNNER_TEMP/Pico-Combined-Guard-CIRCUITPY.zip" .)
+          sha256sum "$RUNNER_TEMP/Pico-Combined-Guard-CIRCUITPY.zip" | awk '{print toupper($1)}' > "$RUNNER_TEMP/Pico-Combined-Guard-CIRCUITPY.sha256"
+
+      - name: Upload verified bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pico-Combined-Guard-CIRCUITPY
+          path: |
+            ${{ runner.temp }}/Pico-Combined-Guard-CIRCUITPY.zip
+            ${{ runner.temp }}/Pico-Combined-Guard-CIRCUITPY.sha256
+          retention-days: 14
+          if-no-files-found: error
