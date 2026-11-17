@@ -70,6 +70,24 @@ for (code, state), (expected_code, shifted) in zip(key_downs, expected):
 assert not runtime.keyboard.down, runtime.keyboard.down
 assert context.delays.count(10) == len(text), context.delays
 
+# An abort during the key-down interval still releases both the key and Shift.
+class AbortDuringHold(FakeContext):
+    def sleep_ms(self, milliseconds):
+        self.delays.append(milliseconds)
+        return milliseconds != 10
+
+aborted_runtime = Runtime()
+try:
+    aborted_runtime.type_text("A", 0, 0, AbortDuringHold())
+except RuntimeError as exc:
+    assert str(exc) == "route aborted"
+else:
+    raise AssertionError("typing abort was ignored")
+assert not aborted_runtime.keyboard.down, aborted_runtime.keyboard.down
+assert [event[:2] for event in aborted_runtime.keyboard.events] == [
+    ("press", 225), ("press", 4), ("release", 4), ("release", 225)
+]
+
 # Unsupported Unicode must fail closed, not become Enter or another key.
 try:
     runtime.type_text("é", 0, 0, FakeContext())
