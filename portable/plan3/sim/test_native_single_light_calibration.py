@@ -16,15 +16,20 @@ service = runtime.split("static void service_light(void)", 1)[1]
 yellow = runtime.split(
     "bool calibration_runtime_yellow_short(uint32_t now)", 1
 )[1].split("static uint32_t maximum", 1)[0]
-assert "fit_and_save_light(center,low,high,r.samples)" in service
+assert "fit_and_save_light(center,low,high,tolerance,r.samples)" in service
+assert "uint32_t tolerance=calibration_store_light_tolerance();" in service
 assert "PHASE_LIGHT_RESULT" not in runtime
 assert "calibration_store_light_set" not in yellow
 assert "mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s" in runtime
 assert "saved=0" not in runtime
 
-# Preserve measured centres and trim only facing edges, with one tenth separation.
+# A physical calibration keeps its full requested tolerance; only an adjacent
+# profile's facing edge may move, while its measured centre remains included.
 fit = (pico / "light_range_fit.h").read_text(encoding="utf-8")
 assert "light_ranges_fit(lows,highs,centers,&changed)" in runtime
+assert "light_ranges_fit_preserving_selected(lows,highs,centers,selected,&changed)" in runtime
+assert "lows[selected]=low;highs[selected]=high;centers[selected]=center;" in runtime
+assert "calibration_store_light_sync(update_mask,lows,highs,centers,(uint16_t)tolerance)" in runtime
 assert "reason=centers-too-close" in runtime
 assert "fit=%u|adjusted=%u|revision=%lu" in runtime
 assert "center[a]+(center[b]-center[a])/2u" in fit
@@ -58,4 +63,4 @@ for text in (guard, guard_h):
 assert "if(update_mask&(1u<<i))" in runtime
 assert "guard_runtime_set_profile_range" in runtime
 
-print("native single-stage light calibration: 24 passed, 0 failed")
+print("native single-stage light calibration: selected tolerance and overlap contracts pass")
