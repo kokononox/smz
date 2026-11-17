@@ -355,30 +355,29 @@ jobs:
           ) | Set-Content "$out/LIGHT-STATE-TEST.txt" -Encoding utf8
       - name: Stage and verify corrected CircuitPython runtime
         if: success()
-        shell: pwsh
+        shell: bash
         run: |
-          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
-          $source = 'portable/plan3/CIRCUITPY'
-          $bundle = Join-Path $out 'CIRCUITPY'
-          if (-not (Test-Path "$out/ClassroomStudio.exe")) { throw 'Classroom Studio executable missing' }
-          New-Item -ItemType Directory -Force $bundle | Out-Null
-          Copy-Item "$source/README-FLASH.md", "$source/SHA256SUMS.txt" -Destination $bundle
-          foreach ($line in Get-Content "$source/SHA256SUMS.txt") {
-            $match = [regex]::Match($line, '^([A-Fa-f0-9]{64})\s{2}(.+)$')
-            if (-not $match.Success) { throw "Invalid CIRCUITPY checksum line: $line" }
-            $expected = $match.Groups[1].Value.ToLowerInvariant()
-            $name = $match.Groups[2].Value.Trim()
-            $sourceFile = Join-Path $source $name
-            $targetFile = Join-Path $bundle $name
-            Copy-Item -LiteralPath $sourceFile -Destination $targetFile
-            $actual = (Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actual -ne $expected) { throw "CIRCUITPY checksum mismatch: $name" }
-          }
-          @(
-            'Classroom Studio Windows build with the corrected Shift-aware CircuitPython typing runtime.',
-            'The complete verified board-side bundle is in the CIRCUITPY folder.',
-            'For board installation, follow CIRCUITPY/README-FLASH.md.'
-          ) | Set-Content "$out/README-SHIFT-TEXT-FIX.txt" -Encoding utf8
+          set -euo pipefail
+          out='ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          source='portable/plan3/CIRCUITPY'
+          bundle="$out/CIRCUITPY"
+          test -f "$out/ClassroomStudio.exe"
+          mkdir -p "$bundle"
+          git show "HEAD:$source/README-FLASH.md" > "$bundle/README-FLASH.md"
+          git show "HEAD:$source/SHA256SUMS.txt" > "$bundle/SHA256SUMS.txt"
+          while read -r expected name; do
+            git show "HEAD:$source/$name" > "$bundle/$name"
+            actual="$(python -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$bundle/$name")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "CIRCUITPY checksum mismatch: $name (expected $expected, got $actual)" >&2
+              exit 1
+            fi
+          done < "$bundle/SHA256SUMS.txt"
+          cat > "$out/README-SHIFT-TEXT-FIX.txt" <<'EOF'
+          Classroom Studio Windows build with the corrected Shift-aware CircuitPython typing runtime.
+          The complete verified board-side bundle is in the CIRCUITPY folder.
+          For board installation, follow CIRCUITPY/README-FLASH.md.
+          EOF
 
       - name: Package corrected Windows application
         if: success()
