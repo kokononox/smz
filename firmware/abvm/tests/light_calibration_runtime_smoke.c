@@ -30,7 +30,9 @@ bool calibration_store_sound_set(uint16_t a,uint16_t b,uint16_t c,uint16_t d,uin
 int main(void){
  calibration_runtime_init(NULL);assert(calibration_runtime_blue_long(0));assert(calibration_runtime_yellow_short(1));
  calibration_runtime_service(5001);
- assert(lo[0]==80&&hi[0]==115&&lo[1]==116&&hi[1]==150&&centers[0]==100&&centers[1]==130);
+ /* The newly calibrated profile keeps its full 2.0-lux range; only its
+  * neighbor's facing edge is moved out of the way. */
+ assert(lo[0]==80&&hi[0]==120&&lo[1]==121&&hi[1]==150&&centers[0]==100&&centers[1]==130);
  assert((saved_mask&3)==3&&margin==20);
  /* A failed flash write must not apply the candidate to the running guard. */
  fail_save=true;uint32_t before=hi[0];assert(calibration_runtime_yellow_short(6000));calibration_runtime_service(11000);assert(hi[0]==before);

@@ -70,18 +70,19 @@ bool calibration_runtime_light_sync(uint32_t lows[9],uint32_t highs[9],uint32_t 
     for(uint8_t i=0;i<9u;i++)guard_runtime_set_profile_range((uint8_t)(i+1u),lows[i],highs[i]);
     return true;
 }
-static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,uint32_t samples){
+static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
+                               uint32_t tolerance,uint32_t samples){
     uint32_t lows[9],highs[9],centers[9];uint16_t changed=0;
     uint8_t selected=(uint8_t)(cal.profile-1u);
     if(!calibration_runtime_light_snapshot(lows,highs,centers)){
         emit("ERR|CAL|FIT|id=%s|reason=profile-missing",guard_runtime_profile_name(cal.profile));return false;
     }
     lows[selected]=low;highs[selected]=high;centers[selected]=center;
-    if(!light_ranges_fit(lows,highs,centers,&changed)){
+    if(!light_ranges_fit_preserving_selected(lows,highs,centers,selected,&changed)){
         emit("ERR|CAL|FIT|id=%s|reason=centers-too-close",guard_runtime_profile_name(cal.profile));return false;
     }
     uint16_t update_mask=(uint16_t)(changed|(1u<<selected));
-    if(!calibration_store_light_sync(update_mask,lows,highs,centers,calibration_store_light_tolerance())){
+    if(!calibration_store_light_sync(update_mask,lows,highs,centers,(uint16_t)tolerance)){
         emit("ERR|CAL|SAVE|kind=light|id=%s",guard_runtime_profile_name(cal.profile));return false;
     }
     uint8_t adjusted=0;
@@ -110,7 +111,7 @@ static void service_light(void){
     uint32_t low=center>tolerance?center-tolerance:0u;
     uint32_t high=center+tolerance;
     if(high>1000000u){cal.phase=PHASE_READY;emit("ERR|CAL|FIT|reason=out-of-range");return;}
-    if(!fit_and_save_light(center,low,high,r.samples))cal.phase=PHASE_READY;
+    if(!fit_and_save_light(center,low,high,tolerance,r.samples))cal.phase=PHASE_READY;
 }
 static void request_sound(uint32_t now){if(!arm_uart_sound_calibration_start(now,SOUND_SAMPLE_MS))emit("ERR|SOUNDCAL|ARM-BUSY|id=%u",cal.profile);}
 static void service_sound(uint32_t now){uint16_t avg,peak;if(cal.mode!=CAL_MODE_SOUND||!arm_uart_sound_calibration_take(&avg,&peak))return;if(cal.phase==PHASE_SOUND_SILENCE){if(avg>cal.silence_peak)cal.silence_peak=avg;if(peak>cal.silence_peak)cal.silence_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_SILENCE_MS))>=0){cal.phase=PHASE_SOUND_TARGET;cal.phase_started=now;emit("EVT|SOUNDCAL|mode=sound|id=%u|seconds=30|silence=%u",cal.profile,cal.silence_peak);}request_sound(now);return;}if(cal.phase==PHASE_SOUND_TARGET){if(avg>cal.sound_peak)cal.sound_peak=avg;if(peak>cal.sound_peak)cal.sound_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_TARGET_MS))<0){request_sound(now);return;}if(cal.sound_peak<=cal.silence_peak+SOUND_MIN_SEPARATION){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|NO-SEPARATION|id=%u|silence=%u|peak=%u",cal.profile,cal.silence_peak,cal.sound_peak);return;}uint16_t threshold=(uint16_t)((cal.silence_peak+cal.sound_peak)/2u);if(!calibration_store_sound_set(cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak)){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|SAVE|id=%u",cal.profile);return;}cal.phase=PHASE_SOUND_COMPLETE;emit("EVT|SOUNDCAL|mode=saved|id=%u|threshold=%u|min=%u|silence=%u|peak=%u|revision=%lu",cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak,(unsigned long)calibration_store_revision());}}
