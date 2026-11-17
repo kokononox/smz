@@ -370,19 +370,21 @@ class Combined:
         for ch in text:
             if not ctx.gate(): raise RuntimeError("route aborted")
             code, shifted = self._text_key(ch)
-            shift_pressed = False
-            key_pressed = False
+            shift_attempted = False
+            key_attempted = False
             try:
                 if shifted:
+                    shift_attempted = True
                     self.keyboard.press(225)  # Left Shift modifier (HID 0xE1).
-                    shift_pressed = True
+                key_attempted = True
                 self.keyboard.press(code)
-                key_pressed = True
                 # Keep the key-down report visible for at least one USB poll.
                 if not ctx.sleep_ms(10): raise RuntimeError("route aborted")
             finally:
-                if key_pressed: self.keyboard.release(code)
-                if shift_pressed: self.keyboard.release(225)
+                try:
+                    if key_attempted: self.keyboard.release(code)
+                finally:
+                    if shift_attempted: self.keyboard.release(225)
             if not ctx.sleep_ms(hmax if hmax > hmin else hmin): raise RuntimeError("route aborted")
     def emit(self, line):
         try: self.usb.write((line + "\n").encode())
