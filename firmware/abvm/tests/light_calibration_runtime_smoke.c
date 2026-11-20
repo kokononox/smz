@@ -68,6 +68,10 @@ int main(void){
  assert(calibration_runtime_blue_short(18000));sample_center=200;
  assert(calibration_runtime_yellow_short(18001));calibration_runtime_service(23001);
  assert_shared_fit();
+ /* Non-overlapping profiles retain the configured full +/-2.0-lux range. */
+ assert(calibration_runtime_blue_short(24000));margin=20;sample_center=400;
+ assert(calibration_runtime_yellow_short(24001));calibration_runtime_service(29001);
+ assert(lo[3]==380&&hi[3]==420&&base_lo[3]==380&&base_hi[3]==420&&margin==20);
 
  /* A reboot reconstructs the same fit from the saved nominal ranges. */
  calibration_runtime_init(NULL);assert_shared_fit();

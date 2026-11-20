@@ -552,9 +552,12 @@ static void print_status(void) {
     printf("STATUS|state=%s|route=%u|lanes=%u|pc0=%lu|pc1=%lu|frames0=%u|frames1=%u|suspended=%u|hid-busy=%u|sound-active=%u|light-present=%u|light-watch=%u|light-cal=%u|guard=%u|guard-paused=%u|guard-profile=%s|guard-stage=%u|cycle=%u|time=%lu|pico-usb=%u|pico-rw=%u|wake=%u|wake-target=%02u:%02u|wake-synced=%u|wake-wall=%02u:%02u|wake-recovery=%u|wake-host=%u|wake-phase=%u\n", abvm_status_name(vm.status), vm.route_id, vm.lane_count, (unsigned long)vm.lanes[0].pc, (unsigned long)vm.lanes[1].pc, vm.lanes[0].frame_count, vm.lanes[1].frame_count, vm.suspended.valid, hid_keyboard_busy() || arm_uart_mouse_busy(), arm_uart_sound_active(), light_sensor_present(), light_sensor_watch_active(), light_sensor_calibration_active(), guard_runtime_running(), guard_runtime_paused(), guard_runtime_profile_name(guard_runtime_active_profile()), guard_runtime_stage(), cycle_runtime_available(), (unsigned long)vm.now, pico_usb_suspended ? 1u : 0u, pico_remote_wakeup_en ? 1u : 0u, wake_scheduler_armed(&wake_scheduler) ? 1u : 0u, wake_scheduler.next_start / 60u, wake_scheduler.next_start % 60u, wall_known ? 1u : 0u, wall / 60u, wall % 60u, (unsigned)wake_state.recovery_attempts, wake_state.host_asleep ? 1u : 0u, (unsigned)wake_phase);
 }
 static void print_light_calibration_dump(void) {
-    uint32_t low[9],high[9];uint16_t mask=0u;
+    uint32_t low[9],high[9],center[9],base_low,base_high;uint16_t mask=0u;
+    if(!calibration_runtime_light_snapshot(low,high,center)){
+        printf("ERR|STATE|CALDUMP\n");return;
+    }
     for(uint8_t id=1u;id<=9u;++id)
-        if(calibration_store_light_get(id,&low[id-1u],&high[id-1u]))
+        if(calibration_store_light_get(id,&base_low,&base_high))
             mask|=(uint16_t)(1u<<(id-1u));
     char profiles[256];size_t used=0u;
     if(!mask)snprintf(profiles,sizeof(profiles),"none");
