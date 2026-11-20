@@ -1307,7 +1307,7 @@ static void service_light(uint32_t now) {
         guard_runtime_stop(); abvm_stop(&vm, now);
     }
     calibration_runtime_service(now);
-    char calibration_event[192];
+    char calibration_event[256];
     if (calibration_runtime_take_event(calibration_event,sizeof(calibration_event))) {
         printf("%s\n",calibration_event);
         service_calibration_cue(calibration_event, now);
