@@ -12,6 +12,7 @@ public static class DualLightCalibration
     public const double MinimumInterProfileGapLux = 1.0;
     public const int MinimumSampleCount = 5;
     public const double MinimumAxisToleranceLux = 0.5;
+    private const int SeparationDirectionSteps = 4096;
 
     public static DualLightCalibrationSuggestion Suggest(
         IEnumerable<(double Lux1, double Lux2)> samples)
@@ -37,9 +38,10 @@ public static class DualLightCalibration
     }
 
     /// <summary>
-    /// Checks all enabled paired profiles. The enlarged ellipse is a conservative
-    /// superset of both tolerance ellipses plus the required Euclidean clearance, so
-    /// passing this test guarantees the requested gap; borderline cases fail closed.
+    /// Checks all enabled paired profiles. A sampled separating direction is accepted
+    /// only when the projected gap between the tolerance ellipses exceeds the required
+    /// Euclidean clearance. This is a safe lower bound on their actual distance; angular
+    /// sampling can reject a borderline-separated pair, but cannot approve an unsafe one.
     /// </summary>
     public static DualLightProfileValidation Validate(IEnumerable<LightStateProfile> profiles)
     {
@@ -98,16 +100,25 @@ public static class DualLightCalibration
             || !first.HasDualSensorCalibration || !second.HasDualSensorCalibration)
             return false;
 
-        var meanRadius = first.MeanLuxTolerance + second.MeanLuxTolerance + MinimumInterProfileGapLux;
-        var differenceRadius = first.DifferenceLuxTolerance + second.DifferenceLuxTolerance + MinimumInterProfileGapLux;
-        if (!double.IsFinite(meanRadius) || !double.IsFinite(differenceRadius)
-            || meanRadius <= 0 || differenceRadius <= 0)
+        var centerMeanDelta = second.MeanLuxCenter - first.MeanLuxCenter;
+        var centerDifferenceDelta = second.DifferenceLuxCenter - first.DifferenceLuxCenter;
+        if (!double.IsFinite(centerMeanDelta) || !double.IsFinite(centerDifferenceDelta))
             return false;
 
-        var meanRatio = (first.MeanLuxCenter - second.MeanLuxCenter) / meanRadius;
-        var differenceRatio = (first.DifferenceLuxCenter - second.DifferenceLuxCenter) / differenceRadius;
-        var normalizedDistance = Hypot(meanRatio, differenceRatio);
-        return double.IsFinite(normalizedDistance) && normalizedDistance > 1.0 + 1e-12;
+        for (var i = 0; i < SeparationDirectionSteps; i++)
+        {
+            var angle = 2.0 * Math.PI * i / SeparationDirectionSteps;
+            var meanAxis = Math.Cos(angle);
+            var differenceAxis = Math.Sin(angle);
+            var centerProjection = centerMeanDelta * meanAxis + centerDifferenceDelta * differenceAxis;
+            var firstSupport = EllipseSupport(first, meanAxis, differenceAxis);
+            var secondSupport = EllipseSupport(second, meanAxis, differenceAxis);
+            var projectedGap = centerProjection - firstSupport - secondSupport;
+            if (double.IsFinite(projectedGap)
+                && projectedGap > MinimumInterProfileGapLux + 1e-9)
+                return true;
+        }
+        return false;
     }
 
     public static string DescribeConflicts(DualLightProfileValidation validation)
@@ -138,14 +149,11 @@ public static class DualLightCalibration
         return (center, tolerance, minimum, maximum);
     }
 
-    private static double Hypot(double x, double y)
+    private static double EllipseSupport(LightStateProfile profile, double meanAxis, double differenceAxis)
     {
-        x = Math.Abs(x);
-        y = Math.Abs(y);
-        var max = Math.Max(x, y);
-        if (max == 0) return 0;
-        var min = Math.Min(x, y) / max;
-        return max * Math.Sqrt(1 + min * min);
+        var meanExtent = profile.MeanLuxTolerance * meanAxis;
+        var differenceExtent = profile.DifferenceLuxTolerance * differenceAxis;
+        return Math.Sqrt(meanExtent * meanExtent + differenceExtent * differenceExtent);
     }
 }
 

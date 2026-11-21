@@ -28,15 +28,20 @@ public class LightStateProfile
     /// When true this profile is calibrated and classified using both fixed-position sensors.
     /// Sensor 2 must remain the same physical sensor and order used during calibration.
     /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasDualSensorCalibration { get; set; }
     /// <summary>Center of (L1 + L2) / 2, in Lux.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double MeanLuxCenter { get; set; }
     /// <summary>Positive half-width of the calibrated mean-Lux range.</summary>
-    public double MeanLuxTolerance { get; set; } = 0.5;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double MeanLuxTolerance { get; set; }
     /// <summary>Center of the signed contrast L2 - L1, in Lux.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double DifferenceLuxCenter { get; set; }
     /// <summary>Positive half-width of the calibrated signed-contrast range.</summary>
-    public double DifferenceLuxTolerance { get; set; } = 0.5;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double DifferenceLuxTolerance { get; set; }
     public int StableDurationMs { get; set; } = 750;
     public double HysteresisLux { get; set; } = 1;
     /// <summary>

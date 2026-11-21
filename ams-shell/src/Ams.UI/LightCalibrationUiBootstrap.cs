@@ -85,7 +85,8 @@ internal static class LightCalibrationUiBootstrap
         body.Children.Insert(Math.Max(0, body.Children.Count - 1), card);
         vm.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(MainViewModel.LightChartVersion))
+            if (args.PropertyName is nameof(MainViewModel.LightChartVersion)
+                or nameof(MainViewModel.LightFreshnessText))
                 window.Dispatcher.BeginInvoke(new Action(vm.CaptureLightCalibrationSample));
         };
     }

@@ -55,9 +55,23 @@ internal static class DualLightCalibrationContract
               && classifier.Update(20, 20, at.AddMilliseconds(750)).Kind == LightStateClassificationKind.Stable
               && classifier.Update(15, 25, at.AddMilliseconds(800)).Profile?.Id == "contrast",
             "paired classifier applies the 2D ellipse and existing stable-duration behavior");
+        var overlapping = new LightStateClassifier(new[]
+        {
+            Profile("overlap-a", mean: 20, difference: 0, tolerance: 2),
+            Profile("overlap-b", mean: 20, difference: 0, tolerance: 2),
+        }).Update(20, 20, at);
+        Check(overlapping.Kind == LightStateClassificationKind.Ambiguous
+              && overlapping.Matches?.Count == 2,
+            "runtime reports both matches instead of selecting by profile order");
         Check(new LightStateClassifier(new[] { first }).Update(20, null, at).Kind
               == LightStateClassificationKind.Unknown,
             "paired profile never falls back to one sensor when the other reading is missing");
+        var legacyClassifier = new LightStateClassifier(new[]
+        {
+            new LightStateProfile { Id = "legacy", Name = "legacy", LuxCenter = 40, LuxTolerance = 1 },
+        });
+        Check(legacyClassifier.Update(40, null, at).Kind == LightStateClassificationKind.Candidate,
+            "legacy single-sensor profiles still classify when sensor two is absent");
         var mixed = new LightStateClassifier(new[]
         {
             first, new LightStateProfile { Id = "legacy", Name = "legacy", LuxCenter = 40, LuxTolerance = 1 },

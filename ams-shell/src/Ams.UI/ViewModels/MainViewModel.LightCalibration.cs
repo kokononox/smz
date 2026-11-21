@@ -6,6 +6,7 @@ namespace Ams.UI.ViewModels;
 public partial class MainViewModel
 {
     private readonly List<(double Lux1, double Lux2)> _pairedLightCalibrationSamples = new();
+    private int _lastLightCalibrationSampleChartVersion = -1;
     private DateTimeOffset? _lightCalibrationStartedAt;
     private LightStateProfile? _selectedLightCalibrationProfile;
     private int _selectedLightCalibrationDurationSeconds = 5;
@@ -63,6 +64,7 @@ public partial class MainViewModel
         }
 
         _pairedLightCalibrationSamples.Clear();
+        _lastLightCalibrationSampleChartVersion = LightChartVersion;
         _pendingLightCalibrationSuggestion = null;
         _lightCalibrationStartedAt = DateTimeOffset.UtcNow;
         IsLightCalibrationRunning = true;
@@ -74,11 +76,15 @@ public partial class MainViewModel
     public void CaptureLightCalibrationSample()
     {
         if (!IsLightCalibrationRunning || _lightCalibrationStartedAt is not DateTimeOffset started) return;
-        if (CurrentLux is not double lux1 || CurrentLux2 is not double lux2
-            || !LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal)
-            || LightSensor2StatusDisplay != "سالم") return;
-        _pairedLightCalibrationSamples.Add((lux1, lux2));
         var elapsed = DateTimeOffset.UtcNow - started;
+        if (LightChartVersion != _lastLightCalibrationSampleChartVersion)
+        {
+            _lastLightCalibrationSampleChartVersion = LightChartVersion;
+            if (CurrentLux is double lux1 && CurrentLux2 is double lux2
+                && LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal)
+                && LightSensor2StatusDisplay == "سالم")
+                _pairedLightCalibrationSamples.Add((lux1, lux2));
+        }
         LightCalibrationStatus = $"در حال نمونه‌برداری جفت‌سنسور · {_pairedLightCalibrationSamples.Count} نمونه · {Math.Min(elapsed.TotalSeconds, SelectedLightCalibrationDurationSeconds):0.0}/{SelectedLightCalibrationDurationSeconds} ثانیه";
         if (elapsed < TimeSpan.FromSeconds(SelectedLightCalibrationDurationSeconds)) return;
 
