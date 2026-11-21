@@ -35,7 +35,8 @@ internal static class LightStateProfilesUiBootstrap
     private static void Install(MainWindow window, MainViewModel vm)
     {
         var body = FindStatusBody(window);
-        if (body is null) return;
+        var audioBody = FindAudioBody(window);
+        if (body is null || audioBody is null) return;
         vm.RefreshLightProfileWarnings();
 
         var section = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -140,8 +141,8 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(saveStatus);
         editor.Child = editorBody;
         section.Children.Add(editor);
-        section.Children.Add(CalibrationCueMenu(window, vm));
 
+        audioBody.Children.Add(CalibrationCueMenu(window, vm));
         var insertAt = Math.Max(0, body.Children.Count - 1);
         body.Children.Insert(insertAt, section);
 
@@ -208,31 +209,29 @@ internal static class LightStateProfilesUiBootstrap
     private static Border CalibrationCueMenu(MainWindow window, MainViewModel vm)
     {
         var body = new StackPanel();
-        body.Children.Add(Text("تخصیص صدای راهنمای کالیبراسیون", 15, "#F5F7FA", FontWeights.SemiBold));
-        body.Children.Add(Text(
-            "برای هر محیط از ۱۰۰ ملودی آماده انتخاب کن یا با «ویرایش حرفه‌ای» نوت، مدت، مکث، حجم، سرعت و لبهٔ صدای سفارشی بساز. همه صداهای قبلی—۹ صدای محیطی، Start/Stop/Pause/Resume، هشدار و خطا، Whisper، گذار محیط، آژیر Watchdog و چرخه کامل کالیبراسیون—در ابتدای فهرست حفظ شده‌اند.",
-            12, "#AAB3C2"));
-        foreach (var profile in vm.LightStateProfiles)
-        {
-            body.Children.Add(CueRow(window, vm, profile));
-        }
+        body.Children.Add(Text("صداهای راهنمای کالیبراسیون و سیستم", 14, "#F5F7FA", FontWeights.SemiBold));
+        body.Children.Add(Text("هر گروه را فقط هنگام نیاز باز کنید تا صفحه کوتاه و خوانا بماند.", 12, "#AAB3C2"));
+
+        var profileBody = new StackPanel { Margin = new Thickness(8, 4, 8, 8) };
+        profileBody.Children.Add(Text("برای هر محیط از ملودی آماده انتخاب کنید یا در ویرایش حرفه‌ای صدای سفارشی بسازید.", 12, "#AAB3C2"));
+        foreach (var profile in vm.LightStateProfiles) profileBody.Children.Add(CueRow(window, vm, profile));
         var save = ActionButton("ذخیره صدای محیط‌های نوری", "#5E9FE8", "#10151C");
         save.HorizontalAlignment = HorizontalAlignment.Right;
         save.Margin = new Thickness(0, 8, 0, 0);
         save.Click += (_, _) => vm.SaveLightStateProfiles();
-        body.Children.Add(save);
+        profileBody.Children.Add(save);
+        body.Children.Add(new Expander { Header = "صداهای محیط‌های نوری", IsExpanded = false, Content = profileBody, Foreground = Brush("#F5F7FA"), Margin = new Thickness(0, 6, 0, 2) });
 
-        body.Children.Add(Text("شخصی‌سازی همه صداهای سیستمی", 15, "#F5F7FA", FontWeights.SemiBold));
-        body.Children.Add(Text(
-            "این فهرست منبع تمام صداهایی است که قبلاً داخل Firmware هاردکد بودند؛ شامل دکمه‌های فیزیکی، خطاها، Whisper، گذارها، Watchdog و تمام مراحل کالیبراسیون.",
-            12, "#AAB3C2"));
-        foreach (var cue in vm.BuzzerSystemCues)
-            body.Children.Add(CueRow(window, vm, cue));
-        var saveSystem = ActionButton("ذخیره همه صداهای سیستمی", "#5E9FE8", "#10151C");
+        var systemBody = new StackPanel { Margin = new Thickness(8, 4, 8, 8) };
+        systemBody.Children.Add(Text("صداهای دکمه‌ها، خطاها، Whisper، گذارها، Watchdog و مراحل کالیبراسیون.", 12, "#AAB3C2"));
+        foreach (var cue in vm.BuzzerSystemCues) systemBody.Children.Add(CueRow(window, vm, cue));
+        var saveSystem = ActionButton("ذخیره صداهای سیستمی", "#5E9FE8", "#10151C");
         saveSystem.HorizontalAlignment = HorizontalAlignment.Right;
         saveSystem.Margin = new Thickness(0, 8, 0, 0);
         saveSystem.Click += (_, _) => vm.SaveBuzzerSystemCues();
-        body.Children.Add(saveSystem);
+        systemBody.Children.Add(saveSystem);
+        body.Children.Add(new Expander { Header = "صداهای سیستمی", IsExpanded = false, Content = systemBody, Foreground = Brush("#F5F7FA"), Margin = new Thickness(0, 2, 0, 2) });
+
         return new Border
         {
             Child = body, Background = Brush("#22262D"), BorderBrush = Brush("#343B46"),
@@ -349,6 +348,19 @@ internal static class LightStateProfilesUiBootstrap
             if (child is TextBlock { Text: "وضعیت زنده‌ی سنسور نور" } title
                 && VisualTreeHelper.GetParent(title) is StackPanel body) return body;
             var found = FindStatusBody(child);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static StackPanel? FindAudioBody(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBlock { Text: "تنظیمات صوتی" } title
+                && VisualTreeHelper.GetParent(title) is StackPanel body) return body;
+            var found = FindAudioBody(child);
             if (found is not null) return found;
         }
         return null;

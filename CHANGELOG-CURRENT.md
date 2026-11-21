@@ -1,3 +1,11 @@
+# Dual BH1750 diagnostics — labeled capture and compact status UI
+
+- Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
+- Added read-only `LUX2?` telemetry for BH1750 `0x23` and `0x5C`, plus a live two-sensor card in Classroom Studio showing both Lux values and sensor-two state/sample age. The existing live monitor falls back to `LUX?` on older firmware; classification and calibration still use sensor one only.
+- Added native C and C# contract coverage for paired readings, missing/warming second sensor, and legacy firmware fallback. The native C smoke test passes locally with `-Wall -Wextra -Werror`; the user confirmed both physical sensors return fresh readings. Windows CI for the Studio change passed.
+- Reorganized Studio Status into General, Light & Sensors, and Audio sub-tabs. Sensor 1 and sensor 2 Lux cards now sit side-by-side; the verbose audio editors are separated and collapsed by category.
+- Added labeled raw dual-channel capture, capped at 100,000 rows per session, with UTC timestamps and CSV export. Multiple labeled runs are retained in memory until the app exits; missing legacy sensor-two values export as blanks. CSV labels are escaped and formula-like text is neutralized. Paired classification/calibration remains deferred.
+
 # Physical light calibration tolerance — test build
 
 - A second lightweight artifact omits only the unchanged self-contained Shift Bridge; the original full artifact is still available. The lightweight package retains the board communication bridge and all 30 Pico templates. Users can keep using the already-pinned compatible Shift Bridge in its existing location.

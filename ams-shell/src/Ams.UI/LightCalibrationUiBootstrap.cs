@@ -45,6 +45,7 @@ internal static class LightCalibrationUiBootstrap
         var content = new StackPanel();
         content.Children.Add(Text("کالیبراسیون پیشنهادی", 15, "#F5F7FA", FontWeights.SemiBold));
         content.Children.Add(Text("از داده زنده پیشنهاد می‌سازد؛ بدون زدن «اعمال پیشنهاد» و سپس «ذخیره پروفایل‌ها» هیچ مقداری تغییر نمی‌کند.", 12, "#AAB3C2"));
+        content.Children.Add(Text("برای به‌روزرسانی، «شروع پایش» را بزنید. تشخیص محیط و کالیبراسیون فعلاً همچنان از سنسور اول استفاده می‌کنند.", 11, "#AAB3C2"));
 
         var controls = new WrapPanel { Margin = new Thickness(0, 10, 0, 8) };
         controls.Children.Add(Text("پروفایل:", 12, "#D9DEE7"));
@@ -85,6 +86,23 @@ internal static class LightCalibrationUiBootstrap
         {
             if (args.PropertyName == nameof(MainViewModel.LightChartVersion))
                 window.Dispatcher.BeginInvoke(new Action(vm.CaptureLightCalibrationSample));
+        };
+    }
+
+    private static Border SensorTile(string title, params UIElement[] details)
+    {
+        var body = new StackPanel();
+        body.Children.Add(Text(title, 12, "#AAB3C2", FontWeights.SemiBold));
+        foreach (var detail in details) body.Children.Add(detail);
+        return new Border
+        {
+            Child = body,
+            Background = Brush("#181B20"),
+            BorderBrush = Brush("#343B46"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(10),
+            Margin = new Thickness(3),
         };
     }
 
