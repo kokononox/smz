@@ -8,6 +8,7 @@ public partial class MainViewModel
 {
     private readonly Queue<(DateTimeOffset At, double Lux)> _lightHistory = new();
     private readonly Queue<double> _lightMedianWindow = new();
+    private readonly Queue<double> _light2MedianWindow = new();
     private LightWatchService? _lightWatch;
     private IBoardBridge? _lightWatchBridge;
     private System.Windows.Threading.DispatcherTimer? _lightFreshnessTimer;
@@ -16,6 +17,10 @@ public partial class MainViewModel
     private int _selectedLightWatchIntervalMs = LightWatchService.DefaultIntervalMs;
     private bool _isLightWatchRunning;
     private double? _currentLux;
+    private double? _currentLux2;
+    private string _lightSensor1SampleAgeDisplay = "—";
+    private string _lightSensor2StatusDisplay = "منتظر نمونهٔ زنده";
+    private string _lightSensor2SampleAgeDisplay = "—";
     private string _lightSensorStatus = "بدون داده";
     private string _lightSensorMode = "—";
     private string _lastLightSampleText = "هنوز نمونه‌ای دریافت نشده";
@@ -55,6 +60,32 @@ public partial class MainViewModel
         }
     }
     public string CurrentLuxDisplay => CurrentLux is double value ? value.ToString("0.0") : "—";
+
+    public double? CurrentLux2
+    {
+        get => _currentLux2;
+        private set
+        {
+            if (!SetProperty(ref _currentLux2, value)) return;
+            OnPropertyChanged(nameof(CurrentLux2Display));
+        }
+    }
+    public string CurrentLux2Display => CurrentLux2 is double value ? value.ToString("0.0") : "—";
+    public string LightSensor1SampleAgeDisplay
+    {
+        get => _lightSensor1SampleAgeDisplay;
+        private set => SetProperty(ref _lightSensor1SampleAgeDisplay, value);
+    }
+    public string LightSensor2StatusDisplay
+    {
+        get => _lightSensor2StatusDisplay;
+        private set => SetProperty(ref _lightSensor2StatusDisplay, value);
+    }
+    public string LightSensor2SampleAgeDisplay
+    {
+        get => _lightSensor2SampleAgeDisplay;
+        private set => SetProperty(ref _lightSensor2SampleAgeDisplay, value);
+    }
 
     public string LightSensorStatus { get => _lightSensorStatus; private set => SetProperty(ref _lightSensorStatus, value); }
     public string LightSensorMode { get => _lightSensorMode; private set => SetProperty(ref _lightSensorMode, value); }
@@ -166,6 +197,7 @@ public partial class MainViewModel
     private void ApplyLightSample(LightTelemetrySample sample)
     {
         LastLightSampleText = sample.ReceivedAt.ToLocalTime().ToString("HH:mm:ss.fff");
+        ApplyDualSensorSample(sample);
         switch (sample.Status)
         {
             case LightTelemetryStatus.Ok when sample.Lux is double lux:
@@ -192,6 +224,53 @@ public partial class MainViewModel
                 break;
         }
         UpdateLightFreshness();
+    }
+
+    private void ApplyDualSensorSample(LightTelemetrySample sample)
+    {
+        if (!sample.HasDualSensorData)
+        {
+            _light2MedianWindow.Clear();
+            CurrentLux2 = null;
+            LightSensor1SampleAgeDisplay = "—";
+            LightSensor2SampleAgeDisplay = "—";
+            LightSensor2StatusDisplay = "فریمور تک‌سنسوره است؛ LUX2? پشتیبانی نمی‌شود";
+            return;
+        }
+
+        if (sample.Status != LightTelemetryStatus.Ok)
+        {
+            _light2MedianWindow.Clear();
+            CurrentLux2 = null;
+            LightSensor1SampleAgeDisplay = "—";
+            LightSensor2SampleAgeDisplay = "—";
+            LightSensor2StatusDisplay = sample.Status == LightTelemetryStatus.NoSensor
+                ? "سنسور اول پیدا نشد"
+                : "خوانش جفت سنسورها ناموفق";
+            return;
+        }
+
+        LightSensor1SampleAgeDisplay = sample.Age1Ms is uint age1 ? $"{age1} ms" : "—";
+        LightSensor2SampleAgeDisplay = sample.Age2Ms is uint age2 ? $"{age2} ms" : "—";
+        LightSensor2StatusDisplay = sample.Sensor2Status switch
+        {
+            "ok" => "سالم",
+            "warming" => "در حال آماده‌شدن",
+            "missing" => "پیدا نشد",
+            _ => "وضعیت نامشخص",
+        };
+
+        if (sample.Sensor2Status == "ok" && sample.Lux2 is double lux2)
+        {
+            _light2MedianWindow.Enqueue(lux2);
+            while (_light2MedianWindow.Count > 5) _light2MedianWindow.Dequeue();
+            CurrentLux2 = Median(_light2MedianWindow);
+        }
+        else
+        {
+            _light2MedianWindow.Clear();
+            CurrentLux2 = null;
+        }
     }
 
     private void EnsureLightFreshnessTimer()

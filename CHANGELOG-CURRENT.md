@@ -1,8 +1,8 @@
-# Dual BH1750 telemetry — Phase 1 test build
+# Dual BH1750 diagnostics — phases 1–2 test build
 
 - Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
-- Added read-only `LUX2?` diagnostics for BH1750 `0x23` and `0x5C` on the existing Pico I2C0 pins. The original `LUX?`, Guard, Watch, and LCAL behavior remains single-sensor in this phase.
-- Added host smoke coverage for distinct paired readings and for preserving single-sensor operation when the second device is absent; the native C smoke test passes locally with `-Wall -Wextra -Werror`. Physical two-sensor validation and the CI run are pending.
+- Added read-only `LUX2?` telemetry for BH1750 `0x23` and `0x5C`, plus a live two-sensor card in Classroom Studio showing both Lux values and sensor-two state/sample age. The existing live monitor falls back to `LUX?` on older firmware; classification and calibration still use sensor one only.
+- Added native C and C# contract coverage for paired readings, missing/warming second sensor, and legacy firmware fallback. The native C smoke test passes locally with `-Wall -Wextra -Werror`; Windows CI for the Studio change and physical two-sensor validation are pending.
 
 # Physical light calibration tolerance — test build
 
