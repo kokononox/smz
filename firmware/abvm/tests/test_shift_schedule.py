@@ -54,7 +54,9 @@ class ScheduleTests(unittest.TestCase):
     (void)cycle_runtime_route_complete(16u,90002u);
     (void)cycle_runtime_service(90003u,true,ARM_HOST_USB_UP,true);
     if(!require(cycle_runtime_service(92003u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_NONE,"warm switch cannot mistake old USB UP for a reboot"))return 1;
-    if(!require(cycle_runtime_init(&vm,90003u),"power loss restores pending switch"))return 1;
+    if(!require(cycle_runtime_init(&vm,90003u),"power loss restores pending switch")||
+       !require(cycle_runtime_session_pending(),"power loss leaves the switch pending")||
+       !require(cycle_runtime_session_adopt(90003u),"the pending switch is adopted once the clock is back"))return 1;
     (void)cycle_runtime_service(90004u,true,ARM_HOST_USB_UP,true);
     if(!require(cycle_runtime_service(92004u,true,ARM_HOST_USB_UP,true)==CYCLE_ACTION_START_STARTUP,"corrective restart starts Startup"))return 1;
     cycle_runtime_begin_startup();
@@ -72,7 +74,9 @@ class ScheduleTests(unittest.TestCase):
  def test_actual_adapter_blocks_wrong_user_and_resets_verified_destination(self):
   with tempfile.TemporaryDirectory() as t:
    d=pathlib.Path(t);main=(ROOT/'firmware/abvm/pico/main.c').read_text()
-   adapter=main[main.index('static void fail_shift_check('):main.index('static void service_game_buffs(')]
+   # Anchor on the definition, not the bare name: a forward declaration of the same
+   # name sits far above this slice.
+   adapter=main[main.index('static void fail_shift_check(uint32_t now,const char *reason) {'):main.index('static void service_game_buffs(')]
    c=d/'adapter.c';c.write_text((ROOT/'firmware/abvm/tests/shift_schedule_adapter_smoke.c').read_text().replace('/* PRODUCTION_ADAPTER */',adapter))
    exe=self.build(d,c,[ROOT/'firmware/abvm/src/abvm_vm.c',ROOT/'firmware/abvm/pico/hid_keyboard.c',ROOT/'firmware/abvm/pico/shift_identity_runtime.c'],[ROOT/'firmware/abvm/tests/pico_stub'])
    data=source();data['pipelines']['Desktop']=data['pipelines']['Desktop'][:1]+[{'Type':'typeText','Props':{'text':'Q','hmin':10,'hmax':10},'Children':[]}]

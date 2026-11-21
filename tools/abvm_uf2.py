@@ -66,9 +66,15 @@ def inject(template:bytes,program:bytes):
     blocks=parse(template); memory=_address_map(blocks); address,capacity,_=locate_slot(blocks)
     if len(program)>=128 and struct.unpack_from("<HH",program,4)==(2,1):
         try:
-            from tools.abvm import Verifier,OP_BUFF,OP_SHIFT_CHECK,OP_SHIFT_TYPE
+            from tools.abvm import (
+                Verifier, OP_BUFF, OP_WATCH, CONST_SOUND,
+                OP_SHIFT_CHECK, OP_SHIFT_TYPE,
+            )
         except ModuleNotFoundError:
-            from abvm import Verifier,OP_BUFF,OP_SHIFT_CHECK,OP_SHIFT_TYPE
+            from abvm import (
+                Verifier, OP_BUFF, OP_WATCH, CONST_SOUND,
+                OP_SHIFT_CHECK, OP_SHIFT_TYPE,
+            )
         verified=Verifier.verify(program)
         flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
         if any(i.op in (OP_SHIFT_CHECK,OP_SHIFT_TYPE) for i in verified.instructions):
@@ -81,6 +87,17 @@ def inject(template:bytes,program:bytes):
             flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
             if b"EVT|BUFF|state=new-game|count=%u" not in flash:
                 raise Uf2Error("UF2 template lacks the Pico buff runtime; select a matching GameBuff test-build template")
+            if any(kind == 10 and payload[:5] == b"GBF1\x02" for kind, _, payload in verified.constants):
+                if b"EVT|BUFF|follow-key=v2" not in flash:
+                    raise Uf2Error("UF2 template lacks the second buff key runtime; select the matching new template")
+            if any(kind == 10 and payload[:5] == b"GBF1\x03" for kind, _, payload in verified.constants):
+                if b"EVT|BUFF|follow-delay=v3" not in flash:
+                    raise Uf2Error("UF2 template lacks the delayed buff follow-up runtime; select the matching new template")
+        if any(i.op == OP_WATCH and i.flags == 2 and
+               len(verified.const(i.a, CONST_SOUND)) == 12
+               for i in verified.instructions):
+            if b"watch-timeout-alarm=v1" not in flash:
+                raise Uf2Error("UF2 template lacks consecutive sound-timeout alarms; select the matching new template")
     if len(program)>capacity: raise Uf2Error(f"program exceeds slot capacity ({len(program)} > {capacity})")
     digest=hashlib.sha256(program).digest(); _write(memory,address+16,_SLOT_META.pack(SLOT_VERSION,SLOT_HEADER_SIZE,capacity,len(program))); _write(memory,address+32,digest); _write(memory,address+SLOT_HEADER_SIZE,program+bytes(capacity-len(program)))
     result=b"".join(bytes(b.raw) for b in sorted(blocks,key=lambda b:b.number)); check=parse(result); cm=_address_map(check); ca,cc,cs=locate_slot(check)

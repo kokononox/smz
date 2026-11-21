@@ -296,7 +296,7 @@ static int verify_image(AbvmVm *vm) {
         if (ins.opcode == ABVM_OP_BUFF) {
             if (ins.flags > 1u || ins.operand_b || ins.operand_c || ins.operand_d ||
                 !constant_at(vm,ins.operand_a,ABVM_CONST_BUFF,&payload,&size) ||
-                size < 8u || memcmp(payload,"GBF1",4u) || payload[4] != 1u ||
+                size < 8u || memcmp(payload,"GBF1",4u) || (payload[4] != 1u && payload[4] != 2u) ||
                 !payload[5] || payload[5] > 16u || read_u16(payload+6u) ||
                 size != 8u + (uint32_t)payload[5] * 40u)
                 return fail(vm,"buff descriptor");
@@ -392,11 +392,15 @@ static int verify_image(AbvmVm *vm) {
                     return fail(vm, "light descriptor");
             } else if (ins.flags == 2u) {
                 if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
-                                 &payload, &size) || size != 8u ||
+                                 &payload, &size) ||
+                    (size != 8u && size != 12u) ||
                     !read_u16(payload) ||
                     read_u16(payload + 2u) > 1023u ||
                     !read_u32(payload + 4u) ||
-                    read_u32(payload + 4u) > 65535u)
+                    read_u32(payload + 4u) > 65535u ||
+                    (size == 12u &&
+                     (!payload[8] || payload[9] || payload[10] ||
+                      payload[11])))
                     return fail(vm, "sound descriptor");
             } else if (ins.flags != 1u || !ins.operand_a) {
                 return fail(vm, "watch descriptor version");
@@ -459,14 +463,37 @@ static int load_route(AbvmVm *vm, const AbvmRoute *route, uint32_t now) {
     return 1;
 }
 
+static int enter_route(AbvmVm *vm, const AbvmRoute *route, uint32_t now) {
+    ++vm->route_generation;
+    memset(&vm->suspended, 0, sizeof(vm->suspended));
+    vm->pending_release = 1;
+    return load_route(vm, route, now);
+}
+
 int abvm_start_route(AbvmVm *vm, uint16_t route_id, uint32_t now) {
     AbvmRoute route;
     if (!vm || vm->status == ABVM_STATUS_FAULT ||
         !find_route(vm, route_id, &route)) return 0;
-    ++vm->route_generation;
-    memset(&vm->suspended, 0, sizeof(vm->suspended));
-    vm->pending_release = 1;
-    return load_route(vm, &route, now);
+    return enter_route(vm, &route, now);
+}
+
+int abvm_start_route_without_opening_delay(AbvmVm *vm, uint16_t route_id,
+                                           uint32_t now) {
+    AbvmRoute route;
+    if (!vm || vm->status == ABVM_STATUS_FAULT ||
+        !find_route(vm, route_id, &route)) return 0;
+    if (!enter_route(vm, &route, now)) return 0;
+    /* The lane is at the route's first instruction and nothing has run yet, so
+     * the only thing that can be left out here is a delay.  A route that opens
+     * with an action keeps it, and the END that closes a one-step route is never
+     * stepped over. */
+    AbvmInstruction opening;
+    if (route.length > 1u && instruction_at(vm, vm->lanes[0].pc, &opening) &&
+        opening.opcode == ABVM_OP_DELAY) {
+        vm->lanes[0].pc++;
+        vm->lanes[0].due = now;
+    }
+    return 1;
 }
 
 int abvm_interrupt_route(AbvmVm *vm, uint16_t route_id, uint32_t now) {
@@ -676,9 +703,30 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
         ++active;
         if (lane->blocked == ABVM_BLOCK_WATCH &&
             time_reached(now, lane->watch_deadline)) {
+            uint8_t alarm = 0u;
+            AbvmInstruction watch;
+            int have_watch = instruction_at(vm, lane->pc, &watch) &&
+                watch.opcode == ABVM_OP_WATCH;
+            if (lane->watch_kind == ABVM_CONST_SOUND) {
+                if (lane->watch_miss_streak < UINT8_MAX)
+                    ++lane->watch_miss_streak;
+                alarm = lane->watch_alarm_after &&
+                    lane->watch_miss_streak >= lane->watch_alarm_after &&
+                    (lane->watch_alarm_after == 1u ||
+                     lane->watch_miss_streak == lane->watch_alarm_after);
+            }
             lane->blocked = ABVM_BLOCK_NONE;
             lane->pc = lane->watch_after_pc;
             lane->due = now;
+            if (alarm) {
+                AbvmEvent event = event_of(
+                    vm, ABVM_EVENT_WATCH_TIMEOUT_ALARM, i,
+                    have_watch ? &watch : 0, "watch-timeout-alarm");
+                event.operand_a = lane->watch_profile;
+                event.operand_b = lane->watch_miss_streak;
+                event.operand_c = lane->watch_alarm_after;
+                return event;
+            }
         }
     }
     if (!active && vm->scope.active &&
@@ -826,10 +874,12 @@ AbvmEvent abvm_tick(AbvmVm *vm, uint32_t now) {
                 } else if (ins.flags == 2u) {
                     const uint8_t *payload; uint32_t size;
                     if (!constant_at(vm, ins.operand_a, ABVM_CONST_SOUND,
-                                     &payload, &size) || size != 8u) {
+                                     &payload, &size) ||
+                        (size != 8u && size != 12u)) {
                         fail(vm, "sound descriptor"); break;
                     }
                     profile = read_u16(payload); kind = ABVM_CONST_SOUND;
+                    lane->watch_alarm_after = size == 12u ? payload[8] : 1u;
                 } else kind = ABVM_CONST_SOUND;
                 lane->blocked=ABVM_BLOCK_WATCH;
                 lane->watch_profile=profile;
@@ -904,6 +954,7 @@ int abvm_sound_detected(AbvmVm *vm, uint16_t profile, uint32_t now) {
         if (lane->active && lane->blocked==ABVM_BLOCK_WATCH &&
             lane->watch_kind==ABVM_CONST_SOUND && lane->watch_profile==profile) {
             lane->blocked=ABVM_BLOCK_NONE;
+            lane->watch_miss_streak=0u;
             lane->pc++;
             lane->due=now;
             return 1;

@@ -26,6 +26,10 @@ ShiftPhase shift_identity_tick(ShiftIdentityRuntime *s, uint32_t now,
 bool shift_identity_reply_clock(ShiftIdentityRuntime *s, uint32_t nonce,
                                 const uint8_t hash[32], uint16_t minute, bool connected);
 ShiftKind shift_identity_expected(const ShiftIdentityRuntime *s);
+/* The same window question asked from a minute the caller already owns, so a
+ * board holding a wall-clock anchor can answer it without a fresh bridge reply. */
+ShiftKind shift_kind_at_minute(uint16_t minute,uint16_t day_start,uint16_t day_end,
+                               uint16_t night_start,uint16_t night_end);
 bool shift_schedule_valid(uint16_t day_start, uint16_t day_end,
                           uint16_t night_start, uint16_t night_end);
 void shift_identity_cancel(ShiftIdentityRuntime *s);

@@ -6,6 +6,7 @@
 #include "calibration_store.h"
 #include "guard_runtime.h"
 #include "light_sensor.h"
+#include "light_range_fit.h"
 
 #define LIGHT_SAMPLE_MS 5000u
 #define SOUND_SAMPLE_MS 250u
@@ -15,8 +16,6 @@
 #define SOUND_MINIMUM_MS 20u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
-#define LIGHT_FIT_GAP_TENTHS 3u
-#define LIGHT_FIT_MIN_TENTHS 5u
 /*
  * Persistent profile IDs stay ABI-stable. The physical calibration selector
  * has its own user-facing order so the four classifiers after Game are:
@@ -32,11 +31,29 @@ typedef struct CalibrationState {
     CalibrationMode mode; Phase phase; uint8_t profile; uint8_t light_slot;
     uint32_t phase_started;
     uint16_t silence_peak,sound_peak;
-    char event[192]; bool event_pending;
+    char event[256]; bool event_pending;
 } CalibrationState;
 static CalibrationState cal;
 static void emit(const char *format,...){va_list a;va_start(a,format);vsnprintf(cal.event,sizeof(cal.event),format,a);va_end(a);cal.event_pending=true;}
-static void apply_saved_light(void){for(uint8_t id=1;id<=LIGHT_PROFILE_COUNT;++id){uint32_t lo,hi;if(calibration_store_light_get(id,&lo,&hi))guard_runtime_set_profile_range(id,lo,hi);}}
+static void apply_saved_light(void){
+    uint32_t base_low[LIGHT_PROFILE_COUNT],base_high[LIGHT_PROFILE_COUNT];
+    uint32_t centers[LIGHT_PROFILE_COUNT];
+    uint32_t fitted_low[LIGHT_PROFILE_COUNT],fitted_high[LIGHT_PROFILE_COUNT];
+    bool any_saved=false;
+    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
+        uint8_t id=(uint8_t)(i+1u);
+        if(!guard_runtime_get_profile_range(id,&base_low[i],&base_high[i]))return;
+        if(calibration_store_light_get(id,&base_low[i],&base_high[i]))any_saved=true;
+        if(!calibration_store_light_center(id,&centers[i]))
+            centers[i]=base_low[i]+(base_high[i]-base_low[i])/2u;
+    }
+    if(!any_saved)return;
+    memcpy(fitted_low,base_low,sizeof(fitted_low));
+    memcpy(fitted_high,base_high,sizeof(fitted_high));
+    if(!light_ranges_fit(fitted_low,fitted_high,centers,NULL))return;
+    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)
+        (void)guard_runtime_set_profile_range((uint8_t)(i+1u),fitted_low[i],fitted_high[i]);
+}
 void calibration_runtime_init(const AbvmVm *vm){memset(&cal,0,sizeof(cal));calibration_store_init(vm);apply_saved_light();}
 bool calibration_runtime_active(void){return cal.mode!=CAL_MODE_NONE;}
 CalibrationMode calibration_runtime_mode(void){return cal.mode;}
@@ -55,93 +72,83 @@ bool calibration_runtime_yellow_short(uint32_t now){
     if(cal.mode==CAL_MODE_SOUND){if(cal.phase!=PHASE_READY&&cal.phase!=PHASE_SOUND_COMPLETE)return true;cal.silence_peak=cal.sound_peak=0u;cal.phase=PHASE_SOUND_SILENCE;cal.phase_started=now;if(!arm_uart_sound_calibration_start(now,SOUND_SAMPLE_MS)){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|START|id=%u",cal.profile);}else emit("EVT|SOUNDCAL|mode=silence|id=%u|seconds=3",cal.profile);return true;}
     return false;
 }
-static uint32_t maximum(uint32_t a,uint32_t b){return a>b?a:b;}
-static uint32_t minimum(uint32_t a,uint32_t b){return a<b?a:b;}
-static uint32_t distance(uint32_t a,uint32_t b){return a>b?a-b:b-a;}
-static void range_from_center(uint32_t center,uint32_t tolerance,
-                              uint32_t *low,uint32_t *high){
-    *low=center>tolerance?center-tolerance:0u;
-    *high=center+tolerance;
+bool calibration_runtime_light_snapshot(uint32_t lows[9],uint32_t highs[9],uint32_t centers[9]){
+    for(uint8_t i=0;i<9u;i++){
+        if(!guard_runtime_get_profile_range((uint8_t)(i+1u),&lows[i],&highs[i]))return false;
+        if(!calibration_store_light_center((uint8_t)(i+1u),&centers[i]))
+            centers[i]=lows[i]+(highs[i]-lows[i])/2u;
+    }
+    return true;
+}
+bool calibration_runtime_light_sync(uint32_t lows[9],uint32_t highs[9],uint32_t centers[9],uint16_t tolerance){
+    uint32_t base_low[9],base_high[9],current_low[9],current_high[9],current_center[9];
+    uint32_t fitted_low[9],fitted_high[9],saved_low,saved_high;
+    if(!calibration_runtime_light_snapshot(current_low,current_high,current_center))return false;
+    for(uint8_t i=0;i<9u;i++){
+        /* A read-back followed by Save/Send is a round trip, not a new nominal
+         * calibration. Keep the untrimmed bounds so later fits can widen fairly. */
+        bool unchanged=lows[i]==current_low[i]&&highs[i]==current_high[i]&&
+                       centers[i]==current_center[i]&&
+                       calibration_store_light_get((uint8_t)(i+1u),&saved_low,&saved_high);
+        base_low[i]=unchanged?saved_low:lows[i];
+        base_high[i]=unchanged?saved_high:highs[i];
+    }
+    memcpy(fitted_low,base_low,sizeof(fitted_low));
+    memcpy(fitted_high,base_high,sizeof(fitted_high));
+    if(!light_ranges_fit(fitted_low,fitted_high,centers,NULL))return false;
+    /* Persist the requested bounds, not the fitted ones. The fitted ranges are
+     * derived from all nine profiles at boot and after every calibration. */
+    if(!calibration_store_light_sync(0x1ffu,base_low,base_high,centers,tolerance))return false;
+    for(uint8_t i=0;i<9u;i++)
+        (void)guard_runtime_set_profile_range((uint8_t)(i+1u),fitted_low[i],fitted_high[i]);
+    return true;
+}
+static bool calibration_runtime_light_base_snapshot(uint32_t lows[9],uint32_t highs[9],
+                                                     uint32_t centers[9]){
+    for(uint8_t i=0;i<9u;i++){
+        uint8_t id=(uint8_t)(i+1u);
+        if(!calibration_store_light_get(id,&lows[i],&highs[i])&&
+           !guard_runtime_get_profile_range(id,&lows[i],&highs[i]))return false;
+        if(!calibration_store_light_center(id,&centers[i]))
+            centers[i]=lows[i]+(highs[i]-lows[i])/2u;
+        if(lows[i]>centers[i]||centers[i]>highs[i])return false;
+    }
+    return true;
 }
 static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
-                               uint32_t samples){
-    uint32_t lows[LIGHT_PROFILE_COUNT],highs[LIGHT_PROFILE_COUNT];
-    uint32_t centers[LIGHT_PROFILE_COUNT],tolerances[LIGHT_PROFILE_COUNT];
+                               uint32_t tolerance,uint32_t samples){
+    uint32_t base_low[9],base_high[9],centers[9];
+    uint32_t fitted_low[9],fitted_high[9];uint16_t changed=0;
     uint8_t selected=(uint8_t)(cal.profile-1u);
-    uint16_t update_mask=(uint16_t)(1u<<selected);
-    uint8_t adjusted=0u;
-    bool fitted=false;
-    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
-        if(!guard_runtime_get_profile_range((uint8_t)(i+1u),&lows[i],&highs[i])){
-            emit("ERR|CAL|FIT|id=%s|reason=profile-missing",
-                 guard_runtime_profile_name(cal.profile));return false;
-        }
-        centers[i]=lows[i]+(highs[i]-lows[i])/2u;
-        tolerances[i]=maximum(centers[i]-lows[i],highs[i]-centers[i]);
+    if(!calibration_runtime_light_base_snapshot(base_low,base_high,centers)){
+        emit("ERR|CAL|FIT|id=%s|reason=profile-missing",guard_runtime_profile_name(cal.profile));return false;
     }
-    lows[selected]=low;highs[selected]=high;centers[selected]=center;
-    tolerances[selected]=maximum(center-low,high-center);
-    if(tolerances[selected]<LIGHT_FIT_MIN_TENTHS){
-        emit("ERR|CAL|FIT|id=%s|reason=candidate-minimum|gap=%u",
-             guard_runtime_profile_name(cal.profile),LIGHT_FIT_GAP_TENTHS);
-        return false;
+    base_low[selected]=low;base_high[selected]=high;centers[selected]=center;
+    memcpy(fitted_low,base_low,sizeof(fitted_low));
+    memcpy(fitted_high,base_high,sizeof(fitted_high));
+    if(!light_ranges_fit(fitted_low,fitted_high,centers,&changed)){
+        emit("ERR|CAL|FIT|id=%s|reason=centers-too-close",guard_runtime_profile_name(cal.profile));return false;
     }
-    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
-        if(i==selected)continue;
-        uint32_t apart=distance(centers[selected],centers[i]);
-        /*
-         * Two environments with the same measured centre are not physically
-         * distinguishable.  Do not manufacture two tiny ranges around the
-         * same value; fail closed and ask the operator to change the scene.
-         */
-        if(apart==0u){
-            emit("ERR|CAL|FIT|id=%s|with=%s|reason=centers-identical|gap=%u",
-                 guard_runtime_profile_name(cal.profile),
-                 guard_runtime_profile_name((uint8_t)(i+1u)),
-                 LIGHT_FIT_GAP_TENTHS);
-            return false;
-        }
-        uint32_t allowance=apart>LIGHT_FIT_GAP_TENTHS?
-            apart-LIGHT_FIT_GAP_TENTHS:0u;
-        uint32_t combined=tolerances[selected]+tolerances[i];
-        if(combined<=allowance)continue;
-        uint32_t excess=combined-allowance;
-        uint32_t available=tolerances[selected]>LIGHT_FIT_MIN_TENTHS?
-            tolerances[selected]-LIGHT_FIT_MIN_TENTHS:0u;
-        uint32_t take=minimum(excess,available);
-        tolerances[selected]-=take;excess-=take;
-        if(take)fitted=true;
-        available=tolerances[i]>LIGHT_FIT_MIN_TENTHS?
-            tolerances[i]-LIGHT_FIT_MIN_TENTHS:0u;
-        take=minimum(excess,available);
-        tolerances[i]-=take;excess-=take;
-        if(take){
-            fitted=true;++adjusted;update_mask|=(uint16_t)(1u<<i);
-            range_from_center(centers[i],tolerances[i],&lows[i],&highs[i]);
-        }
-        if(excess){
-            emit("ERR|CAL|FIT|id=%s|with=%s|reason=centers-too-close|gap=%u",
-                 guard_runtime_profile_name(cal.profile),
-                 guard_runtime_profile_name((uint8_t)(i+1u)),
-                 LIGHT_FIT_GAP_TENTHS);
-            return false;
-        }
+    /* Store all requested intervals and centres atomically. Only the fitted
+     * runtime copy is trimmed, so subsequent calibrations can refit fairly. */
+    if(!calibration_store_light_sync(0x1ffu,base_low,base_high,centers,(uint16_t)tolerance)){
+        emit("ERR|CAL|SAVE|kind=light|id=%s",guard_runtime_profile_name(cal.profile));return false;
     }
-    range_from_center(center,tolerances[selected],&lows[selected],&highs[selected]);
-    if(!calibration_store_light_update(update_mask,lows,highs)){
-        emit("ERR|CAL|SAVE|kind=light|id=%s",
-             guard_runtime_profile_name(cal.profile));return false;
+    uint8_t adjusted=0;char changed_ids[32];size_t used=0u;
+    for(uint8_t i=0;i<9u;i++){
+        if(changed&(uint16_t)(1u<<i)){
+            int n=snprintf(changed_ids+used,sizeof(changed_ids)-used,"%s%u",used?",":"",(unsigned)(i+1u));
+            if(n>0&&(size_t)n<sizeof(changed_ids)-used)used+=(size_t)n;
+            if(i!=selected)++adjusted;
+        }
+        (void)guard_runtime_set_profile_range((uint8_t)(i+1u),fitted_low[i],fitted_high[i]);
     }
-    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)
-        if(update_mask&(1u<<i))
-            guard_runtime_set_profile_range((uint8_t)(i+1u),lows[i],highs[i]);
+    if(!used)snprintf(changed_ids,sizeof(changed_ids),"none");
     cal.phase=PHASE_READY;
-    emit("EVT|CAL|mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s|center=%lu|low=%lu|high=%lu|samples=%lu|fit=%u|adjusted=%u|revision=%lu",
-         light_stage(),LIGHT_PROFILE_COUNT,cal.profile,
-         guard_runtime_profile_name(cal.profile),(unsigned long)center,
-         (unsigned long)lows[selected],(unsigned long)highs[selected],
-         (unsigned long)samples,fitted?1u:0u,adjusted,
-         (unsigned long)calibration_store_revision());
+    emit("EVT|CAL|mode=saved|kind=light|stage=%u|count=%u|profile=%u|id=%s|center=%lu|low=%lu|high=%lu|samples=%lu|fit=%u|adjusted=%u|changed=%s|revision=%lu",
+         light_stage(),LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile),
+         (unsigned long)center,(unsigned long)fitted_low[selected],(unsigned long)fitted_high[selected],
+         (unsigned long)samples,changed?1u:0u,adjusted,changed_ids,(unsigned long)calibration_store_revision());
     return true;
 }
 static void service_light(void){
@@ -153,13 +160,12 @@ static void service_light(void){
         emit("ERR|CAL|UNSTABLE|kind=light|stage=%u|count=%u|profile=%u",
              light_stage(),LIGHT_PROFILE_COUNT,cal.profile);return;
     }
-    uint32_t center=r.average_lux*10u;
-    uint32_t spread=(r.maximum_lux-r.minimum_lux)*10u;
-    uint32_t tolerance=spread/2u+10u;
-    if(tolerance<10u)tolerance=10u;
+    uint32_t center=r.average_tenths;
+    uint32_t tolerance=calibration_store_light_tolerance();
     uint32_t low=center>tolerance?center-tolerance:0u;
     uint32_t high=center+tolerance;
-    if(!fit_and_save_light(center,low,high,r.samples))cal.phase=PHASE_READY;
+    if(high>1000000u){cal.phase=PHASE_READY;emit("ERR|CAL|FIT|reason=out-of-range");return;}
+    if(!fit_and_save_light(center,low,high,tolerance,r.samples))cal.phase=PHASE_READY;
 }
 static void request_sound(uint32_t now){if(!arm_uart_sound_calibration_start(now,SOUND_SAMPLE_MS))emit("ERR|SOUNDCAL|ARM-BUSY|id=%u",cal.profile);}
 static void service_sound(uint32_t now){uint16_t avg,peak;if(cal.mode!=CAL_MODE_SOUND||!arm_uart_sound_calibration_take(&avg,&peak))return;if(cal.phase==PHASE_SOUND_SILENCE){if(avg>cal.silence_peak)cal.silence_peak=avg;if(peak>cal.silence_peak)cal.silence_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_SILENCE_MS))>=0){cal.phase=PHASE_SOUND_TARGET;cal.phase_started=now;emit("EVT|SOUNDCAL|mode=sound|id=%u|seconds=30|silence=%u",cal.profile,cal.silence_peak);}request_sound(now);return;}if(cal.phase==PHASE_SOUND_TARGET){if(avg>cal.sound_peak)cal.sound_peak=avg;if(peak>cal.sound_peak)cal.sound_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_TARGET_MS))<0){request_sound(now);return;}if(cal.sound_peak<=cal.silence_peak+SOUND_MIN_SEPARATION){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|NO-SEPARATION|id=%u|silence=%u|peak=%u",cal.profile,cal.silence_peak,cal.sound_peak);return;}uint16_t threshold=(uint16_t)((cal.silence_peak+cal.sound_peak)/2u);if(!calibration_store_sound_set(cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak)){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|SAVE|id=%u",cal.profile);return;}cal.phase=PHASE_SOUND_COMPLETE;emit("EVT|SOUNDCAL|mode=saved|id=%u|threshold=%u|min=%u|silence=%u|peak=%u|revision=%lu",cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak,(unsigned long)calibration_store_revision());}}

@@ -73,6 +73,14 @@ internal static class LightStateProfilesUiBootstrap
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("مرکز و تلورانس فعلی فرضی‌اند. ذخیره‌سازی هیچ مقداری را روی کالیبراسیون یا ماکرو overwrite نمی‌کند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
+        var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
+            Foreground = Brush("#F5F7FA"), BorderBrush = Brush("#444A55") };
+        defaultTolerance.SetBinding(TextBox.TextProperty, new Binding(nameof(MainViewModel.PhysicalCalibrationToleranceLux))
+        { Source = vm, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.LostFocus, ValidatesOnExceptions = true });
+        editorBody.Children.Add(defaultTolerance);
+        editorBody.Children.Add(Text("برای اعمال روی برد، پروفایل‌ها و تلورانس را ارسال کنید؛ اگر بازه‌ها تداخل داشته باشند فقط مرزهای روبه‌رو کوتاه می‌شوند.", 12, "#AAB3C2"));
         var rows = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
         editorBody.Children.Add(rows);
 
@@ -89,7 +97,7 @@ internal static class LightStateProfilesUiBootstrap
         importFromBoard.Click += async (_, _) =>
         {
             if (MessageBox.Show(window,
-                    "بازه‌های کالیبراسیون ذخیره‌شده روی برد جایگزین مرکز و تلورانس فعلی شوند؟ سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
+                    "مرکز، مرزهای مؤثر و تلورانس پیش‌فرض از برد وارد شوند؟ سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
                     "وارد کردن کالیبراسیون از برد", MessageBoxButton.YesNo,
                     MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             importFromBoard.IsEnabled = false;
@@ -102,9 +110,20 @@ internal static class LightStateProfilesUiBootstrap
                 importFromBoard.IsEnabled = true;
             }
         };
+        var sendToBoard = ActionButton("ارسال به برد", "#8D67C8", "#F5F7FA");
+        sendToBoard.Margin = new Thickness(8, 0, 0, 0);
+        sendToBoard.Click += async (_, _) =>
+        {
+            if (MessageBox.Show(window, "پروفایل‌های نوری و تلورانس پیش‌فرض روی برد جایگزین شوند؟ اجرای برد و کالیبراسیون باید متوقف باشند.",
+                    "ارسال به برد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; }
+            sendToBoard.IsEnabled = false;
+            try { if (await vm.SendLightStateProfilesToBoardAsync()) RebuildRows(); }
+            finally { sendToBoard.IsEnabled = true; }
+        };
         var save = ActionButton("ذخیره پروفایل‌ها", "#5E9FE8", "#10151C");
         save.Margin = new Thickness(8, 0, 0, 0);
-        save.Click += (_, _) => { if (vm.SaveLightStateProfiles()) RebuildRows(); };
+        save.Click += (_, _) => { if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; } if (vm.SaveLightStateProfiles()) RebuildRows(); };
         var reset = ActionButton("بازگردانی مقادیر اولیه", "#333740", "#F5F7FA");
         reset.Margin = new Thickness(8, 0, 0, 0);
         reset.Click += (_, _) =>
@@ -114,7 +133,7 @@ internal static class LightStateProfilesUiBootstrap
             vm.ResetLightStateProfiles();
             RebuildRows();
         };
-        actions.Children.Add(importFromBoard); actions.Children.Add(save); actions.Children.Add(reset);
+        actions.Children.Add(importFromBoard); actions.Children.Add(sendToBoard); actions.Children.Add(save); actions.Children.Add(reset);
         editorBody.Children.Add(actions);
         var saveStatus = Bound(nameof(MainViewModel.LightProfileSaveStatus), 12);
         saveStatus.Margin = new Thickness(0, 8, 0, 0);

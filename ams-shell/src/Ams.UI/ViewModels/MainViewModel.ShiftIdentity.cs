@@ -8,13 +8,25 @@ public partial class MainViewModel
 {
     public string DayWindowsUser
     {
-        get => _settings.DayWindowsUser;
-        set { _settings.DayWindowsUser = value.Trim(); _settings.Save(); OnPropertyChanged(nameof(DayWindowsUser)); }
+        get => _pipelineWorkspace.DayWindowsUser;
+        set
+        {
+            var normalized = value?.Trim() ?? "";
+            if (_pipelineWorkspace.DayWindowsUser == normalized) return;
+            _pipelineWorkspace.DayWindowsUser = normalized;
+            ShiftUsernameChanged(nameof(DayWindowsUser));
+        }
     }
     public string NightWindowsUser
     {
-        get => _settings.NightWindowsUser;
-        set { _settings.NightWindowsUser = value.Trim(); _settings.Save(); OnPropertyChanged(nameof(NightWindowsUser)); }
+        get => _pipelineWorkspace.NightWindowsUser;
+        set
+        {
+            var normalized = value?.Trim() ?? "";
+            if (_pipelineWorkspace.NightWindowsUser == normalized) return;
+            _pipelineWorkspace.NightWindowsUser = normalized;
+            ShiftUsernameChanged(nameof(NightWindowsUser));
+        }
     }
     private string _shiftStatusText = "هنوز شیفتی توسط Pico تأیید نشده است.";
     public string ShiftStatusText => _shiftStatusText;
@@ -77,7 +89,10 @@ public partial class MainViewModel
     private void ShiftScheduleChanged(string property) {
         _dirty=true;UpdateFileText();OnPropertyChanged(property);OnPropertyChanged(nameof(ShiftScheduleSummary));
     }
+    private void ShiftUsernameChanged(string property) {
+        _dirty=true;UpdateFileText();OnPropertyChanged(property);
+    }
     private void RefreshShiftScheduleBindings() {
-        foreach(var property in new[]{nameof(ShiftScheduleEnabled),nameof(ShiftMaxAttempts),nameof(ShiftDayStart),nameof(ShiftDayEnd),nameof(ShiftNightStart),nameof(ShiftNightEnd),nameof(ShiftScheduleSummary)})OnPropertyChanged(property);
+        foreach(var property in new[]{nameof(DayWindowsUser),nameof(NightWindowsUser),nameof(ShiftScheduleEnabled),nameof(ShiftMaxAttempts),nameof(ShiftDayStart),nameof(ShiftDayEnd),nameof(ShiftNightStart),nameof(ShiftNightEnd),nameof(ShiftScheduleSummary)})OnPropertyChanged(property);
     }
 }

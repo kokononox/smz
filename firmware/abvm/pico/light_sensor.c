@@ -127,6 +127,7 @@ static void calibration_finish(void) {
     calibration.result.valid = true;
     calibration.result.minimum_lux = (calibration.minimum + 5u) / 10u;
     calibration.result.maximum_lux = (calibration.maximum + 5u) / 10u;
+    calibration.result.average_tenths = (uint32_t)((calibration.total + calibration.samples/2u) / calibration.samples);
     calibration.result.average_lux =
         (uint32_t)((calibration.total / calibration.samples + 5u) / 10u);
 }

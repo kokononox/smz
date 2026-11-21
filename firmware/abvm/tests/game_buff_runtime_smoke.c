@@ -119,7 +119,67 @@ static void random_and_validation(void) {
     game_buff_new_game(&r);assert(!game_buff_pending(&r,0u));
     printf("shuffle: %u/999 transitions changed\n",different);
 }
+static void follow_up(void) {
+    GameBuffRuntime r; GameBuffConfig c=config('8', 1000u); c.follow_key='6';
+    c.before_min_ms=c.before_max_ms=0u; c.after_min_ms=c.after_max_ms=10u;
+    assert(game_buff_init(&r,&c,1u,3u)); game_buff_new_game(&r);
+    assert(game_buff_service(&r,0u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(!r.follow_pending); assert(game_buff_key_accepted(&r));
+    assert(game_buff_key_finished(&r,100u)); assert(r.follow_pending);
+    assert(!r.consumed_mask && r.phase==GAME_BUFF_REQUEST);
+    GameBuffGate blocked=safe; blocked.paused=true;
+    assert(game_buff_service(&r,100u,blocked).kind==GAME_BUFF_EVENT_NONE);
+    assert(game_buff_service(&r,100u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); game_buff_key_cancelled(&r);
+    assert(!r.follow_pending && !r.consumed_mask); /* interrupted second retries whole pair */
+    assert(game_buff_service(&r,101u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,201u));
+    assert(r.follow_pending); assert(game_buff_service(&r,201u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,301u));
+    assert(!r.follow_pending && r.phase==GAME_BUFF_AFTER && !r.consumed_mask);
+    assert(game_buff_service(&r,310u,safe).kind==GAME_BUFF_EVENT_NONE);
+    assert(game_buff_service(&r,311u,safe).kind==GAME_BUFF_EVENT_CONSUMED);
+    assert(r.last_consumed[0]==311u && r.due[0]==1311u);
+    game_buff_new_game(&r); assert(!r.follow_pending && !r.consumed_mask);
+}
+static void delayed_follow_up(void) {
+    GameBuffRuntime r; GameBuffConfig c=config('8', 1000u); c.follow_key='6';
+    c.follow_delay_ms=75u;
+    c.before_min_ms=c.before_max_ms=0u;
+    c.after_min_ms=c.after_max_ms=10u;
+    assert(game_buff_init(&r,&c,1u,3u)); game_buff_new_game(&r);
+    assert(game_buff_service(&r,0u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,100u));
+    assert(r.follow_pending && r.phase==GAME_BUFF_FOLLOW_DELAY);
+    assert(r.deadline==175u && !r.consumed_mask);
+    assert(game_buff_service(&r,174u,safe).kind==GAME_BUFF_EVENT_NONE);
+    GameBuffGate blocked=safe; blocked.paused=true;
+    assert(game_buff_service(&r,175u,blocked).kind==GAME_BUFF_EVENT_NONE);
+    assert(r.phase==GAME_BUFF_REQUEST && r.follow_pending);
+    assert(game_buff_service(&r,175u,safe).kind==GAME_BUFF_EVENT_KEY_REQUEST);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,275u));
+    assert(!r.follow_pending && r.phase==GAME_BUFF_AFTER && !r.consumed_mask);
+    assert(r.deadline==285u); /* after-consumption timer starts after key two */
+    assert(game_buff_service(&r,284u,safe).kind==GAME_BUFF_EVENT_NONE);
+    assert(game_buff_service(&r,285u,safe).kind==GAME_BUFF_EVENT_CONSUMED);
+    assert(r.last_consumed[0]==285u && r.due[0]==1285u);
+}
+static void descriptor_v3(void) {
+    uint8_t payload[48]={0};
+    memcpy(payload,"GBF1",4u); payload[4]=3u; payload[5]=1u;
+    uint8_t *row=payload+8u;
+    row[0]='8'; row[4]=1u; row[5]='6'; row[6]=250u;
+    const uint32_t values[8]={1000u,2000u,0u,0u,10u,10u,0u,0u};
+    for(uint8_t i=0u;i<8u;++i) {
+        uint32_t value=values[i];
+        for(uint8_t b=0u;b<4u;++b) row[8u+(uint32_t)i*4u+b]=(uint8_t)(value>>(8u*b));
+    }
+    GameBuffRuntime r;
+    assert(game_buff_load(&r,payload,sizeof(payload),4u));
+    assert(r.config[0].follow_key=='6' && r.config[0].follow_delay_ms==250u);
+}
 int main(void) {
+    follow_up(); delayed_follow_up(); descriptor_v3();
     timing();priority_and_retry();rollover();random_and_validation();
     puts("Pico game buff scheduler contracts passed");
     return 0;

@@ -81,13 +81,11 @@ public static class DocumentService
 
 /// <summary>
 /// App options (Tools → Options → Serial/Board tab, §2.4). Persisted to
-/// ams-settings.json next to the exe.
+/// ams-settings.json next to the exe when writable, with a per-user fallback.
 /// </summary>
 public sealed class AppSettings
 {
     /// <summary>Default AUTO: BoardLink scans KNOWN_VIDS and finds the board on any COM (§14.3 / §15.5).</summary>
-    public string DayWindowsUser { get; set; } = "";
-    public string NightWindowsUser { get; set; } = "";
     public string Port { get; set; } = "AUTO";
     public string PythonDir { get; set; } = "";
     public string ToolkitDir { get; set; } = "";
@@ -130,7 +128,13 @@ public sealed class AppSettings
     public string PauseResumeHotkey { get; set; } = "";
     public string KeyboardBoard { get; set; } = "pico";
 
-    private static string Path_ => System.IO.Path.Combine(AppContext.BaseDirectory, "ams-settings.json");
+    private static string PortablePath =>
+        System.IO.Path.Combine(AppContext.BaseDirectory, "ams-settings.json");
+    private static string UserPath =>
+        System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ClassroomStudio", "ams-settings.json");
+    private static string Path_ => File.Exists(UserPath) ? UserPath : PortablePath;
 
     public static (int min, int max) NormalizeSpeedDefaults(int min, int max)
         => min == 0 && max == 2300 ? (300, 2000) : (min, max);
@@ -211,5 +215,44 @@ public sealed class AppSettings
         return new();
     }
 
-    public void Save() => File.WriteAllText(Path_, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    public void Save()
+    {
+        string json = JsonSerializer.Serialize(
+            this, new JsonSerializerOptions { WriteIndented = true });
+        string target = Path_;
+        try
+        {
+            WriteAtomically(target, json);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException
+                                   or IOException
+                                   or System.Security.SecurityException)
+        {
+            // Installed apps often live under Program Files, where the portable
+            // settings file is readable but not writable. Keep portable mode when
+            // possible, and otherwise persist under the current Windows profile.
+            if (string.Equals(target, UserPath, StringComparison.OrdinalIgnoreCase))
+                throw;
+            WriteAtomically(UserPath, json);
+        }
+    }
+
+    private static void WriteAtomically(string path, string contents)
+    {
+        string directory = System.IO.Path.GetDirectoryName(path)
+            ?? throw new IOException("Settings directory is unavailable.");
+        Directory.CreateDirectory(directory);
+        string temporary = System.IO.Path.Combine(
+            directory, $".ams-settings-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporary, contents);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch { /* Preserve the original save result. */ }
+        }
+    }
 }

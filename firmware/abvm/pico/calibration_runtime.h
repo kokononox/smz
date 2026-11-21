@@ -13,4 +13,6 @@ bool calibration_runtime_yellow_short(uint32_t now);
 bool calibration_runtime_yellow_long(uint32_t now);
 void calibration_runtime_service(uint32_t now);
 bool calibration_runtime_take_event(char *out, uint32_t size);
+bool calibration_runtime_light_snapshot(uint32_t lows[9],uint32_t highs[9],uint32_t centers[9]);
+bool calibration_runtime_light_sync(uint32_t lows[9],uint32_t highs[9],uint32_t centers[9],uint16_t tolerance);
 #endif

@@ -53,6 +53,63 @@ class GameBuffCompilerTests(unittest.TestCase):
         self.assertEqual(image.instructions[watch.d].op, abvm.OP_LOOP_NEXT)
         self.assertEqual(codes[2].op, abvm.OP_BUFF)
 
+    def test_follow_key_descriptor_and_old_template_rejection(self):
+        data = project()
+        data["gameBuffs"][0]["Props"].update(followEnabled=True, followKey="6")
+        result = abvm.Compiler().compile_amsj(data)
+        image = abvm.Verifier.verify(result.image)
+        payload = image.const(image.instructions[image.route("Game").pc].a, abvm.CONST_BUFF)
+        self.assertEqual(abvm.BUFF_HEADER.unpack_from(payload), (b"GBF1", 2, 1, 0))
+        self.assertEqual(payload[13], ord("6"))
+        sys.path.insert(0, str(ROOT / "firmware/abvm/tests"))
+        from test_abvm_uf2 import make_uf2
+        from abvm_uf2 import inject, Uf2Error
+        old = bytearray(make_uf2(b"ABP1old", capacity=16384))
+        marker = b"EVT|BUFF|state=new-game|count=%u"
+        old[32:32+len(marker)] = marker
+        with self.assertRaisesRegex(Uf2Error, "second buff key"):
+            inject(bytes(old), result.image)
+        marker2 = b"EVT|BUFF|follow-key=v2"
+        old[32+len(marker):32+len(marker)+len(marker2)] = marker2
+        inject(bytes(old), result.image)
+        data["gameBuffs"][0]["Props"]["followKey"] = "not-a-key"
+        with self.assertRaises(abvm.AbvmError): abvm.Compiler().compile_amsj(data)
+
+    def test_delayed_follow_key_uses_v3_descriptor(self):
+        data = project()
+        data["gameBuffs"][0]["Props"].update(
+            followEnabled=True, followKey="6", followDelayMs=250)
+        result = abvm.Compiler().compile_amsj(data)
+        image = abvm.Verifier.verify(result.image)
+        payload = image.const(
+            image.instructions[image.route("Game").pc].a, abvm.CONST_BUFF)
+        self.assertEqual(abvm.BUFF_HEADER.unpack_from(payload),
+                         (b"GBF1", 3, 1, 0))
+        self.assertEqual(payload[13], ord("6"))
+        self.assertEqual(int.from_bytes(payload[14:16], "little"), 250)
+        self.assertIn("EVT|BUFF|follow-delay=v3",
+                      (ROOT / "firmware/abvm/pico/main.c").read_text())
+        sys.path.insert(0, str(ROOT / "firmware/abvm/tests"))
+        from test_abvm_uf2 import make_uf2
+        from abvm_uf2 import inject, Uf2Error
+        template = bytearray(make_uf2(b"ABP1old", capacity=16384))
+        runtime_markers = (
+            b"EVT|BUFF|state=new-game|count=%u\n"
+            b"EVT|BUFF|follow-key=v2"
+        )
+        template[32:32 + len(runtime_markers)] = runtime_markers
+        with self.assertRaisesRegex(Uf2Error, "delayed buff follow-up"):
+            inject(bytes(template), result.image)
+        marker = b"EVT|BUFF|follow-delay=v3"
+        template[80:80 + len(marker)] = marker
+        inject(bytes(template), result.image)
+        for delay, enabled in [(60_001, True), (1, False)]:
+            data = project()
+            data["gameBuffs"][0]["Props"].update(
+                followEnabled=enabled, followKey="6", followDelayMs=delay)
+            with self.assertRaises(abvm.AbvmError):
+                abvm.Compiler().compile_amsj(data)
+
     def test_legacy_project_remains_opt_out(self):
         data = project(); data.pop("gameBuffs")
         image = abvm.Verifier.verify(abvm.Compiler().compile_amsj(data).image)
@@ -111,6 +168,11 @@ class GameBuffCompilerTests(unittest.TestCase):
                 "-o", str(executable),
             ], check=True)
             subprocess.run([str(executable), str(program)], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            data = project()
+            data["gameBuffs"][0]["Props"].update(followEnabled=True, followKey="6")
+            program.write_bytes(abvm.Compiler().compile_amsj(data).image)
+            subprocess.run([str(executable), str(program), "follow"], check=True,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 

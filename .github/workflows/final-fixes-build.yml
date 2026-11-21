@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   build:
+    # This patch workflow is only for its dedicated fix branch, not every PR to main.
+    if: github.event_name == 'push' || github.head_ref == 'fix/classroom-studio-final-20260914'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

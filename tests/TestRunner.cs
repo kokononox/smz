@@ -79,6 +79,25 @@ class TestRunner
             &&scheduleRoundtrip[PipelineKind.SwitchToDay].Steps.Count==1&&scheduleRoundtrip[PipelineKind.SwitchToNight].Steps.Count==1,
             "Shift schedule and separate editable switch routes survive macro save/load");
         Assert(!new PipelineWorkspace().ShiftSchedule.enabled,"Old macro defaults to identity-only behavior");
+        var identityWorkspace=new PipelineWorkspace { DayWindowsUser=" DayUser ", NightWindowsUser=" NightUser " };
+        var identityJson=PipelineWorkspaceSerializer.Serialize(identityWorkspace);
+        using(var identityDocument=JsonDocument.Parse(identityJson))
+        {
+            var identityRoot=identityDocument.RootElement;
+            Assert(identityRoot.GetProperty("dayWindowsUser").GetString()=="DayUser"
+                &&identityRoot.GetProperty("nightWindowsUser").GetString()=="NightUser",
+                "AMJS export stores normalized Windows shift usernames in the project");
+        }
+        var identityRoundtrip=PipelineWorkspaceSerializer.Deserialize(identityJson);
+        var identityHashes=ShiftTextValidation.UserHashes(identityRoundtrip);
+        Assert(identityRoundtrip.DayWindowsUser=="DayUser"&&identityRoundtrip.NightWindowsUser=="NightUser"
+            &&identityHashes.day==ClassroomShift.ShiftUserIdentity.Hash("DayUser")
+            &&identityHashes.night==ClassroomShift.ShiftUserIdentity.Hash("NightUser"),
+            "AMJS import restores usernames for Status and Native export");
+        var legacyIdentity=PipelineWorkspaceSerializer.Deserialize(
+            "{\"app\":\"AMS\",\"pipelineVersion\":13,\"pipelines\":{}}");
+        Assert(legacyIdentity.DayWindowsUser==""&&legacyIdentity.NightWindowsUser=="",
+            "Older AMJS files without shift usernames clear the Status fields");
         var buffWorkspace = new PipelineWorkspace();
         var testBuff = new StepNode { Type="keystroke", Name="tea", Delay=11000, DelayMax=16000,
             Props=new() { ["key"]="9", ["holdMin"]=89, ["holdMax"]=210,
@@ -92,7 +111,19 @@ class TestRunner
             "Pico buffs round-trip food consumption delays");
         Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
             "Pico buffs round-trip configurable intervals and fatigue duration");
+        testBuff.Props["followEnabled"]=true; testBuff.Props["followKey"]="6";
+        testBuff.Props["followDelayMs"]=250;
+        GameBuffValidation.Validate(testBuff);
+        var followReload=PipelineWorkspaceSerializer.Deserialize(PipelineWorkspaceSerializer.Serialize(buffWorkspace));
+        Assert(PropEx.GetBool(followReload.GameBuffs[0].Props,"followEnabled")
+            &&PropEx.GetString(followReload.GameBuffs[0].Props,"followKey")=="6"
+            &&PropEx.GetInt(followReload.GameBuffs[0].Props,"followDelayMs")==250,
+            "Optional Pico follow-up key and delay survive macro save/load");
+        Assert(!GameBuffValidation.IsSupportedFollowKey("DELETE") && GameBuffValidation.IsSupportedFollowKey("6"),
+            "Follow-up choices match native keyboard support");
         Assert(StepDefinitions.Get("buffCheckpoint").Fields.Count==0,"Pico buff safe boundary is a visible structural step");
+        Assert(StepDefinitions.Get("waitForSound").Fields.Any(f=>f.Key=="timeoutAlarmAfter"&&f.Default=="1"),
+            "Sound Watch preserves per-timeout alarms by default");
         testBuff.Props["renewMaxMinutes"]=53.0;
         bool badBuff=false;try { GameBuffValidation.Validate(testBuff); } catch(FormatException) { badBuff=true; }
         Assert(badBuff,"Pico buff validation rejects inverted intervals");
@@ -562,6 +593,9 @@ class TestRunner
         // ── Step 4: AppSettings round-trip ───────────────────────────
         var settings = new AppSettings { Port = "COM3", PythonDir = @"C:\test\py", ToolkitDir = @"C:\test\tk" };
         var json = JsonSerializer.Serialize(settings);
+        Assert(!json.Contains("DayWindowsUser", StringComparison.Ordinal)
+               && !json.Contains("NightWindowsUser", StringComparison.Ordinal),
+            "Windows shift usernames are stored in AMJS projects, not app settings");
         var loaded = JsonSerializer.Deserialize<AppSettings>(json);
         Assert(loaded != null && loaded.Port == "COM3" && loaded.ToolkitDir == @"C:\test\tk",
             "AppSettings round-trip preserves ToolkitDir");
@@ -3683,6 +3717,9 @@ class TestRunner
         var p57bridge = File.ReadAllText(System.IO.Path.Combine(_p57root, "ams-shell", "bridge", "bridge.py"));
         var p57pp = V27ReadSrc(Path.Combine("Services", "PortablePaths.cs"));
         var p57doc = V27ReadSrc(Path.Combine("Services", "DocumentService.cs"));
+        var p57settingsUi = File.ReadAllText(Path.Combine(_p57root, "ams-shell", "src", "Ams.UI", "MainWindow.PipelineTabsUi.cs"));
+        var p57identityVm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.ShiftIdentity.cs"));
+        var p57workspaceSerializer = V27ReadSrc(Path.Combine("Services", "PipelineWorkspaceSerializer.cs"));
         var p57pbb = V27ReadSrc(Path.Combine("Services", "PythonBoardBridge.cs"));
         var p57vm = V27ReadSrc(Path.Combine("ViewModels", "MainViewModel.cs"));
         var p57csp = V27ReadSrc("Ams.UI.csproj");
@@ -3708,6 +3745,15 @@ class TestRunner
             "v0.9.58: no hardcoded wasteland path in DocumentService defaults");
         Assert(p57doc.Contains("Directory.Exists") && p57doc.Contains("SerialPort.GetPortNames"),
             "v0.9.58: AppSettings.Load sanitizes stale paths");
+        Assert(p57doc.Contains("Environment.SpecialFolder.LocalApplicationData")
+               && p57doc.Contains("WriteAtomically") && p57doc.Contains("File.Move(temporary, path, overwrite: true)"),
+            "Settings fall back to per-user storage and save atomically when the app folder is read-only");
+        Assert(p57settingsUi.Contains("UpdateSourceTrigger.PropertyChanged")
+               && p57identityVm.Contains("_pipelineWorkspace.DayWindowsUser")
+               && p57identityVm.Contains("_pipelineWorkspace.NightWindowsUser")
+               && p57workspaceSerializer.Contains("dayWindowsUser")
+               && p57workspaceSerializer.Contains("nightWindowsUser"),
+            "Status usernames edit the active workspace and round-trip through AMJS");
         Assert(p57vm.Contains("PortablePaths.FirstExistingDir"),
             "v0.9.58: CreateBridge prefers bundled bridge dir over settings");
         Assert(p57pbb.Contains("PortablePaths.FindPython()"),
