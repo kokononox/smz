@@ -26,7 +26,7 @@ var csvRows = new[]
 var csv = LightTelemetryCsvExporter.ToCsv(csvRows);
 Check(csv.StartsWith("captured_at_utc,environment,sensor1_lux,sensor1_status,sensor1_age_ms,sensor2_lux,sensor2_status,sensor2_age_ms" + Environment.NewLine, StringComparison.Ordinal),
     "CSV exporter writes a stable header");
-Check(csv.Contains("2026-11-21T13:00:00.0000000+00:00,\"Desk, \"\"north\"\"\",12.5,\"ok\",4,35.8,\"ok\",8", StringComparison.Ordinal),
+Check(csv.Contains("\"2026-11-21T13:00:00.0000000+00:00\",\"Desk, \"\"north\"\"\",12.5,\"ok\",4,35.8,\"ok\",8", StringComparison.Ordinal),
     "CSV exporter converts timestamps to UTC and escapes labeled dual-sensor samples");
 Check(csv.Contains(",\"legacy\",,\"missing\",,,\"unsupported\"," + Environment.NewLine, StringComparison.Ordinal),
     "CSV exporter leaves missing legacy readings blank");
