@@ -45,27 +45,6 @@ internal static class LightCalibrationUiBootstrap
         var content = new StackPanel();
         content.Children.Add(Text("کالیبراسیون پیشنهادی", 15, "#F5F7FA", FontWeights.SemiBold));
         content.Children.Add(Text("از داده زنده پیشنهاد می‌سازد؛ بدون زدن «اعمال پیشنهاد» و سپس «ذخیره پروفایل‌ها» هیچ مقداری تغییر نمی‌کند.", 12, "#AAB3C2"));
-        content.Children.Add(Text("خوانش هم‌زمان دو سنسور · فقط تشخیصی", 13, "#F5F7FA", FontWeights.SemiBold));
-        var telemetry = new Grid { Margin = new Thickness(0, 4, 0, 6) };
-        telemetry.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        telemetry.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var sensor1 = SensorTile(
-            "سنسور ۱ · آدرس 0x23",
-            Bound(nameof(MainViewModel.CurrentLuxDisplay), 22, "#72BC8F", FontWeights.SemiBold),
-            Text("Lux", 11, "#AAB3C2"),
-            Bound(nameof(MainViewModel.LightSensorStatus), 12, "#D9DEE7"),
-            Bound(nameof(MainViewModel.LightSensor1SampleAgeDisplay), 11, "#AAB3C2"));
-        var sensor2 = SensorTile(
-            "سنسور ۲ · آدرس 0x5C",
-            Bound(nameof(MainViewModel.CurrentLux2Display), 22, "#72BC8F", FontWeights.SemiBold),
-            Text("Lux", 11, "#AAB3C2"),
-            Bound(nameof(MainViewModel.LightSensor2StatusDisplay), 12, "#D9DEE7"),
-            Bound(nameof(MainViewModel.LightSensor2SampleAgeDisplay), 11, "#AAB3C2"));
-        Grid.SetColumn(sensor1, 0);
-        Grid.SetColumn(sensor2, 1);
-        telemetry.Children.Add(sensor1);
-        telemetry.Children.Add(sensor2);
-        content.Children.Add(telemetry);
         content.Children.Add(Text("برای به‌روزرسانی، «شروع پایش» را بزنید. تشخیص محیط و کالیبراسیون فعلاً همچنان از سنسور اول استفاده می‌کنند.", 11, "#AAB3C2"));
 
         var controls = new WrapPanel { Margin = new Thickness(0, 10, 0, 8) };

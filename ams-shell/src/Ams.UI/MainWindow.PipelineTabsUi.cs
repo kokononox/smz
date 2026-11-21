@@ -132,10 +132,54 @@ internal static class PipelineTabsUiBootstrap
             Background = Brush("#171A1F"),
             FlowDirection = FlowDirection.RightToLeft,
         };
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        var body = new StackPanel { Margin = new Thickness(20), MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Stretch };
-        scroll.Content = body;
-        root.Children.Add(scroll);
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var pageButtons = new List<Button>();
+        var nav = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(16, 10, 16, 2) };
+        var pages = new Grid();
+        Grid.SetRow(nav, 0);
+        Grid.SetRow(pages, 1);
+        root.Children.Add(nav);
+        root.Children.Add(pages);
+
+        var generalBody = CreateStatusPage();
+        var body = CreateStatusPage();
+        var audioBody = CreateStatusPage();
+        AddPage("کلی");
+        AddPage("نور و سنسورها");
+        AddPage("صدا");
+        SelectPage(1);
+
+        StackPanel CreateStatusPage()
+        {
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var stack = new StackPanel { Margin = new Thickness(18, 14, 18, 18), MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Stretch };
+            scroll.Content = stack;
+            pages.Children.Add(scroll);
+            return stack;
+        }
+
+        void AddPage(string title)
+        {
+            var index = pageButtons.Count;
+            var button = new Button { Content = title, Padding = new Thickness(14, 7, 14, 7), Margin = new Thickness(3), BorderThickness = new Thickness(1), Cursor = WpfCursors.Hand };
+            button.Click += (_, _) => SelectPage(index);
+            pageButtons.Add(button);
+            nav.Children.Add(button);
+        }
+
+        void SelectPage(int selected)
+        {
+            for (var i = 0; i < pages.Children.Count; i++)
+                pages.Children[i].Visibility = i == selected ? Visibility.Visible : Visibility.Collapsed;
+            for (var i = 0; i < pageButtons.Count; i++)
+            {
+                pageButtons[i].Background = Brush(i == selected ? "#5E9FE8" : "#333740");
+                pageButtons[i].Foreground = Brush(i == selected ? "#10151C" : "#F5F7FA");
+                pageButtons[i].BorderBrush = Brush(i == selected ? "#5E9FE8" : "#444A55");
+                pageButtons[i].FontWeight = i == selected ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+        }
 
         var identity = new StackPanel { Margin=new Thickness(0,0,0,18) };
         identity.Children.Add(new TextBlock { Text="تنظیمات کلی — کاربران ویندوز شیفت‌ها", FontSize=20, Foreground=Brush("#F5F7FA") });
@@ -161,7 +205,7 @@ internal static class PipelineTabsUiBootstrap
         identity.Children.Add(Bound(nameof(MainViewModel.ShiftScheduleSummary),13));
         var addCheck=new Button { Content="افزودن استپ تأیید شیفت به Desktop / Startup",Margin=new Thickness(0,8,0,8),Padding=new Thickness(10,6,10,6) };
         addCheck.Click+=(_,_)=>vm.AddShiftCheck();identity.Children.Add(addCheck);
-        identity.Children.Add(Bound(nameof(MainViewModel.ShiftStatusText),13));body.Children.Add(identity);
+        identity.Children.Add(Bound(nameof(MainViewModel.ShiftStatusText),13));generalBody.Children.Add(identity);
         var buffBox = new StackPanel { Margin = new Thickness(0,0,0,18) };
         buffBox.Children.Add(new TextBlock { Text="باف‌های محیط بازی — Pico", FontSize=20, Foreground=Brush("#F5F7FA") });
         buffBox.Children.Add(new TextBlock {
@@ -185,7 +229,9 @@ internal static class PipelineTabsUiBootstrap
         fatigueInput.SetBinding(TextBox.TextProperty,new Binding(nameof(MainViewModel.GameMouseFatigueMinutes)) { Source=vm, Mode=BindingMode.TwoWay, UpdateSourceTrigger=UpdateSourceTrigger.LostFocus, ValidatesOnExceptions=true });
         fatigueRow.Children.Add(fatigueInput);buffBox.Children.Add(fatigueRow);
         buffBox.Children.Add(Bound(nameof(MainViewModel.GameBuffStatusText),13));
-        body.Children.Add(buffBox);
+        generalBody.Children.Add(buffBox);
+        audioBody.Children.Add(new TextBlock { Text = "تنظیمات صوتی", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Brush("#F5F7FA"), Margin = new Thickness(0, 0, 0, 4) });
+        audioBody.Children.Add(new TextBlock { Text = "صداهای محیط نوری و صداهای سیستمی را جداگانه باز کنید؛ تنظیمات در ابتدا جمع‌شده‌اند.", FontSize = 13, Foreground = Brush("#AAB3C2"), Margin = new Thickness(0, 0, 0, 12) });
         body.Children.Add(new TextBlock
         {
             Text = "وضعیت زنده‌ی سنسور نور",
@@ -203,14 +249,13 @@ internal static class PipelineTabsUiBootstrap
         });
 
         var summary = new Grid { Margin = new Thickness(0, 0, 0, 12) };
-        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
-        var connection = Card("اتصال", Bound(nameof(MainViewModel.StatusText), 14), Bound(nameof(MainViewModel.LightSensorStatus), 17, FontWeights.SemiBold));
-        var freshness = Card("آخرین نمونه", Bound(nameof(MainViewModel.LastLightSampleText), 17, FontWeights.SemiBold), Bound(nameof(MainViewModel.LightFreshnessText), 13));
-        var lux = Card("نور فعلی (Lux)", Bound(nameof(MainViewModel.CurrentLuxDisplay), 38, FontWeights.Bold), Bound(nameof(MainViewModel.LightSensorMode), 13));
-        Grid.SetColumn(connection, 0); Grid.SetColumn(freshness, 1); Grid.SetColumn(lux, 2);
-        summary.Children.Add(connection); summary.Children.Add(freshness); summary.Children.Add(lux);
+        for (var i = 0; i < 4; i++) summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var connection = Card("اتصال", Bound(nameof(MainViewModel.StatusText), 14), Bound(nameof(MainViewModel.LightFreshnessText), 12));
+        var freshness = Card("آخرین نمونه", Bound(nameof(MainViewModel.LastLightSampleText), 17, FontWeights.SemiBold), Bound(nameof(MainViewModel.LightSensorMode), 12));
+        var sensor1 = Card("سنسور ۱ · 0x23", Bound(nameof(MainViewModel.CurrentLuxDisplay), 31, FontWeights.Bold), Bound(nameof(MainViewModel.LightSensorStatus), 12), Bound(nameof(MainViewModel.LightSensor1SampleAgeDisplay), 11));
+        var sensor2 = Card("سنسور ۲ · 0x5C", Bound(nameof(MainViewModel.CurrentLux2Display), 31, FontWeights.Bold), Bound(nameof(MainViewModel.LightSensor2StatusDisplay), 12), Bound(nameof(MainViewModel.LightSensor2SampleAgeDisplay), 11));
+        Grid.SetColumn(connection, 0); Grid.SetColumn(freshness, 1); Grid.SetColumn(sensor1, 2); Grid.SetColumn(sensor2, 3);
+        summary.Children.Add(connection); summary.Children.Add(freshness); summary.Children.Add(sensor1); summary.Children.Add(sensor2);
         body.Children.Add(summary);
 
         var controls = new Border
@@ -234,6 +279,29 @@ internal static class PipelineTabsUiBootstrap
         controlRow.Children.Add(new TextBlock { Text = "میلی‌ثانیه", Foreground = Brush("#AAB3C2"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
         controls.Child = controlRow;
         body.Children.Add(controls);
+
+        var capture = new Border
+        {
+            Background = Brush("#22262D"), BorderBrush = Brush("#343B46"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 12),
+        };
+        var captureBody = new StackPanel();
+        captureBody.Children.Add(new TextBlock { Text = "ثبت نمونه برای یک محیط", Foreground = Brush("#F5F7FA"), FontSize = 15, FontWeight = FontWeights.SemiBold });
+        captureBody.Children.Add(new TextBlock { Text = "برچسب محیط را وارد کنید، ثبت را شروع/متوقف کنید و همهٔ برداشت‌ها را به CSV صادر کنید. داده‌ها تا زمان خروج از برنامه در حافظه می‌مانند.", Foreground = Brush("#AAB3C2"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8) });
+        var captureRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var label = new TextBox { MinWidth = 220, Width = 280, MaxLength = 128, Padding = new Thickness(7), Margin = new Thickness(0, 0, 8, 0), Background = Brush("#181B20"), Foreground = Brush("#F5F7FA"), BorderBrush = Brush("#444A55"), FlowDirection = FlowDirection.LeftToRight };
+        label.SetBinding(TextBox.TextProperty, new Binding(nameof(MainViewModel.LightCaptureLabel)) { Source = vm, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
+        label.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(MainViewModel.CanEditLightCaptureLabel)) { Source = vm });
+        captureRow.Children.Add(label);
+        var captureButton = new Button { Padding = new Thickness(13, 7, 13, 7), Margin = new Thickness(2, 0, 6, 0), Background = Brush("#3D6B55"), Foreground = Brush("#F5F7FA"), FontWeight = FontWeights.SemiBold, Command = vm.ToggleLightCaptureCommand };
+        captureButton.SetBinding(ContentControl.ContentProperty, new Binding(nameof(MainViewModel.LightCaptureButtonText)) { Source = vm });
+        captureRow.Children.Add(captureButton);
+        captureRow.Children.Add(new Button { Content = "صادرات CSV…", Padding = new Thickness(13, 7, 13, 7), Margin = new Thickness(2, 0, 0, 0), Background = Brush("#5E9FE8"), Foreground = Brush("#10151C"), FontWeight = FontWeights.SemiBold, Command = vm.ExportLightCaptureCommand });
+        captureBody.Children.Add(captureRow);
+        captureBody.Children.Add(Bound(nameof(MainViewModel.LightCaptureCountDisplay), 12));
+        captureBody.Children.Add(Bound(nameof(MainViewModel.LightCaptureStatusText), 12));
+        capture.Child = captureBody;
+        body.Children.Add(capture);
 
         var stats = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         for (var i = 0; i < 4; i++) stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

@@ -16,6 +16,27 @@ void Rejects(string reply, string name)
 
 await LightExecutionAuthorizationConcurrencyContract.RunAsync();
 
+var csvRows = new[]
+{
+    new LightTelemetryCaptureRecord("Desk, \"north\"", new DateTimeOffset(2026, 11, 21, 16, 0, 0, TimeSpan.FromHours(3)),
+        12.5, "ok", 4, 35.8, "ok", 8),
+    new LightTelemetryCaptureRecord("legacy", new DateTimeOffset(2026, 11, 21, 16, 1, 0, TimeSpan.Zero),
+        null, "missing", null, null, "unsupported", null),
+};
+var csv = LightTelemetryCsvExporter.ToCsv(csvRows);
+Check(csv.StartsWith("captured_at_utc,environment,sensor1_lux,sensor1_status,sensor1_age_ms,sensor2_lux,sensor2_status,sensor2_age_ms" + Environment.NewLine, StringComparison.Ordinal),
+    "CSV exporter writes a stable header");
+Check(csv.Contains("2026-11-21T13:00:00.0000000+00:00,\"Desk, \"\"north\"\"\",12.5,\"ok\",4,35.8,\"ok\",8", StringComparison.Ordinal),
+    "CSV exporter converts timestamps to UTC and escapes labeled dual-sensor samples");
+Check(csv.Contains(",\"legacy\",,\"missing\",,,\"unsupported\"," + Environment.NewLine, StringComparison.Ordinal),
+    "CSV exporter leaves missing legacy readings blank");
+var formulaCsv = LightTelemetryCsvExporter.ToCsv(new[]
+{
+    new LightTelemetryCaptureRecord("=1+1", DateTimeOffset.UnixEpoch, 1, "ok", 0, null, "unsupported", null),
+});
+Check(formulaCsv.Contains("\"'=1+1\"", StringComparison.Ordinal),
+    "CSV exporter neutralizes formula-like environment labels");
+
 var at = new DateTimeOffset(2026, 9, 14, 19, 0, 0, TimeSpan.Zero);
 var ok = LightTelemetryParser.Parse("OK|LUX|seq=4294967295|lux=59.2|mode=hires|sensor=ok", at);
 Check(ok.IsSuccess && ok.Sequence == uint.MaxValue && ok.Lux == 59.2 && ok.Mode == "hires" && ok.ReceivedAt == at,
