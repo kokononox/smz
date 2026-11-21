@@ -1,3 +1,9 @@
+# Dual BH1750 telemetry — Phase 1 test build
+
+- Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
+- Added read-only `LUX2?` diagnostics for BH1750 `0x23` and `0x5C` on the existing Pico I2C0 pins. The original `LUX?`, Guard, Watch, and LCAL behavior remains single-sensor in this phase.
+- Added host smoke coverage for distinct paired readings and for preserving single-sensor operation when the second device is absent; the native C smoke test passes locally with `-Wall -Wextra -Werror`. Physical two-sensor validation and the CI run are pending.
+
 # Physical light calibration tolerance — test build
 
 - A second lightweight artifact omits only the unchanged self-contained Shift Bridge; the original full artifact is still available. The lightweight package retains the board communication bridge and all 30 Pico templates. Users can keep using the already-pinned compatible Shift Bridge in its existing location.
