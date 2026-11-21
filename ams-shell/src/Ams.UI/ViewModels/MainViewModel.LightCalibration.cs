@@ -5,13 +5,13 @@ namespace Ams.UI.ViewModels;
 
 public partial class MainViewModel
 {
-    private readonly List<double> _lightCalibrationSamples = new();
+    private readonly List<(double Lux1, double Lux2)> _pairedLightCalibrationSamples = new();
     private DateTimeOffset? _lightCalibrationStartedAt;
     private LightStateProfile? _selectedLightCalibrationProfile;
     private int _selectedLightCalibrationDurationSeconds = 5;
     private bool _isLightCalibrationRunning;
     private string _lightCalibrationStatus = "یک پروفایل و مدت نمونه‌برداری را انتخاب کنید.";
-    private LightCalibrationSuggestion? _pendingLightCalibrationSuggestion;
+    private DualLightCalibrationSuggestion? _pendingLightCalibrationSuggestion;
 
     public IReadOnlyList<int> LightCalibrationDurationsSeconds { get; } = new[] { 3, 5, 10, 20 };
 
@@ -41,15 +41,19 @@ public partial class MainViewModel
 
     public string LightCalibrationSuggestionDisplay => _pendingLightCalibrationSuggestion is null
         ? "پیشنهادی آماده نیست."
-        : $"مرکز {_pendingLightCalibrationSuggestion.CenterLux:0.0} · تلورانس ±{_pendingLightCalibrationSuggestion.ToleranceLux:0.0} Lux · "
-          + $"کمینه {_pendingLightCalibrationSuggestion.MinimumLux:0.0} · بیشینه {_pendingLightCalibrationSuggestion.MaximumLux:0.0} · "
+        : $"میانگین (L1+L2)/2: {_pendingLightCalibrationSuggestion.MeanCenterLux:0.0} ±{_pendingLightCalibrationSuggestion.MeanToleranceLux:0.0} Lux "
+          + $"[{_pendingLightCalibrationSuggestion.MeanMinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.MeanMaximumLux:0.0}] · "
+          + $"اختلاف علامت‌دار L2−L1: {_pendingLightCalibrationSuggestion.DifferenceCenterLux:0.0} ±{_pendingLightCalibrationSuggestion.DifferenceToleranceLux:0.0} Lux "
+          + $"[{_pendingLightCalibrationSuggestion.DifferenceMinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.DifferenceMaximumLux:0.0}] · "
           + $"{_pendingLightCalibrationSuggestion.SampleCount} نمونه";
 
     public bool StartLightProfileCalibration()
     {
-        if (!IsLightWatchRunning || CurrentLux is null)
+        if (!IsLightWatchRunning || CurrentLux is null || CurrentLux2 is null
+            || !LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal)
+            || LightSensor2StatusDisplay != "سالم")
         {
-            LightCalibrationStatus = "ابتدا پایش زنده را شروع کنید و منتظر یک نمونه معتبر بمانید.";
+            LightCalibrationStatus = "برای کالیبراسیون دوحسگری، پایش زندهٔ تازه و خوانش سالم هر دو سنسور لازم است.";
             return false;
         }
         if (SelectedLightCalibrationProfile is null)
@@ -58,7 +62,7 @@ public partial class MainViewModel
             return false;
         }
 
-        _lightCalibrationSamples.Clear();
+        _pairedLightCalibrationSamples.Clear();
         _pendingLightCalibrationSuggestion = null;
         _lightCalibrationStartedAt = DateTimeOffset.UtcNow;
         IsLightCalibrationRunning = true;
@@ -70,38 +74,72 @@ public partial class MainViewModel
     public void CaptureLightCalibrationSample()
     {
         if (!IsLightCalibrationRunning || _lightCalibrationStartedAt is not DateTimeOffset started) return;
-        if (CurrentLux is not double lux || !LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal)) return;
-        _lightCalibrationSamples.Add(lux);
+        if (CurrentLux is not double lux1 || CurrentLux2 is not double lux2
+            || !LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal)
+            || LightSensor2StatusDisplay != "سالم") return;
+        _pairedLightCalibrationSamples.Add((lux1, lux2));
         var elapsed = DateTimeOffset.UtcNow - started;
-        LightCalibrationStatus = $"در حال نمونه‌برداری · {_lightCalibrationSamples.Count} نمونه · {Math.Min(elapsed.TotalSeconds, SelectedLightCalibrationDurationSeconds):0.0}/{SelectedLightCalibrationDurationSeconds} ثانیه";
+        LightCalibrationStatus = $"در حال نمونه‌برداری جفت‌سنسور · {_pairedLightCalibrationSamples.Count} نمونه · {Math.Min(elapsed.TotalSeconds, SelectedLightCalibrationDurationSeconds):0.0}/{SelectedLightCalibrationDurationSeconds} ثانیه";
         if (elapsed < TimeSpan.FromSeconds(SelectedLightCalibrationDurationSeconds)) return;
 
         IsLightCalibrationRunning = false;
         _lightCalibrationStartedAt = null;
-        _pendingLightCalibrationSuggestion = LightCalibrationSuggester.Suggest(_lightCalibrationSamples);
+        if (_pairedLightCalibrationSamples.Count < DualLightCalibration.MinimumSampleCount)
+        {
+            _pendingLightCalibrationSuggestion = null;
+            OnPropertyChanged(nameof(LightCalibrationSuggestionDisplay));
+            LightCalibrationStatus =
+                $"پیشنهاد ساخته نشد: حداقل {DualLightCalibration.MinimumSampleCount} نمونهٔ جفت و معتبر لازم است؛ هیچ مقداری تغییر نکرد.";
+            return;
+        }
+
+        _pendingLightCalibrationSuggestion = DualLightCalibration.Suggest(_pairedLightCalibrationSamples);
         OnPropertyChanged(nameof(LightCalibrationSuggestionDisplay));
-        LightCalibrationStatus = "پیشنهاد آماده است؛ هنوز هیچ پروفایلی تغییر نکرده است.";
+        LightCalibrationStatus = "پیشنهاد دوحسگری آماده است؛ هنوز هیچ پروفایلی تغییر نکرده است.";
     }
 
     public void CancelLightProfileCalibration()
     {
         IsLightCalibrationRunning = false;
         _lightCalibrationStartedAt = null;
-        _lightCalibrationSamples.Clear();
-        LightCalibrationStatus = "نمونه‌برداری لغو شد و هیچ مقداری تغییر نکرد.";
+        _pairedLightCalibrationSamples.Clear();
+        LightCalibrationStatus = "نمونه‌برداری جفت‌سنسور لغو شد و هیچ مقداری تغییر نکرد.";
     }
 
     public bool ApplyPendingLightCalibrationSuggestion()
     {
-        if (_pendingLightCalibrationSuggestion is null || SelectedLightCalibrationProfile is null)
+        var selectedProfile = SelectedLightCalibrationProfile;
+        if (_pendingLightCalibrationSuggestion is null || selectedProfile is null)
         {
             LightCalibrationStatus = "پیشنهاد معتبری برای اعمال وجود ندارد.";
             return false;
         }
-        SelectedLightCalibrationProfile.LuxCenter = _pendingLightCalibrationSuggestion.CenterLux;
-        SelectedLightCalibrationProfile.LuxTolerance = _pendingLightCalibrationSuggestion.ToleranceLux;
+        var profile = selectedProfile;
+        var candidate = profile.Copy();
+        candidate.HasDualSensorCalibration = true;
+        candidate.MeanLuxCenter = _pendingLightCalibrationSuggestion.MeanCenterLux;
+        candidate.MeanLuxTolerance = _pendingLightCalibrationSuggestion.MeanToleranceLux;
+        candidate.DifferenceLuxCenter = _pendingLightCalibrationSuggestion.DifferenceCenterLux;
+        candidate.DifferenceLuxTolerance = _pendingLightCalibrationSuggestion.DifferenceToleranceLux;
+        if (!candidate.IsValid)
+        {
+            LightCalibrationStatus = "پیشنهاد اعمال نشد: مقادیر دوحسگری خارج از محدودهٔ معتبرند؛ دوباره نمونه‌برداری کنید.";
+            return false;
+        }
+        var separation = DualLightCalibration.ValidateCandidate(candidate, LightStateProfiles);
+        if (!separation.IsValid)
+        {
+            LightCalibrationStatus = DualLightCalibration.DescribeConflicts(separation);
+            return false;
+        }
+
+        profile.HasDualSensorCalibration = true;
+        profile.MeanLuxCenter = candidate.MeanLuxCenter;
+        profile.MeanLuxTolerance = candidate.MeanLuxTolerance;
+        profile.DifferenceLuxCenter = candidate.DifferenceLuxCenter;
+        profile.DifferenceLuxTolerance = candidate.DifferenceLuxTolerance;
         RefreshLightProfileWarnings();
-        LightCalibrationStatus = "پیشنهاد روی فرم اعمال شد؛ برای ماندگارشدن، «ذخیره پروفایل‌ها» را بزنید.";
+        LightCalibrationStatus = "پیشنهاد دوحسگری روی فرم اعمال شد؛ برای ماندگارشدن، «ذخیره پروفایل‌ها» را بزنید.";
         return true;
     }
 
@@ -109,7 +147,7 @@ public partial class MainViewModel
     {
         IsLightCalibrationRunning = false;
         _lightCalibrationStartedAt = null;
-        _lightCalibrationSamples.Clear();
+        _pairedLightCalibrationSamples.Clear();
         _pendingLightCalibrationSuggestion = null;
         SelectedLightCalibrationProfile = LightStateProfiles.FirstOrDefault(x => x.Id == preferredProfileId)
                                           ?? LightStateProfiles.FirstOrDefault();

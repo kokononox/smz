@@ -73,7 +73,8 @@ internal static class LightStateProfilesUiBootstrap
         };
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
-        editorBody.Children.Add(Text("مرکز و تلورانس فعلی فرضی‌اند. ذخیره‌سازی هیچ مقداری را روی کالیبراسیون یا ماکرو overwrite نمی‌کند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("مرکز و تلورانس L1 برای سازگاری با حالت تک‌سنسور نگه داشته شده‌اند. در حالت دوحسگری، تشخیص فقط از میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 استفاده می‌کند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند؛ پس از جابه‌جایی، همهٔ محیط‌ها را دوباره کالیبره کنید. firmware فعلی برد هنوز این نوع را دریافت/ارسال نمی‌کند.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -161,9 +162,9 @@ internal static class LightStateProfilesUiBootstrap
         var row = ProfileGrid();
         Add(row, Text("فعال", 11, "#AAB3C2"), 0);
         Add(row, Text("نام وضعیت", 11, "#AAB3C2"), 1);
-        Add(row, Text("مرکز", 11, "#AAB3C2"), 2);
-        Add(row, Text("تلورانس ±", 11, "#AAB3C2"), 3);
-        Add(row, Text("بازه مؤثر", 11, "#AAB3C2"), 4);
+        Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 2);
+        Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 3);
+        Add(row, Text("L1 / دوحسگر", 11, "#AAB3C2"), 4);
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 5);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 6);
         Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 7);
@@ -179,9 +180,15 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
         Add(row, Editor(profile, nameof(profile.Name)), 1);
-        Add(row, Editor(profile, nameof(profile.LuxCenter)), 2);
-        Add(row, Editor(profile, nameof(profile.LuxTolerance)), 3);
-        Add(row, Text($"{profile.LuxMin:0.#} تا {profile.LuxMax:0.#}", 12, "#D9DEE7"), 4);
+        var legacyCenter = Editor(profile, nameof(profile.LuxCenter));
+        var legacyTolerance = Editor(profile, nameof(profile.LuxTolerance));
+        legacyCenter.IsEnabled = legacyTolerance.IsEnabled = !profile.HasDualSensorCalibration;
+        Add(row, legacyCenter, 2);
+        Add(row, legacyTolerance, 3);
+        Add(row, Text(profile.HasDualSensorCalibration
+                ? $"دوحسگر · M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
+            11, "#D9DEE7"), 4);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
         Add(row, Editor(profile, nameof(profile.HysteresisLux)), 6);
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"

@@ -44,8 +44,9 @@ internal static class LightCalibrationUiBootstrap
         };
         var content = new StackPanel();
         content.Children.Add(Text("کالیبراسیون پیشنهادی", 15, "#F5F7FA", FontWeights.SemiBold));
-        content.Children.Add(Text("از داده زنده پیشنهاد می‌سازد؛ بدون زدن «اعمال پیشنهاد» و سپس «ذخیره پروفایل‌ها» هیچ مقداری تغییر نمی‌کند.", 12, "#AAB3C2"));
-        content.Children.Add(Text("برای به‌روزرسانی، «شروع پایش» را بزنید. تشخیص محیط و کالیبراسیون فعلاً همچنان از سنسور اول استفاده می‌کنند.", 11, "#AAB3C2"));
+        content.Children.Add(Text("کالیبره‌کردن با دو سنسورِ ثابت و مرتب‌شده انجام می‌شود: میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 هر دو در تلورانس نقش دارند.", 12, "#AAB3C2"));
+        content.Children.Add(Text("محدودهٔ هر محیط باید در فضای دو‌بعدی با حاشیهٔ امن حداقل ۱ لوکس از محیط‌های فعال جدا باشد. جابه‌جایی هر سنسور یعنی کالیبره‌کردن دوبارهٔ همهٔ محیط‌ها؛ firmware تک‌سنسوره تا زمان پشتیبانی جداگانه، این پروفایل‌ها را نمی‌پذیرد.", 11, "#AAB3C2"));
+        content.Children.Add(Text("نمونه‌برداری از دادهٔ زندهٔ تازهٔ هر دو سنسور انجام می‌شود؛ ابتدا «شروع پایش» را بزنید. اعمال پیشنهاد و ذخیره‌سازی همچنان دو اقدام جدا هستند.", 11, "#AAB3C2"));
 
         var controls = new WrapPanel { Margin = new Thickness(0, 10, 0, 8) };
         controls.Children.Add(Text("پروفایل:", 12, "#D9DEE7"));
@@ -120,7 +121,9 @@ internal static class LightCalibrationUiBootstrap
                 .GetBindingExpression(TextBox.TextProperty)?.ResolvedSource as LightStateProfile;
             var range = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 4);
             if (center is not null && range is not null)
-                range.Text = $"{center.LuxMin:0.#} تا {center.LuxMax:0.#}";
+                range.Text = center.HasDualSensorCalibration
+                    ? $"دوحسگر · M {center.MeanLuxCenter:0.#} ±{center.MeanLuxTolerance:0.#}\nΔ {center.DifferenceLuxCenter:0.#} ±{center.DifferenceLuxTolerance:0.#}"
+                    : $"L1 · {center.LuxMin:0.#} تا {center.LuxMax:0.#}";
         }
 
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)

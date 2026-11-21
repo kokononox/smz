@@ -1,10 +1,12 @@
-# Dual BH1750 diagnostics — labeled capture and compact status UI
+# Dual BH1750 — paired calibration and fail-closed separation
 
 - Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
-- Added read-only `LUX2?` telemetry for BH1750 `0x23` and `0x5C`, plus a live two-sensor card in Classroom Studio showing both Lux values and sensor-two state/sample age. The existing live monitor falls back to `LUX?` on older firmware; classification and calibration still use sensor one only.
-- Added native C and C# contract coverage for paired readings, missing/warming second sensor, and legacy firmware fallback. The native C smoke test passes locally with `-Wall -Wextra -Werror`; the user confirmed both physical sensors return fresh readings. Windows CI for the Studio change passed.
-- Reorganized Studio Status into General, Light & Sensors, and Audio sub-tabs. Sensor 1 and sensor 2 Lux cards now sit side-by-side; the verbose audio editors are separated and collapsed by category.
-- Added labeled raw dual-channel capture, capped at 100,000 rows per session, with UTC timestamps and CSV export. Multiple labeled runs are retained in memory until the app exits; missing legacy sensor-two values export as blanks. CSV labels are escaped and formula-like text is neutralized. Paired classification/calibration remains deferred.
+- Retained read-only `LUX2?` telemetry, labeled two-channel capture, and the compact Status UI. The user verified both sensors return fresh readings on the board.
+- Studio now proposes paired calibration from live synchronized samples using `M=(L1+L2)/2` and signed `D=L2-L1`; each profile stores a separate center and tolerance for both axes. Existing single-sensor profile files remain readable without being silently reinterpreted.
+- Paired tolerance regions are represented as 2D ellipses. Save and proposal application reject insufficient combined-space separation with an additional 1 Lux clearance; one-axis overlap alone is allowed. The check is conservative and never trims or shifts calibration ranges. Failed separation does not write profile storage.
+- The read-only classifier uses both features, keeps stable-duration/hysteresis behavior, and fails closed on stale/missing second-sensor data or mixed active calibration modes. Legacy single-sensor classification remains unchanged when no active paired profile exists.
+- Board import/send and legacy firmware exporters are blocked while paired calibration exists, rather than silently dropping the new fields. Firmware support, hardware classifier acceptance, and execution remain deferred; the diagnostic gate is still off.
+- Added synthetic-data contract coverage for feature calculation, tolerances, combined-space clearance, ambiguous/mixed/missing-sensor behavior, serialization, and rejected-write preservation. Local .NET compilation is unavailable in this environment; Windows CI is pending.
 
 # Physical light calibration tolerance — test build
 

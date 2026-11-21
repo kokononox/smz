@@ -73,7 +73,7 @@ public partial class MainViewModel
         _lastClassifiedChartVersion = LightChartVersion;
         var fresh = LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal);
         ApplyLightClassification((_lightStateClassifier ??= new LightStateClassifier(LightStateProfiles))
-            .Update(CurrentLux, DateTimeOffset.UtcNow, fresh));
+            .Update(CurrentLux, CurrentLux2, DateTimeOffset.UtcNow, fresh));
     }
 
     public void MarkCurrentLightStateStale()
@@ -86,10 +86,21 @@ public partial class MainViewModel
 
     public bool SaveLightStateProfiles()
     {
+        if (LightStateProfiles.Any(profile => profile.HasDualSensorCalibration && !profile.IsValid))
+        {
+            LightProfileSaveStatus = "ذخیره نشد: مقادیر کالیبراسیون دوحسگری نامعتبرند؛ دوباره کالیبره کنید.";
+            return false;
+        }
         var normalized = LightStateProfileStore.Normalize(LightStateProfiles);
         if (normalized.Count != LightStateProfiles.Count)
         {
             LightProfileSaveStatus = "ذخیره نشد: نام، شناسه و مقادیر پروفایل‌ها را بررسی کنید.";
+            return false;
+        }
+        var separation = DualLightCalibration.Validate(normalized);
+        if (!separation.IsValid)
+        {
+            LightProfileSaveStatus = DualLightCalibration.DescribeConflicts(separation);
             return false;
         }
 
@@ -113,6 +124,12 @@ public partial class MainViewModel
 
     public async Task<bool> ImportLightStateProfilesFromBoardAsync()
     {
+        if (LightStateProfiles.Any(profile => profile.HasDualSensorCalibration))
+        {
+            LightProfileSaveStatus =
+                "وارد کردن از برد انجام نشد: این firmware فقط کالیبراسیون تک‌سنسوره را می‌خواند و می‌تواند پروفایل دوحسگری را ناقص کند.";
+            return false;
+        }
         if (_bridge is null || Connection != ConnectionState.Connected
                             || _bridge.State != BridgeState.Connected)
         {
@@ -167,6 +184,12 @@ public partial class MainViewModel
 
     public async Task<bool> SendLightStateProfilesToBoardAsync()
     {
+        if (LightStateProfiles.Any(profile => profile.HasDualSensorCalibration))
+        {
+            LightProfileSaveStatus =
+                "ارسال انجام نشد: firmware فعلی فقط L1 را می‌پذیرد و دادهٔ دوحسگری را نادیده می‌گیرد. تا پشتیبانی firmware، پروفایل دوحسگری روی برد صادر نمی‌شود.";
+            return false;
+        }
         if (_bridge is null || Connection != ConnectionState.Connected || _bridge.State != BridgeState.Connected)
         {
             LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
@@ -245,13 +268,24 @@ public partial class MainViewModel
         };
         LightStateWarning = classification.Kind == LightStateClassificationKind.Ambiguous
             ? "هم‌پوشانی فعال: " + string.Join(" / ", classification.Matches?.Select(x => x.Name) ?? Array.Empty<string>())
-            : DescribeProfileOverlaps(LightStateProfiles);
+            : classification.Diagnostic ?? DescribeProfileOverlaps(LightStateProfiles);
         ObserveLightGateDiagnostic(classification);
     }
 
     public static string DescribeProfileOverlaps(IEnumerable<LightStateProfile> profiles)
     {
         var enabled = profiles.Where(x => x.Enabled && x.IsValid).ToArray();
+        var paired = enabled.Where(profile => profile.HasDualSensorCalibration).ToArray();
+        if (paired.Length > 0 && paired.Length != enabled.Length)
+            return "کالیبراسیون دوحسگری ناقص است: همهٔ پروفایل‌های فعال باید با همان دو سنسور و همان ترتیب کالیبره شوند.";
+        if (paired.Length > 0)
+        {
+            var validation = DualLightCalibration.Validate(paired);
+            return validation.IsValid
+                ? "پروفایل‌های فعال در فضای دو‌بعدی جدا هستند؛ حاشیهٔ امن اضافه بین محدوده‌ها حداقل ۱ لوکس است."
+                : DualLightCalibration.DescribeConflicts(validation);
+        }
+
         var pairs = new List<string>();
         for (var i = 0; i < enabled.Length; i++)
         for (var j = i + 1; j < enabled.Length; j++)

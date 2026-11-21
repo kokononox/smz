@@ -24,6 +24,19 @@ public class LightStateProfile
     // derive a fresh symmetric range from the editable centre and tolerance.
     public double? LuxLowOverride { get; set; }
     public double? LuxHighOverride { get; set; }
+    /// <summary>
+    /// When true this profile is calibrated and classified using both fixed-position sensors.
+    /// Sensor 2 must remain the same physical sensor and order used during calibration.
+    /// </summary>
+    public bool HasDualSensorCalibration { get; set; }
+    /// <summary>Center of (L1 + L2) / 2, in Lux.</summary>
+    public double MeanLuxCenter { get; set; }
+    /// <summary>Positive half-width of the calibrated mean-Lux range.</summary>
+    public double MeanLuxTolerance { get; set; } = 0.5;
+    /// <summary>Center of the signed contrast L2 - L1, in Lux.</summary>
+    public double DifferenceLuxCenter { get; set; }
+    /// <summary>Positive half-width of the calibrated signed-contrast range.</summary>
+    public double DifferenceLuxTolerance { get; set; } = 0.5;
     public int StableDurationMs { get; set; } = 750;
     public double HysteresisLux { get; set; } = 1;
     /// <summary>
@@ -55,6 +68,11 @@ public class LightStateProfile
         && (LuxLowOverride is null) == (LuxHighOverride is null)
         && double.IsFinite(LuxMin) && double.IsFinite(LuxMax)
         && LuxMin >= 0 && LuxMin <= LuxCenter && LuxCenter <= LuxMax
+        && (!HasDualSensorCalibration
+            || (double.IsFinite(MeanLuxCenter) && MeanLuxCenter >= 0
+                && double.IsFinite(MeanLuxTolerance) && MeanLuxTolerance > 0
+                && double.IsFinite(DifferenceLuxCenter)
+                && double.IsFinite(DifferenceLuxTolerance) && DifferenceLuxTolerance > 0))
         && StableDurationMs >= 0
         && double.IsFinite(HysteresisLux) && HysteresisLux >= 0
         && LightCooldownMs is >= 0 and <= 3600000
@@ -62,6 +80,9 @@ public class LightStateProfile
         && CalibrationCueVolume is >= 1 and <= 100
         && CalibrationCueTempo is >= 25 and <= 400
         && CalibrationCueEnvelope is "sharp" or "smooth" or "fade-in" or "fade-out";
+
+    /// <summary>Creates an independent copy for validating a proposal before mutating the profile.</summary>
+    public LightStateProfile Copy() => (LightStateProfile)MemberwiseClone();
 }
 
 /// <summary>A formerly hard-coded firmware cue exposed through Classroom Studio.</summary>
