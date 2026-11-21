@@ -1,6 +1,5 @@
 using Ams.UI.Models;
 using Ams.UI.Services;
-using Microsoft.Win32;
 using System.Text;
 using CommunityToolkit.Mvvm.Input;
 
@@ -116,7 +115,7 @@ public partial class MainViewModel
             LightCaptureStatusText = "هنوز نمونه‌ای برای صدور وجود ندارد.";
             return;
         }
-        var dialog = new SaveFileDialog
+        var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "صدور تله‌متری دو سنسور به CSV",
             Filter = "CSV (*.csv)|*.csv|همه فایل‌ها (*.*)|*.*",
