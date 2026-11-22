@@ -16,6 +16,27 @@ void Rejects(string reply, string name)
 
 await LightExecutionAuthorizationConcurrencyContract.RunAsync();
 
+var csvRows = new[]
+{
+    new LightTelemetryCaptureRecord("Desk, \"north\"", new DateTimeOffset(2026, 11, 21, 16, 0, 0, TimeSpan.FromHours(3)),
+        12.5, "ok", 4, 35.8, "ok", 8),
+    new LightTelemetryCaptureRecord("legacy", new DateTimeOffset(2026, 11, 21, 16, 1, 0, TimeSpan.Zero),
+        null, "missing", null, null, "unsupported", null),
+};
+var csv = LightTelemetryCsvExporter.ToCsv(csvRows);
+Check(csv.StartsWith("captured_at_utc,environment,sensor1_lux,sensor1_status,sensor1_age_ms,sensor2_lux,sensor2_status,sensor2_age_ms" + Environment.NewLine, StringComparison.Ordinal),
+    "CSV exporter writes a stable header");
+Check(csv.Contains("\"2026-11-21T13:00:00.0000000+00:00\",\"Desk, \"\"north\"\"\",12.5,\"ok\",4,35.8,\"ok\",8", StringComparison.Ordinal),
+    "CSV exporter converts timestamps to UTC and escapes labeled dual-sensor samples");
+Check(csv.Contains(",\"legacy\",,\"missing\",,,\"unsupported\"," + Environment.NewLine, StringComparison.Ordinal),
+    "CSV exporter leaves missing legacy readings blank");
+var formulaCsv = LightTelemetryCsvExporter.ToCsv(new[]
+{
+    new LightTelemetryCaptureRecord("=1+1", DateTimeOffset.UnixEpoch, 1, "ok", 0, null, "unsupported", null),
+});
+Check(formulaCsv.Contains("\"'=1+1\"", StringComparison.Ordinal),
+    "CSV exporter neutralizes formula-like environment labels");
+
 var at = new DateTimeOffset(2026, 9, 14, 19, 0, 0, TimeSpan.Zero);
 var ok = LightTelemetryParser.Parse("OK|LUX|seq=4294967295|lux=59.2|mode=hires|sensor=ok", at);
 Check(ok.IsSuccess && ok.Sequence == uint.MaxValue && ok.Lux == 59.2 && ok.Mode == "hires" && ok.ReceivedAt == at,
@@ -26,6 +47,28 @@ Check(low.IsSuccess && low.Sequence == 0 && low.Lux == 0 && low.Mode == "lowres"
 var native = LightTelemetryParser.Parse("OK|LUX|lux=51.7|sensor=ok|age=40");
 Check(native.IsSuccess && native.Lux == 51.7 && native.Sequence is null && native.Mode is null,
     "typed parser accepts Native Pico sample age");
+var dual = LightTelemetryParser.Parse(
+    "OK|LUX2|lux1=51.7|sensor1=ok|age1=40|sensor2=ok|lux2=204.3|age2=55");
+Check(dual.IsSuccess && dual.HasDualSensorData && dual.Lux == 51.7 && dual.Lux2 == 204.3
+      && dual.Age1Ms == 40 && dual.Age2Ms == 55 && dual.Sensor2Status == "ok",
+    "dual-sensor parser exposes both lux values and sample ages");
+var secondaryMissing = LightTelemetryParser.Parse(
+    "OK|LUX2|lux1=51.7|sensor1=ok|age1=40|sensor2=missing");
+Check(secondaryMissing.IsSuccess && secondaryMissing.HasDualSensorData
+      && secondaryMissing.Lux == 51.7 && secondaryMissing.Lux2 is null
+      && secondaryMissing.Sensor2Status == "missing",
+    "dual-sensor parser preserves primary reading when sensor two is missing");
+var secondaryWarming = LightTelemetryParser.Parse(
+    "OK|LUX2|lux1=51.7|sensor1=ok|age1=40|sensor2=warming");
+Check(secondaryWarming.HasDualSensorData && secondaryWarming.Lux2 is null
+      && secondaryWarming.Sensor2Status == "warming",
+    "dual-sensor parser reports a warming secondary sensor");
+Check(LightTelemetryParser.Parse("ERR|NOSENSOR|LUX2|sensor1").HasDualSensorData,
+    "dual protocol remains identifiable when primary sensor is missing");
+Rejects("OK|LUX2|lux1=NaN|sensor1=ok|age1=40|sensor2=missing",
+    "dual-sensor parser rejects non-finite lux");
+Rejects("OK|LUX2|lux1=1|sensor1=ok|age1=40|sensor2=ok",
+    "dual-sensor parser requires the second lux and age when sensor two is ok");
 Check(LightTelemetryParser.Parse("ERR|NOSENSOR|LUX").Status == LightTelemetryStatus.NoSensor,
     "missing sensor maps to typed status");
 Check(LightTelemetryParser.Parse("ERR|I2C|LUX").Status == LightTelemetryStatus.I2cError,
@@ -78,6 +121,18 @@ catch (LightCalibrationDumpProtocolException)
 Check(LightCalibrationDumpParser.Parse(
         "OK|CALDUMP|LIGHT|revision=0|mask=0000|profiles=none").Profiles.Count == 0,
     "empty board calibration dump is represented explicitly");
+var sync = BoardLightSync.Parse("OK|CALSYNC|tolerance=20|revision=42|profiles=80:115:100,116:150:130,290:310:300,390:410:400,490:510:500,590:610:600,690:710:700,790:810:800,890:910:900");
+var syncTargets = LightStateDefaults.CreateInitialProfiles();
+BoardLightSync.Apply(sync, syncTargets);
+var syncFirst = syncTargets.Single(x => x.Id == "desktop");
+Check(sync.Tolerance == 20 && syncFirst.LuxCenter == 10 && syncFirst.LuxMin == 8 && syncFirst.LuxMax == 11.5,
+    "board sync preserves a measured centre and asymmetric effective bounds");
+var syncCommand = BoardLightSync.BuildCommand(syncTargets, 2);
+Check(syncCommand.StartsWith("CALSYNC|SET|20|80:115:100,116:150:130,"), "board sync roundtrip preserves exact asymmetric bounds");
+syncFirst.LuxTolerance = 3;
+Check(syncFirst.LuxMin == 7 && syncFirst.LuxMax == 13, "editing tolerance starts a new symmetric candidate");
+try { BoardLightSync.Parse("OK|CALSYNC|tolerance=20|revision=42|profiles=80:115:100"); Check(false, "sync rejects partial snapshots"); }
+catch (FormatException) { Check(true, "sync rejects partial snapshots"); }
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");
 Check(new[] { 100, 250, 500 }.All(ms =>
@@ -93,7 +148,7 @@ Check(read.Sequence == 7 && oneRead.Commands.SequenceEqual(new[] { "LUX?" }) && 
     "ReadLightAsync sends exact LUX? through the serialized bridge path");
 
 var watchBridge = new FakeBridge(Enumerable.Range(1, 20)
-    .Select(i => $"OK|LUX|seq={i}|lux={50 + i}.0|mode=hires|sensor=ok")) { DelayMs = 45 };
+    .Select(i => $"OK|LUX2|lux1={50 + i}.0|sensor1=ok|age1=5|sensor2=ok|lux2={100 + i}.0|age2=7")) { DelayMs = 45 };
 var watch = new LightWatchService(watchBridge);
 var samples = new List<LightTelemetrySample>();
 watch.SampleReceived += sample => { lock (samples) samples.Add(sample); };
@@ -110,14 +165,39 @@ var stoppedCalls = watchBridge.Commands.Count;
 await Task.Delay(150);
 Check(stoppedCalls >= 3 && watchBridge.MaxInFlight == 1,
     "Watch takes repeated samples with exactly one request in flight");
+Check(watchBridge.Commands.All(command => command == "LUX2?"),
+    "Watch prefers dual-sensor telemetry on capable firmware");
 Check(watchBridge.Commands.Count == stoppedCalls && !watch.IsRunning,
     "StopAsync cancels and fully joins the Watch loop");
-Check(samples.Count >= 3 && samples.Select(s => s.Sequence)
-        .SequenceEqual(Enumerable.Range(1, samples.Count).Select(i => (uint?)i)),
-    "Watch publishes completed typed samples in sequence order");
+Check(samples.Count >= 3 && samples.All(s => s.HasDualSensorData && s.Lux2 is not null)
+      && samples.Select(s => s.Lux).SequenceEqual(
+          Enumerable.Range(1, samples.Count).Select(i => (double?)(50 + i))),
+    "Watch publishes ordered paired samples");
 Check(stoppedCalls - samples.Count is 0 or 1,
     "cancellation drops at most the final in-flight sample");
 await watch.DisposeAsync();
+
+var legacyBridge = new FakeBridge(new[]
+{
+    "ERR|COMMAND|unknown=LUX2?",
+    "OK|LUX|lux=12.5|sensor=ok|age=20",
+    "OK|LUX|lux=12.6|sensor=ok|age=20",
+    "OK|LUX|lux=12.7|sensor=ok|age=20",
+}) { DelayMs = 5 };
+var legacyWatch = new LightWatchService(legacyBridge);
+var legacySamples = new List<LightTelemetrySample>();
+legacyWatch.SampleReceived += sample => { lock (legacySamples) legacySamples.Add(sample); };
+await legacyWatch.StartAsync(TimeSpan.FromMilliseconds(100));
+await Task.Delay(220);
+await legacyWatch.StopAsync();
+Check(legacyBridge.Commands.Count >= 3
+      && legacyBridge.Commands[0] == "LUX2?"
+      && legacyBridge.Commands[1] == "LUX?"
+      && legacyBridge.Commands.Skip(2).All(command => command == "LUX?"),
+    "Watch probes dual telemetry once then caches legacy firmware fallback");
+Check(legacySamples.Count >= 2 && legacySamples.All(sample => !sample.HasDualSensorData),
+    "legacy firmware still feeds the single-sensor live view");
+await legacyWatch.DisposeAsync();
 
 var disconnected = new FakeBridge(Array.Empty<string>()) { Connected = false };
 try
@@ -162,7 +242,7 @@ sealed class FakeBridge : IBoardBridge
             LastTimeoutSeconds = timeoutSeconds;
             if (DelayMs > 0) await Task.Delay(DelayMs, ct);
             lock (_replies)
-                return _replies.Count > 0 ? _replies.Dequeue() : "ERR|BUSY|LUX";
+                return _replies.Count > 0 ? _replies.Dequeue() : "ERR|BUSY|LUX2";
         }
         finally { Interlocked.Decrement(ref _inFlight); }
     }

@@ -8,6 +8,10 @@ bool calibration_store_light_get(uint8_t profile_id, uint32_t *low_tenths, uint3
 bool calibration_store_light_set(uint8_t profile_id, uint32_t low_tenths, uint32_t high_tenths);
 bool calibration_store_light_update(uint16_t update_mask, const uint32_t low_tenths[9],
                                     const uint32_t high_tenths[9]);
+uint16_t calibration_store_light_tolerance(void);
+bool calibration_store_light_center(uint8_t id,uint32_t *center);
+bool calibration_store_light_sync(uint16_t mask,const uint32_t lows[9],const uint32_t highs[9],
+                                  const uint32_t centers[9],uint16_t tolerance);
 bool calibration_store_sound_get(uint16_t profile_id, uint16_t *threshold, uint16_t *minimum_ms);
 bool calibration_store_sound_set(uint16_t profile_id, uint16_t threshold, uint16_t minimum_ms,
                                  uint16_t silence_max, uint16_t sound_peak);
@@ -15,6 +19,11 @@ bool calibration_store_cycle_armed(void);
 uint8_t calibration_store_cycle_count(void);
 bool calibration_store_cycle_arm_next(uint8_t maximum);
 bool calibration_store_cycle_clear_armed(void);
+/* A session, not a restart: the marker has to outlive the round it belongs to,
+ * because a power cut in the middle of a round is exactly the case a boot has to
+ * recognise.  `cycle_arm_next` only marks the restart window, so the round itself
+ * is marked here and cleared by every terminal path. */
+bool calibration_store_cycle_mark_live(void);
 bool calibration_store_cycle_reset(void);
 uint8_t calibration_store_shift_attempts(void);
 uint8_t calibration_store_shift_target(void);
@@ -31,6 +40,13 @@ typedef struct WakeStoreState {
     bool pending;
     uint8_t recovery_attempts;
     uint16_t next_start;
+    /* The longest cold start this board has watched this machine take to put its
+     * USB up, in seconds; 0 means nothing has been measured yet.  A host that is
+     * still in POST looks exactly like a host that is off -- nothing of ours is
+     * on its bus either way -- so the power-button line waits this out instead of
+     * pressing a button into a running POST.  It is the machine's own number, not
+     * a vendor's, so the same firmware holds back on any of them. */
+    uint16_t host_boot_s;
 } WakeStoreState;
 bool calibration_store_wake_get(WakeStoreState *state);
 bool calibration_store_wake_set(const WakeStoreState *state);

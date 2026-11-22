@@ -18,8 +18,19 @@ typedef struct LightCalibrationResult {
     uint32_t minimum_lux;
     uint32_t maximum_lux;
     uint32_t average_lux;
+    uint32_t average_tenths;
     uint32_t samples;
 } LightCalibrationResult;
+
+typedef struct LightSensorSnapshot {
+    bool primary_valid;
+    bool secondary_present;
+    bool secondary_valid;
+    uint32_t primary_lux_tenths;
+    uint32_t primary_age_ms;
+    uint32_t secondary_lux_tenths;
+    uint32_t secondary_age_ms;
+} LightSensorSnapshot;
 
 void light_sensor_init(uint32_t now);
 void light_sensor_service(AbvmVm *vm, uint32_t now);
@@ -32,6 +43,7 @@ bool light_sensor_live_take(bool *detected, uint32_t *lux_tenths);
 void light_sensor_cancel_watch(uint32_t now);
 bool light_sensor_present(void);
 bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now);
+bool light_sensor_latest_pair(LightSensorSnapshot *snapshot, uint32_t now);
 bool light_sensor_calibration_start(uint32_t duration_ms, uint32_t now);
 bool light_sensor_calibration_take(LightCalibrationResult *result);
 bool light_sensor_watch_active(void);

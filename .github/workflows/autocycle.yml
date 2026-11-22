@@ -77,6 +77,9 @@ jobs:
             python tools/abvm.py compile firmware/abvm/tests/abvm_smoke.amsj /tmp/abvm-native-smoke.abp --routes Game Whisper
             cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_vm_smoke.c -o /tmp/abvm-native-smoke
             /tmp/abvm-native-smoke /tmp/abvm-native-smoke.abp
+            python tools/abvm.py compile firmware/abvm/tests/abvm_settle_smoke.amsj /tmp/abvm-settle-smoke.abp --routes Startup Game
+            cc -std=c11 -Wall -Wextra -Werror -Ifirmware/abvm/include firmware/abvm/src/abvm_vm.c firmware/abvm/tests/abvm_settle_smoke.c -o /tmp/abvm-settle-smoke
+            /tmp/abvm-settle-smoke /tmp/abvm-settle-smoke.abp
             cc -std=c11 -Wall -Wextra -Werror \
               -Ifirmware/abvm/tests/pico_stub -Ifirmware/abvm/include -Ifirmware/abvm/pico \
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/light_sensor.c \
@@ -107,6 +110,7 @@ jobs:
             /tmp/abvm-hid-type-smoke /tmp/abvm-native-smoke.abp
             python firmware/abvm/tests/test_shift_identity.py
             python firmware/abvm/tests/test_shift_schedule.py
+            python firmware/abvm/tests/test_light_range_fit.py
             python firmware/abvm/tests/test_abvm_shift_wake.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py
@@ -153,29 +157,61 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1
-          key: arm-gnu-toolchain-14.2.rel1-${{ runner.os }}-${{ runner.arch }}
+          key: arm-gnu-toolchain-14.2.rel1-v2-${{ runner.os }}-${{ runner.arch }}
       - name: Download ARM GNU Toolchain 14.2
-        if: steps.arm-toolchain-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
           install_dir="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1"
-          curl --fail --location \
+          toolchain_bin="$install_dir/bin"
+          smoke="$RUNNER_TEMP/arm-toolchain-smoke.cpp"
+          printf '#include <cstdlib>\nint main() { return EXIT_SUCCESS; }\n' > "$smoke"
+
+          # A cache hit is usable only if the C++ headers and libstdc++ are also
+          # present; stale/partial cache entries previously skipped installation.
+          if [ -x "$toolchain_bin/arm-none-eabi-gcc" ] && \
+             [ -x "$toolchain_bin/arm-none-eabi-g++" ] && \
+             "$toolchain_bin/arm-none-eabi-g++" -fno-exceptions -fno-rtti -c "$smoke" -o "$RUNNER_TEMP/arm-toolchain-smoke.o" && \
+             test -f "$("$toolchain_bin/arm-none-eabi-g++" -print-file-name=libstdc++.a)"; then
+            echo "Using verified cached ARM C/C++ toolchain."
+            exit 0
+          fi
+
+          rm -rf "$install_dir"
+          mkdir -p "$install_dir"
+          if curl --fail --location \
             --retry 5 --retry-all-errors --retry-delay 5 \
             --connect-timeout 30 --max-time 600 \
             --output "$archive" \
-            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
-          mkdir -p "$install_dir"
-          tar -xJf "$archive" -C "$install_dir" --strip-components=1
-          test -x "$install_dir/bin/arm-none-eabi-gcc"
+            'https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'; then
+            tar -xJf "$archive" -C "$install_dir" --strip-components=1
+            test -x "$toolchain_bin/arm-none-eabi-gcc"
+            test -x "$toolchain_bin/arm-none-eabi-g++"
+            "$toolchain_bin/arm-none-eabi-g++" -fno-exceptions -fno-rtti -c "$smoke" -o "$RUNNER_TEMP/arm-toolchain-smoke.o"
+            test -f "$("$toolchain_bin/arm-none-eabi-g++" -print-file-name=libstdc++.a)"
+          else
+            echo "::warning::Arm's toolchain mirror is unavailable; installing Ubuntu's packaged bare-metal compiler."
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-dev libstdc++-arm-none-eabi-newlib
+            arm-none-eabi-g++ -fno-exceptions -fno-rtti -c "$smoke" -o "$RUNNER_TEMP/arm-toolchain-smoke.o"
+            test -f "$(arm-none-eabi-g++ -print-file-name=libstdc++.a)"
+          fi
       - name: Add and verify ARM toolchain
         shell: bash
         run: |
           set -euo pipefail
           toolchain_bin="${{ runner.tool_cache }}/arm-gnu-toolchain-14.2.rel1/bin"
-          echo "$toolchain_bin" >> "$GITHUB_PATH"
-          "$toolchain_bin/arm-none-eabi-gcc" --version
+          if [ -x "$toolchain_bin/arm-none-eabi-gcc" ] && [ -x "$toolchain_bin/arm-none-eabi-g++" ]; then
+            echo "$toolchain_bin" >> "$GITHUB_PATH"
+            export PATH="$toolchain_bin:$PATH"
+          fi
+          command -v arm-none-eabi-gcc
+          command -v arm-none-eabi-g++
+          arm-none-eabi-gcc --version
+          printf '#include <cstdlib>\nint main() { return EXIT_SUCCESS; }\n' > "$RUNNER_TEMP/arm-toolchain-smoke.cpp"
+          arm-none-eabi-g++ -fno-exceptions -fno-rtti -c "$RUNNER_TEMP/arm-toolchain-smoke.cpp" -o "$RUNNER_TEMP/arm-toolchain-smoke.o"
+          test -f "$(arm-none-eabi-g++ -print-file-name=libstdc++.a)"
           command -v ninja
       - name: Compile ABP and build UF2
         shell: bash
@@ -317,6 +353,52 @@ jobs:
             'Diagnostic build only; Launch/Auto Resume light gating remains disabled.',
             'Login and DC share one light profile; DC recovery prepends exactly one ESC.'
           ) | Set-Content "$out/LIGHT-STATE-TEST.txt" -Encoding utf8
+      - name: Stage and verify corrected CircuitPython runtime
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out='ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          source='portable/plan3/CIRCUITPY'
+          bundle="$out/CIRCUITPY"
+          test -f "$out/ClassroomStudio.exe"
+          mkdir -p "$bundle"
+          git show "HEAD:$source/README-FLASH.md" > "$bundle/README-FLASH.md"
+          git show "HEAD:$source/SHA256SUMS.txt" > "$bundle/SHA256SUMS.txt"
+          while read -r expected name; do
+            git show "HEAD:$source/$name" > "$bundle/$name"
+            actual="$(python -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$bundle/$name")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "CIRCUITPY checksum mismatch: $name (expected $expected, got $actual)" >&2
+              exit 1
+            fi
+          done < "$bundle/SHA256SUMS.txt"
+          cat > "$out/README-SHIFT-TEXT-FIX.txt" <<'EOF'
+          Classroom Studio Windows build with the corrected Shift-aware CircuitPython typing runtime.
+          The complete verified board-side bundle is in the CIRCUITPY folder.
+          For board installation, follow CIRCUITPY/README-FLASH.md.
+          EOF
+
+      - name: Package corrected Windows application
+        if: success()
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          $zip = Join-Path $env:RUNNER_TEMP 'ClassroomStudio-ShiftText-Fixed.zip'
+          Compress-Archive -Path "$out/*" -DestinationPath $zip -Force
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant() | Set-Content (Join-Path $env:RUNNER_TEMP 'ClassroomStudio-ShiftText-Fixed.sha256') -Encoding ascii
+
+      - name: Upload corrected Windows application package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomStudio-ShiftText-Fixed
+          path: |
+            ${{ runner.temp }}/ClassroomStudio-ShiftText-Fixed.zip
+            ${{ runner.temp }}/ClassroomStudio-ShiftText-Fixed.sha256
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Upload gated Windows output
         if: success()
         uses: actions/upload-artifact@v4
@@ -326,6 +408,37 @@ jobs:
             ams-shell/src/Ams.UI/bin/Release/net8.0-windows/**
             windows-tests.log
             light-telemetry-tests.log
+          retention-days: 14
+          if-no-files-found: error
+      - name: Stage lightweight output without the unchanged shift bridge
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
+        shell: pwsh
+        run: |
+          $out = 'ams-shell/src/Ams.UI/bin/Release/net8.0-windows'
+          $stage = Join-Path $env:RUNNER_TEMP 'classroom-studio-light'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item -Path "$out/*" -Destination $stage -Recurse -Force
+          Remove-Item -Recurse -Force "$stage/shift-bridge" -ErrorAction Stop
+          if (Test-Path "$stage/shift-bridge") { throw 'Shift bridge was not removed' }
+          if (-not (Test-Path "$stage/ClassroomStudio.exe")) { throw 'Classroom Studio missing' }
+          if (-not (Test-Path "$stage/bridge/bridge.py")) { throw 'Board serial bridge missing' }
+          $templates = @(Get-ChildItem "$stage/native-runtime" -Filter 'runtime-*.uf2' -File)
+          if ($templates.Count -ne 30) { throw "Expected 30 Pico templates, got $($templates.Count)" }
+          if (-not (Test-Path "$stage/native-runtime/index.json")) { throw 'Template index missing' }
+          @(
+            'The shift-bridge folder is intentionally excluded to reduce download size.',
+            'Keep using your already-pinned compatible ClassroomShiftBridge.exe at its existing location.',
+            'The much older October 8 build lacks the later clock bootstrap; use the newer existing bridge.',
+            'If you need a bridge for a new installation, get it from the full artifact of the same run.',
+            'Do not remove the separate bridge folder: it is used for board communication.',
+            'All 30 Pico native-runtime templates are included.'
+          ) | Set-Content "$stage/README-LIGHT-PACKAGE.txt" -Encoding utf8
+      - name: Upload lightweight Windows output
+        if: success() && ((github.event_name == 'pull_request' && github.head_ref == 'feat/pico-physical-light-tolerance') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'feat/pico-physical-light-tolerance'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-studio-no-shift-bridge
+          path: ${{ runner.temp }}/classroom-studio-light/**
           retention-days: 14
           if-no-files-found: error
       - name: Report Windows failure tail

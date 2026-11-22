@@ -16,6 +16,7 @@ public sealed class LightWatchService : IAsyncDisposable
     private readonly object _gate = new();
     private CancellationTokenSource? _runCts;
     private Task? _runner;
+    private bool? _dualSensorSupported;
 
     public LightWatchService(IBoardBridge bridge) => _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
 
@@ -86,7 +87,7 @@ public sealed class LightWatchService : IAsyncDisposable
             var elapsed = Stopwatch.StartNew();
             try
             {
-                var sample = await _bridge.ReadLightAsync(ct).ConfigureAwait(false);
+                var sample = await ReadSampleAsync(ct).ConfigureAwait(false);
                 SampleReceived?.Invoke(sample);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -103,6 +104,23 @@ public sealed class LightWatchService : IAsyncDisposable
             if (remaining > TimeSpan.Zero)
                 await Task.Delay(remaining, ct).ConfigureAwait(false);
         }
+    }
+
+    private async Task<LightTelemetrySample> ReadSampleAsync(CancellationToken ct)
+    {
+        if (_dualSensorSupported == false)
+            return await _bridge.ReadLightAsync(ct).ConfigureAwait(false);
+
+        var reply = await _bridge.SendAsync("LUX2?", timeoutSeconds: 2, ct).ConfigureAwait(false);
+        if (reply.Trim() == "ERR|COMMAND|unknown=LUX2?")
+        {
+            _dualSensorSupported = false;
+            return await _bridge.ReadLightAsync(ct).ConfigureAwait(false);
+        }
+
+        var sample = LightTelemetryParser.Parse(reply);
+        _dualSensorSupported = sample.HasDualSensorData;
+        return sample;
     }
 
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);

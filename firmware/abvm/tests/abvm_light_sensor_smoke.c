@@ -7,21 +7,33 @@
 
 i2c_inst_t test_i2c0;
 static unsigned reads;
+static bool secondary_connected = true;
 uint i2c_init(i2c_inst_t *i2c, uint baudrate) {
     (void)i2c; return baudrate;
 }
 int i2c_write_timeout_us(i2c_inst_t *i2c, uint8_t addr,
                          const uint8_t *src, size_t len, bool nostop,
                          uint timeout_us) {
-    (void)i2c; (void)addr; (void)src; (void)nostop; (void)timeout_us;
-    return (int)len;
+    (void)i2c; (void)src; (void)nostop; (void)timeout_us;
+    if (addr == 0x23u || (addr == 0x5Cu && secondary_connected))
+        return (int)len;
+    return -1;
 }
 int i2c_read_timeout_us(i2c_inst_t *i2c, uint8_t addr, uint8_t *dst,
                         size_t len, bool nostop, uint timeout_us) {
-    (void)i2c; (void)addr; (void)nostop; (void)timeout_us;
+    (void)i2c; (void)nostop; (void)timeout_us;
     if (len != 2u) return -1;
-    /* BH1750 raw 150 -> 125.0 lux. */
-    dst[0] = 0u; dst[1] = 150u; ++reads; return 2;
+    if (addr == 0x23u) {
+        /* BH1750 raw 150 -> 125.0 lux. */
+        dst[0] = 0u; dst[1] = 150u;
+    } else if (addr == 0x5Cu && secondary_connected) {
+        /* BH1750 raw 240 -> 200.0 lux, distinct from sensor one. */
+        dst[0] = 0u; dst[1] = 240u;
+    } else {
+        return -1;
+    }
+    ++reads;
+    return 2;
 }
 void gpio_set_function(uint pin, uint function) { (void)pin; (void)function; }
 void gpio_pull_up(uint pin) { (void)pin; }
@@ -62,6 +74,13 @@ int main(int argc, char **argv) {
     uint32_t lux, age;
     if (!require(light_sensor_latest(&lux, &age, 391u) && lux == 1250u,
                  "typed latest lux")) return 1;
+    LightSensorSnapshot snapshot;
+    if (!require(light_sensor_latest_pair(&snapshot, 391u) &&
+                 snapshot.primary_valid && snapshot.secondary_present &&
+                 snapshot.secondary_valid &&
+                 snapshot.primary_lux_tenths == 1250u &&
+                 snapshot.secondary_lux_tenths == 2000u,
+                 "paired latest lux values")) return 1;
     if (!require(light_sensor_calibration_start(300u, 400u), "start LCAL")) return 1;
     light_sensor_service(&vm, 521u);
     light_sensor_service(&vm, 651u);
@@ -71,6 +90,13 @@ int main(int argc, char **argv) {
         !require(result.valid && result.minimum_lux == 125u &&
                  result.maximum_lux == 125u && result.average_lux == 125u &&
                  result.samples >= 2u, "LCAL values")) return 1;
+    secondary_connected = false;
+    light_sensor_init(800u);
+    light_sensor_service(&vm, 931u);
+    if (!require(light_sensor_latest_pair(&snapshot, 931u) &&
+                 snapshot.primary_valid && !snapshot.secondary_present &&
+                 !snapshot.secondary_valid && light_sensor_present(),
+                 "primary-only compatibility when secondary is absent")) return 1;
     free(image);
     printf("ABVM native BH1750 actor/calibration smoke passed (%u reads)\n", reads);
     return 0;

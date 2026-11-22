@@ -44,7 +44,7 @@ public static class NativeUf2Exporter
             if(workspace.ShiftSchedule.enabled&&!workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps)))
                 throw new InvalidDataException("بررسی ساعت به استپ تأیید شیفت در Desktop و Startup نیاز دارد.");
             if(workspace.Tabs.Any(tab=>ContainsShiftCheck(tab.Steps))) {
-                var hashes=ShiftTextValidation.UserHashes(settings);
+                var hashes=ShiftTextValidation.UserHashes(workspace);
                 root["nativeShift"]=new JsonObject { ["dayHash"]=hashes.day,["nightHash"]=hashes.night };
             }
             root["nativeGuard"] = BuildNativeGuard();
@@ -88,13 +88,20 @@ public static class NativeUf2Exporter
     private static JsonObject BuildNativeGuard()
     {
         var profiles = new JsonArray();
-        foreach (var profile in LightStateProfileStore.Load())
+        var configuredProfiles = LightStateProfileStore.Load();
+        if (configuredProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+            throw new InvalidOperationException(
+                "Native UF2 فعلی فقط کالیبراسیون تک‌سنسوره را می‌فهمد؛ خروجی دوحسگری تا پشتیبانی firmware متوقف شد.");
+        foreach (var profile in configuredProfiles)
             profiles.Add(new JsonObject
             {
                 ["id"] = profile.Id,
                 ["enabled"] = profile.Enabled,
                 ["luxCenter"] = profile.LuxCenter,
                 ["luxTolerance"] = profile.LuxTolerance,
+                ["luxMin"] = profile.LuxMin,
+                ["luxMax"] = profile.LuxMax,
                 ["stableDurationMs"] = profile.StableDurationMs,
                 ["hysteresisLux"] = profile.HysteresisLux,
                 ["lightCooldownMs"] = profile.LightCooldownMs,

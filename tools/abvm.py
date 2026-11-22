@@ -30,6 +30,7 @@ ROUTE = struct.Struct("<HHIII")                  # 16 bytes
 CONST_HEADER = struct.Struct("<BBHI")
 RESOURCE = struct.Struct("<HHHHHHHHHHIIII")      # 36 bytes
 SOUND = struct.Struct("<HHI")                      # profile, threshold, minimum ms
+SOUND_ALARM = struct.Struct("<HHIB3x")              # sound fields + timeout streak
 LIGHT = struct.Struct("<IIIB3x")                    # low/high lux, stable ms, mode
 GUARD_HEADER = struct.Struct("<BBBBI")               # version/count/mode/reserved/timeout
 GUARD_PROFILE_V1 = struct.Struct("<BBHIIII")          # id/enabled/route/low/high/stable/hysteresis
@@ -638,11 +639,22 @@ class Compiler:
             raise AbvmError("gameBuffs must contain at most 16 buffs")
         enabled = [n for n in buffs if not disabled(n)]
         if enabled:
-            payload = bytearray(BUFF_HEADER.pack(b"GBF1", 1, len(enabled), 0))
+            buff_version = (
+                3 if any(integer(props(n).get("followDelayMs"), 0) > 0 for n in enabled)
+                else 2 if any(props(n).get("followEnabled", False) for n in enabled)
+                else 1
+            )
+            payload = bytearray(BUFF_HEADER.pack(b"GBF1", buff_version, len(enabled), 0))
             for n in enabled:
                 if step_type(n) != "keystroke":
                     raise AbvmError("buff must be a keystroke")
                 p = props(n)
+                follow_enabled = bool(p.get("followEnabled", False))
+                follow_delay = integer(p.get("followDelayMs"), 0)
+                if not 0 <= follow_delay <= 60_000:
+                    raise AbvmError("buff follow-up delay must be 0..60000 ms")
+                if follow_delay and not follow_enabled:
+                    raise AbvmError("buff follow-up delay needs a follow-up key")
                 keys = ([162] if p.get("modCtrl") else []) + ([160] if p.get("modShift") else []) + ([164] if p.get("modAlt") else []) + ([91] if p.get("modWin") else []) + [vk(p.get("key"))]
                 if len(keys) > 4 or len(set(keys)) != len(keys):
                     raise AbvmError("buff combo must contain 1..4 distinct keys")
@@ -655,7 +667,15 @@ class Compiler:
                 for j in range(0, 8, 2):
                     if not 0 <= values[j] <= values[j+1] <= 0x7fffffff or (j in (0,4) and values[j] == 0):
                         raise AbvmError("invalid buff interval/hold/delay range")
-                payload.extend(BUFF_ROW.pack(sum(k << (8*i) for i,k in enumerate(keys)), len(keys), *values))
+                row = bytearray(BUFF_ROW.pack(sum(k << (8*i) for i,k in enumerate(keys)), len(keys), *values))
+                if follow_enabled:
+                    follow_key = vk(p.get("followKey"))
+                    if not 1 <= follow_key <= 255:
+                        raise AbvmError("invalid buff follow-up key")
+                    row[5] = follow_key
+                    if buff_version == 3:
+                        row[6:8] = struct.pack("<H", follow_delay)
+                payload.extend(row)
             self.buff_constant = self.pool.add(CONST_BUFF, bytes(payload))
         fatigue_minutes = integer(source.get("gameMouseFatigueMinutes"), 135)
         if not 1 <= fatigue_minutes <= 1440:
@@ -1160,7 +1180,14 @@ class Compiler:
         minimum = max(1, integer(p.get("minDurationMs"), 60))
         if threshold < 0 or threshold > 1023 or minimum > 65_535:
             raise AbvmError("Wait For Sound threshold or duration is out of range")
-        descriptor = SOUND.pack(profile, threshold, minimum)
+        alarm_after = integer(p.get("timeoutAlarmAfter"), 1)
+        if not 1 <= alarm_after <= 255:
+            raise AbvmError("Wait For Sound timeout alarm must be 1..255")
+        descriptor = (
+            SOUND.pack(profile, threshold, minimum)
+            if alarm_after == 1 else
+            SOUND_ALARM.pack(profile, threshold, minimum, alarm_after)
+        )
         self.sound_profiles.add(profile)
         self.flags |= FLAG_HAS_SOUND
         watch = self.emit(OP_WATCH, flags=2,
@@ -1256,8 +1283,10 @@ class Compiler:
             cue = integer(item.get("calibrationCue"), numeric_id)
             if not all(value >= 0 for value in (center, tolerance, hysteresis, stable, cooldown)):
                 raise AbvmError("Native Guard profile has a negative value: " + profile_id)
-            low = max(0, int(round((center - tolerance) * 10)))
-            high = int(round((center + tolerance) * 10))
+            low = max(0, int(round(float(item.get("luxMin", max(0, center - tolerance))) * 10)))
+            high = int(round(float(item.get("luxMax", center + tolerance)) * 10))
+            if low > round(center * 10) or high < round(center * 10):
+                raise AbvmError("Native Guard bounds do not contain center: " + profile_id)
             if high > 10_000_000 or stable > 3_600_000 or cooldown > 3_600_000:
                 raise AbvmError("Native Guard profile is out of range: " + profile_id)
             if cue not in range(0, 101):
@@ -1662,10 +1691,17 @@ class Verifier:
                 if len(payload) < BUFF_HEADER.size:
                     raise AbvmError("truncated buff descriptor")
                 magic, version, count, reserved = BUFF_HEADER.unpack_from(payload)
-                if magic != b"GBF1" or version != 1 or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
+                if magic != b"GBF1" or version not in (1, 2, 3) or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
                     raise AbvmError("invalid buff descriptor")
                 for index in range(count):
-                    packed, width, *values = BUFF_ROW.unpack_from(payload, BUFF_HEADER.size + index * BUFF_ROW.size)
+                    offset = BUFF_HEADER.size + index * BUFF_ROW.size
+                    packed, width, *values = BUFF_ROW.unpack_from(payload, offset)
+                    follow_delay = struct.unpack_from("<H", payload, offset + 6)[0]
+                    if ((version == 1 and payload[offset + 5]) or
+                            (version < 3 and follow_delay) or
+                            follow_delay > 60_000 or
+                            (follow_delay and not payload[offset + 5])):
+                        raise AbvmError("invalid buff follow-up descriptor")
                     keys = [(packed >> (8*k)) & 255 for k in range(width)]
                     if not 1 <= width <= 4 or 0 in keys or len(set(keys)) != width or (width < 4 and packed >> (width*8)):
                         raise AbvmError("invalid buff key combo")
@@ -1795,11 +1831,14 @@ class Verifier:
                     elif ins.flags == 2:
                         measured_flags |= FLAG_HAS_SOUND
                         raw = image.const(ins.a, CONST_SOUND)
-                        if len(raw) != SOUND.size:
+                        if len(raw) not in (SOUND.size, SOUND_ALARM.size):
                             raise AbvmError("invalid Sound descriptor size")
-                        profile, threshold, minimum = SOUND.unpack(raw)
+                        profile, threshold, minimum = SOUND.unpack_from(raw)
                         if not profile or not 0 <= threshold <= 1023 or not minimum:
                             raise AbvmError("invalid Sound descriptor")
+                        if len(raw) == SOUND_ALARM.size and (
+                                not raw[8] or any(raw[9:12])):
+                            raise AbvmError("invalid Sound timeout alarm")
                         measured_profiles.add(profile)
                     elif ins.flags == 1 and ins.a:
                         measured_flags |= FLAG_HAS_SOUND
@@ -2226,7 +2265,8 @@ class ReferenceVm:
                 kind = "LIGHT"
             else:
                 if ins.flags == 2:
-                    profile, _, _ = SOUND.unpack(self.image.const(ins.a, CONST_SOUND))
+                    profile, _, _ = SOUND.unpack_from(
+                        self.image.const(ins.a, CONST_SOUND))
                 else:
                     profile = ins.a
                 hit = profile in self.detected

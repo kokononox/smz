@@ -44,7 +44,9 @@ internal static class LightCalibrationUiBootstrap
         };
         var content = new StackPanel();
         content.Children.Add(Text("کالیبراسیون پیشنهادی", 15, "#F5F7FA", FontWeights.SemiBold));
-        content.Children.Add(Text("از داده زنده پیشنهاد می‌سازد؛ بدون زدن «اعمال پیشنهاد» و سپس «ذخیره پروفایل‌ها» هیچ مقداری تغییر نمی‌کند.", 12, "#AAB3C2"));
+        content.Children.Add(Text("کالیبره‌کردن با دو سنسورِ ثابت و مرتب‌شده انجام می‌شود: میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 هر دو در تلورانس نقش دارند.", 12, "#AAB3C2"));
+        content.Children.Add(Text("محدودهٔ هر محیط باید در فضای دو‌بعدی با حاشیهٔ امن حداقل ۱ لوکس از محیط‌های فعال جدا باشد. جابه‌جایی هر سنسور یعنی کالیبره‌کردن دوبارهٔ همهٔ محیط‌ها؛ firmware تک‌سنسوره تا زمان پشتیبانی جداگانه، این پروفایل‌ها را نمی‌پذیرد.", 11, "#AAB3C2"));
+        content.Children.Add(Text("نمونه‌برداری از دادهٔ زندهٔ تازهٔ هر دو سنسور انجام می‌شود؛ ابتدا «شروع پایش» را بزنید. اعمال پیشنهاد و ذخیره‌سازی همچنان دو اقدام جدا هستند.", 11, "#AAB3C2"));
 
         var controls = new WrapPanel { Margin = new Thickness(0, 10, 0, 8) };
         controls.Children.Add(Text("پروفایل:", 12, "#D9DEE7"));
@@ -83,8 +85,26 @@ internal static class LightCalibrationUiBootstrap
         body.Children.Insert(Math.Max(0, body.Children.Count - 1), card);
         vm.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(MainViewModel.LightChartVersion))
+            if (args.PropertyName is nameof(MainViewModel.LightChartVersion)
+                or nameof(MainViewModel.LightFreshnessText))
                 window.Dispatcher.BeginInvoke(new Action(vm.CaptureLightCalibrationSample));
+        };
+    }
+
+    private static Border SensorTile(string title, params UIElement[] details)
+    {
+        var body = new StackPanel();
+        body.Children.Add(Text(title, 12, "#AAB3C2", FontWeights.SemiBold));
+        foreach (var detail in details) body.Children.Add(detail);
+        return new Border
+        {
+            Child = body,
+            Background = Brush("#181B20"),
+            BorderBrush = Brush("#343B46"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(10),
+            Margin = new Thickness(3),
         };
     }
 
@@ -102,7 +122,9 @@ internal static class LightCalibrationUiBootstrap
                 .GetBindingExpression(TextBox.TextProperty)?.ResolvedSource as LightStateProfile;
             var range = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 4);
             if (center is not null && range is not null)
-                range.Text = $"{center.LuxMin:0.#} تا {center.LuxMax:0.#}";
+                range.Text = center.HasDualSensorCalibration
+                    ? $"دوحسگر · M {center.MeanLuxCenter:0.#} ±{center.MeanLuxTolerance:0.#}\nΔ {center.DifferenceLuxCenter:0.#} ±{center.DifferenceLuxTolerance:0.#}"
+                    : $"L1 · {center.LuxMin:0.#} تا {center.LuxMax:0.#}";
         }
 
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
