@@ -123,6 +123,7 @@ public partial class MainViewModel
         var profile = selectedProfile;
         var candidate = profile.Copy();
         candidate.HasDualSensorCalibration = true;
+        candidate.DualSensorCalibrationRequired = true;
         candidate.MeanLuxCenter = _pendingLightCalibrationSuggestion.MeanCenterLux;
         candidate.MeanLuxTolerance = _pendingLightCalibrationSuggestion.MeanToleranceLux;
         candidate.DifferenceLuxCenter = _pendingLightCalibrationSuggestion.DifferenceCenterLux;
@@ -140,6 +141,7 @@ public partial class MainViewModel
         }
 
         profile.HasDualSensorCalibration = true;
+        profile.DualSensorCalibrationRequired = true;
         profile.MeanLuxCenter = candidate.MeanLuxCenter;
         profile.MeanLuxTolerance = candidate.MeanLuxTolerance;
         profile.DifferenceLuxCenter = candidate.DifferenceLuxCenter;

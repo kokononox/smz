@@ -89,7 +89,8 @@ public static class NativeUf2Exporter
     {
         var profiles = new JsonArray();
         var configuredProfiles = LightStateProfileStore.Load();
-        if (configuredProfiles.Any(profile => profile.HasDualSensorCalibration))
+        if (configuredProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
             throw new InvalidOperationException(
                 "Native UF2 فعلی فقط کالیبراسیون تک‌سنسوره را می‌فهمد؛ خروجی دوحسگری تا پشتیبانی firmware متوقف شد.");
         foreach (var profile in configuredProfiles)

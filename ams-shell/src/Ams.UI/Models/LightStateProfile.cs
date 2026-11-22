@@ -30,6 +30,12 @@ public class LightStateProfile
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasDualSensorCalibration { get; set; }
+    /// <summary>
+    /// Paired calibration is required for the active layout, but this profile has not yet
+    /// been calibrated in that layout. This prevents fallback to stale single-sensor data.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DualSensorCalibrationRequired { get; set; }
     /// <summary>Center of (L1 + L2) / 2, in Lux.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double MeanLuxCenter { get; set; }

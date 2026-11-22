@@ -40,10 +40,12 @@ public sealed class LightStateClassifier
 
     public LightStateClassification Update(double? lux, DateTimeOffset at, bool sampleIsFresh = true)
     {
-        if (_profiles.Any(p => p.Enabled && p.IsValid && p.HasDualSensorCalibration))
+        if (_profiles.Any(p => p.Enabled && p.IsValid
+                               && (p.HasDualSensorCalibration || p.DualSensorCalibrationRequired)))
         {
             Reset();
-            return LightStateClassification.Unknown(lux, "برای پروفایل دوحسگری، هر دو سنسور لازم‌اند.");
+            return LightStateClassification.Unknown(
+                lux, "چیدمان دوحسگری فعال است؛ تا تکمیل کالیبراسیون جفتی همهٔ محیط‌های فعال، تشخیص تک‌سنسور انجام نمی‌شود.");
         }
         if (!sampleIsFresh)
         {
@@ -116,7 +118,9 @@ public sealed class LightStateClassifier
 
         var enabled = _profiles.Where(p => p.Enabled && p.IsValid).ToArray();
         var paired = enabled.Where(p => p.HasDualSensorCalibration).ToArray();
-        if (paired.Length == 0)
+        var dualModeRequired = enabled.Any(p =>
+            p.HasDualSensorCalibration || p.DualSensorCalibrationRequired);
+        if (!dualModeRequired)
             return Update(lux1, at, sampleIsFresh: true);
 
         if (paired.Length != enabled.Length)

@@ -78,6 +78,12 @@ internal static class DualLightCalibrationContract
         }).Update(20, 20, at);
         Check(mixed.Kind == LightStateClassificationKind.Unknown && mixed.Diagnostic is not null,
             "mixed enabled single/dual profiles fail closed until calibration modes are consistent");
+        var newLayoutProfiles = LightStateDefaults.CreateInitialProfiles();
+        foreach (var profile in newLayoutProfiles) profile.DualSensorCalibrationRequired = true;
+        var newLayoutClassifier = new LightStateClassifier(newLayoutProfiles);
+        Check(newLayoutClassifier.Update(59, at).Kind == LightStateClassificationKind.Unknown
+              && newLayoutClassifier.Update(59, 61, at).Diagnostic is not null,
+            "a reset sensor layout cannot silently fall back to legacy L1 during recalibration");
 
         var directory = Path.Combine(Path.GetTempPath(), "ams-dual-light-contract-" + Guid.NewGuid().ToString("N"));
         var path = Path.Combine(directory, "profiles.json");
@@ -89,6 +95,7 @@ internal static class DualLightCalibrationContract
             var calibrated = LightStateDefaults.CreateInitialProfiles();
             var roundtrip = calibrated.Single(profile => profile.Id == "desktop");
             roundtrip.HasDualSensorCalibration = true;
+            roundtrip.DualSensorCalibrationRequired = true;
             roundtrip.MeanLuxCenter = 30;
             roundtrip.MeanLuxTolerance = 1.2;
             roundtrip.DifferenceLuxCenter = -4;
@@ -96,6 +103,7 @@ internal static class DualLightCalibrationContract
             LightStateProfileStore.Save(calibrated, path);
             var loaded = LightStateProfileStore.Load(path).Single(profile => profile.Id == "desktop");
             Check(loaded.HasDualSensorCalibration
+                  && loaded.DualSensorCalibrationRequired
                   && Near(loaded.MeanLuxCenter, 30) && Near(loaded.MeanLuxTolerance, 1.2)
                   && Near(loaded.DifferenceLuxCenter, -4) && Near(loaded.DifferenceLuxTolerance, 0.8),
                 "paired calibration values round-trip without altering legacy schema fields");
@@ -134,6 +142,7 @@ internal static class DualLightCalibrationContract
             Id = id,
             Name = id,
             HasDualSensorCalibration = true,
+            DualSensorCalibrationRequired = true,
             MeanLuxCenter = mean,
             MeanLuxTolerance = tolerance,
             DifferenceLuxCenter = difference,
@@ -146,6 +155,7 @@ internal static class DualLightCalibrationContract
     private static void SetDual(LightStateProfile profile, double mean, double difference, double tolerance)
     {
         profile.HasDualSensorCalibration = true;
+        profile.DualSensorCalibrationRequired = true;
         profile.MeanLuxCenter = mean;
         profile.MeanLuxTolerance = tolerance;
         profile.DifferenceLuxCenter = difference;

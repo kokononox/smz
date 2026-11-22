@@ -74,7 +74,7 @@ internal static class LightStateProfilesUiBootstrap
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("مرکز و تلورانس L1 برای سازگاری با حالت تک‌سنسور نگه داشته شده‌اند. در حالت دوحسگری، تشخیص فقط از میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 استفاده می‌کند.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند؛ پس از جابه‌جایی، همهٔ محیط‌ها را دوباره کالیبره کنید. firmware فعلی برد هنوز این نوع را دریافت/ارسال نمی‌کند.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید تا استفاده از L1 قدیمی مسدود شود و همهٔ محیط‌های فعال را دوباره کالیبره کنید. firmware فعلی برد هنوز این نوع را دریافت/ارسال نمی‌کند.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -94,7 +94,7 @@ internal static class LightStateProfilesUiBootstrap
         }
         RebuildRows();
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         var importFromBoard = ActionButton("وارد کردن از برد", "#2F7D5A", "#F5F7FA");
         importFromBoard.Click += async (_, _) =>
         {
@@ -126,16 +126,28 @@ internal static class LightStateProfilesUiBootstrap
         var save = ActionButton("ذخیره پروفایل‌ها", "#5E9FE8", "#10151C");
         save.Margin = new Thickness(8, 0, 0, 0);
         save.Click += (_, _) => { if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; } if (vm.SaveLightStateProfiles()) RebuildRows(); };
+        var newDualLayout = ActionButton("چیدمان دوحسگری جدید", "#B36A3F", "#F5F7FA");
+        newDualLayout.Margin = new Thickness(8, 0, 0, 0);
+        newDualLayout.Click += (_, _) =>
+        {
+            if (MessageBox.Show(window,
+                    "ابتدا دو سنسور را در جایگاه نهایی و ثابت قرار دهید. این اقدام همهٔ کالیبراسیون‌های جفتی قبلی را پاک می‌کند، مقادیر قدیمی L1 را فقط برای سازگاری نگه می‌دارد و تشخیص را تا کالیبره‌شدن همهٔ محیط‌های فعال متوقف می‌کند. ادامه می‌دهید؟",
+                    "شروع چیدمان دوحسگری جدید", MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            vm.ResetDualSensorCalibrationSet();
+            RebuildRows();
+        };
         var reset = ActionButton("بازگردانی مقادیر اولیه", "#333740", "#F5F7FA");
         reset.Margin = new Thickness(8, 0, 0, 0);
         reset.Click += (_, _) =>
         {
-            if (MessageBox.Show(window, "پروفایل‌های نور به مقادیر فرضی اولیه برگردند؟", "بازگردانی پروفایل‌ها",
+            if (MessageBox.Show(window, "پروفایل‌های نور به مقادیر فرضی اولیهٔ تک‌سنسوره برگردند و نیاز به چیدمان دوحسگری پاک شود؟", "بازگردانی پروفایل‌ها",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             vm.ResetLightStateProfiles();
             RebuildRows();
         };
-        actions.Children.Add(importFromBoard); actions.Children.Add(sendToBoard); actions.Children.Add(save); actions.Children.Add(reset);
+        actions.Children.Add(importFromBoard); actions.Children.Add(sendToBoard); actions.Children.Add(save);
+        actions.Children.Add(newDualLayout); actions.Children.Add(reset);
         editorBody.Children.Add(actions);
         var saveStatus = Bound(nameof(MainViewModel.LightProfileSaveStatus), 12);
         saveStatus.Margin = new Thickness(0, 8, 0, 0);
@@ -182,11 +194,14 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Editor(profile, nameof(profile.Name)), 1);
         var legacyCenter = Editor(profile, nameof(profile.LuxCenter));
         var legacyTolerance = Editor(profile, nameof(profile.LuxTolerance));
-        legacyCenter.IsEnabled = legacyTolerance.IsEnabled = !profile.HasDualSensorCalibration;
+        legacyCenter.IsEnabled = legacyTolerance.IsEnabled =
+            !profile.HasDualSensorCalibration && !profile.DualSensorCalibrationRequired;
         Add(row, legacyCenter, 2);
         Add(row, legacyTolerance, 3);
         Add(row, Text(profile.HasDualSensorCalibration
                 ? $"دوحسگر · M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                : profile.DualSensorCalibrationRequired
+                    ? "دوحسگر · کالیبره‌نشده"
                 : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
             11, "#D9DEE7"), 4);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
