@@ -259,7 +259,10 @@ class PicoLink:
         expect = cmd.split("|")[0]
         if expect in ("KBDPICO", "KBDARM") and "|" in cmd:
             expect = cmd.split("|", 2)[1]
-        want = "PONG" if expect == "PING" else expect
+        # Query requests end in '?' but firmware replies use the bare response head.
+        want = {"PING": "PONG", "LUX?": "LUX", "LUX2?": "LUX2", "WAKE?": "WAKE"}.get(
+            expect, expect
+        )
         retried = False                  # v0.9.60g - one retry on ERR|UNKNOWN (UART glitch)
         while True:
             line = self._read_line(max(0.05, deadline - time.monotonic()))

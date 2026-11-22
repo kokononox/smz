@@ -523,4 +523,10 @@ cmake -S firmware/abvm/pico -B /tmp/abvm-pico -DPICO_BOARD=pico -DABVM_PROGRAM=/
 cmake --build /tmp/abvm-pico --parallel
 ```
 
-CDC commands: `PING`, `STATUS`, `LUX?`, `LCAL|3000`, `GUARD|ON`, `GUARD|OFF`, `CALSTATUS`, `PAUSE`, `RESUME`, `WHISPER`, `SOUND 2`.
+## Dual BH1750 diagnostics (phase 1)
+
+The existing sensor remains at I2C address `0x23` (`ADDR` to GND). A second BH1750 can share I2C0 on GP20/GP21 with common ground when its `ADDR` pin is tied to 3V3, selecting address `0x5C`. Both sensor VCC pins use Pico `3V3 OUT` (physical pin 36), not VBUS/5 V; GP20/SDA is physical pin 26 and GP21/SCL is physical pin 27. Keep the two address straps separate. Disconnect USB before wiring. Do not route these 3.3 V I2C signals through the Pro Micro's 5 V UART level shifter.
+
+`LUX?` remains the original single-sensor response for compatibility. `LUX2?` is read-only diagnostic telemetry: it reports each sensor's lux and sample age, and whether the second device is ready, warming up, or missing. Classroom Studio's live light monitor prefers `LUX2?` and shows both readings; when connected to older firmware it falls back to `LUX?` and labels the second sensor unsupported. Guard, `WATCH`, and `LCAL` continue to use the original sensor only; dual-sensor classification and paired calibration are later phases. A missing second sensor therefore does not disable the existing single-sensor path.
+
+CDC commands: `PING`, `STATUS`, `LUX?`, `LUX2?`, `LCAL|3000`, `GUARD|ON`, `GUARD|OFF`, `CALSTATUS`, `PAUSE`, `RESUME`, `WHISPER`, `SOUND 2`.

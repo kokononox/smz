@@ -35,7 +35,8 @@ internal static class LightStateProfilesUiBootstrap
     private static void Install(MainWindow window, MainViewModel vm)
     {
         var body = FindStatusBody(window);
-        if (body is null) return;
+        var audioBody = FindAudioBody(window);
+        if (body is null || audioBody is null) return;
         vm.RefreshLightProfileWarnings();
 
         var section = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -72,7 +73,8 @@ internal static class LightStateProfilesUiBootstrap
         };
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
-        editorBody.Children.Add(Text("مرکز و تلورانس فعلی فرضی‌اند. ذخیره‌سازی هیچ مقداری را روی کالیبراسیون یا ماکرو overwrite نمی‌کند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("مرکز و تلورانس L1 برای سازگاری با حالت تک‌سنسور نگه داشته شده‌اند. در حالت دوحسگری، تشخیص فقط از میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 استفاده می‌کند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید تا استفاده از L1 قدیمی مسدود شود و همهٔ محیط‌های فعال را دوباره کالیبره کنید. firmware فعلی برد هنوز این نوع را دریافت/ارسال نمی‌کند.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -92,7 +94,7 @@ internal static class LightStateProfilesUiBootstrap
         }
         RebuildRows();
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         var importFromBoard = ActionButton("وارد کردن از برد", "#2F7D5A", "#F5F7FA");
         importFromBoard.Click += async (_, _) =>
         {
@@ -124,24 +126,36 @@ internal static class LightStateProfilesUiBootstrap
         var save = ActionButton("ذخیره پروفایل‌ها", "#5E9FE8", "#10151C");
         save.Margin = new Thickness(8, 0, 0, 0);
         save.Click += (_, _) => { if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; } if (vm.SaveLightStateProfiles()) RebuildRows(); };
+        var newDualLayout = ActionButton("چیدمان دوحسگری جدید", "#B36A3F", "#F5F7FA");
+        newDualLayout.Margin = new Thickness(8, 0, 0, 0);
+        newDualLayout.Click += (_, _) =>
+        {
+            if (MessageBox.Show(window,
+                    "ابتدا دو سنسور را در جایگاه نهایی و ثابت قرار دهید. این اقدام همهٔ کالیبراسیون‌های جفتی قبلی را پاک می‌کند، مقادیر قدیمی L1 را فقط برای سازگاری نگه می‌دارد و تشخیص را تا کالیبره‌شدن همهٔ محیط‌های فعال متوقف می‌کند. ادامه می‌دهید؟",
+                    "شروع چیدمان دوحسگری جدید", MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            vm.ResetDualSensorCalibrationSet();
+            RebuildRows();
+        };
         var reset = ActionButton("بازگردانی مقادیر اولیه", "#333740", "#F5F7FA");
         reset.Margin = new Thickness(8, 0, 0, 0);
         reset.Click += (_, _) =>
         {
-            if (MessageBox.Show(window, "پروفایل‌های نور به مقادیر فرضی اولیه برگردند؟", "بازگردانی پروفایل‌ها",
+            if (MessageBox.Show(window, "پروفایل‌های نور به مقادیر فرضی اولیهٔ تک‌سنسوره برگردند و نیاز به چیدمان دوحسگری پاک شود؟", "بازگردانی پروفایل‌ها",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             vm.ResetLightStateProfiles();
             RebuildRows();
         };
-        actions.Children.Add(importFromBoard); actions.Children.Add(sendToBoard); actions.Children.Add(save); actions.Children.Add(reset);
+        actions.Children.Add(importFromBoard); actions.Children.Add(sendToBoard); actions.Children.Add(save);
+        actions.Children.Add(newDualLayout); actions.Children.Add(reset);
         editorBody.Children.Add(actions);
         var saveStatus = Bound(nameof(MainViewModel.LightProfileSaveStatus), 12);
         saveStatus.Margin = new Thickness(0, 8, 0, 0);
         editorBody.Children.Add(saveStatus);
         editor.Child = editorBody;
         section.Children.Add(editor);
-        section.Children.Add(CalibrationCueMenu(window, vm));
 
+        audioBody.Children.Add(CalibrationCueMenu(window, vm));
         var insertAt = Math.Max(0, body.Children.Count - 1);
         body.Children.Insert(insertAt, section);
 
@@ -160,9 +174,9 @@ internal static class LightStateProfilesUiBootstrap
         var row = ProfileGrid();
         Add(row, Text("فعال", 11, "#AAB3C2"), 0);
         Add(row, Text("نام وضعیت", 11, "#AAB3C2"), 1);
-        Add(row, Text("مرکز", 11, "#AAB3C2"), 2);
-        Add(row, Text("تلورانس ±", 11, "#AAB3C2"), 3);
-        Add(row, Text("بازه مؤثر", 11, "#AAB3C2"), 4);
+        Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 2);
+        Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 3);
+        Add(row, Text("L1 / دوحسگر", 11, "#AAB3C2"), 4);
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 5);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 6);
         Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 7);
@@ -178,9 +192,18 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
         Add(row, Editor(profile, nameof(profile.Name)), 1);
-        Add(row, Editor(profile, nameof(profile.LuxCenter)), 2);
-        Add(row, Editor(profile, nameof(profile.LuxTolerance)), 3);
-        Add(row, Text($"{profile.LuxMin:0.#} تا {profile.LuxMax:0.#}", 12, "#D9DEE7"), 4);
+        var legacyCenter = Editor(profile, nameof(profile.LuxCenter));
+        var legacyTolerance = Editor(profile, nameof(profile.LuxTolerance));
+        legacyCenter.IsEnabled = legacyTolerance.IsEnabled =
+            !profile.HasDualSensorCalibration && !profile.DualSensorCalibrationRequired;
+        Add(row, legacyCenter, 2);
+        Add(row, legacyTolerance, 3);
+        Add(row, Text(profile.HasDualSensorCalibration
+                ? $"دوحسگر · M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                : profile.DualSensorCalibrationRequired
+                    ? "دوحسگر · کالیبره‌نشده"
+                : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
+            11, "#D9DEE7"), 4);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
         Add(row, Editor(profile, nameof(profile.HysteresisLux)), 6);
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
@@ -208,31 +231,29 @@ internal static class LightStateProfilesUiBootstrap
     private static Border CalibrationCueMenu(MainWindow window, MainViewModel vm)
     {
         var body = new StackPanel();
-        body.Children.Add(Text("تخصیص صدای راهنمای کالیبراسیون", 15, "#F5F7FA", FontWeights.SemiBold));
-        body.Children.Add(Text(
-            "برای هر محیط از ۱۰۰ ملودی آماده انتخاب کن یا با «ویرایش حرفه‌ای» نوت، مدت، مکث، حجم، سرعت و لبهٔ صدای سفارشی بساز. همه صداهای قبلی—۹ صدای محیطی، Start/Stop/Pause/Resume، هشدار و خطا، Whisper، گذار محیط، آژیر Watchdog و چرخه کامل کالیبراسیون—در ابتدای فهرست حفظ شده‌اند.",
-            12, "#AAB3C2"));
-        foreach (var profile in vm.LightStateProfiles)
-        {
-            body.Children.Add(CueRow(window, vm, profile));
-        }
+        body.Children.Add(Text("صداهای راهنمای کالیبراسیون و سیستم", 14, "#F5F7FA", FontWeights.SemiBold));
+        body.Children.Add(Text("هر گروه را فقط هنگام نیاز باز کنید تا صفحه کوتاه و خوانا بماند.", 12, "#AAB3C2"));
+
+        var profileBody = new StackPanel { Margin = new Thickness(8, 4, 8, 8) };
+        profileBody.Children.Add(Text("برای هر محیط از ملودی آماده انتخاب کنید یا در ویرایش حرفه‌ای صدای سفارشی بسازید.", 12, "#AAB3C2"));
+        foreach (var profile in vm.LightStateProfiles) profileBody.Children.Add(CueRow(window, vm, profile));
         var save = ActionButton("ذخیره صدای محیط‌های نوری", "#5E9FE8", "#10151C");
         save.HorizontalAlignment = HorizontalAlignment.Right;
         save.Margin = new Thickness(0, 8, 0, 0);
         save.Click += (_, _) => vm.SaveLightStateProfiles();
-        body.Children.Add(save);
+        profileBody.Children.Add(save);
+        body.Children.Add(new Expander { Header = "صداهای محیط‌های نوری", IsExpanded = false, Content = profileBody, Foreground = Brush("#F5F7FA"), Margin = new Thickness(0, 6, 0, 2) });
 
-        body.Children.Add(Text("شخصی‌سازی همه صداهای سیستمی", 15, "#F5F7FA", FontWeights.SemiBold));
-        body.Children.Add(Text(
-            "این فهرست منبع تمام صداهایی است که قبلاً داخل Firmware هاردکد بودند؛ شامل دکمه‌های فیزیکی، خطاها، Whisper، گذارها، Watchdog و تمام مراحل کالیبراسیون.",
-            12, "#AAB3C2"));
-        foreach (var cue in vm.BuzzerSystemCues)
-            body.Children.Add(CueRow(window, vm, cue));
-        var saveSystem = ActionButton("ذخیره همه صداهای سیستمی", "#5E9FE8", "#10151C");
+        var systemBody = new StackPanel { Margin = new Thickness(8, 4, 8, 8) };
+        systemBody.Children.Add(Text("صداهای دکمه‌ها، خطاها، Whisper، گذارها، Watchdog و مراحل کالیبراسیون.", 12, "#AAB3C2"));
+        foreach (var cue in vm.BuzzerSystemCues) systemBody.Children.Add(CueRow(window, vm, cue));
+        var saveSystem = ActionButton("ذخیره صداهای سیستمی", "#5E9FE8", "#10151C");
         saveSystem.HorizontalAlignment = HorizontalAlignment.Right;
         saveSystem.Margin = new Thickness(0, 8, 0, 0);
         saveSystem.Click += (_, _) => vm.SaveBuzzerSystemCues();
-        body.Children.Add(saveSystem);
+        systemBody.Children.Add(saveSystem);
+        body.Children.Add(new Expander { Header = "صداهای سیستمی", IsExpanded = false, Content = systemBody, Foreground = Brush("#F5F7FA"), Margin = new Thickness(0, 2, 0, 2) });
+
         return new Border
         {
             Child = body, Background = Brush("#22262D"), BorderBrush = Brush("#343B46"),
@@ -349,6 +370,19 @@ internal static class LightStateProfilesUiBootstrap
             if (child is TextBlock { Text: "وضعیت زنده‌ی سنسور نور" } title
                 && VisualTreeHelper.GetParent(title) is StackPanel body) return body;
             var found = FindStatusBody(child);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static StackPanel? FindAudioBody(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBlock { Text: "تنظیمات صوتی" } title
+                && VisualTreeHelper.GetParent(title) is StackPanel body) return body;
+            var found = FindAudioBody(child);
             if (found is not null) return found;
         }
         return null;

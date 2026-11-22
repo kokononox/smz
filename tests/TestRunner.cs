@@ -1301,11 +1301,13 @@ class TestRunner
             Props = new Dictionary<string, object?> { ["x"] = 100, ["y"] = 100, ["w"] = 500, ["h"] = 400 },
         };
         new RunEngine(fbS, _ => { }, 1920, 1080).RunAsync(new[] { rndStep2 }, CancellationToken.None).Wait();
-        // The sampled destination and speed are intentionally random. Shorter valid
-        // paths bottom out at eight points; assert density without a flaky distance assumption.
-        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: >= 8 }
+        // The test runner's live cursor position is environment-dependent and may be
+        // inside the random target region; short valid paths can therefore have only a
+        // few points. Dense waypoint spacing is covered by the deterministic long-path
+        // HumanMouse.PlanMove contract above. Here assert the integration streams one path.
+        Assert(fbS.PathCalls == 1 && fbS.LastPath is { Count: > 0 }
                && fbS.Sent.Any(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0")),
-            $"randomMousePosition streams one dense path (calls={fbS.PathCalls}, pts={fbS.LastPath?.Count})");
+            $"randomMousePosition streams one path (calls={fbS.PathCalls}, pts={fbS.LastPath?.Count})");
         Assert(fbS.Sent.FindIndex(c => c.StartsWith("MMOVE|") && c.EndsWith(",abs,0"))
                > fbS.Sent.IndexOf("SETRES|1920,1080"),
             "RunEngine synchronizes the live cursor to the board after SETRES and before movement");

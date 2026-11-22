@@ -4,7 +4,7 @@ using Ams.UI.Models;
 
 namespace Ams.UI.Services;
 
-/// <summary>Strict parser for the phase-one LUX? response contract.</summary>
+/// <summary>Strict parser for single- and dual-sensor light telemetry contracts.</summary>
 public static class LightTelemetryParser
 {
     public static LightTelemetrySample Parse(string reply, DateTimeOffset? receivedAt = null)
@@ -18,14 +18,22 @@ public static class LightTelemetryParser
             "ERR|NOSENSOR|LUX" => LightTelemetryStatus.NoSensor,
             "ERR|I2C|LUX" => LightTelemetryStatus.I2cError,
             "ERR|BUSY|LUX" => LightTelemetryStatus.Busy,
+            "ERR|NOSENSOR|LUX2|sensor1" => LightTelemetryStatus.NoSensor,
+            "ERR|I2C|LUX2" => LightTelemetryStatus.I2cError,
+            "ERR|BUSY|LUX2" => LightTelemetryStatus.Busy,
             _ => (LightTelemetryStatus?)null,
         };
         if (errorStatus.HasValue)
-            return new(errorStatus.Value, null, null, null, at, raw);
+            return new(errorStatus.Value, null, null, null, at, raw)
+            {
+                HasDualSensorData = raw.Contains("|LUX2", StringComparison.Ordinal),
+            };
 
         var parts = raw.Split('|', StringSplitOptions.None);
+        if (parts.Length >= 2 && parts[1] == "LUX2")
+            return ParseDual(parts, raw, at);
         if (parts.Length is not (4 or 5 or 6) || parts[0] != "OK" || parts[1] != "LUX")
-            throw new LightTelemetryProtocolException(raw, "Expected a supported OK|LUX response shape.");
+            throw new LightTelemetryProtocolException(raw, "Expected a supported OK|LUX or OK|LUX2 response shape.");
 
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 2; i < parts.Length; i++)
@@ -68,6 +76,63 @@ public static class LightTelemetryParser
         }
 
         return new(LightTelemetryStatus.Ok, sequence, lux, mode, at, raw);
+    }
+
+    private static LightTelemetrySample ParseDual(
+        string[] parts,
+        string raw,
+        DateTimeOffset at)
+    {
+        if (parts[0] != "OK" || parts.Length is not (6 or 8))
+            throw new LightTelemetryProtocolException(raw, "Expected a supported OK|LUX2 response shape.");
+
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 2; i < parts.Length; i++)
+        {
+            var separator = parts[i].IndexOf('=');
+            if (separator <= 0 || separator == parts[i].Length - 1)
+                throw new LightTelemetryProtocolException(raw, "Telemetry field is malformed.");
+            if (!fields.TryAdd(parts[i][..separator], parts[i][(separator + 1)..]))
+                throw new LightTelemetryProtocolException(raw, "Telemetry field is duplicated.");
+        }
+
+        if (!fields.TryGetValue("lux1", out var lux1Text)
+            || !double.TryParse(lux1Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var lux1)
+            || !double.IsFinite(lux1) || lux1 < 0
+            || !fields.TryGetValue("sensor1", out var sensor1) || sensor1 != "ok"
+            || !fields.TryGetValue("age1", out var age1Text)
+            || !uint.TryParse(age1Text, NumberStyles.None, CultureInfo.InvariantCulture, out var age1)
+            || !fields.TryGetValue("sensor2", out var sensor2)
+            || sensor2 is not ("ok" or "warming" or "missing"))
+            throw new LightTelemetryProtocolException(raw, "Dual telemetry fields are invalid.");
+
+        double? lux2 = null;
+        uint? age2 = null;
+        if (sensor2 == "ok")
+        {
+            if (fields.Count != 6
+                || !fields.TryGetValue("lux2", out var lux2Text)
+                || !double.TryParse(lux2Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedLux2)
+                || !double.IsFinite(parsedLux2) || parsedLux2 < 0
+                || !fields.TryGetValue("age2", out var age2Text)
+                || !uint.TryParse(age2Text, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedAge2))
+                throw new LightTelemetryProtocolException(raw, "Dual telemetry fields are invalid.");
+            lux2 = parsedLux2;
+            age2 = parsedAge2;
+        }
+        else if (fields.Count != 4 || fields.ContainsKey("lux2") || fields.ContainsKey("age2"))
+        {
+            throw new LightTelemetryProtocolException(raw, "Dual telemetry fields are invalid.");
+        }
+
+        return new(LightTelemetryStatus.Ok, null, lux1, null, at, raw)
+        {
+            HasDualSensorData = true,
+            Lux2 = lux2,
+            Age1Ms = age1,
+            Age2Ms = age2,
+            Sensor2Status = sensor2,
+        };
     }
 }
 

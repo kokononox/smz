@@ -177,9 +177,15 @@ public static class ModernAutoCycleFirmwareBundle
 
     private static void WriteLightProfiles(string stagingDir, IEnumerable<LightStateProfile> source)
     {
+        var sourceProfiles = source.ToArray();
+        if (sourceProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+            throw new IOException(
+                "خروجی Pico فعلی فقط قالب تک‌سنسوره را پشتیبانی می‌کند؛ کالیبراسیون دوحسگری صادر نشد.");
+
         // The legacy CIRCUITPY bundle still owns its original six-profile schema.
         // Ignore the native-only Whisper light profile instead of rejecting export.
-        var profiles = LightStateProfileStore.Normalize(source)
+        var profiles = LightStateProfileStore.Normalize(sourceProfiles)
             .Where(p => p.Enabled && RequiredLightProfileIds.Contains(p.Id, StringComparer.Ordinal))
             .ToArray();
         var byId = profiles.ToDictionary(p => p.Id, StringComparer.Ordinal);

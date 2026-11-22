@@ -172,6 +172,12 @@ public sealed class ReadOnlyLightGateCoordinator
                 profile.LuxTolerance.ToString("R", CultureInfo.InvariantCulture),
                 profile.LuxMin.ToString("R", CultureInfo.InvariantCulture),
                 profile.LuxMax.ToString("R", CultureInfo.InvariantCulture),
+                profile.HasDualSensorCalibration,
+                profile.DualSensorCalibrationRequired,
+                profile.MeanLuxCenter.ToString("R", CultureInfo.InvariantCulture),
+                profile.MeanLuxTolerance.ToString("R", CultureInfo.InvariantCulture),
+                profile.DifferenceLuxCenter.ToString("R", CultureInfo.InvariantCulture),
+                profile.DifferenceLuxTolerance.ToString("R", CultureInfo.InvariantCulture),
                 profile.StableDurationMs,
                 profile.HysteresisLux.ToString("R", CultureInfo.InvariantCulture)))
             .ToArray();
@@ -199,6 +205,12 @@ public sealed class ReadOnlyLightGateCoordinator
         string LuxTolerance,
         string LuxMin,
         string LuxMax,
+        bool HasDualSensorCalibration,
+        bool DualSensorCalibrationRequired,
+        string MeanLuxCenter,
+        string MeanLuxTolerance,
+        string DifferenceLuxCenter,
+        string DifferenceLuxTolerance,
         int StableDurationMs,
         string HysteresisLux);
 }

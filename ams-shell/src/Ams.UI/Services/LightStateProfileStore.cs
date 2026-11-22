@@ -28,7 +28,15 @@ public static class LightStateProfileStore
     public static void Save(IEnumerable<LightStateProfile> profiles, string? path = null)
     {
         path ??= DefaultPath;
-        var normalized = Normalize(profiles);
+        ArgumentNullException.ThrowIfNull(profiles);
+        var source = profiles.ToArray();
+        if (source.Any(profile => profile is null
+                                  || (profile.HasDualSensorCalibration && !profile.IsValid)))
+            throw new InvalidOperationException("پروفایل دوحسگری نامعتبر است؛ ذخیره انجام نشد.");
+        var separation = DualLightCalibration.Validate(source);
+        if (!separation.IsValid)
+            throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));
+        var normalized = Normalize(source);
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         var temporary = path + ".tmp";

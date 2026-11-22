@@ -971,6 +971,25 @@ static void execute_command(char *line, uint32_t now) {
             printf("OK|LED|work=%u\n",(unsigned)level);
         }
     }
+    else if (!strcmp(line, "LUX2?")) {
+        LightSensorSnapshot snapshot;
+        if (!light_sensor_latest_pair(&snapshot, now)) {
+            printf("ERR|NOSENSOR|LUX2|sensor1\n");
+        } else {
+            const char *secondary_status = snapshot.secondary_valid ? "ok" :
+                snapshot.secondary_present ? "warming" : "missing";
+            printf("OK|LUX2|lux1=%lu.%lu|sensor1=ok|age1=%lu|sensor2=%s",
+                   (unsigned long)(snapshot.primary_lux_tenths / 10u),
+                   (unsigned long)(snapshot.primary_lux_tenths % 10u),
+                   (unsigned long)snapshot.primary_age_ms, secondary_status);
+            if (snapshot.secondary_valid)
+                printf("|lux2=%lu.%lu|age2=%lu",
+                       (unsigned long)(snapshot.secondary_lux_tenths / 10u),
+                       (unsigned long)(snapshot.secondary_lux_tenths % 10u),
+                       (unsigned long)snapshot.secondary_age_ms);
+            printf("\n");
+        }
+    }
     else if (!strcmp(line, "LUX?")) {
         uint32_t lux, age;
         if (light_sensor_latest(&lux, &age, now))
@@ -2826,7 +2845,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LUX2?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",

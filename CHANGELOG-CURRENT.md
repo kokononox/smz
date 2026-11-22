@@ -1,3 +1,14 @@
+# Dual BH1750 — paired calibration and fail-closed separation
+
+- Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
+- Retained read-only `LUX2?` telemetry, labeled two-channel capture, and the compact Status UI. The user verified both sensors return fresh readings on the board.
+- Studio now proposes paired calibration from live synchronized samples using `M=(L1+L2)/2` and signed `D=L2-L1`; each profile stores a separate center and tolerance for both axes. Existing single-sensor profile files remain readable without being silently reinterpreted.
+- Paired tolerance regions are represented as 2D ellipses. Save and proposal application reject insufficient combined-space separation with an additional 1 Lux clearance; one-axis overlap alone is allowed. The check is conservative and never trims or shifts calibration ranges. Failed separation does not write profile storage.
+- The read-only classifier uses both features, keeps stable-duration/hysteresis behavior, and fails closed on stale/missing second-sensor data or mixed active calibration modes. Legacy single-sensor classification remains unchanged when no active paired profile exists.
+- Added an explicit “new dual-sensor layout” reset: it clears all paired centers/tolerances and persists a dual-required marker across every profile, preventing accidental L1 fallback while the same physical layout is recalibrated. Legacy values are retained for compatibility; full reset to initial profiles remains an explicit separate action.
+- Board import/send and legacy firmware exporters are blocked while paired calibration exists or a new dual-sensor layout is awaiting calibration, rather than silently dropping fields or falling back to stale L1 values. Firmware support, hardware classifier acceptance, and execution remain deferred; the diagnostic gate is still off.
+- Added synthetic-data contract coverage for feature calculation, tolerances, combined-space clearance, ambiguous/mixed/missing-sensor behavior, serialization, and rejected-write preservation. Local .NET compilation is unavailable in this environment; Windows CI is pending.
+
 # Physical light calibration tolerance — test build
 
 - A second lightweight artifact omits only the unchanged self-contained Shift Bridge; the original full artifact is still available. The lightweight package retains the board communication bridge and all 30 Pico templates. Users can keep using the already-pinned compatible Shift Bridge in its existing location.

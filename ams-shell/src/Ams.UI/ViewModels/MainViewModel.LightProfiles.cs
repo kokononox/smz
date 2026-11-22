@@ -73,7 +73,7 @@ public partial class MainViewModel
         _lastClassifiedChartVersion = LightChartVersion;
         var fresh = LightFreshnessText.StartsWith("به‌روز", StringComparison.Ordinal);
         ApplyLightClassification((_lightStateClassifier ??= new LightStateClassifier(LightStateProfiles))
-            .Update(CurrentLux, DateTimeOffset.UtcNow, fresh));
+            .Update(CurrentLux, CurrentLux2, DateTimeOffset.UtcNow, fresh));
     }
 
     public void MarkCurrentLightStateStale()
@@ -86,10 +86,21 @@ public partial class MainViewModel
 
     public bool SaveLightStateProfiles()
     {
+        if (LightStateProfiles.Any(profile => profile.HasDualSensorCalibration && !profile.IsValid))
+        {
+            LightProfileSaveStatus = "ذخیره نشد: مقادیر کالیبراسیون دوحسگری نامعتبرند؛ دوباره کالیبره کنید.";
+            return false;
+        }
         var normalized = LightStateProfileStore.Normalize(LightStateProfiles);
         if (normalized.Count != LightStateProfiles.Count)
         {
             LightProfileSaveStatus = "ذخیره نشد: نام، شناسه و مقادیر پروفایل‌ها را بررسی کنید.";
+            return false;
+        }
+        var separation = DualLightCalibration.Validate(normalized);
+        if (!separation.IsValid)
+        {
+            LightProfileSaveStatus = DualLightCalibration.DescribeConflicts(separation);
             return false;
         }
 
@@ -101,7 +112,10 @@ public partial class MainViewModel
             _lastClassifiedChartVersion = -1;
             RefreshLightGateDiagnosticProfiles();
             LightStateWarning = DescribeProfileOverlaps(LightStateProfiles);
-            LightProfileSaveStatus = "پروفایل‌ها ذخیره شدند؛ مقادیر تا کالیبراسیون سخت‌افزاری فرضی‌اند.";
+            LightProfileSaveStatus = normalized.Any(profile =>
+                    profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired)
+                ? "پروفایل‌ها ذخیره شدند. " + DescribeProfileOverlaps(normalized)
+                : "پروفایل‌ها ذخیره شدند؛ مقادیر تک‌سنسوره تا کالیبراسیون سخت‌افزاری فرضی‌اند.";
             return true;
         }
         catch (Exception ex)
@@ -113,6 +127,13 @@ public partial class MainViewModel
 
     public async Task<bool> ImportLightStateProfilesFromBoardAsync()
     {
+        if (LightStateProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+        {
+            LightProfileSaveStatus =
+                "وارد کردن از برد انجام نشد: این firmware فقط کالیبراسیون تک‌سنسوره را می‌خواند و می‌تواند پروفایل دوحسگری را ناقص کند.";
+            return false;
+        }
         if (_bridge is null || Connection != ConnectionState.Connected
                             || _bridge.State != BridgeState.Connected)
         {
@@ -167,6 +188,13 @@ public partial class MainViewModel
 
     public async Task<bool> SendLightStateProfilesToBoardAsync()
     {
+        if (LightStateProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+        {
+            LightProfileSaveStatus =
+                "ارسال انجام نشد: firmware فعلی فقط L1 را می‌پذیرد و دادهٔ دوحسگری را نادیده می‌گیرد. تا پشتیبانی firmware، پروفایل دوحسگری روی برد صادر نمی‌شود.";
+            return false;
+        }
         if (_bridge is null || Connection != ConnectionState.Connected || _bridge.State != BridgeState.Connected)
         {
             LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
@@ -227,6 +255,51 @@ public partial class MainViewModel
         SaveLightStateProfiles();
     }
 
+    /// <summary>
+    /// Starts a new fixed sensor-layout calibration set. Legacy L1 values are retained
+    /// for compatibility but cannot classify or export while the paired set is incomplete.
+    /// </summary>
+    public bool ResetDualSensorCalibrationSet()
+    {
+        CancelLightProfileCalibration();
+        _pendingLightCalibrationSuggestion = null;
+        OnPropertyChanged(nameof(LightCalibrationSuggestionDisplay));
+        var previous = LightStateProfiles.ToDictionary(profile => profile.Id, profile => profile.Copy(),
+            StringComparer.Ordinal);
+        foreach (var profile in LightStateProfiles)
+        {
+            profile.HasDualSensorCalibration = false;
+            profile.DualSensorCalibrationRequired = true;
+            profile.MeanLuxCenter = 0;
+            profile.MeanLuxTolerance = 0;
+            profile.DifferenceLuxCenter = 0;
+            profile.DifferenceLuxTolerance = 0;
+        }
+
+        if (!SaveLightStateProfiles())
+        {
+            foreach (var profile in LightStateProfiles)
+            {
+                if (!previous.TryGetValue(profile.Id, out var saved)) continue;
+                profile.HasDualSensorCalibration = saved.HasDualSensorCalibration;
+                profile.DualSensorCalibrationRequired = saved.DualSensorCalibrationRequired;
+                profile.MeanLuxCenter = saved.MeanLuxCenter;
+                profile.MeanLuxTolerance = saved.MeanLuxTolerance;
+                profile.DifferenceLuxCenter = saved.DifferenceLuxCenter;
+                profile.DifferenceLuxTolerance = saved.DifferenceLuxTolerance;
+            }
+            _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
+            _lastClassifiedChartVersion = -1;
+            RefreshLightProfileWarnings();
+            return false;
+        }
+
+        LightProfileSaveStatus =
+            "چیدمان دوحسگری جدید ثبت شد؛ کالیبراسیون جفتی همهٔ محیط‌های فعال لازم است و تشخیص L1 به‌تنهایی غیرفعال ماند.";
+        LightStateWarning = DescribeProfileOverlaps(LightStateProfiles);
+        return true;
+    }
+
     public void RefreshLightProfileWarnings()
         => LightStateWarning = DescribeProfileOverlaps(LightStateProfiles);
 
@@ -245,13 +318,26 @@ public partial class MainViewModel
         };
         LightStateWarning = classification.Kind == LightStateClassificationKind.Ambiguous
             ? "هم‌پوشانی فعال: " + string.Join(" / ", classification.Matches?.Select(x => x.Name) ?? Array.Empty<string>())
-            : DescribeProfileOverlaps(LightStateProfiles);
+            : classification.Diagnostic ?? DescribeProfileOverlaps(LightStateProfiles);
         ObserveLightGateDiagnostic(classification);
     }
 
     public static string DescribeProfileOverlaps(IEnumerable<LightStateProfile> profiles)
     {
         var enabled = profiles.Where(x => x.Enabled && x.IsValid).ToArray();
+        var paired = enabled.Where(profile => profile.HasDualSensorCalibration).ToArray();
+        var dualRequired = enabled.Any(profile =>
+            profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired);
+        if (dualRequired && paired.Length != enabled.Length)
+            return "کالیبراسیون دوحسگری ناقص است: همهٔ پروفایل‌های فعال باید در همین چیدمان و با همان ترتیب سنسورها کالیبره شوند؛ تشخیص تک‌سنسوری غیرفعال است.";
+        if (paired.Length > 0)
+        {
+            var validation = DualLightCalibration.Validate(paired);
+            return validation.IsValid
+                ? "پروفایل‌های فعال در فضای دو‌بعدی جدا هستند؛ حاشیهٔ امن اضافه بین محدوده‌ها حداقل ۱ لوکس است."
+                : DualLightCalibration.DescribeConflicts(validation);
+        }
+
         var pairs = new List<string>();
         for (var i = 0; i < enabled.Length; i++)
         for (var j = i + 1; j < enabled.Length; j++)
