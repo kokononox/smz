@@ -8,12 +8,16 @@
 #define GUARD_VERSION_V3 3u
 #define GUARD_VERSION_V4 4u
 #define GUARD_VERSION_V5 5u
+#define GUARD_VERSION_V6 6u
 #define GUARD_PROFILE_COUNT 9u
 #define GUARD_PROFILE_SIZE_V1 20u
 #define GUARD_PROFILE_SIZE_V2 24u
 #define GUARD_PROFILE_SIZE_V4 76u
+#define GUARD_PROFILE_SIZE_V6 92u
 #define GUARD_BUZZER_CUE_COUNT 23u
 #define GUARD_BUZZER_CUE_SIZE 52u
+#define GUARD_PAIR_MAX_AGE_SKEW_MS 250u
+#define GUARD_RATIO_SCALE 32768u
 #define GUARD_ROUTE_DC 5u
 #define GUARD_ROUTE_RESTART 2u
 #define GUARD_ROUTE_STARTUP 3u
@@ -32,6 +36,10 @@ typedef struct GuardProfile {
     uint32_t hysteresis;
     uint32_t cooldown_ms;
     uint32_t next_allowed;
+    uint32_t mean_center_half_tenths;
+    uint32_t mean_tolerance_half_tenths;
+    int32_t difference_center_tenths;
+    uint32_t difference_tolerance_tenths;
     uint8_t custom_count,custom_volume,custom_envelope;
     uint16_t custom_hz[8],custom_duration_ms[8],custom_gap_ms[8];
 } GuardProfile;
@@ -44,6 +52,7 @@ typedef struct GuardState {
     bool available;
     bool running;
     bool paused;
+    bool dual_sensor;
     uint8_t sample_mode;
     uint8_t active;
     uint8_t candidate;
@@ -71,6 +80,10 @@ typedef struct GuardState {
     bool watchdog_tripped;
     bool manual_game_catchup;
     bool whisper_was_active;
+    bool last_pair_valid;
+    uint32_t last_lux1_tenths;
+    uint32_t last_lux2_tenths;
+    int32_t last_difference_tenths;
     GuardProfile profiles[GUARD_PROFILE_COUNT];
     GuardBuzzerCue buzzer_cues[GUARD_BUZZER_CUE_COUNT];
     GuardRuntimeEvent pending;
@@ -85,6 +98,9 @@ static uint16_t read_u16_le(const uint8_t *p) {
 static uint32_t read_u32_le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static int32_t read_i32_le(const uint8_t *p) {
+    return (int32_t)read_u32_le(p);
 }
 static bool reached(uint32_t now, uint32_t due) {
     return (int32_t)(now - due) >= 0;
@@ -137,7 +153,7 @@ static bool targeted_route_active(const AbvmVm *vm) {
            (vm->route_id == 9u ||
             vm->route_id == GUARD_ROUTE_TARGETED_REPEAT);
 }
-static bool inside(const GuardProfile *profile, uint32_t lux, bool widened) {
+static bool inside_single(const GuardProfile *profile, uint32_t lux, bool widened) {
     uint32_t low = profile->low;
     uint32_t high = profile->high;
     if (widened) {
@@ -146,11 +162,48 @@ static bool inside(const GuardProfile *profile, uint32_t lux, bool widened) {
     }
     return lux >= low && lux <= high;
 }
-static GuardProfile *unique_match(uint32_t lux, uint8_t *matches_out) {
+static uint64_t magnitude_i64(int64_t value) {
+    return value < 0 ? (uint64_t)(-(value + 1)) + 1u : (uint64_t)value;
+}
+static bool inside_dual(const GuardProfile *profile, uint32_t lux1_tenths,
+                        uint32_t lux2_tenths, bool widened) {
+    uint64_t mean = (uint64_t)lux1_tenths + lux2_tenths;
+    int64_t difference = (int64_t)lux2_tenths - (int64_t)lux1_tenths;
+    int64_t mean_delta = (int64_t)mean - profile->mean_center_half_tenths;
+    int64_t difference_delta = difference - profile->difference_center_tenths;
+    uint64_t mean_tolerance = profile->mean_tolerance_half_tenths;
+    uint64_t difference_tolerance = profile->difference_tolerance_tenths;
+    if (widened) {
+        mean_tolerance += (uint64_t)profile->hysteresis * 2u;
+        difference_tolerance += profile->hysteresis;
+    }
+    if (!mean_tolerance || !difference_tolerance ||
+        magnitude_i64(mean_delta) > mean_tolerance ||
+        magnitude_i64(difference_delta) > difference_tolerance)
+        return false;
+    uint64_t mean_ratio = (magnitude_i64(mean_delta) * GUARD_RATIO_SCALE
+                           + mean_tolerance / 2u) / mean_tolerance;
+    uint64_t difference_ratio = (magnitude_i64(difference_delta) * GUARD_RATIO_SCALE
+                                 + difference_tolerance / 2u) / difference_tolerance;
+    return mean_ratio * mean_ratio + difference_ratio * difference_ratio
+           <= (uint64_t)GUARD_RATIO_SCALE * GUARD_RATIO_SCALE;
+}
+static bool inside(const GuardProfile *profile, uint32_t lux,
+                   uint32_t lux1_tenths, uint32_t lux2_tenths,
+                   bool dual, bool widened) {
+    if (dual != guard.dual_sensor) return false;
+    return dual
+        ? inside_dual(profile, lux1_tenths, lux2_tenths, widened)
+        : inside_single(profile, lux, widened);
+}
+static GuardProfile *unique_match(uint32_t lux, uint32_t lux1_tenths,
+                                  uint32_t lux2_tenths, bool dual,
+                                  uint8_t *matches_out) {
     GuardProfile *match = NULL;
     uint8_t matches = 0u;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i)
-        if (inside(&guard.profiles[i], lux, false)) {
+        if (inside(&guard.profiles[i], lux, lux1_tenths, lux2_tenths,
+                   dual, false)) {
             match = &guard.profiles[i];
             ++matches;
         }
@@ -159,9 +212,21 @@ static GuardProfile *unique_match(uint32_t lux, uint8_t *matches_out) {
 }
 bool guard_runtime_profile_matches(uint8_t profile_id,uint32_t lux_tenths) {
     uint8_t matches=0u;
-    GuardProfile *profile=unique_match(lux_tenths,&matches);
+    GuardProfile *profile=unique_match(lux_tenths,0u,0u,false,&matches);
     return matches==1u&&profile&&profile->id==profile_id;
 }
+bool guard_runtime_profile_matches_pair(uint8_t profile_id,
+                                        uint32_t lux1_tenths,
+                                        uint32_t lux2_tenths) {
+    if (!guard.dual_sensor) return false;
+    uint32_t mean_tenths=(uint32_t)(((uint64_t)lux1_tenths+
+                                     lux2_tenths+1u)/2u);
+    uint8_t matches=0u;
+    GuardProfile *profile=unique_match(mean_tenths,lux1_tenths,
+                                       lux2_tenths,true,&matches);
+    return matches==1u&&profile&&profile->id==profile_id;
+}
+bool guard_runtime_dual_sensor_enabled(void) { return guard.dual_sensor; }
 static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
                  uint8_t context, uint32_t lux, const char *reason) {
     guard.pending.type = type;
@@ -170,6 +235,10 @@ static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
     guard.pending.context = context;
     guard.pending.route_id = route_id;
     guard.pending.lux_tenths = lux;
+    guard.pending.dual_sensor=guard.dual_sensor&&guard.last_pair_valid;
+    guard.pending.lux1_tenths=guard.last_lux1_tenths;
+    guard.pending.lux2_tenths=guard.last_lux2_tenths;
+    guard.pending.difference_tenths=guard.last_difference_tenths;
     guard.pending.reason = reason;
     guard.event_pending = true;
 }
@@ -334,19 +403,33 @@ bool guard_runtime_init(const AbvmVm *vm) {
     if (!abvm_find_constant(vm, ABVM_CONST_GUARD, &constant_id,
                             &payload, &size)) return false;
     (void)constant_id;
+    if (!payload || size < 8u) return false;
     uint8_t version=payload[0];
-    uint32_t profile_size=(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5)?GUARD_PROFILE_SIZE_V4:
-        ((version==GUARD_VERSION_V2||version==GUARD_VERSION_V3)?GUARD_PROFILE_SIZE_V2:GUARD_PROFILE_SIZE_V1);
+    uint32_t profile_size=GUARD_PROFILE_SIZE_V1;
+    if(version==GUARD_VERSION_V2||version==GUARD_VERSION_V3)
+        profile_size=GUARD_PROFILE_SIZE_V2;
+    else if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5)
+        profile_size=GUARD_PROFILE_SIZE_V4;
+    else if(version==GUARD_VERSION_V6)
+        profile_size=GUARD_PROFILE_SIZE_V6;
     uint32_t base_size=8u+GUARD_PROFILE_COUNT*profile_size;
-    uint32_t expected_size=base_size+(version==GUARD_VERSION_V5?
-        4u+GUARD_BUZZER_CUE_COUNT*GUARD_BUZZER_CUE_SIZE:0u);
+    uint32_t cue_table_size=4u+GUARD_BUZZER_CUE_COUNT*GUARD_BUZZER_CUE_SIZE;
+    bool has_system_cues=version==GUARD_VERSION_V5;
+    if(version==GUARD_VERSION_V6) {
+        if(size==base_size+cue_table_size)has_system_cues=true;
+        else if(size==base_size)has_system_cues=false;
+        else return false;
+    }
+    uint32_t expected_size=base_size+(has_system_cues?cue_table_size:0u);
     if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2&&
-         version!=GUARD_VERSION_V3&&version!=GUARD_VERSION_V4&&version!=GUARD_VERSION_V5) ||
+         version!=GUARD_VERSION_V3&&version!=GUARD_VERSION_V4&&
+         version!=GUARD_VERSION_V5&&version!=GUARD_VERSION_V6) ||
         size != expected_size ||
         payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u ||
         (version<GUARD_VERSION_V3&&payload[3]) ||
         (version>=GUARD_VERSION_V3&&(!payload[3]||payload[3]>60u)))
         return false;
+    guard.dual_sensor=version==GUARD_VERSION_V6;
     guard.sample_mode = payload[2];
     guard.watchdog_timeout_ms=version>=GUARD_VERSION_V3?
         (uint32_t)payload[3]*60000u:0u;
@@ -367,7 +450,8 @@ bool guard_runtime_init(const AbvmVm *vm) {
             read_u32_le(item+20u):0u;
         profile->next_allowed=0u;
         profile->custom_count=0u;profile->custom_volume=100u;profile->custom_envelope=0u;
-        if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5){
+        if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5||
+           version==GUARD_VERSION_V6){
             profile->custom_count=item[24];profile->custom_volume=item[25];
             profile->custom_envelope=item[26];
             if(profile->custom_count>8u||!profile->custom_volume||profile->custom_volume>100u||
@@ -382,12 +466,28 @@ bool guard_runtime_init(const AbvmVm *vm) {
                     !profile->custom_duration_ms[tone]))return false;
             }
         }
+        if(version==GUARD_VERSION_V6){
+            const uint8_t *axes=item+GUARD_PROFILE_SIZE_V4;
+            profile->mean_center_half_tenths=read_u32_le(axes);
+            profile->mean_tolerance_half_tenths=read_u32_le(axes+4u);
+            profile->difference_center_tenths=read_i32_le(axes+8u);
+            profile->difference_tolerance_tenths=read_u32_le(axes+12u);
+            if(profile->mean_center_half_tenths>20000000u||
+               !profile->mean_tolerance_half_tenths||
+               profile->mean_tolerance_half_tenths>20000000u||
+               profile->difference_center_tenths < -10000000||
+               profile->difference_center_tenths > 10000000||
+               !profile->difference_tolerance_tenths||
+               profile->difference_tolerance_tenths>10000000u)
+                return false;
+        }
         if ((version==GUARD_VERSION_V1&&item[1]!=1u) ||
             profile->calibration_cue>100u ||
             (version<GUARD_VERSION_V4&&profile->calibration_cue<1u) ||
             (version==GUARD_VERSION_V4&&
              ((profile->calibration_cue==0u)!=(profile->custom_count>0u))) ||
-            (version==GUARD_VERSION_V5&&profile->calibration_cue==0u&&
+            ((version==GUARD_VERSION_V5||version==GUARD_VERSION_V6)&&
+             profile->calibration_cue==0u&&
              !profile->custom_count) ||
             profile->id < 1u || profile->id > 9u ||
             (seen & (uint16_t)(1u << (profile->id - 1u))) ||
@@ -400,7 +500,7 @@ bool guard_runtime_init(const AbvmVm *vm) {
         seen |= (uint16_t)(1u << (profile->id - 1u));
     }
     memset(guard.buzzer_cues,0,sizeof(guard.buzzer_cues));
-    if(version==GUARD_VERSION_V5){
+    if(has_system_cues){
         const uint8_t *header=payload+base_size;
         if(header[0]!=GUARD_BUZZER_CUE_COUNT||header[1]||header[2]||header[3])return false;
         uint32_t cue_seen=0u;
@@ -427,8 +527,41 @@ bool guard_runtime_init(const AbvmVm *vm) {
     return guard.available;
 }
 bool guard_runtime_available(void) { return guard.available; }
+static bool paired_snapshot_ready(uint32_t now,LightSensorSnapshot *snapshot) {
+    if(!snapshot||!light_sensor_latest_pair(snapshot,now)||
+       !snapshot->primary_valid||!snapshot->secondary_valid)return false;
+    uint32_t skew=snapshot->primary_age_ms>snapshot->secondary_age_ms
+        ?snapshot->primary_age_ms-snapshot->secondary_age_ms
+        :snapshot->secondary_age_ms-snapshot->primary_age_ms;
+    return skew<=GUARD_PAIR_MAX_AGE_SKEW_MS;
+}
+bool guard_runtime_dual_sensor_ready(uint32_t now) {
+    LightSensorSnapshot snapshot;
+    return guard.dual_sensor&&paired_snapshot_ready(now,&snapshot);
+}
+static bool observe_latest_light(AbvmVm *vm,uint32_t now) {
+    if(guard.dual_sensor) {
+        LightSensorSnapshot snapshot;
+        if(!paired_snapshot_ready(now,&snapshot))return false;
+        uint32_t age=snapshot.primary_age_ms>snapshot.secondary_age_ms
+            ?snapshot.primary_age_ms:snapshot.secondary_age_ms;
+        guard.last_good_sample_at=now-age;
+        guard_runtime_observe_pair(vm,snapshot.primary_lux_tenths,
+                                   snapshot.secondary_lux_tenths,now);
+        return true;
+    }
+    uint32_t lux,age;
+    if(!light_sensor_latest(&lux,&age,now))return false;
+    guard.last_good_sample_at=now-age;
+    guard_runtime_observe(vm,lux,now);
+    return true;
+}
 bool guard_runtime_start(uint32_t now) {
     if (!guard.available) return false;
+    if(guard.dual_sensor) {
+        LightSensorSnapshot snapshot;
+        if(!paired_snapshot_ready(now,&snapshot))return false;
+    }
     guard.running = true;
     guard.paused = false;
     guard.active = guard.candidate = guard.last_stable = guard.stage = 0u;
@@ -565,11 +698,10 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
      */
     if (whisper_route_active(vm)) {
         guard.whisper_was_active=true;
-        uint32_t lux,age;
-        if(light_sensor_latest(&lux,&age,now)) {
-            guard.last_good_sample_at=now-age;
-            guard_runtime_observe(vm,lux,now);
-        }
+        if(!observe_latest_light(vm,now)&&
+           reached(now,guard.last_good_sample_at+guard.sensor_timeout_ms))
+            fault(vm,now,guard.dual_sensor?
+                  "sensor-pair-timeout":"sensor-timeout");
         return;
     }
     if(guard.whisper_was_active) {
@@ -607,17 +739,19 @@ void guard_runtime_service(AbvmVm *vm, uint32_t now) {
     if (guard.whisper_light_active) {
         guard.whisper_light_active = false;
     }
-    uint32_t lux, age;
-    if (light_sensor_latest(&lux, &age, now)) {
-        guard.last_good_sample_at = now - age;
-        guard_runtime_observe(vm, lux, now);
-    } else if (reached(now, guard.last_good_sample_at + guard.sensor_timeout_ms)) {
-        fault(vm, now, "sensor-timeout");
-    }
+    if(!observe_latest_light(vm,now)&&
+       reached(now,guard.last_good_sample_at+guard.sensor_timeout_ms))
+        fault(vm,now,guard.dual_sensor?
+              "sensor-pair-timeout":"sensor-timeout");
 }
 void guard_runtime_set_input_locked(bool locked){guard.input_locked=locked;}
-void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
+static void observe_common(AbvmVm *vm,uint32_t lux,uint32_t lux1_tenths,
+                           uint32_t lux2_tenths,bool dual,uint32_t now) {
     if (!guard.running || !vm) return;
+    if(dual!=guard.dual_sensor) {
+        guard.candidate=0u;
+        return;
+    }
     /* DC is a required recovery macro.  Do not let a fast Dashboard/Login
      * light change abort it before its completion event can chain Login/DC. */
     if (guard.dc_then_login_pending && vm->status == ABVM_STATUS_RUNNING &&
@@ -631,7 +765,8 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
          * preserving the exact suspended Game cursor.
          */
         uint8_t targeted_matches=0u;
-        GuardProfile *targeted_match=unique_match(lux,&targeted_matches);
+        GuardProfile *targeted_match=unique_match(
+            lux,lux1_tenths,lux2_tenths,dual,&targeted_matches);
         if(targeted_matches!=1u||!targeted_match||
            (targeted_match->id!=2u&&targeted_match->id!=7u&&
             targeted_match->id!=8u)) {
@@ -707,7 +842,8 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
          * Desktop and every other scene remain ignored until Whisper ends.
          */
         uint8_t whisper_matches = 0u;
-        GuardProfile *whisper_match = unique_match(lux, &whisper_matches);
+        GuardProfile *whisper_match = unique_match(
+            lux,lux1_tenths,lux2_tenths,dual,&whisper_matches);
         bool repeat_during_new=vm->route_id==GUARD_ROUTE_WHISPER&&
             whisper_matches==1u&&whisper_match&&whisper_match->id==8u;
         if(repeat_during_new&&!guard.whisper_followup_pending) {
@@ -761,9 +897,11 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     }
     GuardProfile *active = profile_by_id(guard.active);
     uint8_t matches = 0u;
-    GuardProfile *match = unique_match(lux, &matches);
+    GuardProfile *match = unique_match(
+        lux,lux1_tenths,lux2_tenths,dual,&matches);
     if (matches != 1u) {
-        if (active && inside(active, lux, true)) {
+        if (active && inside(active,lux,lux1_tenths,lux2_tenths,
+                             dual,true)) {
             guard.candidate = 0u;
             return;
         }
@@ -787,6 +925,21 @@ void guard_runtime_observe(AbvmVm *vm, uint32_t lux, uint32_t now) {
     guard.active = match->id;
     guard.candidate = 0u;
     transition(vm, match->id, lux, now);
+}
+void guard_runtime_observe(AbvmVm *vm,uint32_t lux_tenths,uint32_t now) {
+    guard.last_pair_valid=false;
+    observe_common(vm,lux_tenths,0u,0u,false,now);
+}
+void guard_runtime_observe_pair(AbvmVm *vm,uint32_t lux1_tenths,
+                                uint32_t lux2_tenths,uint32_t now) {
+    uint32_t mean_tenths=(uint32_t)(((uint64_t)lux1_tenths+
+                                     lux2_tenths+1u)/2u);
+    guard.last_pair_valid=true;
+    guard.last_lux1_tenths=lux1_tenths;
+    guard.last_lux2_tenths=lux2_tenths;
+    guard.last_difference_tenths=(int32_t)((int64_t)lux2_tenths-
+                                           (int64_t)lux1_tenths);
+    observe_common(vm,mean_tenths,lux1_tenths,lux2_tenths,true,now);
 }
 bool guard_runtime_route_complete(AbvmVm *vm,uint16_t route_id,
                                   uint32_t now) {
@@ -866,12 +1019,12 @@ const char *guard_runtime_profile_name(uint8_t profile_id) {
 bool guard_runtime_get_profile_range(uint8_t profile_id,uint32_t *low_tenths,
                                      uint32_t *high_tenths) {
     GuardProfile *profile=profile_by_id(profile_id);
-    if(!profile||!low_tenths||!high_tenths)return false;
+    if(guard.dual_sensor||!profile||!low_tenths||!high_tenths)return false;
     *low_tenths=profile->low;*high_tenths=profile->high;return true;
 }
 
 bool guard_runtime_set_profile_range(uint8_t profile_id,uint32_t low_tenths,uint32_t high_tenths) {
     GuardProfile *profile=profile_by_id(profile_id);
-    if(!profile||low_tenths>high_tenths||high_tenths>1000000u)return false;
+    if(guard.dual_sensor||!profile||low_tenths>high_tenths||high_tenths>1000000u)return false;
     profile->low=low_tenths;profile->high=high_tenths;return true;
 }

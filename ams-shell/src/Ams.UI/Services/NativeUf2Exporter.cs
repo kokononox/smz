@@ -89,12 +89,22 @@ public static class NativeUf2Exporter
     {
         var profiles = new JsonArray();
         var configuredProfiles = LightStateProfileStore.Load();
-        if (configuredProfiles.Any(profile =>
-                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
-            throw new InvalidOperationException(
-                "Native UF2 فعلی فقط کالیبراسیون تک‌سنسوره را می‌فهمد؛ خروجی دوحسگری تا پشتیبانی firmware متوقف شد.");
+        var dualSensor = configuredProfiles.Any(profile =>
+            profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired);
+        if (dualSensor)
+        {
+            if (configuredProfiles.Any(profile =>
+                    !profile.Enabled || !profile.HasDualSensorCalibration
+                    || !profile.IsValid))
+                throw new InvalidOperationException(
+                    "خروجی Native UF2 دوحسگری به کالیبراسیون معتبر و جفتی برای همهٔ پروفایل‌های فعال نیاز دارد.");
+            var separation = DualLightCalibration.Validate(configuredProfiles);
+            if (!separation.IsValid)
+                throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));
+        }
         foreach (var profile in configuredProfiles)
-            profiles.Add(new JsonObject
+        {
+            var nativeProfile = new JsonObject
             {
                 ["id"] = profile.Id,
                 ["enabled"] = profile.Enabled,
@@ -110,7 +120,16 @@ public static class NativeUf2Exporter
                 ["calibrationCueVolume"] = profile.CalibrationCueVolume,
                 ["calibrationCueEnvelope"] = profile.CalibrationCueEnvelope,
                 ["calibrationCueTempo"] = profile.CalibrationCueTempo,
-            });
+            };
+            if (dualSensor)
+            {
+                nativeProfile["meanLuxCenter"] = profile.MeanLuxCenter;
+                nativeProfile["meanLuxTolerance"] = profile.MeanLuxTolerance;
+                nativeProfile["differenceLuxCenter"] = profile.DifferenceLuxCenter;
+                nativeProfile["differenceLuxTolerance"] = profile.DifferenceLuxTolerance;
+            }
+            profiles.Add(nativeProfile);
+        }
         var buzzerCues = new JsonArray();
         foreach (var cue in BuzzerSystemCueStore.Load())
         {
@@ -124,7 +143,7 @@ public static class NativeUf2Exporter
                 ["tempo"] = cue.CalibrationCueTempo,
             });
         }
-        return new JsonObject
+        var guard = new JsonObject
         {
             ["enabled"] = true,
             ["sampleMode"] = "hires",
@@ -133,6 +152,8 @@ public static class NativeUf2Exporter
             ["profiles"] = profiles,
             ["buzzerCues"] = buzzerCues,
         };
+        if (dualSensor) guard["dualSensor"] = true;
+        return guard;
     }
 
     private static JsonObject BuildNativeCycle(AppSettings settings)

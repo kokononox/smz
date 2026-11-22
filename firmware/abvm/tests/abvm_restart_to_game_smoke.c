@@ -1,6 +1,7 @@
 #include "abvm_vm.h"
 #include "cycle_runtime.h"
 #include "guard_runtime.h"
+#include "light_sensor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,9 @@ bool calibration_store_cycle_mark_live(void){marker_armed=true;return true;}
 bool calibration_store_cycle_reset(void){marker_armed=false;marker_count=0u;return true;}
 bool light_sensor_latest(uint32_t *lux_tenths,uint32_t *age_ms,uint32_t now){
     (void)lux_tenths;(void)age_ms;(void)now;return false;
+}
+bool light_sensor_latest_pair(LightSensorSnapshot *snapshot,uint32_t now){
+    (void)snapshot;(void)now;return false;
 }
 
 static int require(int condition,const char *message){
