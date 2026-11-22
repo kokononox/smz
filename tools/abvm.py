@@ -37,6 +37,7 @@ GUARD_PROFILE_V1 = struct.Struct("<BBHIIII")          # id/enabled/route/low/hig
 GUARD_PROFILE = struct.Struct("<BBHIIIII")            # id/cue/route/low/high/stable/hysteresis/cooldown
 GUARD_CUE_META = struct.Struct("<BBBB")                # custom count/volume/envelope/reserved
 GUARD_CUE_TONE = struct.Struct("<HHH")                 # frequency/duration/gap
+GUARD_DUAL_AXES = struct.Struct("<IIiI")               # mean center/tol (0.05 Lux), signed difference center/tol (0.1 Lux)
 GUARD_CUSTOM_TONES = 8
 BUZZER_SYSTEM_CUE_COUNT = 23
 CYCLE = struct.Struct("<BBBBIIHHI")                  # version/flags/limit/reserved/run range/routes/USB stable
@@ -1265,12 +1266,28 @@ class Compiler:
             raise AbvmError("Native Guard stage watchdog must be 1..60 minutes")
         buzzer_cues = guard.get("buzzerCues")
         has_buzzer_cues = isinstance(buzzer_cues, list)
+        dual_sensor = bool(guard.get("dualSensor", False))
+        dual_fields = (
+            "meanLuxCenter", "meanLuxTolerance",
+            "differenceLuxCenter", "differenceLuxTolerance",
+        )
+        has_any_dual_fields = any(
+            any(key in item for key in dual_fields) for item in by_id.values())
+        has_all_dual_fields = all(
+            all(key in item for key in dual_fields) for item in by_id.values())
+        if has_any_dual_fields and not dual_sensor:
+            raise AbvmError("Dual-sensor Guard fields require dualSensor=true")
+        if dual_sensor and not has_all_dual_fields:
+            raise AbvmError("Dual-sensor Guard needs paired calibration for every profile")
+        if not dual_sensor and has_any_dual_fields:
+            raise AbvmError("Mixed single- and dual-sensor Guard profiles are unsupported")
         packed = bytearray(GUARD_HEADER.pack(
-            5 if has_buzzer_cues else 4, len(expected),
+            6 if dual_sensor else (5 if has_buzzer_cues else 4), len(expected),
             1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
             watchdog_minutes,
             max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
         ranges = []
+        dual_ranges = []
         for profile_id, (numeric_id, route_name) in expected.items():
             item = by_id[profile_id]
             if not item.get("enabled", True):
@@ -1336,9 +1353,60 @@ class Compiler:
                 len(custom), volume, envelopes[envelope_name], 0))
             for index in range(GUARD_CUSTOM_TONES):
                 packed.extend(GUARD_CUE_TONE.pack(*(custom[index] if index < len(custom) else (0, 0, 0))))
+            if dual_sensor:
+                try:
+                    mean_center_lux = float(item["meanLuxCenter"])
+                    mean_tolerance_lux = float(item["meanLuxTolerance"])
+                    difference_center_lux = float(item["differenceLuxCenter"])
+                    difference_tolerance_lux = float(item["differenceLuxTolerance"])
+                except (KeyError, TypeError, ValueError):
+                    raise AbvmError("Native Guard paired calibration is invalid: " + profile_id)
+                if not all(math.isfinite(value) for value in (
+                    mean_center_lux, mean_tolerance_lux,
+                    difference_center_lux, difference_tolerance_lux,
+                )) or mean_center_lux < 0 or mean_tolerance_lux <= 0 \
+                        or difference_tolerance_lux <= 0:
+                    raise AbvmError("Native Guard paired calibration is out of range: " + profile_id)
+                # L1/L2 arrive in tenths of a Lux. Storing M in half-tenths
+                # preserves the half-step introduced by (L1 + L2) / 2.
+                mean_center = int(round(mean_center_lux * 20))
+                mean_tolerance = int(round(mean_tolerance_lux * 20))
+                difference_center = int(round(difference_center_lux * 10))
+                difference_tolerance = int(round(difference_tolerance_lux * 10))
+                if not 0 <= mean_center <= 20_000_000 \
+                        or not 1 <= mean_tolerance <= 20_000_000 \
+                        or not -10_000_000 <= difference_center <= 10_000_000 \
+                        or not 1 <= difference_tolerance <= 10_000_000:
+                    raise AbvmError("Native Guard paired calibration is out of range: " + profile_id)
+                packed.extend(GUARD_DUAL_AXES.pack(
+                    mean_center, mean_tolerance,
+                    difference_center, difference_tolerance))
+                dual_ranges.append((
+                    profile_id, mean_center_lux, mean_tolerance_lux,
+                    difference_center_lux, difference_tolerance_lux,
+                ))
+        if dual_sensor:
+            for i, (left_id, left_m, left_mt, left_d, left_dt) in enumerate(dual_ranges):
+                for right_id, right_m, right_mt, right_d, right_dt in dual_ranges[i + 1:]:
+                    separated = False
+                    for direction in range(4096):
+                        angle = 2.0 * math.pi * direction / 4096
+                        axis_m, axis_d = math.cos(angle), math.sin(angle)
+                        center_projection = ((right_m - left_m) * axis_m
+                                             + (right_d - left_d) * axis_d)
+                        left_support = math.sqrt(
+                            (left_mt * axis_m) ** 2 + (left_dt * axis_d) ** 2)
+                        right_support = math.sqrt(
+                            (right_mt * axis_m) ** 2 + (right_dt * axis_d) ** 2)
+                        if center_projection - left_support - right_support > 1.0 + 1e-9:
+                            separated = True
+                            break
+                    if not separated:
+                        raise AbvmError(
+                            f"Native Guard paired profiles lack 1 Lux clearance: {left_id}/{right_id}")
         for i, (left_id, left_low, left_high) in enumerate(ranges):
             for right_id, right_low, right_high in ranges[i + 1:]:
-                if max(left_low, right_low) <= min(left_high, right_high):
+                if not dual_sensor and max(left_low, right_low) <= min(left_high, right_high):
                     raise AbvmError(f"Native Guard profiles overlap: {left_id}/{right_id}")
         if has_buzzer_cues:
             by_cue_id = {integer(item.get("id"), 0): item for item in buzzer_cues
@@ -1602,13 +1670,21 @@ class Verifier:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5) else GUARD_PROFILE_V1
-            profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5) else 0)
+            profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5, 6) else GUARD_PROFILE_V1
+            profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5, 6) else 0)
+            if version == 6:
+                profile_size += GUARD_DUAL_AXES.size
             base_size = GUARD_HEADER.size + 9 * profile_size
-            expected_size = base_size + (GUARD_CUE_META.size + BUZZER_SYSTEM_CUE_COUNT * (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size) if version == 5 else 0)
+            cue_table_size = GUARD_CUE_META.size + BUZZER_SYSTEM_CUE_COUNT * (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size)
+            expected_size = base_size + (cue_table_size if version == 5 else 0)
+            dual_has_cue_table = version == 6 and len(raw) == base_size + cue_table_size
+            if version == 6 and len(raw) not in (base_size, base_size + cue_table_size):
+                raise AbvmError("invalid Native Guard descriptor size")
+            if dual_has_cue_table:
+                expected_size = base_size + cue_table_size
             if len(raw) != expected_size:
                 raise AbvmError("invalid Native Guard descriptor size")
-            if version not in (1, 2, 3, 4, 5) or count != 9 or mode not in (0, 1) or \
+            if version not in (1, 2, 3, 4, 5, 6) or count != 9 or mode not in (0, 1) or \
                     (version < 3 and reserved) or \
                     (version >= 3 and reserved not in range(1, 61)) or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
@@ -1616,7 +1692,7 @@ class Verifier:
             for index in range(count):
                 item = profile_struct.unpack_from(
                     raw, GUARD_HEADER.size + index * profile_size)
-                if version in (2, 3, 4, 5):
+                if version in (2, 3, 4, 5, 6):
                     profile_id, cue, route_id, low, high, stable, hysteresis, cooldown = item
                 else:
                     profile_id, enabled, route_id, low, high, stable, hysteresis = item
@@ -1629,7 +1705,7 @@ class Verifier:
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
                         (profile_id not in (6, 7, 8, 9) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
-                if version in (4, 5):
+                if version in (4, 5, 6):
                     custom_offset = GUARD_HEADER.size + index * profile_size + GUARD_PROFILE.size
                     custom_count, volume, envelope, cue_reserved = GUARD_CUE_META.unpack_from(raw, custom_offset)
                     if custom_count > GUARD_CUSTOM_TONES or volume not in range(1, 101) or envelope > 3 or cue_reserved:
@@ -1641,10 +1717,18 @@ class Verifier:
                             raw, custom_offset + GUARD_CUE_META.size + tone_index * GUARD_CUE_TONE.size)
                         if frequency not in range(30, 20001) or not duration:
                             raise AbvmError("invalid Native Guard custom cue tone")
+                if version == 6:
+                    axes_offset = custom_offset + GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size
+                    mean_center, mean_tolerance, difference_center, difference_tolerance = \
+                        GUARD_DUAL_AXES.unpack_from(raw, axes_offset)
+                    if mean_center > 20_000_000 or not 1 <= mean_tolerance <= 20_000_000 or \
+                            not -10_000_000 <= difference_center <= 10_000_000 or \
+                            not 1 <= difference_tolerance <= 10_000_000:
+                        raise AbvmError("invalid Native Guard paired calibration")
                 ids.add(profile_id)
             if ids != set(range(1, 10)):
                 raise AbvmError("Native Guard profile set mismatch")
-            if version == 5:
+            if version == 5 or (version == 6 and dual_has_cue_table):
                 cue_count, r1, r2, r3 = GUARD_CUE_META.unpack_from(raw, base_size)
                 if cue_count != BUZZER_SYSTEM_CUE_COUNT or r1 or r2 or r3:
                     raise AbvmError("invalid Native system buzzer header")

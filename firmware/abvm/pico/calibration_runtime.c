@@ -61,7 +61,18 @@ static uint8_t light_stage(void){return (uint8_t)(cal.light_slot+1u);}
 static void enter_light(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_LIGHT;cal.phase=PHASE_READY;cal.light_slot=0u;cal.profile=LIGHT_CALIBRATION_ORDER[0];emit("EVT|CAL|mode=ready|kind=light|stage=1|count=%u|profile=%u|id=%s|seconds=5",LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile));}
 static void enter_sound(void){memset(&cal,0,sizeof(cal));cal.mode=CAL_MODE_SOUND;cal.phase=PHASE_READY;cal.profile=1u;emit("EVT|SOUNDCAL|mode=ready|id=1|silence=3|sound=30");}
 static void exit_mode(void){CalibrationMode old=cal.mode;cal.mode=CAL_MODE_NONE;cal.phase=PHASE_READY;emit("EVT|%s|mode=exited|revision=%lu",old==CAL_MODE_LIGHT?"CAL":"SOUNDCAL",(unsigned long)calibration_store_revision());}
-bool calibration_runtime_blue_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_light();return true;}if(cal.mode==CAL_MODE_LIGHT){exit_mode();return true;}return false;}
+bool calibration_runtime_blue_long(uint32_t now){
+    (void)now;
+    if(cal.mode==CAL_MODE_NONE){
+        if(guard_runtime_dual_sensor_enabled()){
+            emit("ERR|CAL|DUAL-REQUIRES-STUDIO");
+            return true;
+        }
+        enter_light();return true;
+    }
+    if(cal.mode==CAL_MODE_LIGHT){exit_mode();return true;}
+    return false;
+}
 bool calibration_runtime_yellow_long(uint32_t now){(void)now;if(cal.mode==CAL_MODE_NONE){enter_sound();return true;}if(cal.mode==CAL_MODE_SOUND){exit_mode();return true;}return false;}
 bool calibration_runtime_blue_short(uint32_t now){(void)now;if(cal.mode==CAL_MODE_LIGHT){if(cal.phase==PHASE_LIGHT_SAMPLE)return true;cal.light_slot=(uint8_t)((cal.light_slot+1u)%LIGHT_PROFILE_COUNT);cal.profile=LIGHT_CALIBRATION_ORDER[cal.light_slot];cal.phase=PHASE_READY;emit("EVT|CAL|mode=ready|kind=light|stage=%u|count=%u|profile=%u|id=%s|seconds=5",light_stage(),LIGHT_PROFILE_COUNT,cal.profile,guard_runtime_profile_name(cal.profile));return true;}if(cal.mode==CAL_MODE_SOUND){if(cal.phase==PHASE_SOUND_SILENCE||cal.phase==PHASE_SOUND_TARGET)return true;cal.profile=cal.profile>=SOUND_PROFILE_COUNT?1u:(uint8_t)(cal.profile+1u);cal.phase=PHASE_READY;emit("EVT|SOUNDCAL|mode=ready|id=%u|silence=3|sound=30",cal.profile);return true;}return false;}
 bool calibration_runtime_yellow_short(uint32_t now){

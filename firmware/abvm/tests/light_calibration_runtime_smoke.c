@@ -9,7 +9,7 @@ static uint32_t hi[9]={130,180,230,410,510,610,710,810,910};
 static uint32_t base_lo[9],base_hi[9];
 static uint32_t centers[9]={100,150,200,400,500,600,700,800,900};
 static uint16_t saved_mask,margin=30;static uint32_t sample_center=100;
-static bool base_available,ready,fail_save;
+static bool base_available,ready,fail_save,dual_sensor_enabled;
 void calibration_store_init(const AbvmVm *vm){(void)vm;}
 bool calibration_store_light_get(uint8_t id,uint32_t *l,uint32_t *h){
  if(!base_available||id<1u||id>9u||!l||!h)return false;
@@ -34,6 +34,7 @@ bool guard_runtime_set_profile_range(uint8_t id,uint32_t l,uint32_t h){
  if(id<1u||id>9u)return false;
  lo[id-1u]=l;hi[id-1u]=h;return true;
 }
+bool guard_runtime_dual_sensor_enabled(void){return dual_sensor_enabled;}
 const char *guard_runtime_profile_name(uint8_t id){(void)id;return "test";}
 uint32_t calibration_store_revision(void){return 42;}
 bool light_sensor_calibration_start(uint32_t duration,uint32_t now){(void)duration;(void)now;ready=true;return true;}
@@ -47,13 +48,20 @@ static void assert_shared_fit(void){
  assert(lo[2]==176&&hi[2]==230);
 }
 int main(void){
+ dual_sensor_enabled=true;
+ calibration_runtime_init(NULL);
+ assert(calibration_runtime_blue_long(0));
+ char event[256];assert(calibration_runtime_take_event(event,sizeof(event)));
+ assert(strcmp(event,"ERR|CAL|DUAL-REQUIRES-STUDIO")==0);
+ assert(!ready);
+ dual_sensor_enabled=false;
  calibration_runtime_init(NULL);assert(calibration_runtime_blue_long(0));
  assert(calibration_runtime_yellow_short(1));calibration_runtime_service(5001);
  assert_shared_fit();assert((saved_mask&0x1ffu)==0x1ffu&&margin==30);
  /* Persistent inputs stay untrimmed; the runtime holds the fitted intervals. */
  assert(base_lo[0]==70&&base_hi[0]==130);
  assert(base_lo[1]==120&&base_hi[1]==180);
- char event[256];assert(calibration_runtime_take_event(event,sizeof(event)));
+ assert(calibration_runtime_take_event(event,sizeof(event)));
  assert(strstr(event,"changed=1,2,3")!=NULL);
 
  /* A failed flash write must not alter the active fitted ranges. */

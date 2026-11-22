@@ -21,6 +21,10 @@ typedef struct GuardRuntimeEvent {
     uint8_t context;
     uint16_t route_id;
     uint32_t lux_tenths;
+    bool dual_sensor;
+    uint32_t lux1_tenths;
+    uint32_t lux2_tenths;
+    int32_t difference_tenths;
     const char *reason;
 } GuardRuntimeEvent;
 
@@ -34,8 +38,12 @@ bool guard_runtime_resume(void);
 void guard_runtime_service(AbvmVm *vm, uint32_t now);
 void guard_runtime_set_input_locked(bool locked);
 void guard_runtime_observe(AbvmVm *vm, uint32_t lux_tenths, uint32_t now);
+void guard_runtime_observe_pair(AbvmVm *vm, uint32_t lux1_tenths,
+                                uint32_t lux2_tenths, uint32_t now);
 bool guard_runtime_route_complete(AbvmVm *vm, uint16_t route_id, uint32_t now);
 bool guard_runtime_take_event(GuardRuntimeEvent *event);
+bool guard_runtime_dual_sensor_enabled(void);
+bool guard_runtime_dual_sensor_ready(uint32_t now);
 bool guard_runtime_running(void);
 bool guard_runtime_paused(void);
 bool guard_runtime_watchdog_tripped(void);
@@ -57,6 +65,9 @@ const char *guard_runtime_profile_name(uint8_t profile_id);
 bool guard_runtime_get_profile_range(uint8_t profile_id, uint32_t *low_tenths,
                                      uint32_t *high_tenths);
 bool guard_runtime_profile_matches(uint8_t profile_id, uint32_t lux_tenths);
+bool guard_runtime_profile_matches_pair(uint8_t profile_id,
+                                        uint32_t lux1_tenths,
+                                        uint32_t lux2_tenths);
 bool guard_runtime_set_profile_range(uint8_t profile_id, uint32_t low_tenths, uint32_t high_tenths);
 
 #endif

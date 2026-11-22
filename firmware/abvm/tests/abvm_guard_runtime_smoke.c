@@ -1,5 +1,6 @@
 #include "abvm_vm.h"
 #include "guard_runtime.h"
+#include "light_sensor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,11 @@ bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now) {
     (void)now;
     if(!latest_ready)return false;
     latest_ready=false;*lux_tenths=latest_lux;*age_ms=0u;return true;
+}
+bool light_sensor_latest_pair(LightSensorSnapshot *snapshot, uint32_t now) {
+    (void)snapshot;
+    (void)now;
+    return false;
 }
 static int require(int condition, const char *message) {
     if (!condition) fprintf(stderr, "ABVM Guard smoke failure: %s\n", message);

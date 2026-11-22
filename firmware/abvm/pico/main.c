@@ -658,6 +658,11 @@ static void start_control(uint32_t now) {
     }
     if (guard_runtime_available()) {
         if (!light_sensor_present()) { printf("ERR|GUARD|NOSENSOR\n"); return; }
+        if (guard_runtime_dual_sensor_enabled() &&
+            !guard_runtime_dual_sensor_ready(now)) {
+            printf("ERR|GUARD|SENSOR-PAIR\n");
+            return;
+        }
         abvm_stop(&vm, now);
         if (guard_runtime_start(now)) {
             if (!cycle_runtime_manual_start(now)) {
@@ -1365,12 +1370,38 @@ static void service_light(uint32_t now) {
                 printf("BUZZER|cue=transition|profile=%s|stage=%u\n",
                        profile,guard_event.stage);
             }
-            printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason, expected, (unsigned long)elapsed, (unsigned long)watchdog, cycle_runtime_count());
+            if(guard_event.dual_sensor)
+                printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|mean=%lu.%lu|contrast-tenths=%ld|lux1=%lu.%lu|lux2=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n",
+                       guard_event.route_id,profile,guard_event.stage,
+                       guard_event.context,
+                       (unsigned long)(guard_event.lux_tenths/10u),
+                       (unsigned long)(guard_event.lux_tenths%10u),
+                       (long)guard_event.difference_tenths,
+                       (unsigned long)(guard_event.lux1_tenths/10u),
+                       (unsigned long)(guard_event.lux1_tenths%10u),
+                       (unsigned long)(guard_event.lux2_tenths/10u),
+                       (unsigned long)(guard_event.lux2_tenths%10u),
+                       guard_event.reason,expected,(unsigned long)elapsed,
+                       (unsigned long)watchdog,cycle_runtime_count());
+            else
+                printf("EVT|GUARD|route=%u|profile=%s|stage=%u|context=%u|lux=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n", guard_event.route_id, profile, guard_event.stage, guard_event.context, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason, expected, (unsigned long)elapsed, (unsigned long)watchdog, cycle_runtime_count());
         } else if (guard_event.type == GUARD_EVENT_FAULT) {
             buzzer_play(BUZZER_CUE_ERROR, now);
             cycle_runtime_fail(6u);
             printf("ERR|GUARD|%s\n", guard_event.reason);
         }
+        else if(guard_event.dual_sensor)
+            printf("EVT|GUARD|state=%s|stage=%u|mean=%lu.%lu|contrast-tenths=%ld|lux1=%lu.%lu|lux2=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n",
+                   profile,guard_event.stage,
+                   (unsigned long)(guard_event.lux_tenths/10u),
+                   (unsigned long)(guard_event.lux_tenths%10u),
+                   (long)guard_event.difference_tenths,
+                   (unsigned long)(guard_event.lux1_tenths/10u),
+                   (unsigned long)(guard_event.lux1_tenths%10u),
+                   (unsigned long)(guard_event.lux2_tenths/10u),
+                   (unsigned long)(guard_event.lux2_tenths%10u),
+                   guard_event.reason,expected,(unsigned long)elapsed,
+                   (unsigned long)watchdog,cycle_runtime_count());
         else
             printf("EVT|GUARD|state=%s|stage=%u|lux=%lu.%lu|reason=%s|expected=%s|stage-elapsed-ms=%lu|watchdog-ms=%lu|cycle=%u\n", profile, guard_event.stage, (unsigned long)(guard_event.lux_tenths / 10u), (unsigned long)(guard_event.lux_tenths % 10u), guard_event.reason, expected, (unsigned long)elapsed, (unsigned long)watchdog, cycle_runtime_count());
     }
@@ -1598,9 +1629,18 @@ static void service_cycle(uint32_t now) {
     bool arm_seen=arm_uart_host_usb_seen();
     ArmHostUsbState host=arm_seen?arm_uart_host_usb_state():
         (tud_mounted()?ARM_HOST_USB_UP:ARM_HOST_USB_DOWN);
-    uint32_t lux,age;
-    bool desktop_ready=light_sensor_latest(&lux,&age,now)&&
-        guard_runtime_profile_matches(1u,lux);
+    bool desktop_ready=false;
+    if(guard_runtime_dual_sensor_enabled()) {
+        LightSensorSnapshot snapshot;
+        desktop_ready=guard_runtime_dual_sensor_ready(now)&&
+            light_sensor_latest_pair(&snapshot,now)&&snapshot.secondary_valid&&
+            guard_runtime_profile_matches_pair(1u,
+                snapshot.primary_lux_tenths,snapshot.secondary_lux_tenths);
+    } else {
+        uint32_t lux,age;
+        desktop_ready=light_sensor_latest(&lux,&age,now)&&
+            guard_runtime_profile_matches(1u,lux);
+    }
     CycleAction action=cycle_runtime_service(now,true,host,desktop_ready);
     service_cycle_events();
     if(action==CYCLE_ACTION_EXPIRE) {
