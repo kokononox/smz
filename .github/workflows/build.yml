@@ -24,6 +24,8 @@ jobs:
     name: Build 30 Classroom native receiver runtimes
     runs-on: ubuntu-24.04
     steps:
+      - name: Check out Classroom Studio repository
+        uses: actions/checkout@v4
       - name: Check out Pico SDK
         uses: actions/checkout@v4
         with:

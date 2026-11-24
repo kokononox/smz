@@ -778,6 +778,7 @@ static void suspend_native_execution_for_mirror(uint32_t now) {
     wake_scheduler_disarm(&wake_scheduler);
     wake_phase=WAKE_PHASE_IDLE;
     wake_recovery_phase=WAKE_RECOVERY_IDLE;
+    wake_recovery_reason=WAKE_RECOVERY_REASON_NONE;
     wake_pulse_inflight=false;
     wake_pulse_wait_logged=false;
     wake_due_logged=false;
@@ -3039,16 +3040,14 @@ int main(void) {
             sleep_ms(1);
             continue;
         }
-        service_clock_request(now);
-        service_boot_resume(now);
+        service_clock_request(now); service_boot_resume(now);
         service_keyboard(now);
         service_mouse(now);
         service_cycle(now);
         guard_runtime_set_input_locked(input_lock_active());
         service_light(now);
         service_buzzer_action(now);
-        service_shift_check(now);
-        service_wake(now);
+        service_shift_check(now); service_wake(now);
         wake_store_service(now,false);
         service_game_buffs(now);
         service_vm(now);
