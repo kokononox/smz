@@ -8,7 +8,7 @@ name: build-test-package
 on:
   workflow_dispatch:
   push:
-    branches: [main, feat/classroom-client-uf2-companion]
+    branches: [main, feat/classroom-client-uf2-companion, feat/classroom-mirror-master-template]
     # doc-only pushes (project state, patch notes) do not need a build+test cycle
     paths-ignore:
       - 'project-state/**'
@@ -70,8 +70,83 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-mirror-master-template:
+    name: Build dual-sensor mirror master template
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pinned mirror source
+        uses: actions/checkout@v4
+        with:
+          repository: kokononox/smz-input-broadcast
+          ref: 04df8ab2bb6b504fe9c34b50280d4213c061adde
+          path: smz-input-broadcast
+      - name: Check out pinned dual-sensor Classroom Studio source
+        uses: actions/checkout@v4
+        with:
+          repository: kokononox/smz
+          ref: dc81e1d8f6202ac28cc3f086f921b5c3e339ef88
+          path: classroom-studio-source
+      - name: Check out Pico SDK
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: 2.3.1
+          path: pico-sdk
+          submodules: recursive
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y cmake ninja-build
+      - name: Install ARM GNU Toolchain 14.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
+          install_dir="$RUNNER_TEMP/arm-gnu-toolchain-14.2.rel1"
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
+            --output "$archive" \
+            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
+          mkdir -p "$install_dir"
+          tar -xJf "$archive" -C "$install_dir" --strip-components=1
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/arm-none-eabi-gcc" --version
+      - name: Configure Pico SDK path
+        run: echo "PICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk" >> "$GITHUB_ENV"
+      - name: Host-test mirror event framing
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -I smz-input-broadcast/tests/host_stubs \
+            -I smz-input-broadcast/firmware/one_way_mirror_overlay \
+            smz-input-broadcast/tests/mirror_link_host_test.c \
+            smz-input-broadcast/firmware/one_way_mirror_overlay/mirror_link.c \
+            -o "$RUNNER_TEMP/mirror-link-host-test"
+          "$RUNNER_TEMP/mirror-link-host-test"
+      - name: Apply one-way overlay to pinned dual-sensor runtime
+        run: python smz-input-broadcast/scripts/apply_mirror_overlay.py classroom-studio-source
+      - name: Compile smoke ABP and build mirror-enabled runtime template
+        working-directory: classroom-studio-source
+        run: |
+          set -euo pipefail
+          python tools/abvm.py compile firmware/abvm/tests/abvm_dual_guard_smoke.amsj "$RUNNER_TEMP/dual-guard-smoke.abp" --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted TargetedRepeat Whisper WhisperRepeat Finish
+          cmake -S firmware/abvm/pico -B "$RUNNER_TEMP/classroom-studio-mirror" -G Ninja \
+            -DPICO_BOARD=pico \
+            -DABVM_PROGRAM="$RUNNER_TEMP/dual-guard-smoke.abp"
+          cmake --build "$RUNNER_TEMP/classroom-studio-mirror" --parallel 2
+          test -s "$RUNNER_TEMP/classroom-studio-mirror/ams_abvm_pico.uf2"
+          mkdir -p "$GITHUB_WORKSPACE/build/classroom-mirror-template"
+          cp "$RUNNER_TEMP/classroom-studio-mirror/ams_abvm_pico.uf2" \
+            "$GITHUB_WORKSPACE/build/classroom-mirror-template/ClassroomStudio-DualSensor-Mirror-Template.uf2"
+      - name: Upload mirror-enabled master runtime template
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-studio-mirror-master-template
+          path: build/classroom-mirror-template/ClassroomStudio-DualSensor-Mirror-Template.uf2
+          if-no-files-found: error
+          retention-days: 14
+
   build:
-    needs: build-client-uf2
+    needs: [build-client-uf2, build-mirror-master-template]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +157,12 @@ jobs:
           name: smz-hid-client-uf2
           path: ${{ runner.temp }}/smz-hid-client
 
+      - name: Download dual-sensor mirror master template
+        uses: actions/download-artifact@v4
+        with:
+          name: classroom-studio-mirror-master-template
+          path: ${{ runner.temp }}/mirror-master
+
       - name: Stage SMZ client alongside Classroom Studio assets
         shell: pwsh
         run: |
@@ -89,6 +170,15 @@ jobs:
           $target = 'firmware/client/SMZ-HID-Client.uf2'
           New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
           if (-not (Test-Path $source)) { throw "SMZ client UF2 artifact is missing: $source" }
+          Copy-Item $source $target -Force
+
+      - name: Stage mirror master template with native runtimes
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'mirror-master/ClassroomStudio-DualSensor-Mirror-Template.uf2'
+          $target = 'firmware/mirror-template/ClassroomStudio-DualSensor-Mirror-Template.uf2'
+          New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+          if (-not (Test-Path $source)) { throw "Mirror master template is missing: $source" }
           Copy-Item $source $target -Force
 
       - uses: actions/setup-dotnet@v4
