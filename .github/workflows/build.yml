@@ -72,7 +72,8 @@ jobs:
             "$RUNNER_TEMP/dual-guard-smoke.abp" \
             firmware/abvm/pico/batch30.json \
             build/native-runtime
-          count="$(find build/native-runtime -type f -name '*.uf2' | wc -l)"
+          count="$(find build/native-runtime -mindepth 2 -maxdepth 2 \
+            -type f -name '*.uf2' ! -path '*/.build-batch/*' | wc -l)"
           test "$count" -eq 30
       - name: Upload receiver-enabled native runtimes
         uses: actions/upload-artifact@v4
