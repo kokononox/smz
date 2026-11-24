@@ -77,4 +77,11 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\firmware\mirror-template\ClassroomStudio-DualSensor-Mirror-Template.uf2')">
+    <None Include="..\..\..\firmware\mirror-template\ClassroomStudio-DualSensor-Mirror-Template.uf2">
+      <Link>native-runtime\ClassroomStudio-DualSensor-Mirror-Template.uf2</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
