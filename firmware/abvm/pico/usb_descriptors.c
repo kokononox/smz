@@ -52,7 +52,8 @@ uint8_t const *tud_descriptor_device_cb(void) {
 }
 
 static const uint8_t hid_report_descriptor[] = {
-    TUD_HID_REPORT_DESC_KEYBOARD()
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(1)),
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(2))
 };
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
@@ -68,7 +69,7 @@ static const uint8_t configuration_descriptor[] = {
                           TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8,
                        EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_KEYBOARD,
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE,
                        sizeof(hid_report_descriptor), EPNUM_HID_IN, 16, 1),
 };
 

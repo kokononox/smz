@@ -20,16 +20,10 @@ permissions:
   actions: read     # read job/step conclusions for the failure issue
 
 jobs:
-  build-client-uf2:
-    name: Build pinned SMZ HID client UF2
+  build-native-client-runtimes:
+    name: Build 30 Classroom native receiver runtimes
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out pinned SMZ input mirror source
-        uses: actions/checkout@v4
-        with:
-          repository: kokononox/smz-input-broadcast
-          ref: c7a642e92e8a842229876684ccc10864762c759d
-          path: smz-input-broadcast
       - name: Check out Pico SDK
         uses: actions/checkout@v4
         with:
@@ -57,39 +51,57 @@ jobs:
           "$install_dir/bin/arm-none-eabi-gcc" --version
       - name: Configure Pico SDK path
         run: echo "PICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk" >> "$GITHUB_ENV"
-      - name: Build one-way SMZ HID client UF2
+      - name: Host-test mirror framing and event validation
         run: |
-          cmake -S smz-input-broadcast/firmware/hid_client -B build/hid-client -G Ninja -DPICO_BOARD=pico -DHID_CLIENT_SEND_ACK=OFF
-          cmake --build build/hid-client --parallel 2
-          test -s build/hid-client/smz_hid_client.uf2
-      - name: Upload SMZ HID client UF2
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -I firmware/abvm/pico \
+            firmware/abvm/tests/mirror_frame_smoke.c \
+            firmware/abvm/pico/mirror_frame.c \
+            -o "$RUNNER_TEMP/mirror-frame-smoke"
+          "$RUNNER_TEMP/mirror-frame-smoke"
+      - name: Compile dual-sensor smoke ABP
+        run: |
+          python tools/abvm.py compile firmware/abvm/tests/abvm_dual_guard_smoke.amsj \
+            "$RUNNER_TEMP/dual-guard-smoke.abp" \
+            --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted TargetedRepeat Whisper WhisperRepeat Finish
+      - name: Build all receiver-enabled native runtime identities
+        run: |
+          bash firmware/abvm/pico/build_batch.sh \
+            "$RUNNER_TEMP/dual-guard-smoke.abp" \
+            firmware/abvm/pico/batch30.json \
+            build/native-runtime
+          count="$(find build/native-runtime -type f -name '*.uf2' | wc -l)"
+          test "$count" -eq 30
+      - name: Upload receiver-enabled native runtimes
         uses: actions/upload-artifact@v4
         with:
-          name: smz-hid-client-uf2
-          path: build/hid-client/smz_hid_client.uf2
+          name: classroom-native-client-runtimes
+          path: build/native-runtime
           if-no-files-found: error
           retention-days: 14
 
   build:
-    needs: build-client-uf2
+    needs: build-native-client-runtimes
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download SMZ HID client UF2
+      - name: Download receiver-enabled native runtimes
         uses: actions/download-artifact@v4
         with:
-          name: smz-hid-client-uf2
-          path: ${{ runner.temp }}/smz-hid-client
+          name: classroom-native-client-runtimes
+          path: ${{ runner.temp }}/native-runtime
 
-      - name: Stage SMZ client alongside Classroom Studio assets
+      - name: Stage the 30 native runtime templates
         shell: pwsh
         run: |
-          $source = Join-Path $env:RUNNER_TEMP 'smz-hid-client/smz_hid_client.uf2'
-          $target = 'firmware/client/SMZ-HID-Client.uf2'
-          New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-          if (-not (Test-Path $source)) { throw "SMZ client UF2 artifact is missing: $source" }
-          Copy-Item $source $target -Force
+          $source = Join-Path $env:RUNNER_TEMP 'native-runtime'
+          $target = 'firmware/native-runtime'
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item (Join-Path $source '*') $target -Recurse -Force
+          $count = (Get-ChildItem $target -Recurse -Filter '*.uf2' | Measure-Object).Count
+          if ($count -ne 30) { throw "Expected 30 native runtime templates, found $count" }
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -157,7 +169,7 @@ jobs:
         if: success() && github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: Classroom-Studio-client-companion-${{ github.sha }}
+          name: Classroom-Studio-native-client-runtimes-${{ github.sha }}
           path: |
             Classroom-Studio-release.zip
             sha256.txt

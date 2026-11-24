@@ -17,6 +17,7 @@
 #include "buzzer.h"
 #include "cycle_runtime.h"
 #include "game_buff_runtime.h"
+#include "mirror_receiver.h"
 #include "shift_identity_runtime.h"
 #include "wake_scheduler.h"
 
@@ -24,8 +25,11 @@ extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
 #define BUTTON_PAUSE_PIN 3u
 #define BUTTON_START_STOP_PIN 4u
+#define MIRROR_MODE_BUTTON_A_PIN 18u
+#define MIRROR_MODE_BUTTON_B_PIN 19u
 #define BUTTON_DEBOUNCE_MS 30u
 #define BUTTON_LONG_MS 3000u
+#define MIRROR_MODE_HOLD_MS 3000u
 #define GAME_ROUTE_ID 8u
 #define WHISPER_ROUTE_ID 10u
 #define WHISPER_REPEAT_ROUTE_ID 12u
@@ -240,6 +244,11 @@ static bool wake_host_up(void);
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
+static Button mirror_mode_button_a = {.pin=MIRROR_MODE_BUTTON_A_PIN};
+static Button mirror_mode_button_b = {.pin=MIRROR_MODE_BUTTON_B_PIN};
+static bool mirror_combo_timing,mirror_combo_fired;
+static bool mirror_native_suspended;
+static uint32_t mirror_combo_started;
 static char command[512];
 static size_t command_length;
 static bool arm_fault_reported;
@@ -670,12 +679,14 @@ static void start_control(uint32_t now) {
                 printf("ERR|CYCLE|RESET|guard=off\n");
                 return;
             }
+            mirror_native_suspended=false;
             printf("OK|GUARD|ON\n"); buzzer_play(BUZZER_CUE_START, now);
         }
         else printf("ERR|GUARD|START\n");
-    } else if (abvm_start_route(&vm, GAME_ROUTE_ID, now))
+    } else if (abvm_start_route(&vm, GAME_ROUTE_ID, now)) {
+        mirror_native_suspended=false;
         printf("CONTROL|start|route=Game|guard=unavailable\n");
-    else printf("ERR|CONTROL|start\n");
+    } else printf("ERR|CONTROL|start\n");
 }
 static void stop_control(uint32_t now) {
     shift_identity_forget(&shift_identity);hid_keyboard_set_shift(0u);
@@ -740,6 +751,10 @@ static ButtonEvent button_event(Button *button,uint32_t now) {
 }
 static void service_buttons(uint32_t now) {
     ButtonEvent yellow=button_event(&pause_button,now),blue=button_event(&start_button,now);
+    if(mirror_native_suspended) {
+        if(blue==BUTTON_SHORT)start_control(now);
+        return;
+    }
     if(calibration_runtime_active()){
         if(blue==BUTTON_SHORT)calibration_runtime_blue_short(now);
         else if(blue==BUTTON_LONG)calibration_runtime_blue_long(now);
@@ -755,8 +770,96 @@ static void service_buttons(uint32_t now) {
     else if(yellow==BUTTON_SHORT)toggle_pause(now);
 }
 
+static void suspend_native_execution_for_mirror(uint32_t now) {
+    shift_identity_forget(&shift_identity);
+    hid_keyboard_set_shift(0u);
+    shift_checkpoint=false;
+    shift_key_inflight=false;
+    wake_scheduler_disarm(&wake_scheduler);
+    wake_phase=WAKE_PHASE_IDLE;
+    wake_recovery_phase=WAKE_RECOVERY_IDLE;
+    wake_pulse_inflight=false;
+    wake_pulse_wait_logged=false;
+    wake_due_logged=false;
+    wake_block_logged=false;
+    operator_stopped_since_boot=true;
+    mirror_native_suspended=true;
+    start_button.consumed=true;
+    pause_button.consumed=true;
+
+    buzzer_watchdog_alarm_stop();
+    guard_runtime_stop();
+    abvm_stop(&vm,now);
+    release_all_actors(now);
+    pending_sound_whisper=false;
+    ui_sound_calibration_pending=false;
+    ui_sound_watch_pending=false;
+    ui_sound_watch_armed=false;
+    ui_sound_trigger_pending=false;
+    ui_light_watch_pending=false;
+    ui_light_watch_armed=false;
+    ui_light_trigger_pending=false;
+    ambient_mouse_available=false;
+    ambient_mouse_inflight=false;
+    buzzer_action_pending=false;
+    ui_buzzer_reply_pending=false;
+    ui_buzzer_sequence_reply=false;
+    cycle_runtime_hold(now);
+}
+
+static void set_mirror_receiver_mode(bool enabled,uint32_t now) {
+    static const BuzzerTone entered[]={{1047u,90u,35u},{1568u,170u,0u}};
+    static const BuzzerTone exited[]={{659u,120u,0u}};
+    if(enabled==mirror_receiver_active())return;
+    if(enabled) {
+        suspend_native_execution_for_mirror(now);
+        mirror_receiver_start();
+        buzzer_play_sequence(entered,(uint8_t)(sizeof(entered)/sizeof(entered[0])),
+                             100u,0u,now);
+        printf("EVT|MIRROR|CLIENT|ON|rx=UART1-GP9|mode=receive\n");
+    } else {
+        mirror_receiver_stop();
+        buzzer_play_sequence(exited,(uint8_t)(sizeof(exited)/sizeof(exited[0])),
+                             100u,0u,now);
+        printf("EVT|MIRROR|CLIENT|OFF|mode=native-stopped\n");
+    }
+}
+
+static void service_mirror_mode_buttons(uint32_t now) {
+    (void)button_event(&mirror_mode_button_a,now);
+    (void)button_event(&mirror_mode_button_b,now);
+    if(!mirror_mode_button_a.stable||!mirror_mode_button_b.stable) {
+        mirror_combo_timing=false;
+        mirror_combo_fired=false;
+        return;
+    }
+    if(!mirror_combo_timing) {
+        mirror_combo_started=mirror_mode_button_a.pressed_at>
+            mirror_mode_button_b.pressed_at
+                ? mirror_mode_button_a.pressed_at
+                : mirror_mode_button_b.pressed_at;
+        mirror_combo_timing=true;
+    }
+    if(!mirror_combo_fired&&
+       (uint32_t)(now-mirror_combo_started)>=MIRROR_MODE_HOLD_MS) {
+        mirror_combo_fired=true;
+        set_mirror_receiver_mode(!mirror_receiver_active(),now);
+    }
+}
+
 static void execute_command(char *line, uint32_t now) {
-    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=on|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 9u : 0u);
+    if ((mirror_receiver_active() || mirror_receiver_cleanup_pending()) &&
+        strcmp(line,"PING") && strcmp(line,"STATUS")) {
+        printf("ERR|MIRROR|receiver-active\n");
+        return;
+    }
+    if (mirror_native_suspended &&
+        strcmp(line,"PING") && strcmp(line,"STATUS") &&
+        strcmp(line,"START") && strcmp(line,"GUARD|ON")) {
+        printf("ERR|MIRROR|native-suspended\n");
+        return;
+    }
+    if (!strcmp(line, "PING")) printf("OK|PONG|combined-pico-guard-executor|native=abvm|abi=%u|format=%u|hid=keyboard+mouse|uart=on|arm-ready=%u|arm-usb=%u|arm-ver=%s|profiles=%u|buzzer=legacy-calibration-gp6|role=brain|mirror-client=%u\n", ABVM_VM_ABI, ABVM_FORMAT_VERSION, arm_uart_mouse_ready(), arm_uart_host_usb_state(), arm_uart_mouse_version(), guard_runtime_available() ? 9u : 0u, mirror_receiver_active()?1u:0u);
     else if (!strcmp(line,"SHIFT?")) {
         if(shift_checkpoint&&shift_identity.phase==SHIFT_WAIT_REPLY)
             printf("OK|SHIFT-CHALLENGE|%08lx%s\n",(unsigned long)shift_identity.nonce,shift_identity.schedule_enabled?"|clock=1":"");
@@ -2794,6 +2897,9 @@ int main(void) {
     status_led_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
+    gpio_init(MIRROR_MODE_BUTTON_A_PIN); gpio_set_dir(MIRROR_MODE_BUTTON_A_PIN, GPIO_IN); gpio_pull_up(MIRROR_MODE_BUTTON_A_PIN);
+    gpio_init(MIRROR_MODE_BUTTON_B_PIN); gpio_set_dir(MIRROR_MODE_BUTTON_B_PIN, GPIO_IN); gpio_pull_up(MIRROR_MODE_BUTTON_B_PIN);
+    mirror_receiver_init();
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     bool program_verified = abvm_init(&vm, program, program_size);
     bool guard_available = program_verified && guard_runtime_init(&vm);
@@ -2885,7 +2991,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LUX2?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|mirror-client=GP18+GP19-hold-3s,UART1-GP9-RX|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LUX2?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",
@@ -2908,5 +3014,48 @@ int main(void) {
          * otherwise looks exactly like a healthy one. */
         printf("EVT|WAKE|recovery|skipped|reason=limit|attempts=%u\n",
                (unsigned)wake_store_last.recovery_attempts);
-    while (true) { uint32_t now = now_ms(); tud_task(); service_cdc(now); service_power_button(now); service_status_led(now); service_buttons(now); service_clock_request(now); service_boot_resume(now); service_keyboard(now); service_mouse(now); service_cycle(now); guard_runtime_set_input_locked(input_lock_active()); service_light(now); service_buzzer_action(now); service_shift_check(now); service_wake(now); wake_store_service(now,false); service_game_buffs(now); service_vm(now); service_ambient_mouse(now); service_pending_sound_whisper(now); service_global_sound_listener(now); buzzer_service(now); sleep_ms(1); }
+    while (true) {
+        uint32_t now=now_ms();
+        tud_task();
+        service_cdc(now);
+        service_status_led(now);
+        service_mirror_mode_buttons(now);
+        if(mirror_receiver_active()||mirror_receiver_cleanup_pending()) {
+            uint8_t completed_lane=0u;
+            (void)hid_keyboard_service(now,&completed_lane);
+            service_mouse(now);
+            mirror_receiver_service();
+            buzzer_service(now);
+            sleep_ms(1);
+            continue;
+        }
+        if(!mirror_native_suspended)service_power_button(now);
+        service_buttons(now);
+        if(mirror_native_suspended) {
+            uint8_t completed_lane=0u;
+            (void)hid_keyboard_service(now,&completed_lane);
+            service_mouse(now);
+            buzzer_service(now);
+            sleep_ms(1);
+            continue;
+        }
+        service_clock_request(now);
+        service_boot_resume(now);
+        service_keyboard(now);
+        service_mouse(now);
+        service_cycle(now);
+        guard_runtime_set_input_locked(input_lock_active());
+        service_light(now);
+        service_buzzer_action(now);
+        service_shift_check(now);
+        service_wake(now);
+        wake_store_service(now,false);
+        service_game_buffs(now);
+        service_vm(now);
+        service_ambient_mouse(now);
+        service_pending_sound_whisper(now);
+        service_global_sound_listener(now);
+        buzzer_service(now);
+        sleep_ms(1);
+    }
 }

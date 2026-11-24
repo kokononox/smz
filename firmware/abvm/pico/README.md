@@ -17,6 +17,32 @@ python tools/abvm_uf2.py runtime-NB01.uf2 /tmp/program.abp project-NB01.uf2
 
 The patcher validates UF2 framing, requires exactly one compatible slot, checks capacity, rewrites program length and SHA-256, clears unused slot bytes, and verifies the result before saving. At boot, ABVM still verifies the ABP CRC, SHA, format, resources, and opcodes.
 
+## One-way mirror receiver on client boards
+
+The 30 `batch30.json` native runtime identities include the same lightweight
+one-way mirror receiver. Classroom Studio exports the selected identity with
+the current project ABP patched into it; there is no second client UF2 to
+install or copy beside the project output.
+
+For a client board, wire the master's UART1 TX on GP8 to the client's UART1 RX
+on GP9 and connect grounds. The current client runtime listens at 1 Mbaud and
+does not transmit acknowledgements. Hold the two physical mode buttons on GP18
+and GP19 together for three seconds to enter or leave receive mode; GP6 gives a
+two-note entry confirmation and a distinct exit tone. Entering receive mode
+stops local macro/Guard execution, releases local inputs, and forwards received
+keyboard and mouse reports over USB HID. A 350 ms receive timeout releases any
+held keys or mouse buttons if the link stops. Leaving receive mode does not
+restart a macro automatically; use the normal start control when ready. The
+current boot's scheduled-wake phase is also suspended; reboot to reload its
+in-memory schedule state.
+
+The receiver uses frame version 1 from the one-way mirror link: CRC-checked
+state snapshots carry keyboard state and mouse buttons, while relative mouse
+movement and wheel events are forwarded directly. UART framing and malformed
+event handling have a host-side smoke test in CI. Hardware acceptance is still
+required for the GP18/GP19 wiring, USB mouse enumeration, and end-to-end
+one-client latency.
+
 ## Safety boundary
 
 The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. `TYPE` is a real allocation-free, nonblocking TinyUSB actor: it preserves held modifiers, supports printable US-ASCII plus Enter/Tab, applies per-key, word, punctuation and thinking delays, and performs bounded typo/backspace correction. Clipboard, secret, malformed JSON, and non-ASCII payloads fail closed instead of being silently typed.
