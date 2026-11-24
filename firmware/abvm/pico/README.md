@@ -26,8 +26,9 @@ install or copy beside the project output.
 
 For a client board, wire the master's UART1 TX on GP8 to the client's UART1 RX
 on GP9 and connect grounds. The current client runtime listens at 1 Mbaud and
-does not transmit acknowledgements. Hold the two physical mode buttons on GP18
-and GP19 together for three seconds to enter or leave receive mode; GP6 gives a
+does not transmit acknowledgements. Hold the existing Pause/Resume button on
+GP3 and Start/Stop button on GP4 together for three seconds to enter or leave
+receive mode; their individual actions are consumed for that chord. GP6 gives a
 two-note entry confirmation and a distinct exit tone. Entering receive mode
 stops local macro/Guard execution, releases local inputs, and forwards received
 keyboard and mouse reports over USB HID. A 350 ms receive timeout releases any
@@ -40,8 +41,8 @@ The receiver uses frame version 1 from the one-way mirror link: CRC-checked
 state snapshots carry keyboard state and mouse buttons, while relative mouse
 movement and wheel events are forwarded directly. UART framing and malformed
 event handling have a host-side smoke test in CI. Hardware acceptance is still
-required for the GP18/GP19 wiring, USB mouse enumeration, and end-to-end
-one-client latency.
+required for the GP3/GP4 chord, USB mouse enumeration, and end-to-end one-client
+latency.
 
 ## Safety boundary
 

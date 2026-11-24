@@ -25,8 +25,6 @@ extern const uint8_t *abvm_program_data(void);
 extern size_t abvm_program_size(void);
 #define BUTTON_PAUSE_PIN 3u
 #define BUTTON_START_STOP_PIN 4u
-#define MIRROR_MODE_BUTTON_A_PIN 18u
-#define MIRROR_MODE_BUTTON_B_PIN 19u
 #define BUTTON_DEBOUNCE_MS 30u
 #define BUTTON_LONG_MS 3000u
 #define MIRROR_MODE_HOLD_MS 3000u
@@ -240,13 +238,12 @@ static bool operator_stopped_since_boot;
 static void service_clock_request(uint32_t now);
 static void service_boot_resume(uint32_t now);
 static bool wake_host_up(void);
+static bool service_mirror_mode_buttons(uint32_t now);
 
 
 static Button pause_button = {.pin=BUTTON_PAUSE_PIN};
 static Button start_button = {.pin=BUTTON_START_STOP_PIN};
-static Button mirror_mode_button_a = {.pin=MIRROR_MODE_BUTTON_A_PIN};
-static Button mirror_mode_button_b = {.pin=MIRROR_MODE_BUTTON_B_PIN};
-static bool mirror_combo_timing,mirror_combo_fired;
+static bool mirror_combo_timing,mirror_combo_fired,mirror_combo_block_until_release;
 static bool mirror_native_suspended;
 static uint32_t mirror_combo_started;
 static char command[512];
@@ -751,6 +748,8 @@ static ButtonEvent button_event(Button *button,uint32_t now) {
 }
 static void service_buttons(uint32_t now) {
     ButtonEvent yellow=button_event(&pause_button,now),blue=button_event(&start_button,now);
+    if(service_mirror_mode_buttons(now))return;
+    if(mirror_receiver_active()||mirror_receiver_cleanup_pending())return;
     if(mirror_native_suspended) {
         if(blue==BUTTON_SHORT)start_control(now);
         return;
@@ -826,26 +825,42 @@ static void set_mirror_receiver_mode(bool enabled,uint32_t now) {
     }
 }
 
-static void service_mirror_mode_buttons(uint32_t now) {
-    (void)button_event(&mirror_mode_button_a,now);
-    (void)button_event(&mirror_mode_button_b,now);
-    if(!mirror_mode_button_a.stable||!mirror_mode_button_b.stable) {
-        mirror_combo_timing=false;
+static bool service_mirror_mode_buttons(uint32_t now) {
+    /* The chord reuses the existing Pause/Resume (GP3) and Start/Stop (GP4)
+     * buttons. While a chord is held or being released, consume both individual
+     * events so the same gesture cannot also pause, start, stop or calibrate. */
+    if(mirror_combo_block_until_release) {
+        pause_button.consumed=true;
+        start_button.consumed=true;
+        if(!pause_button.stable&&!start_button.stable)
+            mirror_combo_block_until_release=false;
+        return true;
+    }
+    if(!pause_button.stable||!start_button.stable) {
+        if(mirror_combo_timing) {
+            pause_button.consumed=true;
+            start_button.consumed=true;
+            mirror_combo_timing=false;
+            mirror_combo_fired=false;
+            mirror_combo_block_until_release=pause_button.stable||start_button.stable;
+            return true;
+        }
         mirror_combo_fired=false;
-        return;
+        return false;
     }
     if(!mirror_combo_timing) {
-        mirror_combo_started=mirror_mode_button_a.pressed_at>
-            mirror_mode_button_b.pressed_at
-                ? mirror_mode_button_a.pressed_at
-                : mirror_mode_button_b.pressed_at;
+        mirror_combo_started=pause_button.pressed_at>start_button.pressed_at
+            ? pause_button.pressed_at : start_button.pressed_at;
         mirror_combo_timing=true;
     }
+    pause_button.consumed=true;
+    start_button.consumed=true;
     if(!mirror_combo_fired&&
        (uint32_t)(now-mirror_combo_started)>=MIRROR_MODE_HOLD_MS) {
         mirror_combo_fired=true;
         set_mirror_receiver_mode(!mirror_receiver_active(),now);
     }
+    return true;
 }
 
 static void execute_command(char *line, uint32_t now) {
@@ -2898,8 +2913,6 @@ int main(void) {
     status_led_init(now_ms());
     gpio_init(BUTTON_PAUSE_PIN); gpio_set_dir(BUTTON_PAUSE_PIN, GPIO_IN); gpio_pull_up(BUTTON_PAUSE_PIN);
     gpio_init(BUTTON_START_STOP_PIN); gpio_set_dir(BUTTON_START_STOP_PIN, GPIO_IN); gpio_pull_up(BUTTON_START_STOP_PIN);
-    gpio_init(MIRROR_MODE_BUTTON_A_PIN); gpio_set_dir(MIRROR_MODE_BUTTON_A_PIN, GPIO_IN); gpio_pull_up(MIRROR_MODE_BUTTON_A_PIN);
-    gpio_init(MIRROR_MODE_BUTTON_B_PIN); gpio_set_dir(MIRROR_MODE_BUTTON_B_PIN, GPIO_IN); gpio_pull_up(MIRROR_MODE_BUTTON_B_PIN);
     mirror_receiver_init();
     const uint8_t *program = abvm_program_data(); size_t program_size = abvm_program_size();
     bool program_verified = abvm_init(&vm, program, program_size);
@@ -2992,7 +3005,7 @@ int main(void) {
         while (true) { tud_task(); printf("ERR|ABVM|boot-verify|reason=%s\n", vm.fault ? vm.fault : "unknown"); sleep_ms(1000); }
     }
     printf("BOOT|ABVM|format=%u|abi=%u|bytes=%lu|state-bytes=%lu|frames=%u|lanes=%u|interrupts=%u|hid=keyboard+type+arm-rmouse|light=bh1750|guard=%u|cycle=%u|buzzer=legacy-calibration-gp6\n", ABVM_FORMAT_VERSION, ABVM_VM_ABI, (unsigned long)program_size, (unsigned long)sizeof(vm), vm.resources.max_frames, vm.resources.max_lanes, vm.resources.max_interrupts, guard_available, cycle_runtime_available());
-    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|mirror-client=GP18+GP19-hold-3s,UART1-GP9-RX|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LUX2?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
+    printf("READY|keys=GP3-pause-long-soundcal,GP4-guard-long-lightcal|mirror-client=GP3+GP4-hold-3s,UART1-GP9-RX|arm=UART0-GP16-GP17-57600|buzzer=GP6-legacy-calibration-nonblocking|watch-timeout-alarm=v1|pwrbtn=GP%u-momentary%s|cdc=PING,STATUS,SETRES,WSND,BEEP,BEEPSEQ,LUX?,LUX2?,LCAL-ms,SCAL-ms,GUARD-ON-OFF,PAUSE,RESUME,WHISPER,WHISPER-REPEAT,SOUND-id,TIME!HH:MM,WAKE!s-WAKE!s!dry-WAKE!OFF,WAKE?,PWRBTN-ms,LED!0-999,LEDW!0-999\n",
            (unsigned)POWER_BUTTON_PIN,POWER_BUTTON_ENABLED?"":"-disabled");
     if(schedule_from_program)
         printf("EVT|WAKE|schedule|source=program|enabled=%u|day=%02u:%02u-%02u:%02u|night=%02u:%02u-%02u:%02u|lead=%u\n",
@@ -3020,7 +3033,7 @@ int main(void) {
         tud_task();
         service_cdc(now);
         service_status_led(now);
-        service_mirror_mode_buttons(now);
+        service_buttons(now);
         if(mirror_receiver_active()||mirror_receiver_cleanup_pending()) {
             uint8_t completed_lane=0u;
             (void)hid_keyboard_service(now,&completed_lane);
@@ -3031,7 +3044,6 @@ int main(void) {
             continue;
         }
         if(!mirror_native_suspended)service_power_button(now);
-        service_buttons(now);
         if(mirror_native_suspended) {
             uint8_t completed_lane=0u;
             (void)hid_keyboard_service(now,&completed_lane);
