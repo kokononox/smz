@@ -72,7 +72,7 @@
 
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\firmware\client\SMZ-HID-Client.uf2')">
     <None Include="..\..\..\firmware\client\SMZ-HID-Client.uf2">
-      <Link>native-runtime\SMZ-HID-Client.uf2</Link>
+      <Link>client-firmware\SMZ-HID-Client.uf2</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

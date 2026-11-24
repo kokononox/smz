@@ -37,7 +37,7 @@ public partial class MainViewModel
         try
         {
             var bundledClientUf2 = Path.Combine(AppContext.BaseDirectory,
-                "native-runtime", "SMZ-HID-Client.uf2");
+                "client-firmware", "SMZ-HID-Client.uf2");
             if (!File.Exists(bundledClientUf2))
                 throw new FileNotFoundException(
                     "فریمور همراه SMZ-HID-Client.uf2 در بستهٔ Classroom Studio پیدا نشد.",
