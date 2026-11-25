@@ -17,7 +17,7 @@ Paired calibration proposals now preserve the per-sensor medians and observed mi
 
 ### Validation
 
-Host contracts cover paired raw statistics, profile-file round-trip, and strict dual-board snapshot/command round-trip. The changed Pico host smoke tests and dual-guard tests passed locally; Windows build, full TestRunner, packaged Studio ZIP, Pico CI, and physical board acceptance are pending this CI run.
+Host contracts cover paired raw statistics, profile-file round-trip, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. The changed Pico host smoke tests and dual-guard tests passed locally; Windows build, full TestRunner, packaged Studio ZIP, Pico CI, and physical board acceptance are pending this CI run.
 
 ### Next test
 

@@ -193,7 +193,7 @@ try
     DualBoardLightSync.BuildCommand(dualTargets.Select((profile, index) =>
     {
         var copy = profile.Copy();
-        if (index == 0) copy.MeanLuxTolerance = 0.55;
+        if (index == 0) copy.MeanLuxTolerance = 0.53;
         return copy;
     }).ToList());
     Check(false, "dual sync rejects tolerance precision absent from the wire protocol");
