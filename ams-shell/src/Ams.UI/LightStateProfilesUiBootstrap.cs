@@ -15,6 +15,12 @@ namespace Ams.UI;
 /// <summary>Adds phase-four state/profile diagnostics to the existing read-only Status surface.</summary>
 internal static class LightStateProfilesUiBootstrap
 {
+    // Keep these shared with the calibration-form refresh after the send column was added.
+    internal const int ProfileNameColumn = 1;
+    internal const int ProfileSensor1Column = 5;
+    internal const int ProfileSensor2Column = 6;
+    internal const int ProfileSignatureColumn = 7;
+
     private static readonly DependencyProperty InstalledProperty = DependencyProperty.RegisterAttached(
         "LightStateProfilesUiInstalled", typeof(bool), typeof(LightStateProfilesUiBootstrap), new PropertyMetadata(false));
 
@@ -190,13 +196,13 @@ internal static class LightStateProfilesUiBootstrap
     {
         var row = ProfileGrid();
         Add(row, Text("فعال", 11, "#AAB3C2"), 0);
-        Add(row, Text("نام وضعیت", 11, "#AAB3C2"), 1);
+        Add(row, Text("نام وضعیت", 11, "#AAB3C2"), ProfileNameColumn);
         Add(row, Text("ارسال این وضعیت", 11, "#AAB3C2"), 2);
         Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 3);
         Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 4);
-        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 5);
-        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 6);
-        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), 7);
+        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), ProfileSensor1Column);
+        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), ProfileSensor2Column);
+        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), ProfileSignatureColumn);
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 8);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 9);
         Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 10);
@@ -212,7 +218,7 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Checked += (_, _) => profile.Enabled = true;
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
-        Add(row, Editor(profile, nameof(profile.Name)), 1);
+        Add(row, Editor(profile, nameof(profile.Name)), ProfileNameColumn);
         var send = ActionButton("ارسال به برد", "#5D477F", "#F5F7FA");
         send.Margin = new Thickness(4, 3, 0, 3);
         send.Click += async (_, _) =>
@@ -247,14 +253,14 @@ internal static class LightStateProfilesUiBootstrap
             Add(row, Editor(profile, nameof(profile.LuxCenter)), 3);
             Add(row, Editor(profile, nameof(profile.LuxTolerance)), 4);
         }
-        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), 5);
-        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), 6);
+        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), ProfileSensor1Column);
+        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), ProfileSensor2Column);
         Add(row, Text(profile.HasDualSensorCalibration
                 ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
                 : profile.DualSensorCalibrationRequired
                     ? "منتظر کالیبراسیون جفتی"
                     : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
-            11, "#D9DEE7"), 7);
+            11, "#D9DEE7"), ProfileSignatureColumn);
         Add(row, Editor(profile, nameof(profile.StableDurationMs)), 8);
         Add(row, Editor(profile, nameof(profile.HysteresisLux)), 9);
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"

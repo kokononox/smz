@@ -118,13 +118,13 @@ internal static class LightCalibrationUiBootstrap
         if (root is Grid grid)
         {
             var profile = grid.Children.OfType<TextBox>()
-                .FirstOrDefault(x => Grid.GetColumn(x) == 1)?
+                .FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileNameColumn)?
                 .GetBindingExpression(TextBox.TextProperty)?.ResolvedSource as LightStateProfile;
             if (profile is not null)
             {
-                var sensor1 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 4);
-                var sensor2 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 5);
-                var signature = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 6);
+                var sensor1 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSensor1Column);
+                var sensor2 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSensor2Column);
+                var signature = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSignatureColumn);
                 if (sensor1 is not null) sensor1.Text = DescribeRawSensor(profile, sensor1: true);
                 if (sensor2 is not null) sensor2.Text = DescribeRawSensor(profile, sensor1: false);
                 if (signature is not null)

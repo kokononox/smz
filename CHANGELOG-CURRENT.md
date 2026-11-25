@@ -1,23 +1,23 @@
 ## Build {{BUILD_NUMBER}} — Classroom Studio dual-sensor board sync
 
-**Previous build:** `ci-6`; it predates the merged dual-BH1750 Studio work.
-**Status:** Test build from `feat/classroom-dual-profile-capture`; Windows CI must pass before use.
+**Previous build:** `classroom-current-11`; this update fixes stale profile-row refresh after applying calibration.
+**Status:** Test package from `feat/classroom-dual-profile-capture`; publication is gated on Windows build and TestRunner. Physical-board acceptance is separate.
 
 ### Problem observed
 
-The configurable profile table showed the derived M/Δ signature but did not preserve or show the raw readings/ranges from each physical sensor, making it difficult to inspect how the two sensor positions distinguish the nine lighting states.
+The configurable profile table showed the derived M/Δ signature but did not preserve or show the raw readings/ranges from each physical sensor, making it difficult to inspect how the two sensor positions distinguish the nine lighting states. After applying a paired-calibration suggestion, the target row could still show “waiting for paired calibration” in the M/Δ cell while adjacent cells showed the new values.
 
 ### Root cause
 
-Paired calibration reduced its synchronized L1/L2 samples to M and signed Δ before applying the proposal. The profile model retained only those derived classifier values.
+Paired calibration reduced its synchronized L1/L2 samples to M and signed Δ before applying the proposal. The profile model retained only those derived classifier values. The calibration-form refresh still targeted columns 4/5/6 from the table before the per-profile send column was added; the current sensor and M/Δ cells are columns 5/6/7.
 
 ### Change
 
-Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries for each paired profile. The per-profile board-send action is now beside the state name instead of at the far edge of the wide table; it sends only that calibrated profile, while the global action sends the eligible calibrated subset. Added a versioned, all-nine-profile `CALSYNC|DUAL` import/export path: paired centers persist atomically on the board, active UF2 tolerances are checked rather than silently changed, and Studio verifies the read-back. Board imports clear raw L1/L2 summaries because firmware does not store them. The full sensor-layout and calibration profile set—including the dual-layout requirement marker, M/Δ values, and raw L1/L2 summaries—is now bundled into version 15 `.amsj` project files and restored when opened; the app-level `light-state-profiles.json` remains the fallback for legacy workspaces. After saving profiles, save the project to bind those values to its macro. Legacy .amsj import now accepts early unversioned pipeline envelopes and older single-script/root-array documents with common legacy casing, comments, or trailing commas; unsupported multi-tab documents fail clearly instead of falling back to empty scripts. Raw ranges describe only the latest short capture, not full-day light drift; runtime classification remains M/Δ-based.
+Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries for each paired profile. The per-profile board-send action is now beside the state name instead of at the far edge of the wide table; it sends only that calibrated profile, while the global action sends the eligible calibrated subset. Applying a suggestion now refreshes the raw sensor summaries and M/Δ signature at their correct columns; shared column constants keep the calibration refresh aligned with the profile table. Added a versioned, all-nine-profile `CALSYNC|DUAL` import/export path: paired centers persist atomically on the board, active UF2 tolerances are checked rather than silently changed, and Studio verifies the read-back. Board imports clear raw L1/L2 summaries because firmware does not store them. The full sensor-layout and calibration profile set—including the dual-layout requirement marker, M/Δ values, and raw L1/L2 summaries—is now bundled into version 15 `.amsj` project files and restored when opened; the app-level `light-state-profiles.json` remains the fallback for legacy workspaces. After saving profiles, save the project to bind those values to its macro. Legacy .amsj import now accepts early unversioned pipeline envelopes and older single-script/root-array documents with common legacy casing, comments, or trailing commas; unsupported multi-tab documents fail clearly instead of falling back to empty scripts. Raw ranges describe only the latest short capture, not full-day light drift; runtime classification remains M/Δ-based.
 
 ### Validation
 
-Host contracts cover paired raw statistics, profile-file and `.amsj` round-trips, legacy version-14 fallback, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. The changed Pico host smoke tests and dual-guard tests passed locally; Windows build, full TestRunner, packaged Studio ZIP, Pico CI, and physical board acceptance are pending this CI run.
+Host contracts cover paired raw statistics, profile-file and `.amsj` round-trips, legacy version-14 fallback, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. The package workflow builds the Windows app and runs the Golden-100 TestRunner before publication. Full Pico/firmware build and physical-board acceptance remain separate checks.
 
 ### Next test
 
