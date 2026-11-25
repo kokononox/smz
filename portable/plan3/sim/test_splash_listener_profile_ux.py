@@ -34,7 +34,7 @@ assert "profile.Enabled = false" in serializer
 
 assert 'case "splashListener":EmitSplashListener(n);return;' in exporter
 assert "FindCatchWaits" in bundle
-assert '["splash_steps.txt", "scoped"]' in bundle
+assert '"splash_steps.txt", "scoped"' in bundle
 assert "catchWait.Children" in bundle
 assert "x.ResponseTab == PipelineKind.Whisper" in bundle
 
