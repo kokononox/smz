@@ -1,9 +1,10 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ams.UI.Models;
 
 namespace Ams.UI.Services;
 
-/// <summary>Versioned persistence for workflow tabs and game-wide sound profiles.</summary>
+/// <summary>Versioned persistence for workflow tabs and project-scoped profiles.</summary>
 public static class PipelineWorkspaceSerializer
 {
     private sealed class Envelope
@@ -19,6 +20,8 @@ public static class PipelineWorkspaceSerializer
         public ShiftScheduleSettings shiftSchedule { get; set; } = new();
         public string dayWindowsUser { get; set; } = "";
         public string nightWindowsUser { get; set; } = "";
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<LightStateProfile>? lightStateProfiles { get; set; }
     }
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -28,6 +31,18 @@ public static class PipelineWorkspaceSerializer
         workspace.EnsureDcDefaults();
         workspace.ShiftSchedule.Validate();
         foreach(var tab in workspace.Tabs)ShiftTextValidation.ValidateTree(tab.Steps);
+        List<LightStateProfile>? lightProfiles = null;
+        if (workspace.LightStateProfiles is not null)
+        {
+            lightProfiles = workspace.LightStateProfiles.Select(profile => profile.Copy()).ToList();
+            if (lightProfiles.Count == 0 || lightProfiles.Any(profile => profile is null || !profile.IsValid)
+                || lightProfiles.Select(profile => profile.Id).Distinct(StringComparer.Ordinal).Count() != lightProfiles.Count)
+                throw new InvalidDataException("پروفایل‌های نور پروژه خالی، تکراری یا نامعتبرند.");
+            lightProfiles = LightStateProfileStore.Normalize(lightProfiles);
+            var separation = DualLightCalibration.Validate(lightProfiles);
+            if (!separation.IsValid)
+                throw new InvalidDataException(DualLightCalibration.DescribeConflicts(separation));
+        }
         var envelope = new Envelope
         {
             pipelineVersion = PipelineWorkspace.FormatVersion,
@@ -39,6 +54,7 @@ public static class PipelineWorkspaceSerializer
             shiftSchedule = workspace.ShiftSchedule,
             dayWindowsUser = (workspace.DayWindowsUser ?? "").Trim(),
             nightWindowsUser = (workspace.NightWindowsUser ?? "").Trim(),
+            lightStateProfiles = lightProfiles,
         };
         foreach (var tab in workspace.Tabs)
             envelope.pipelines[CanonicalName(tab.Kind)] = tab.Steps.ToList();
@@ -79,11 +95,26 @@ public static class PipelineWorkspaceSerializer
 
         var version = root.TryGetProperty("pipelineVersion", out var versionValue)
             && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
-        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14))
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
         workspace.DayWindowsUser = ReadOptionalUsername(root, "dayWindowsUser");
+        if (root.TryGetProperty("lightStateProfiles", out var lightProfilesValue))
+        {
+            if (lightProfilesValue.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("پروفایل‌های نور داخل پروژه باید یک آرایه باشند.");
+            var loadedProfiles = lightProfilesValue.Deserialize<List<LightStateProfile>>()
+                ?? throw new InvalidDataException("پروفایل‌های نور پروژه قابل خواندن نیستند.");
+            if (loadedProfiles.Count == 0 || loadedProfiles.Any(profile => profile is null || !profile.IsValid)
+                || loadedProfiles.Select(profile => profile.Id).Distinct(StringComparer.Ordinal).Count() != loadedProfiles.Count)
+                throw new InvalidDataException("پروفایل‌های نور پروژه خالی، تکراری یا نامعتبرند.");
+            var normalizedProfiles = LightStateProfileStore.Normalize(loadedProfiles);
+            var separation = DualLightCalibration.Validate(normalizedProfiles);
+            if (!separation.IsValid)
+                throw new InvalidDataException(DualLightCalibration.DescribeConflicts(separation));
+            workspace.LightStateProfiles = normalizedProfiles.Select(profile => profile.Copy()).ToList();
+        }
         workspace.NightWindowsUser = ReadOptionalUsername(root, "nightWindowsUser");
         if(root.TryGetProperty("shiftSchedule",out var schedule)) {
             workspace.ShiftSchedule=schedule.Deserialize<ShiftScheduleSettings>()??new();

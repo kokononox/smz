@@ -18,6 +18,27 @@ public partial class MainViewModel
     // each tab's open/closed state for the lifetime of the editor session.
     private readonly Dictionary<PipelineKind, HashSet<string>> _collapsedPathsByTab = new();
 
+    private void CaptureProjectLightProfiles()
+        => _pipelineWorkspace.LightStateProfiles = LightStateProfiles
+            .Select(profile => profile.Copy()).ToList();
+
+    private void ApplyProjectLightProfiles()
+    {
+        if (_pipelineWorkspace.LightStateProfiles is not { } profiles) return;
+        var normalized = LightStateProfileStore.Normalize(profiles.Select(profile => profile.Copy()));
+        var separation = DualLightCalibration.Validate(normalized);
+        if (!separation.IsValid)
+            throw new InvalidDataException(DualLightCalibration.DescribeConflicts(separation));
+        LightStateProfiles.Clear();
+        foreach (var profile in normalized) LightStateProfiles.Add(profile.Copy());
+        _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
+        _lastClassifiedChartVersion = -1;
+        RefreshLightGateDiagnosticProfiles();
+        RefreshLightProfileWarnings();
+        LightProfileSaveStatus = "چیدمان و کالیبراسیون نور از فایل پروژه بارگذاری شدند.";
+        OnPropertyChanged(nameof(LightStateProfiles));
+    }
+
     // Splash is a legacy storage route only. Catch actions now live visibly
     // under the explicit Wait For Sound step in Game.
     public IReadOnlyList<PipelineTabDocument> PipelineTabs
@@ -66,6 +87,7 @@ public partial class MainViewModel
     {
         InitializePipelineTabs();
         CaptureActivePipeline();
+        CaptureProjectLightProfiles();
         return _pipelineWorkspace;
     }
 
@@ -173,6 +195,7 @@ public partial class MainViewModel
         if (!ConfirmDiscard()) return;
         InitializePipelineTabs();
         _pipelineWorkspace = new PipelineWorkspace();
+        CaptureProjectLightProfiles();
         _collapsedPathsByTab.Clear();
         _pipelineWorkspace.EnsureDcDefaults();
         _activePipelineTab = _pipelineWorkspace[PipelineKind.Main];
@@ -210,6 +233,7 @@ public partial class MainViewModel
             {
                 _pipelineWorkspace = PipelineWorkspace.FromLegacy(DocumentService.Load(dialog.FileName), targetKind);
             }
+            ApplyProjectLightProfiles();
             _collapsedPathsByTab.Clear();
             _activePipelineTab = _pipelineWorkspace[targetKind];
             _currentFile = dialog.FileName;
@@ -247,6 +271,7 @@ public partial class MainViewModel
     {
         InitializePipelineTabs();
         CaptureActivePipeline();
+        CaptureProjectLightProfiles();
         Log("pipeline save snapshot: " + PipelineCounts());
         var path = _currentFile;
         if (saveAs || string.IsNullOrWhiteSpace(path))

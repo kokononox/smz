@@ -73,6 +73,7 @@ internal static class LightStateProfilesUiBootstrap
         };
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
+        editorBody.Children.Add(Text("چیدمان و کالیبراسیون دوحسگری در فایل پروژهٔ ‎.amsj ذخیره می‌شوند؛ بعد از ذخیرهٔ پروفایل‌ها، پروژه را هم ذخیره کنید تا همراه ماکرو بمانند.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص فعلی همچنان از M=(L1+L2)/2 و Δ=L2−L1 استفاده می‌کند. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید. وارد/صادر کردن دوحسگری فقط مراکز M/Δ را همگام می‌کند؛ تلورانس‌ها در Native UF2 فعال هستند و برای تغییرشان باید UF2 را دوباره بسازید و فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
@@ -166,7 +167,9 @@ internal static class LightStateProfilesUiBootstrap
 
         vm.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(MainViewModel.LightChartVersion))
+            if (args.PropertyName == nameof(MainViewModel.LightStateProfiles))
+                window.Dispatcher.BeginInvoke(new Action(RebuildRows));
+            else if (args.PropertyName == nameof(MainViewModel.LightChartVersion))
                 window.Dispatcher.BeginInvoke(new Action(vm.ObserveCurrentLightState));
             else if (args.PropertyName == nameof(MainViewModel.LightFreshnessText)
                      && vm.LightFreshnessText.StartsWith("داده قدیمی", StringComparison.Ordinal))
@@ -264,7 +267,19 @@ internal static class LightStateProfilesUiBootstrap
 
         var profileBody = new StackPanel { Margin = new Thickness(8, 4, 8, 8) };
         profileBody.Children.Add(Text("برای هر محیط از ملودی آماده انتخاب کنید یا در ویرایش حرفه‌ای صدای سفارشی بسازید.", 12, "#AAB3C2"));
-        foreach (var profile in vm.LightStateProfiles) profileBody.Children.Add(CueRow(window, vm, profile));
+        var profileRows = new StackPanel();
+        void RebuildProfileCueRows()
+        {
+            profileRows.Children.Clear();
+            foreach (var profile in vm.LightStateProfiles) profileRows.Children.Add(CueRow(window, vm, profile));
+        }
+        RebuildProfileCueRows();
+        profileBody.Children.Add(profileRows);
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainViewModel.LightStateProfiles))
+                window.Dispatcher.BeginInvoke(new Action(RebuildProfileCueRows));
+        };
         var save = ActionButton("ذخیره صدای محیط‌های نوری", "#5E9FE8", "#10151C");
         save.HorizontalAlignment = HorizontalAlignment.Right;
         save.Margin = new Thickness(0, 8, 0, 0);

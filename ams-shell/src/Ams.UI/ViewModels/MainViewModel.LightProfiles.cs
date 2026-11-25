@@ -116,6 +116,12 @@ public partial class MainViewModel
                     profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired)
                 ? "پروفایل‌ها ذخیره شدند. " + DescribeProfileOverlaps(normalized)
                 : "پروفایل‌ها ذخیره شدند؛ مقادیر تک‌سنسوره تا کالیبراسیون سخت‌افزاری فرضی‌اند.";
+            if (_pipelineInitialized)
+            {
+                CaptureProjectLightProfiles();
+                MarkDirty();
+                LightProfileSaveStatus += " برای ثبت داخل فایل .amsj، پروژه را هم ذخیره کنید.";
+            }
             return true;
         }
         catch (Exception ex)
