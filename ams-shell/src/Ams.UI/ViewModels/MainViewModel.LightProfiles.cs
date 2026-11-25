@@ -353,7 +353,8 @@ public partial class MainViewModel
     }
 
     public void ReportLightProfileEditorValidationError()
-        => LightProfileSaveStatus = "ذخیره نشد: یک یا چند فیلد خالی یا دارای قالب نامعتبر است.";
+        => LightProfileSaveStatus =
+            "ذخیره نشد: فیلدها را بررسی کنید؛ تلورانس M و Δ در پروفایل دوحسگری باید حداقل ۳ لوکس و با گام مجاز برد باشد.";
 
     public void ResetLightStateProfiles()
     {

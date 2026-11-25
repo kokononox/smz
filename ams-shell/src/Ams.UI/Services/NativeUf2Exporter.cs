@@ -96,6 +96,13 @@ public static class NativeUf2Exporter
             if (configuredProfiles.Any(profile => !profile.Enabled || !profile.IsValid))
                 throw new InvalidOperationException(
                     "خروجی Native UF2 دوحسگری به پروفایل‌های فعال و معتبر نیاز دارد.");
+            var invalidTolerance = configuredProfiles.FirstOrDefault(profile =>
+                profile.HasDualSensorCalibration && !profile.HasValidDualAxisTolerances);
+            if (invalidTolerance is not null)
+                throw new InvalidOperationException(
+                    $"تلورانس‌های M و Δ در «{invalidTolerance.Name}» باید دست‌کم "
+                    + $"{LightStateProfile.MinimumDualAxisToleranceLux:0.#} لوکس باشند "
+                    + "و با گام قابل پشتیبانی برد تنظیم شوند.");
             var separation = DualLightCalibration.Validate(configuredProfiles);
             if (!separation.IsValid)
                 throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));

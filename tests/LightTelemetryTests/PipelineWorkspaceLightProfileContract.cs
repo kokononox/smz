@@ -23,9 +23,9 @@ internal static class PipelineWorkspaceLightProfileContract
             profile.HasDualSensorCalibration = true;
             profile.DualSensorCalibrationRequired = true;
             profile.MeanLuxCenter = 20.5 + i * 20;
-            profile.MeanLuxTolerance = 0.5;
+            profile.MeanLuxTolerance = i == 0 ? 4.25 : 3.0;
             profile.DifferenceLuxCenter = 0;
-            profile.DifferenceLuxTolerance = 0.5;
+            profile.DifferenceLuxTolerance = i == 0 ? 3.7 : 3.0;
             profile.Sensor1LuxCenter = 10 + i;
             profile.Sensor1LuxMinimum = 9 + i;
             profile.Sensor1LuxMaximum = 11 + i;
@@ -43,7 +43,9 @@ internal static class PipelineWorkspaceLightProfileContract
               && json.Contains("\"pipelineVersion\": 15", StringComparison.Ordinal)
               && paired is { HasDualSensorCalibration: true, DualSensorCalibrationRequired: true }
               && paired.MeanLuxCenter == 20.5
+              && paired.MeanLuxTolerance == 4.25
               && paired.DifferenceLuxCenter == 0
+              && paired.DifferenceLuxTolerance == 3.7
               && paired.Sensor1LuxCenter == 10
               && paired.Sensor1LuxMinimum == 9
               && paired.Sensor1LuxMaximum == 11
@@ -84,6 +86,7 @@ internal static class PipelineWorkspaceLightProfileContract
             Check(savedJson.Contains("\"lightStateProfiles\"", StringComparison.Ordinal)
                   && reloaded.Count == 1 && desktop is { HasDualSensorCalibration: true, DualSensorCalibrationRequired: true }
                   && desktop.MeanLuxCenter == 20.5 && desktop.DifferenceLuxCenter == 0
+                  && desktop.MeanLuxTolerance == 4.25 && desktop.DifferenceLuxTolerance == 3.7
                   && desktop.Sensor1LuxCenter == 10 && desktop.Sensor2LuxCenter == 10
                   && desktop.DualSensorSampleCount == 5,
                 "legacy .amsj save/load preserves dual layout flags, M/Δ and sensor summaries");

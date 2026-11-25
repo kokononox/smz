@@ -5,6 +5,11 @@ namespace Ams.UI.Models;
 /// <summary>Editable app-level light signature. Bounds are derived and never allow physical negative Lux.</summary>
 public class LightStateProfile
 {
+    /// <summary>Minimum paired classifier tolerance for each derived M/Δ axis, in Lux.</summary>
+    public const double MinimumDualAxisToleranceLux = 3.0;
+    public const int MeanLuxToleranceUnitsPerLux = 20;
+    public const int DifferenceLuxToleranceUnitsPerLux = 10;
+
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public bool Enabled { get; set; } = true;
@@ -48,6 +53,27 @@ public class LightStateProfile
     /// <summary>Positive half-width of the calibrated signed-contrast range.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double DifferenceLuxTolerance { get; set; }
+    /// <summary>
+    /// Indicates whether both paired tolerances meet the UI/firmware minimum and
+    /// can be represented exactly by the board's fixed-point descriptor.
+    /// Kept separate from IsValid so older stored profiles remain readable.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasValidDualAxisTolerances =>
+        !HasDualSensorCalibration
+        || (IsValidDualAxisTolerance(MeanLuxTolerance, MeanLuxToleranceUnitsPerLux)
+            && IsValidDualAxisTolerance(
+                DifferenceLuxTolerance, DifferenceLuxToleranceUnitsPerLux));
+
+    public static bool IsValidDualAxisTolerance(double tolerance, int unitsPerLux)
+    {
+        if (!double.IsFinite(tolerance) || tolerance < MinimumDualAxisToleranceLux
+            || tolerance > 1_000_000 || unitsPerLux <= 0)
+            return false;
+        var units = tolerance * unitsPerLux;
+        return double.IsFinite(units)
+               && Math.Abs(units - Math.Round(units)) < 0.000001;
+    }
     /// <summary>
     /// Raw paired-sample summary from the most recent dual calibration. These values
     /// make both physical sensor positions inspectable; classification still uses M/D.

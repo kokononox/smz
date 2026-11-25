@@ -34,9 +34,9 @@ internal static class LightStateProfileStoreContract
             pairedCapture.Enabled = false;
             pairedCapture.HasDualSensorCalibration = true;
             pairedCapture.MeanLuxCenter = 15.05;
-            pairedCapture.MeanLuxTolerance = 1.2;
+            pairedCapture.MeanLuxTolerance = 4.25;
             pairedCapture.DifferenceLuxCenter = 10.1;
-            pairedCapture.DifferenceLuxTolerance = 0.8;
+            pairedCapture.DifferenceLuxTolerance = 3.7;
             pairedCapture.Sensor1LuxCenter = 10.0;
             pairedCapture.Sensor1LuxMinimum = 9.8;
             pairedCapture.Sensor1LuxMaximum = 10.2;
@@ -62,6 +62,8 @@ internal static class LightStateProfileStoreContract
                   && loaded.Single(x => x.Id == "desktop").Sensor2LuxCenter == 20.1
                   && loaded.Single(x => x.Id == "desktop").Sensor2LuxMinimum == 19.9
                   && loaded.Single(x => x.Id == "desktop").Sensor2LuxMaximum == 20.2
+                  && loaded.Single(x => x.Id == "desktop").MeanLuxTolerance == 4.25
+                  && loaded.Single(x => x.Id == "desktop").DifferenceLuxTolerance == 3.7
                   && loaded.Single(x => x.Id == "desktop").DualSensorSampleCount == 5,
                 "profile store round-trips cues, cooldowns and both paired sensor ranges");
 

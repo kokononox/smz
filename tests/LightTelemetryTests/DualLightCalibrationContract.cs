@@ -30,9 +30,24 @@ internal static class DualLightCalibrationContract
               && Near(suggestion.Sensor2MaximumLux, 20.2)
               && suggestion.SampleCount == 5,
             "paired proposal stores raw L1/L2 ranges and the synchronized M/Δ signature");
-        Check(suggestion.MeanToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux
+        Check(Near(suggestion.MeanToleranceLux, 3.2)
+              && Near(suggestion.DifferenceToleranceLux, 3.1)
+              && suggestion.MeanToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux
               && suggestion.DifferenceToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux,
-            "both feature axes receive a nonzero per-profile tolerance");
+            "calibration suggestions enforce the configurable 3-Lux minimum on both axes");
+
+        var adjustable = Profile("adjustable", mean: 30, difference: 5, tolerance: 3);
+        adjustable.MeanLuxTolerance = 4.25;
+        adjustable.DifferenceLuxTolerance = 3.7;
+        Check(adjustable.HasValidDualAxisTolerances,
+            "independent M and Δ tolerances accept supported board precision above 3 Lux");
+        adjustable.MeanLuxTolerance = 2.95;
+        Check(!adjustable.HasValidDualAxisTolerances,
+            "paired tolerance validation rejects values below 3 Lux");
+        adjustable.MeanLuxTolerance = 4.25;
+        adjustable.DifferenceLuxTolerance = 3.73;
+        Check(!adjustable.HasValidDualAxisTolerances,
+            "paired tolerance validation rejects values the board fixed-point format cannot represent");
         try
         {
             DualLightCalibration.Suggest(new[] { (1.0, 2.0), (1.0, 2.0) });
@@ -40,22 +55,22 @@ internal static class DualLightCalibrationContract
         }
         catch (ArgumentException) { Check(true, "paired proposal refuses too few samples"); }
 
-        var first = Profile("first", mean: 20, difference: 0, tolerance: 2);
-        var contrastSeparated = Profile("contrast", mean: 20, difference: 10, tolerance: 2);
+        var first = Profile("first", mean: 20, difference: 0, tolerance: 3);
+        var contrastSeparated = Profile("contrast", mean: 20, difference: 10, tolerance: 3);
         var safe = DualLightCalibration.Validate(new[] { first, contrastSeparated });
         Check(safe.IsValid,
             "overlap on mean alone is accepted when contrast gives the required combined-space clearance");
 
-        var tooClose = Profile("too-close", mean: 20, difference: 4.9, tolerance: 2);
+        var tooClose = Profile("too-close", mean: 20, difference: 6.9, tolerance: 3);
         Check(!DualLightCalibration.Validate(new[] { first, tooClose }).IsValid,
             "per-profile tolerances plus the extra inter-profile margin reject insufficient clearance");
-        var tangent = Profile("tangent", mean: 25, difference: 0, tolerance: 2);
+        var tangent = Profile("tangent", mean: 27, difference: 0, tolerance: 3);
         Check(!DualLightCalibration.Validate(new[] { first, tangent }).IsValid,
             "a pair exactly on the required safety boundary fails closed");
 
         var at = new DateTimeOffset(2026, 11, 21, 20, 0, 0, TimeSpan.Zero);
-        first = Profile("first", mean: 20, difference: 0, tolerance: 1);
-        contrastSeparated = Profile("contrast", mean: 20, difference: 10, tolerance: 1);
+        first = Profile("first", mean: 20, difference: 0, tolerance: 3);
+        contrastSeparated = Profile("contrast", mean: 20, difference: 10, tolerance: 3);
         var classifier = new LightStateClassifier(new[] { first, contrastSeparated });
         Check(classifier.Update(20, 20, at).Kind == LightStateClassificationKind.Candidate
               && classifier.Update(20, 20, at.AddMilliseconds(750)).Kind == LightStateClassificationKind.Stable
@@ -63,8 +78,8 @@ internal static class DualLightCalibrationContract
             "paired classifier applies the 2D ellipse and existing stable-duration behavior");
         var overlapping = new LightStateClassifier(new[]
         {
-            Profile("overlap-a", mean: 20, difference: 0, tolerance: 2),
-            Profile("overlap-b", mean: 20, difference: 0, tolerance: 2),
+            Profile("overlap-a", mean: 20, difference: 0, tolerance: 3),
+            Profile("overlap-b", mean: 20, difference: 0, tolerance: 3),
         }).Update(20, 20, at);
         Check(overlapping.Kind == LightStateClassificationKind.Ambiguous
               && overlapping.Matches?.Count == 2,
@@ -103,21 +118,21 @@ internal static class DualLightCalibrationContract
             roundtrip.HasDualSensorCalibration = true;
             roundtrip.DualSensorCalibrationRequired = true;
             roundtrip.MeanLuxCenter = 30;
-            roundtrip.MeanLuxTolerance = 1.2;
+            roundtrip.MeanLuxTolerance = 4.25;
             roundtrip.DifferenceLuxCenter = -4;
-            roundtrip.DifferenceLuxTolerance = 0.8;
+            roundtrip.DifferenceLuxTolerance = 3.7;
             LightStateProfileStore.Save(calibrated, path);
             var loaded = LightStateProfileStore.Load(path).Single(profile => profile.Id == "desktop");
             Check(loaded.HasDualSensorCalibration
                   && loaded.DualSensorCalibrationRequired
-                  && Near(loaded.MeanLuxCenter, 30) && Near(loaded.MeanLuxTolerance, 1.2)
-                  && Near(loaded.DifferenceLuxCenter, -4) && Near(loaded.DifferenceLuxTolerance, 0.8),
+                  && Near(loaded.MeanLuxCenter, 30) && Near(loaded.MeanLuxTolerance, 4.25)
+                  && Near(loaded.DifferenceLuxCenter, -4) && Near(loaded.DifferenceLuxTolerance, 3.7),
                 "paired calibration values round-trip without altering legacy schema fields");
             var bytesBeforeConflict = File.ReadAllBytes(path);
 
             var conflicting = LightStateDefaults.CreateInitialProfiles();
-            SetDual(conflicting.Single(profile => profile.Id == "desktop"), 20, 0, 2);
-            SetDual(conflicting.Single(profile => profile.Id == "game"), 20, 4, 2);
+            SetDual(conflicting.Single(profile => profile.Id == "desktop"), 20, 0, 3);
+            SetDual(conflicting.Single(profile => profile.Id == "game"), 20, 6.9, 3);
             try
             {
                 LightStateProfileStore.Save(conflicting, path);

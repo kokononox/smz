@@ -98,6 +98,11 @@ public static class DualBoardLightSync
             if (!profile.Enabled || !profile.HasDualSensorCalibration || !profile.IsValid)
                 throw new InvalidOperationException(
                     $"پروفایل «{profile.Name}» باید فعال و جفت‌کالیبره باشد.");
+            if (!profile.HasValidDualAxisTolerances)
+                throw new InvalidOperationException(
+                    $"تلورانس‌های M و Δ در «{profile.Name}» باید دست‌کم "
+                    + $"{LightStateProfile.MinimumDualAxisToleranceLux:0.#} لوکس باشند "
+                    + "و با گام قابل پشتیبانی برد تنظیم شوند؛ سپس UF2 را دوباره بسازید و فلش کنید.");
             return (Profile: profile,
                 Mean: ToUnits(profile.MeanLuxCenter, 20, MaximumMeanValueHalfTenths,
                     "مرکز میانگین"),

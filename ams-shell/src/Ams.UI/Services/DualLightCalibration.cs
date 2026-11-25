@@ -11,7 +11,7 @@ public static class DualLightCalibration
     /// </summary>
     public const double MinimumInterProfileGapLux = 1.0;
     public const int MinimumSampleCount = 5;
-    public const double MinimumAxisToleranceLux = 0.5;
+    public const double MinimumAxisToleranceLux = LightStateProfile.MinimumDualAxisToleranceLux;
     private const int SeparationDirectionSteps = 4096;
 
     public static DualLightCalibrationSuggestion Suggest(

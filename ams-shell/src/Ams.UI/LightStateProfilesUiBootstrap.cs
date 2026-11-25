@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -20,6 +21,8 @@ internal static class LightStateProfilesUiBootstrap
     internal const int ProfileSensor1Column = 5;
     internal const int ProfileSensor2Column = 6;
     internal const int ProfileSignatureColumn = 7;
+    internal const int ProfileMeanToleranceColumn = 11;
+    internal const int ProfileDifferenceToleranceColumn = 12;
 
     private static readonly DependencyProperty InstalledProperty = DependencyProperty.RegisterAttached(
         "LightStateProfilesUiInstalled", typeof(bool), typeof(LightStateProfilesUiBootstrap), new PropertyMetadata(false));
@@ -80,9 +83,10 @@ internal static class LightStateProfilesUiBootstrap
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("چیدمان و کالیبراسیون دوحسگری در فایل پروژهٔ ‎.amsj ذخیره می‌شوند؛ بعد از ذخیرهٔ پروفایل‌ها، پروژه را هم ذخیره کنید تا همراه ماکرو بمانند.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص فعلی همچنان از M=(L1+L2)/2 و Δ=L2−L1 استفاده می‌کند. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. وارد/صادر کردن دوحسگری فقط مراکز M/Δ را همگام می‌کند؛ تلورانس‌ها در Native UF2 فعال هستند و برای تغییرشان باید UF2 را دوباره بسازید و فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
-        editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
+        editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص همچنان با M=(L1+L2)/2 و Δ=L2−L1 انجام می‌شود. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("تلورانس‌های M و Δ برای هر وضعیت در دو ستون جداگانه قابل تنظیم‌اند؛ حداقل هرکدام ۳ لوکس است. هم‌پوشانی در یک محور اشکالی ندارد، اما پروفایل‌ها باید در فضای دوبعدی با حاشیهٔ امن ۱ لوکس جدا بمانند. دقت قابل‌ارسال به برد برای M برابر ۰٫۰۵ و برای Δ برابر ۰٫۱ لوکس است.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. همگام‌سازی با برد فقط مراکز M/Δ را می‌فرستد؛ برای اعمال تلورانس‌های جدید، پروفایل‌ها را ذخیره کنید، Native UF2 را دوباره بسازید و آن را فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی تک‌سنسوره (L1، لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
             Foreground = Brush("#F5F7FA"), BorderBrush = Brush("#444A55") };
@@ -206,6 +210,8 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 8);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 9);
         Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 10);
+        Add(row, Text("تلورانس M ± · حداقل ۳ Lux", 11, "#AAB3C2"), ProfileMeanToleranceColumn);
+        Add(row, Text("تلورانس Δ ± · حداقل ۳ Lux", 11, "#AAB3C2"), ProfileDifferenceToleranceColumn);
         return row;
     }
 
@@ -266,6 +272,23 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
             ? Editor(profile, nameof(profile.LightCooldownMs))
             : Text("—", 12, "#777F8C"), 10);
+        if (profile.HasDualSensorCalibration)
+        {
+            Add(row, Editor(profile, nameof(profile.MeanLuxTolerance)), ProfileMeanToleranceColumn);
+            Add(row, Editor(profile, nameof(profile.DifferenceLuxTolerance)),
+                ProfileDifferenceToleranceColumn);
+        }
+        else if (profile.DualSensorCalibrationRequired)
+        {
+            Add(row, Text("بعد از کالیبراسیون", 10, "#777F8C"), ProfileMeanToleranceColumn);
+            Add(row, Text("بعد از کالیبراسیون", 10, "#777F8C"),
+                ProfileDifferenceToleranceColumn);
+        }
+        else
+        {
+            Add(row, Text("—", 12, "#777F8C"), ProfileMeanToleranceColumn);
+            Add(row, Text("—", 12, "#777F8C"), ProfileDifferenceToleranceColumn);
+        }
         return row;
     }
 
@@ -285,11 +308,11 @@ internal static class LightStateProfilesUiBootstrap
 
     private static Grid ProfileGrid()
     {
-        var grid = new Grid { MinWidth = 1440 };
+        var grid = new Grid { MinWidth = 1680 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-        for (var i = 0; i < 8; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < 10; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         return grid;
     }
 
@@ -405,12 +428,53 @@ internal static class LightStateProfilesUiBootstrap
             Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(3), MinWidth = 70,
             Background = Brush("#181B20"), Foreground = Brush("#F5F7FA"), BorderBrush = Brush("#444A55"),
         };
-        box.SetBinding(TextBox.TextProperty, new Binding(path)
+        var binding = new Binding(path)
         {
             Source = profile, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.LostFocus,
             ValidatesOnExceptions = true,
-        });
+        };
+        if (path is nameof(LightStateProfile.MeanLuxTolerance)
+            or nameof(LightStateProfile.DifferenceLuxTolerance))
+        {
+            var meanAxis = path == nameof(LightStateProfile.MeanLuxTolerance);
+            var unitsPerLux = meanAxis
+                ? LightStateProfile.MeanLuxToleranceUnitsPerLux
+                : LightStateProfile.DifferenceLuxToleranceUnitsPerLux;
+            binding.ValidationRules.Add(new DualAxisToleranceValidationRule(unitsPerLux, meanAxis));
+            box.ToolTip = meanAxis
+                ? "حداقل ۳ لوکس؛ گام قابل‌ارسال به برد ۰٫۰۵ لوکس"
+                : "حداقل ۳ لوکس؛ گام قابل‌ارسال به برد ۰٫۱ لوکس";
+        }
+        box.SetBinding(TextBox.TextProperty, binding);
         return box;
+    }
+
+    private sealed class DualAxisToleranceValidationRule : ValidationRule
+    {
+        private readonly int _unitsPerLux;
+        private readonly bool _meanAxis;
+
+        public DualAxisToleranceValidationRule(int unitsPerLux, bool meanAxis)
+        {
+            _unitsPerLux = unitsPerLux;
+            _meanAxis = meanAxis;
+            ValidatesOnTargetUpdated = true;
+        }
+
+        public override ValidationResult Validate(object value, CultureInfo cultureInfo)
+        {
+            var text = Convert.ToString(value, cultureInfo) ?? "";
+            if (!double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands,
+                    cultureInfo, out var tolerance) || !double.IsFinite(tolerance))
+                return new ValidationResult(false, "تلورانس باید عدد معتبر باشد.");
+            if (tolerance < LightStateProfile.MinimumDualAxisToleranceLux)
+                return new ValidationResult(false, "تلورانس هر محور باید دست‌کم ۳ لوکس باشد.");
+            if (!LightStateProfile.IsValidDualAxisTolerance(tolerance, _unitsPerLux))
+                return new ValidationResult(false, _meanAxis
+                    ? "تلورانس M باید با گام ۰٫۰۵ لوکس و حداکثر ۱٬۰۰۰٬۰۰۰ لوکس وارد شود."
+                    : "تلورانس Δ باید با گام ۰٫۱ لوکس و حداکثر ۱٬۰۰۰٬۰۰۰ لوکس وارد شود.");
+            return ValidationResult.ValidResult;
+        }
     }
 
     private static Button ActionButton(string title, string background, string foreground) => new()

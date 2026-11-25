@@ -140,9 +140,9 @@ for (var i = 0; i < BoardLightSync.Ids.Length; i++)
     profile.HasDualSensorCalibration = true;
     profile.DualSensorCalibrationRequired = true;
     profile.MeanLuxCenter = 20.5 + i * 20;
-    profile.MeanLuxTolerance = 0.5;
+    profile.MeanLuxTolerance = i == 0 ? 4.25 : 3.0;
     profile.DifferenceLuxCenter = 0;
-    profile.DifferenceLuxTolerance = 0.5;
+    profile.DifferenceLuxTolerance = i == 0 ? 3.7 : 3.0;
     profile.Sensor1LuxCenter = 20 + i;
     profile.Sensor1LuxMinimum = 19 + i;
     profile.Sensor1LuxMaximum = 21 + i;
@@ -152,7 +152,7 @@ for (var i = 0; i < BoardLightSync.Ids.Length; i++)
     profile.DualSensorSampleCount = 5;
 }
 var dualCommand = DualBoardLightSync.BuildCommand(dualTargets);
-Check(dualCommand.StartsWith("CALSYNC|DUAL|SET|profiles=1:410:10:0:5,2:810:10:0:5,",
+Check(dualCommand.StartsWith("CALSYNC|DUAL|SET|profiles=1:410:85:0:37,2:810:60:0:30,",
         StringComparison.Ordinal),
     "dual board sync serializes paired centers and UF2 tolerance checks in profile order");
 var partialDualIds = new[] { "desktop", "game" };
@@ -162,12 +162,12 @@ var partialDualTargets = dualTargets
 var partialDualCommand = DualBoardLightSync.BuildCommand(
     partialDualTargets, partialDualIds);
 Check(partialDualCommand
-      == "CALSYNC|DUAL|SET|profiles=1:410:10:0:5,5:2010:10:0:5",
+      == "CALSYNC|DUAL|SET|profiles=1:410:85:0:37,5:2010:60:0:30",
     "dual board sync can send selected calibrated profiles without waiting for all nine");
 var dualSnapshot = DualBoardLightSync.Parse(
     "OK|CALSYNC|DUAL|revision=73|" + dualCommand["CALSYNC|DUAL|SET|".Length..]);
 Check(dualSnapshot.Revision == 73 && dualSnapshot.Profiles.Count == 9
-      && dualSnapshot.Profiles[0] == new DualBoardLightProfile(1, 410, 10, 0, 5)
+      && dualSnapshot.Profiles[0] == new DualBoardLightProfile(1, 410, 85, 0, 37)
       && DualBoardLightSync.Matches(dualSnapshot, dualTargets)
       && DualBoardLightSync.Matches(dualSnapshot, partialDualTargets, partialDualIds),
     "dual board sync parses a complete M/D snapshot and verifies the round trip");
@@ -193,8 +193,8 @@ Check(DualBoardLightSync.Apply(dualSnapshot, dualImportTargets) == 9
       && dualImportTargets[0].HasDualSensorCalibration
       && dualImportTargets[0].DualSensorCalibrationRequired
       && dualImportTargets[0].MeanLuxCenter == 20.5
-      && dualImportTargets[0].MeanLuxTolerance == 0.5
-      && dualImportTargets[0].DifferenceLuxTolerance == 0.5
+      && dualImportTargets[0].MeanLuxTolerance == 4.25
+      && dualImportTargets[0].DifferenceLuxTolerance == 3.7
       && dualImportTargets[0].LuxCenter == preservedLegacyLux
       && dualImportTargets[0].Sensor1LuxCenter is null
       && dualImportTargets[0].Sensor2LuxMaximum is null
@@ -234,12 +234,23 @@ try
     DualBoardLightSync.BuildCommand(dualTargets.Select((profile, index) =>
     {
         var copy = profile.Copy();
-        if (index == 0) copy.MeanLuxTolerance = 0.53;
+        if (index == 0) copy.MeanLuxTolerance = 3.03;
         return copy;
     }).ToList());
     Check(false, "dual sync rejects tolerance precision absent from the wire protocol");
 }
 catch (InvalidOperationException) { Check(true, "dual sync rejects tolerance precision absent from the wire protocol"); }
+try
+{
+    DualBoardLightSync.BuildCommand(dualTargets.Select((profile, index) =>
+    {
+        var copy = profile.Copy();
+        if (index == 0) copy.DifferenceLuxTolerance = 2.9;
+        return copy;
+    }).ToList());
+    Check(false, "dual sync rejects paired tolerances below 3 Lux");
+}
+catch (InvalidOperationException) { Check(true, "dual sync rejects paired tolerances below 3 Lux"); }
 Check(LightWatchService.DefaultIntervalMs == 250,
     "Watch default interval is 250 ms");
 Check(new[] { 100, 250, 500 }.All(ms =>

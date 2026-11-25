@@ -166,6 +166,9 @@ public partial class MainViewModel
         profile.Sensor2LuxMaximum = candidate.Sensor2LuxMaximum;
         profile.DualSensorSampleCount = candidate.DualSensorSampleCount;
         RefreshLightProfileWarnings();
+        // The paired tolerance editors appear only for paired-calibrated rows.
+        // Rebuilding the profile table exposes them immediately after Apply.
+        OnPropertyChanged(nameof(LightStateProfiles));
         LightCalibrationStatus = "پیشنهاد دوحسگری روی فرم اعمال شد؛ برای ماندگارشدن، «ذخیره پروفایل‌ها» را بزنید.";
         return true;
     }
