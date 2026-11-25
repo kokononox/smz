@@ -117,18 +117,40 @@ internal static class LightCalibrationUiBootstrap
 
         if (root is Grid grid)
         {
-            var center = grid.Children.OfType<TextBox>()
-                .FirstOrDefault(x => Grid.GetColumn(x) == 2)?
+            var profile = grid.Children.OfType<TextBox>()
+                .FirstOrDefault(x => Grid.GetColumn(x) == 1)?
                 .GetBindingExpression(TextBox.TextProperty)?.ResolvedSource as LightStateProfile;
-            var range = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 4);
-            if (center is not null && range is not null)
-                range.Text = center.HasDualSensorCalibration
-                    ? $"دوحسگر · M {center.MeanLuxCenter:0.#} ±{center.MeanLuxTolerance:0.#}\nΔ {center.DifferenceLuxCenter:0.#} ±{center.DifferenceLuxTolerance:0.#}"
-                    : $"L1 · {center.LuxMin:0.#} تا {center.LuxMax:0.#}";
+            if (profile is not null)
+            {
+                var sensor1 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 4);
+                var sensor2 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 5);
+                var signature = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == 6);
+                if (sensor1 is not null) sensor1.Text = DescribeRawSensor(profile, sensor1: true);
+                if (sensor2 is not null) sensor2.Text = DescribeRawSensor(profile, sensor1: false);
+                if (signature is not null)
+                    signature.Text = profile.HasDualSensorCalibration
+                        ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                        : profile.DualSensorCalibrationRequired
+                            ? "منتظر کالیبراسیون جفتی"
+                            : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}";
+            }
         }
 
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
             RefreshProfileEditor(VisualTreeHelper.GetChild(root, i));
+    }
+
+    private static string DescribeRawSensor(LightStateProfile profile, bool sensor1)
+    {
+        if (profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration)
+            return "منتظر کالیبراسیون";
+        if (!profile.HasDualSensorCalibration) return "—";
+        var center = sensor1 ? profile.Sensor1LuxCenter : profile.Sensor2LuxCenter;
+        var minimum = sensor1 ? profile.Sensor1LuxMinimum : profile.Sensor2LuxMinimum;
+        var maximum = sensor1 ? profile.Sensor1LuxMaximum : profile.Sensor2LuxMaximum;
+        if (center is not double median || minimum is not double low || maximum is not double high)
+            return "نمونهٔ خام ذخیره نشده";
+        return $"میانه {median:0.0} Lux\n{low:0.0}–{high:0.0} · {profile.DualSensorSampleCount ?? 0} جفت";
     }
 
     private static Button Button(string label, string background, string foreground) => new()

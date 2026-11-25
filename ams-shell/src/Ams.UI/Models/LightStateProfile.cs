@@ -48,6 +48,25 @@ public class LightStateProfile
     /// <summary>Positive half-width of the calibrated signed-contrast range.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double DifferenceLuxTolerance { get; set; }
+    /// <summary>
+    /// Raw paired-sample summary from the most recent dual calibration. These values
+    /// make both physical sensor positions inspectable; classification still uses M/D.
+    /// Null means the profile predates raw-channel summaries or has not been paired-calibrated.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor1LuxCenter { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor1LuxMinimum { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor1LuxMaximum { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor2LuxCenter { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor2LuxMinimum { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Sensor2LuxMaximum { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DualSensorSampleCount { get; set; }
     public int StableDurationMs { get; set; } = 750;
     public double HysteresisLux { get; set; } = 1;
     /// <summary>
@@ -71,6 +90,29 @@ public class LightStateProfile
 
     [JsonIgnore] public double LuxMin => LuxLowOverride ?? Math.Max(0, LuxCenter - LuxTolerance);
     [JsonIgnore] public double LuxMax => LuxHighOverride ?? (LuxCenter + LuxTolerance);
+    [JsonIgnore]
+    private bool HasAnyDualSensorSampleSummary =>
+        Sensor1LuxCenter is not null || Sensor1LuxMinimum is not null || Sensor1LuxMaximum is not null
+        || Sensor2LuxCenter is not null || Sensor2LuxMinimum is not null || Sensor2LuxMaximum is not null
+        || DualSensorSampleCount is not null;
+    [JsonIgnore]
+    private bool DualSensorSampleSummaryIsValid
+    {
+        get
+        {
+            if (!HasAnyDualSensorSampleSummary) return true;
+            return HasDualSensorCalibration
+                   && DualSensorSampleCount is >= 5
+                   && ValidSampleAxis(Sensor1LuxMinimum, Sensor1LuxCenter, Sensor1LuxMaximum)
+                   && ValidSampleAxis(Sensor2LuxMinimum, Sensor2LuxCenter, Sensor2LuxMaximum);
+        }
+    }
+
+    private static bool ValidSampleAxis(double? minimum, double? center, double? maximum)
+        => minimum is double min && double.IsFinite(min) && min >= 0
+           && center is double mid && double.IsFinite(mid) && mid >= min
+           && maximum is double max && double.IsFinite(max) && max >= mid;
+
     [JsonIgnore] public bool IsValid =>
         !string.IsNullOrWhiteSpace(Id)
         && !string.IsNullOrWhiteSpace(Name)
@@ -84,6 +126,7 @@ public class LightStateProfile
                 && double.IsFinite(MeanLuxTolerance) && MeanLuxTolerance > 0
                 && double.IsFinite(DifferenceLuxCenter)
                 && double.IsFinite(DifferenceLuxTolerance) && DifferenceLuxTolerance > 0))
+        && DualSensorSampleSummaryIsValid
         && StableDurationMs >= 0
         && double.IsFinite(HysteresisLux) && HysteresisLux >= 0
         && LightCooldownMs is >= 0 and <= 3600000

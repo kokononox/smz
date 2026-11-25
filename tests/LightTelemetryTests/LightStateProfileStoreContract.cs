@@ -30,6 +30,20 @@ internal static class LightStateProfileStoreContract
             edited.Single(x => x.Id == "whisper").LightCooldownMs = 12500;
             edited.Single(x => x.Id == "targeted-repeat").LightCooldownMs = 42000;
             edited.Single(x => x.Id == "whisper-repeat").LightCooldownMs = 3600000;
+            var pairedCapture = edited.Single(x => x.Id == "desktop");
+            pairedCapture.Enabled = false;
+            pairedCapture.HasDualSensorCalibration = true;
+            pairedCapture.MeanLuxCenter = 15.05;
+            pairedCapture.MeanLuxTolerance = 1.2;
+            pairedCapture.DifferenceLuxCenter = 10.1;
+            pairedCapture.DifferenceLuxTolerance = 0.8;
+            pairedCapture.Sensor1LuxCenter = 10.0;
+            pairedCapture.Sensor1LuxMinimum = 9.8;
+            pairedCapture.Sensor1LuxMaximum = 10.2;
+            pairedCapture.Sensor2LuxCenter = 20.1;
+            pairedCapture.Sensor2LuxMinimum = 19.9;
+            pairedCapture.Sensor2LuxMaximum = 20.2;
+            pairedCapture.DualSensorSampleCount = 5;
             LightStateProfileStore.Save(edited, path);
             var loaded = LightStateProfileStore.Load(path);
             Check(loaded.Single(x => x.Id == "targeted").LuxTolerance == 3.5
@@ -41,8 +55,15 @@ internal static class LightStateProfileStoreContract
                   && loaded.Single(x => x.Id == "targeted").CalibrationCueEnvelope == "smooth"
                   && loaded.Single(x => x.Id == "whisper").LightCooldownMs == 0
                   && loaded.Single(x => x.Id == "targeted-repeat").LightCooldownMs == 42000
-                  && loaded.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 3600000,
-                "profile store round-trips cues and repeat-only optical cooldowns");
+                  && loaded.Single(x => x.Id == "whisper-repeat").LightCooldownMs == 3600000
+                  && loaded.Single(x => x.Id == "desktop").Sensor1LuxCenter == 10.0
+                  && loaded.Single(x => x.Id == "desktop").Sensor1LuxMinimum == 9.8
+                  && loaded.Single(x => x.Id == "desktop").Sensor1LuxMaximum == 10.2
+                  && loaded.Single(x => x.Id == "desktop").Sensor2LuxCenter == 20.1
+                  && loaded.Single(x => x.Id == "desktop").Sensor2LuxMinimum == 19.9
+                  && loaded.Single(x => x.Id == "desktop").Sensor2LuxMaximum == 20.2
+                  && loaded.Single(x => x.Id == "desktop").DualSensorSampleCount == 5,
+                "profile store round-trips cues, cooldowns and both paired sensor ranges");
 
             File.WriteAllText(path, "{not-json");
             var recovered = LightStateProfileStore.Load(path);

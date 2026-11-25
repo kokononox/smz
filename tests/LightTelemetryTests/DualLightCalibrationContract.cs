@@ -22,8 +22,14 @@ internal static class DualLightCalibrationContract
         });
         Check(Near(suggestion.MeanCenterLux, 15.05)
               && Near(suggestion.DifferenceCenterLux, 10.1)
+              && Near(suggestion.Sensor1CenterLux, 10.0)
+              && Near(suggestion.Sensor1MinimumLux, 9.8)
+              && Near(suggestion.Sensor1MaximumLux, 10.2)
+              && Near(suggestion.Sensor2CenterLux, 20.1)
+              && Near(suggestion.Sensor2MinimumLux, 19.9)
+              && Near(suggestion.Sensor2MaximumLux, 20.2)
               && suggestion.SampleCount == 5,
-            "paired proposal uses synchronized mean and signed L2−L1 contrast medians");
+            "paired proposal stores raw L1/L2 ranges and the synchronized M/Δ signature");
         Check(suggestion.MeanToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux
               && suggestion.DifferenceToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux,
             "both feature axes receive a nonzero per-profile tolerance");

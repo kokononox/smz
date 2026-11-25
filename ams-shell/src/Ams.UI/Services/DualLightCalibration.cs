@@ -21,7 +21,9 @@ public static class DualLightCalibration
         var valid = samples
             .Where(sample => double.IsFinite(sample.Lux1) && sample.Lux1 >= 0
                              && double.IsFinite(sample.Lux2) && sample.Lux2 >= 0)
-            .Select(sample => (Mean: (sample.Lux1 + sample.Lux2) / 2.0,
+            .Select(sample => (Lux1: sample.Lux1,
+                               Lux2: sample.Lux2,
+                               Mean: (sample.Lux1 + sample.Lux2) / 2.0,
                                Difference: sample.Lux2 - sample.Lux1))
             .Where(sample => double.IsFinite(sample.Mean) && double.IsFinite(sample.Difference))
             .ToArray();
@@ -31,9 +33,13 @@ public static class DualLightCalibration
 
         var mean = ProposeAxis(valid.Select(x => x.Mean));
         var difference = ProposeAxis(valid.Select(x => x.Difference));
+        var sensor1 = ProposeAxis(valid.Select(x => x.Lux1));
+        var sensor2 = ProposeAxis(valid.Select(x => x.Lux2));
         return new DualLightCalibrationSuggestion(
             mean.Center, mean.Tolerance, mean.Minimum, mean.Maximum,
             difference.Center, difference.Tolerance, difference.Minimum, difference.Maximum,
+            sensor1.Center, sensor1.Minimum, sensor1.Maximum,
+            sensor2.Center, sensor2.Minimum, sensor2.Maximum,
             valid.Length);
     }
 
@@ -166,6 +172,12 @@ public sealed record DualLightCalibrationSuggestion(
     double DifferenceToleranceLux,
     double DifferenceMinimumLux,
     double DifferenceMaximumLux,
+    double Sensor1CenterLux,
+    double Sensor1MinimumLux,
+    double Sensor1MaximumLux,
+    double Sensor2CenterLux,
+    double Sensor2MinimumLux,
+    double Sensor2MaximumLux,
     int SampleCount);
 
 public sealed record DualLightProfileConflict(

@@ -42,11 +42,16 @@ public partial class MainViewModel
 
     public string LightCalibrationSuggestionDisplay => _pendingLightCalibrationSuggestion is null
         ? "پیشنهادی آماده نیست."
-        : $"میانگین (L1+L2)/2: {_pendingLightCalibrationSuggestion.MeanCenterLux:0.0} ±{_pendingLightCalibrationSuggestion.MeanToleranceLux:0.0} Lux "
+        : $"حسگر ۱: میانه {_pendingLightCalibrationSuggestion.Sensor1CenterLux:0.0} "
+          + $"[{_pendingLightCalibrationSuggestion.Sensor1MinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.Sensor1MaximumLux:0.0}] Lux · "
+          + $"حسگر ۲: میانه {_pendingLightCalibrationSuggestion.Sensor2CenterLux:0.0} "
+          + $"[{_pendingLightCalibrationSuggestion.Sensor2MinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.Sensor2MaximumLux:0.0}] Lux · "
+          + $"{_pendingLightCalibrationSuggestion.SampleCount} جفت نمونه\n"
+          + $"میانگین (L1+L2)/2: {_pendingLightCalibrationSuggestion.MeanCenterLux:0.0} ±{_pendingLightCalibrationSuggestion.MeanToleranceLux:0.0} Lux "
           + $"[{_pendingLightCalibrationSuggestion.MeanMinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.MeanMaximumLux:0.0}] · "
           + $"اختلاف علامت‌دار L2−L1: {_pendingLightCalibrationSuggestion.DifferenceCenterLux:0.0} ±{_pendingLightCalibrationSuggestion.DifferenceToleranceLux:0.0} Lux "
           + $"[{_pendingLightCalibrationSuggestion.DifferenceMinimumLux:0.0} تا {_pendingLightCalibrationSuggestion.DifferenceMaximumLux:0.0}] · "
-          + $"{_pendingLightCalibrationSuggestion.SampleCount} نمونه";
+          + "محدوده‌های L1/L2 بالا فقط نمونه‌های همین برداشت‌اند؛ تشخیص همچنان با M/Δ انجام می‌شود.";
 
     public bool StartLightProfileCalibration()
     {
@@ -128,6 +133,13 @@ public partial class MainViewModel
         candidate.MeanLuxTolerance = _pendingLightCalibrationSuggestion.MeanToleranceLux;
         candidate.DifferenceLuxCenter = _pendingLightCalibrationSuggestion.DifferenceCenterLux;
         candidate.DifferenceLuxTolerance = _pendingLightCalibrationSuggestion.DifferenceToleranceLux;
+        candidate.Sensor1LuxCenter = _pendingLightCalibrationSuggestion.Sensor1CenterLux;
+        candidate.Sensor1LuxMinimum = _pendingLightCalibrationSuggestion.Sensor1MinimumLux;
+        candidate.Sensor1LuxMaximum = _pendingLightCalibrationSuggestion.Sensor1MaximumLux;
+        candidate.Sensor2LuxCenter = _pendingLightCalibrationSuggestion.Sensor2CenterLux;
+        candidate.Sensor2LuxMinimum = _pendingLightCalibrationSuggestion.Sensor2MinimumLux;
+        candidate.Sensor2LuxMaximum = _pendingLightCalibrationSuggestion.Sensor2MaximumLux;
+        candidate.DualSensorSampleCount = _pendingLightCalibrationSuggestion.SampleCount;
         if (!candidate.IsValid)
         {
             LightCalibrationStatus = "پیشنهاد اعمال نشد: مقادیر دوحسگری خارج از محدودهٔ معتبرند؛ دوباره نمونه‌برداری کنید.";
@@ -146,6 +158,13 @@ public partial class MainViewModel
         profile.MeanLuxTolerance = candidate.MeanLuxTolerance;
         profile.DifferenceLuxCenter = candidate.DifferenceLuxCenter;
         profile.DifferenceLuxTolerance = candidate.DifferenceLuxTolerance;
+        profile.Sensor1LuxCenter = candidate.Sensor1LuxCenter;
+        profile.Sensor1LuxMinimum = candidate.Sensor1LuxMinimum;
+        profile.Sensor1LuxMaximum = candidate.Sensor1LuxMaximum;
+        profile.Sensor2LuxCenter = candidate.Sensor2LuxCenter;
+        profile.Sensor2LuxMinimum = candidate.Sensor2LuxMinimum;
+        profile.Sensor2LuxMaximum = candidate.Sensor2LuxMaximum;
+        profile.DualSensorSampleCount = candidate.DualSensorSampleCount;
         RefreshLightProfileWarnings();
         LightCalibrationStatus = "پیشنهاد دوحسگری روی فرم اعمال شد؛ برای ماندگارشدن، «ذخیره پروفایل‌ها» را بزنید.";
         return true;

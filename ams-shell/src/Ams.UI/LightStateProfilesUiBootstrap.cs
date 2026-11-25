@@ -73,8 +73,8 @@ internal static class LightStateProfilesUiBootstrap
         };
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
-        editorBody.Children.Add(Text("مرکز و تلورانس L1 برای سازگاری با حالت تک‌سنسور نگه داشته شده‌اند. در حالت دوحسگری، تشخیص فقط از میانگین (L1+L2)/2 و اختلاف علامت‌دار L2−L1 استفاده می‌کند.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید تا استفاده از L1 قدیمی مسدود شود و همهٔ محیط‌های فعال را دوباره کالیبره کنید. firmware فعلی برد هنوز این نوع را دریافت/ارسال نمی‌کند.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص فعلی همچنان از M=(L1+L2)/2 و Δ=L2−L1 استفاده می‌کند. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید تا استفاده از L1 قدیمی مسدود شود و همهٔ محیط‌های فعال را دوباره کالیبره کنید. ارسال مستقیم CALSYNC از این بخش تک‌سنسوره است؛ خروجی Native UF2 نسخهٔ ۶ برای پروفایل جفتی به‌کار می‌رود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -84,7 +84,12 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(defaultTolerance);
         editorBody.Children.Add(Text("برای اعمال روی برد، پروفایل‌ها و تلورانس را ارسال کنید؛ اگر بازه‌ها تداخل داشته باشند فقط مرزهای روبه‌رو کوتاه می‌شوند.", 12, "#AAB3C2"));
         var rows = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
-        editorBody.Children.Add(rows);
+        editorBody.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = rows,
+        });
 
         void RebuildRows()
         {
@@ -176,10 +181,12 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text("نام وضعیت", 11, "#AAB3C2"), 1);
         Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 2);
         Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 3);
-        Add(row, Text("L1 / دوحسگر", 11, "#AAB3C2"), 4);
-        Add(row, Text("پایداری ms", 11, "#AAB3C2"), 5);
-        Add(row, Text("Hysteresis", 11, "#AAB3C2"), 6);
-        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 7);
+        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 4);
+        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 5);
+        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), 6);
+        Add(row, Text("پایداری ms", 11, "#AAB3C2"), 7);
+        Add(row, Text("Hysteresis", 11, "#AAB3C2"), 8);
+        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 9);
         return row;
     }
 
@@ -192,32 +199,53 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
         Add(row, Editor(profile, nameof(profile.Name)), 1);
-        var legacyCenter = Editor(profile, nameof(profile.LuxCenter));
-        var legacyTolerance = Editor(profile, nameof(profile.LuxTolerance));
-        legacyCenter.IsEnabled = legacyTolerance.IsEnabled =
-            !profile.HasDualSensorCalibration && !profile.DualSensorCalibrationRequired;
-        Add(row, legacyCenter, 2);
-        Add(row, legacyTolerance, 3);
+        var isPaired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
+        if (isPaired)
+        {
+            Add(row, Text("—", 11, "#777F8C"), 2);
+            Add(row, Text("—", 11, "#777F8C"), 3);
+        }
+        else
+        {
+            Add(row, Editor(profile, nameof(profile.LuxCenter)), 2);
+            Add(row, Editor(profile, nameof(profile.LuxTolerance)), 3);
+        }
+        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), 4);
+        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), 5);
         Add(row, Text(profile.HasDualSensorCalibration
-                ? $"دوحسگر · M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
                 : profile.DualSensorCalibrationRequired
-                    ? "دوحسگر · کالیبره‌نشده"
-                : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
-            11, "#D9DEE7"), 4);
-        Add(row, Editor(profile, nameof(profile.StableDurationMs)), 5);
-        Add(row, Editor(profile, nameof(profile.HysteresisLux)), 6);
+                    ? "منتظر کالیبراسیون جفتی"
+                    : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
+            11, "#D9DEE7"), 6);
+        Add(row, Editor(profile, nameof(profile.StableDurationMs)), 7);
+        Add(row, Editor(profile, nameof(profile.HysteresisLux)), 8);
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
             ? Editor(profile, nameof(profile.LightCooldownMs))
-            : Text("—", 12, "#777F8C"), 7);
+            : Text("—", 12, "#777F8C"), 9);
         return row;
+    }
+
+    private static string DescribePairedSamples(LightStateProfile profile, bool sensor1)
+    {
+        if (profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration)
+            return "منتظر کالیبراسیون";
+        if (!profile.HasDualSensorCalibration) return "—";
+
+        var center = sensor1 ? profile.Sensor1LuxCenter : profile.Sensor2LuxCenter;
+        var minimum = sensor1 ? profile.Sensor1LuxMinimum : profile.Sensor2LuxMinimum;
+        var maximum = sensor1 ? profile.Sensor1LuxMaximum : profile.Sensor2LuxMaximum;
+        if (center is not double median || minimum is not double low || maximum is not double high)
+            return "نمونهٔ خام در کالیبراسیون قبلی ذخیره نشده";
+        return $"میانه {median:0.0} Lux\n{low:0.0}–{high:0.0} · {profile.DualSensorSampleCount ?? 0} جفت";
     }
 
     private static Grid ProfileGrid()
     {
-        var grid = new Grid { MinWidth = 900 };
+        var grid = new Grid { MinWidth = 1320 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
-        for (var i = 0; i < 6; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < 8; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         return grid;
     }
 

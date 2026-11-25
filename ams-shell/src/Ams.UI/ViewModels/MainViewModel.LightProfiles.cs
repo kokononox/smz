@@ -274,6 +274,13 @@ public partial class MainViewModel
             profile.MeanLuxTolerance = 0;
             profile.DifferenceLuxCenter = 0;
             profile.DifferenceLuxTolerance = 0;
+            profile.Sensor1LuxCenter = null;
+            profile.Sensor1LuxMinimum = null;
+            profile.Sensor1LuxMaximum = null;
+            profile.Sensor2LuxCenter = null;
+            profile.Sensor2LuxMinimum = null;
+            profile.Sensor2LuxMaximum = null;
+            profile.DualSensorSampleCount = null;
         }
 
         if (!SaveLightStateProfiles())
@@ -287,6 +294,13 @@ public partial class MainViewModel
                 profile.MeanLuxTolerance = saved.MeanLuxTolerance;
                 profile.DifferenceLuxCenter = saved.DifferenceLuxCenter;
                 profile.DifferenceLuxTolerance = saved.DifferenceLuxTolerance;
+                profile.Sensor1LuxCenter = saved.Sensor1LuxCenter;
+                profile.Sensor1LuxMinimum = saved.Sensor1LuxMinimum;
+                profile.Sensor1LuxMaximum = saved.Sensor1LuxMaximum;
+                profile.Sensor2LuxCenter = saved.Sensor2LuxCenter;
+                profile.Sensor2LuxMinimum = saved.Sensor2LuxMinimum;
+                profile.Sensor2LuxMaximum = saved.Sensor2LuxMaximum;
+                profile.DualSensorSampleCount = saved.DualSensorSampleCount;
             }
             _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
             _lastClassifiedChartVersion = -1;

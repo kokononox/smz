@@ -1,3 +1,30 @@
+## Build {{BUILD_NUMBER}} — Classroom Studio paired profile capture
+
+**Previous build:** `ci-6`; it predates the merged dual-BH1750 Studio work.
+**Status:** Test build from `feat/classroom-dual-profile-capture`; Windows CI must pass before use.
+
+### Problem observed
+
+The configurable profile table showed the derived M/Δ signature but did not preserve or show the raw readings/ranges from each physical sensor, making it difficult to inspect how the two sensor positions distinguish the nine lighting states.
+
+### Root cause
+
+Paired calibration reduced its synchronized L1/L2 samples to M and signed Δ before applying the proposal. The profile model retained only those derived classifier values.
+
+### Change
+
+Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries for each paired profile. These raw ranges describe the latest short calibration capture only; they do not claim to cover full-day light drift, and the runtime classifier remains M/Δ-based.
+
+### Validation
+
+Host contracts cover paired raw statistics and profile-file round-trip. The Windows build, full TestRunner, packaged Studio ZIP, and Pico hardware acceptance are pending this CI run.
+
+### Next test
+
+After the Windows CI package is available, record labeled L1/L2 CSV samples for all nine positions across different ambient-light conditions. Use those observations to decide whether the runtime classifier needs a drift-invariant feature.
+
+## Build history
+
 # Dual BH1750 — paired calibration and fail-closed separation
 
 - Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
