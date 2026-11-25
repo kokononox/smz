@@ -123,7 +123,7 @@ class ShiftWakeTests(unittest.TestCase):
 
     def test_persisted_wake_record_is_versioned(self):
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
-        self.assertIn('#define CAL_VERSION 8u',store)
+        self.assertIn('#define CAL_VERSION 9u',store)
         self.assertIn('legacy_v7_record_valid(v7a,binding)',store)
         self.assertIn('typedef struct LegacyCalibrationPayloadV5',store)
         self.assertIn('legacy_v5_record_valid(v5a,binding)',store)
@@ -135,7 +135,8 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('legacy_v6_record_valid(v6a,binding)',store)
         self.assertIn('offsetof(CalibrationPayload,host_boot_s)',store)
         self.assertIn('_Static_assert(sizeof(LegacyCalibrationPayloadV7)==sizeof(LegacyCalibrationPayloadV6),',store)
-        self.assertIn('_Static_assert(sizeof(CalibrationRecord) <= FLASH_PAGE_SIZE',store)
+        self.assertIn('_Static_assert(sizeof(CalibrationRecord) <= 2u * FLASH_PAGE_SIZE',store)
+        self.assertIn('uint8_t page[2u * FLASH_PAGE_SIZE]',store)
         # A record that has not changed must never erase a flash sector.
         self.assertIn('current.payload.wake_next_start==state->next_start&&',store)
         self.assertIn('current.payload.host_boot_s==state->host_boot_s)return true;',store)

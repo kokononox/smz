@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 8u
+#define CAL_VERSION 9u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -67,7 +67,31 @@ typedef struct CalibrationPayload {
     uint32_t light_center[LIGHT_PROFILE_COUNT];
     uint16_t light_center_mask;
     uint16_t light_default_tolerance; /* 0 = legacy/default 1.0 lux */
+    uint32_t dual_mean_center_half_tenths[LIGHT_PROFILE_COUNT];
+    int32_t dual_difference_center_tenths[LIGHT_PROFILE_COUNT];
+    uint16_t dual_light_center_mask;
 } CalibrationPayload;
+typedef struct LegacyCalibrationPayloadV8 {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
+    uint8_t wake_flags,wake_recovery;
+    uint16_t wake_next_start;
+    uint16_t host_boot_s;
+    uint32_t light_center[LIGHT_PROFILE_COUNT];
+    uint16_t light_center_mask,light_default_tolerance;
+} LegacyCalibrationPayloadV8;
+typedef struct LegacyCalibrationRecordV8 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV8 payload;
+} LegacyCalibrationRecordV8;
+_Static_assert(offsetof(CalibrationPayload, dual_mean_center_half_tenths) ==
+               sizeof(LegacyCalibrationPayloadV8),
+               "v8 calibration payload must remain an exact prefix");
 typedef struct LegacyCalibrationPayloadV5 {
     uint8_t binding[32];
     uint16_t light_mask;
@@ -141,7 +165,8 @@ typedef struct LegacyCalibrationRecordV3 {
     LegacyCalibrationPayloadV3 payload;
 } LegacyCalibrationRecordV3;
 
-_Static_assert(sizeof(CalibrationRecord) <= FLASH_PAGE_SIZE, "calibration record page");
+_Static_assert(sizeof(CalibrationRecord) <= 2u * FLASH_PAGE_SIZE,
+               "calibration record fits the two-page write buffer");
 static CalibrationRecord current;
 static uint32_t active_offset;
 
@@ -192,6 +217,12 @@ static bool legacy_v7_record_valid(const LegacyCalibrationRecordV7 *r,const uint
     memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
     return r->crc32==crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v8_record_valid(const LegacyCalibrationRecordV8 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=8u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -223,6 +254,17 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV8 *v8a=(const LegacyCalibrationRecordV8 *)a,*v8b=(const LegacyCalibrationRecordV8 *)b;
+        bool v8av=legacy_v8_record_valid(v8a,binding),v8bv=legacy_v8_record_valid(v8b,binding);
+        const LegacyCalibrationRecordV8 *v8=NULL;
+        if(v8av&&(!v8bv||(int32_t)(v8a->sequence-v8b->sequence)>0)){v8=v8a;active_offset=CAL_OFFSET_A;}
+        else if(v8bv){v8=v8b;active_offset=CAL_OFFSET_B;}
+        if(v8){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v8->sequence;
+            memcpy(&current.payload,&v8->payload,sizeof(v8->payload));
+            return;
+        }
         const LegacyCalibrationRecordV7 *v7a=(const LegacyCalibrationRecordV7 *)a,*v7b=(const LegacyCalibrationRecordV7 *)b;
         bool v7av=legacy_v7_record_valid(v7a,binding),v7bv=legacy_v7_record_valid(v7b,binding);
         const LegacyCalibrationRecordV7 *v7=NULL;
@@ -333,7 +375,7 @@ void calibration_store_init(const AbvmVm *vm) {
 }
 static bool persist(void) {
     uint32_t target=active_offset==CAL_OFFSET_A?CAL_OFFSET_B:CAL_OFFSET_A;
-    uint8_t page[FLASH_PAGE_SIZE];
+    uint8_t page[2u * FLASH_PAGE_SIZE];
     ++current.sequence;
     current.crc32=record_crc(&current);
     memset(page,0xff,sizeof(page));memcpy(page,&current,sizeof(current));
@@ -394,6 +436,29 @@ bool calibration_store_light_sync(uint16_t mask,const uint32_t lows[9],const uin
     }
     current.payload.light_mask|=mask;current.payload.light_center_mask|=mask;
     current.payload.light_default_tolerance=tolerance;
+    if(persist())return true;
+    current=before;active_offset=before_offset;return false;
+}
+bool calibration_store_dual_light_get(uint8_t id,uint32_t *mean_center,
+                                      int32_t *difference_center){
+    if(id<1u||id>LIGHT_PROFILE_COUNT||!mean_center||!difference_center||
+       !(current.payload.dual_light_center_mask&(1u<<(id-1u))))return false;
+    *mean_center=current.payload.dual_mean_center_half_tenths[id-1u];
+    *difference_center=current.payload.dual_difference_center_tenths[id-1u];
+    return true;
+}
+bool calibration_store_dual_light_sync(uint16_t mask,const uint32_t means[9],
+                                       const int32_t differences[9]){
+    if(!mask||(mask&~0x1ffu)||!means||!differences)return false;
+    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)if(mask&(1u<<i))
+        if(means[i]>20000000u||differences[i]<-10000000||
+           differences[i]>10000000)return false;
+    CalibrationRecord before=current;uint32_t before_offset=active_offset;
+    for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)if(mask&(1u<<i)){
+        current.payload.dual_mean_center_half_tenths[i]=means[i];
+        current.payload.dual_difference_center_tenths[i]=differences[i];
+    }
+    current.payload.dual_light_center_mask|=mask;
     if(persist())return true;
     current=before;active_offset=before_offset;return false;
 }

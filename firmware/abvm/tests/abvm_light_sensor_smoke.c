@@ -90,13 +90,33 @@ int main(int argc, char **argv) {
         !require(result.valid && result.minimum_lux == 125u &&
                  result.maximum_lux == 125u && result.average_lux == 125u &&
                  result.samples >= 2u, "LCAL values")) return 1;
+
+    if (!require(light_sensor_pair_calibration_start(650u, 700u),
+                 "start paired physical calibration")) return 1;
+    light_sensor_service(&vm, 781u);
+    light_sensor_service(&vm, 911u);
+    light_sensor_service(&vm, 1041u);
+    light_sensor_service(&vm, 1171u);
+    light_sensor_service(&vm, 1301u);
+    light_sensor_service(&vm, 1350u);
+    if (!require(light_sensor_calibration_take(&result),
+                 "take paired calibration") ||
+        !require(result.valid && result.dual_sensor && result.samples >= 5u &&
+                 result.average_primary_tenths == 1250u &&
+                 result.average_secondary_tenths == 2000u &&
+                 result.mean_center_half_tenths == 3250u &&
+                 result.difference_center_tenths == 750,
+                 "paired M/D centers use synchronized fresh readings")) return 1;
+
     secondary_connected = false;
-    light_sensor_init(800u);
-    light_sensor_service(&vm, 931u);
-    if (!require(light_sensor_latest_pair(&snapshot, 931u) &&
+    light_sensor_init(1400u);
+    light_sensor_service(&vm, 1531u);
+    if (!require(light_sensor_latest_pair(&snapshot, 1531u) &&
                  snapshot.primary_valid && !snapshot.secondary_present &&
                  !snapshot.secondary_valid && light_sensor_present(),
-                 "primary-only compatibility when secondary is absent")) return 1;
+                 "primary-only compatibility when secondary is absent") ||
+        !require(!light_sensor_pair_calibration_start(500u,1532u),
+                 "paired physical calibration requires both sensors")) return 1;
     free(image);
     printf("ABVM native BH1750 actor/calibration smoke passed (%u reads)\n", reads);
     return 0;

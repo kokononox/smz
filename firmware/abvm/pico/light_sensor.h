@@ -15,10 +15,16 @@ typedef enum LightWatchSubmit {
 
 typedef struct LightCalibrationResult {
     bool valid;
+    bool dual_sensor;
     uint32_t minimum_lux;
     uint32_t maximum_lux;
     uint32_t average_lux;
     uint32_t average_tenths;
+    uint32_t average_primary_tenths;
+    uint32_t average_secondary_tenths;
+    /* The Guard stores M=(L1+L2)/2 as twice-M in tenths, preserving half-tenths. */
+    uint32_t mean_center_half_tenths;
+    int32_t difference_center_tenths;
     uint32_t samples;
 } LightCalibrationResult;
 
@@ -45,6 +51,7 @@ bool light_sensor_present(void);
 bool light_sensor_latest(uint32_t *lux_tenths, uint32_t *age_ms, uint32_t now);
 bool light_sensor_latest_pair(LightSensorSnapshot *snapshot, uint32_t now);
 bool light_sensor_calibration_start(uint32_t duration_ms, uint32_t now);
+bool light_sensor_pair_calibration_start(uint32_t duration_ms, uint32_t now);
 bool light_sensor_calibration_take(LightCalibrationResult *result);
 bool light_sensor_watch_active(void);
 bool light_sensor_calibration_active(void);

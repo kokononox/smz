@@ -12,6 +12,12 @@ uint16_t calibration_store_light_tolerance(void);
 bool calibration_store_light_center(uint8_t id,uint32_t *center);
 bool calibration_store_light_sync(uint16_t mask,const uint32_t lows[9],const uint32_t highs[9],
                                   const uint32_t centers[9],uint16_t tolerance);
+bool calibration_store_dual_light_get(uint8_t profile_id,
+                                      uint32_t *mean_center_half_tenths,
+                                      int32_t *difference_center_tenths);
+bool calibration_store_dual_light_sync(uint16_t mask,
+                                       const uint32_t mean_centers_half_tenths[9],
+                                       const int32_t difference_centers_tenths[9]);
 bool calibration_store_sound_get(uint16_t profile_id, uint16_t *threshold, uint16_t *minimum_ms);
 bool calibration_store_sound_set(uint16_t profile_id, uint16_t threshold, uint16_t minimum_ms,
                                  uint16_t silence_max, uint16_t sound_peak);

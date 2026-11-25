@@ -227,6 +227,56 @@ bool guard_runtime_profile_matches_pair(uint8_t profile_id,
     return matches==1u&&profile&&profile->id==profile_id;
 }
 bool guard_runtime_dual_sensor_enabled(void) { return guard.dual_sensor; }
+bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
+    uint32_t *mean_center, uint32_t *mean_tolerance,
+    int32_t *difference_center, uint32_t *difference_tolerance) {
+    GuardProfile *profile = profile_by_id(profile_id);
+    if (!guard.dual_sensor || !profile || !mean_center || !mean_tolerance ||
+        !difference_center || !difference_tolerance)
+        return false;
+    *mean_center = profile->mean_center_half_tenths;
+    *mean_tolerance = profile->mean_tolerance_half_tenths;
+    *difference_center = profile->difference_center_tenths;
+    *difference_tolerance = profile->difference_tolerance_tenths;
+    return true;
+}
+bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
+    uint32_t mean_center, int32_t difference_center) {
+    GuardProfile *profile = profile_by_id(profile_id);
+    if (!guard.dual_sensor || !profile || mean_center > 20000000u ||
+        difference_center < -10000000 || difference_center > 10000000)
+        return false;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        GuardProfile *other = &guard.profiles[i];
+        if (other == profile) continue;
+        uint64_t mean_clearance =
+            (uint64_t)profile->mean_tolerance_half_tenths +
+            other->mean_tolerance_half_tenths + 20u;
+        uint64_t difference_clearance =
+            (uint64_t)profile->difference_tolerance_tenths +
+            other->difference_tolerance_tenths + 10u;
+        if (!mean_clearance || !difference_clearance) return false;
+        uint64_t mean_ratio =
+            (magnitude_i64((int64_t)mean_center -
+                           other->mean_center_half_tenths) *
+             GUARD_RATIO_SCALE + mean_clearance / 2u) / mean_clearance;
+        uint64_t difference_ratio =
+            (magnitude_i64((int64_t)difference_center -
+                           other->difference_center_tenths) *
+             GUARD_RATIO_SCALE + difference_clearance / 2u) /
+             difference_clearance;
+        /* Reject conservatively whenever the center lies within the summed
+         * tolerance ellipses plus a 1 Lux clearance on both feature axes. */
+        if (mean_ratio <= GUARD_RATIO_SCALE &&
+            difference_ratio <= GUARD_RATIO_SCALE &&
+            mean_ratio * mean_ratio + difference_ratio * difference_ratio <=
+                (uint64_t)GUARD_RATIO_SCALE * GUARD_RATIO_SCALE)
+            return false;
+    }
+    profile->mean_center_half_tenths = mean_center;
+    profile->difference_center_tenths = difference_center;
+    return true;
+}
 static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
                  uint8_t context, uint32_t lux, const char *reason) {
     guard.pending.type = type;

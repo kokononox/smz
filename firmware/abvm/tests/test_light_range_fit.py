@@ -26,4 +26,21 @@ class FitTest(unittest.TestCase):
                 str(ROOT/'firmware/abvm/pico/calibration_runtime.c'),
                 str(ROOT/'firmware/abvm/tests/light_calibration_runtime_smoke.c'),'-o',str(exe)],check=True)
             subprocess.run([str(exe)],check=True)
+    def test_sensor_pair_calibration(self):
+        with tempfile.TemporaryDirectory() as d:
+            d=pathlib.Path(d)
+            exe=d/'sensor'
+            image=d/'program.abp'
+            source=json.loads((ROOT/'firmware/abvm/tests/abvm_smoke.amsj').read_text())
+            image.write_bytes(abvm.Compiler().compile_amsj(
+                source,('Game','Whisper')).image)
+            subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror',
+                '-I'+str(ROOT/'firmware/abvm/tests/pico_stub'),
+                '-I'+str(ROOT/'firmware/abvm/include'),
+                '-I'+str(ROOT/'firmware/abvm/pico'),
+                str(ROOT/'firmware/abvm/src/abvm_vm.c'),
+                str(ROOT/'firmware/abvm/pico/light_sensor.c'),
+                str(ROOT/'firmware/abvm/tests/abvm_light_sensor_smoke.c'),
+                '-o',str(exe)],check=True)
+            subprocess.run([str(exe),str(image)],check=True)
 if __name__ == '__main__': unittest.main()
