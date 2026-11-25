@@ -23,6 +23,12 @@ Host contracts cover paired raw statistics, profile-file and `.amsj` round-trips
 
 The supplied version-0.8.2 `2.amsj` contained only `app`, `version`, and `steps`; its paired calibration was not present in that file, so the importer had nothing to restore. The legacy single-script save path wrote only the step tree, while calibration lived in app-local profile storage. Legacy `.amsj` saves now embed the optional `lightStateProfiles` array, including dual-layout flags, M/Δ values, and L1/L2 summaries; both legacy open and Pipeline import restore it. A regression contract covers saving, loading, and migration into a versioned Pipeline workspace. Previously saved files that lack this array still require their original `light-state-profiles.json` or another backup; absent calibration values cannot be reconstructed from steps alone.
 
+### Mirror receiver integration
+
+**Change:** The ABVM firmware now supports the one-way Mirror receiver on UART1 (GP9, 1 Mbaud). Holding GP3+GP4 for 3 seconds toggles receiver mode; native macro/Guard execution is suspended while mirrored keyboard and mouse HID reports are forwarded. Disconnect timeout releases any held inputs. Studio packages the receiver-enabled UF2 templates for all 30 native runtime identities.
+**Validation:** The local Mirror frame-parser smoke test passed. CI is building the 30 receiver runtimes, Pico UF2 bring-up, and Windows package; physical-board acceptance has not yet been performed.
+**Next test:** Complete CI, flash the receiver-enabled UF2, and verify toggle, mirrored keyboard/mouse input, disconnect release, and return to native mode on the target board.
+
 ### Next test
 
 After the Windows CI package is available, record labeled L1/L2 CSV samples for all nine positions across different ambient-light conditions. Use those observations to decide whether the runtime classifier needs a drift-invariant feature.
