@@ -235,7 +235,9 @@ public partial class MainViewModel
                 // A malformed/unsupported multi-tab envelope must not be mistaken for an
                 // old single-script file and silently opened as an empty workspace.
                 if (HasPipelineEnvelope(json)) throw;
-                _pipelineWorkspace = PipelineWorkspace.FromLegacy(DocumentService.Load(dialog.FileName), targetKind);
+                var legacySteps = DocumentService.Load(dialog.FileName, out var legacyLightProfiles);
+                _pipelineWorkspace = PipelineWorkspace.FromLegacy(legacySteps, targetKind);
+                _pipelineWorkspace.LightStateProfiles = legacyLightProfiles;
             }
             ApplyProjectLightProfiles();
             _collapsedPathsByTab.Clear();
