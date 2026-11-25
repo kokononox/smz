@@ -191,15 +191,15 @@ internal static class LightStateProfilesUiBootstrap
         var row = ProfileGrid();
         Add(row, Text("فعال", 11, "#AAB3C2"), 0);
         Add(row, Text("نام وضعیت", 11, "#AAB3C2"), 1);
-        Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 2);
-        Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 3);
-        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 4);
-        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 5);
-        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), 6);
-        Add(row, Text("پایداری ms", 11, "#AAB3C2"), 7);
-        Add(row, Text("Hysteresis", 11, "#AAB3C2"), 8);
-        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 9);
-        Add(row, Text("ارسال این وضعیت", 11, "#AAB3C2"), 10);
+        Add(row, Text("ارسال این وضعیت", 11, "#AAB3C2"), 2);
+        Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 3);
+        Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 4);
+        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 5);
+        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), 6);
+        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), 7);
+        Add(row, Text("پایداری ms", 11, "#AAB3C2"), 8);
+        Add(row, Text("Hysteresis", 11, "#AAB3C2"), 9);
+        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 10);
         return row;
     }
 
@@ -213,30 +213,6 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
         Add(row, Editor(profile, nameof(profile.Name)), 1);
-        var isPaired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
-        if (isPaired)
-        {
-            Add(row, Text("—", 11, "#777F8C"), 2);
-            Add(row, Text("—", 11, "#777F8C"), 3);
-        }
-        else
-        {
-            Add(row, Editor(profile, nameof(profile.LuxCenter)), 2);
-            Add(row, Editor(profile, nameof(profile.LuxTolerance)), 3);
-        }
-        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), 4);
-        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), 5);
-        Add(row, Text(profile.HasDualSensorCalibration
-                ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
-                : profile.DualSensorCalibrationRequired
-                    ? "منتظر کالیبراسیون جفتی"
-                    : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
-            11, "#D9DEE7"), 6);
-        Add(row, Editor(profile, nameof(profile.StableDurationMs)), 7);
-        Add(row, Editor(profile, nameof(profile.HysteresisLux)), 8);
-        Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
-            ? Editor(profile, nameof(profile.LightCooldownMs))
-            : Text("—", 12, "#777F8C"), 9);
         var send = ActionButton("ارسال به برد", "#5D477F", "#F5F7FA");
         send.Margin = new Thickness(4, 3, 0, 3);
         send.Click += async (_, _) =>
@@ -259,7 +235,31 @@ internal static class LightStateProfilesUiBootstrap
             try { await vm.SendLightStateProfileToBoardAsync(profile.Id); }
             finally { send.IsEnabled = true; }
         };
-        Add(row, send, 10);
+        Add(row, send, 2);
+        var isPaired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
+        if (isPaired)
+        {
+            Add(row, Text("—", 11, "#777F8C"), 3);
+            Add(row, Text("—", 11, "#777F8C"), 4);
+        }
+        else
+        {
+            Add(row, Editor(profile, nameof(profile.LuxCenter)), 3);
+            Add(row, Editor(profile, nameof(profile.LuxTolerance)), 4);
+        }
+        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), 5);
+        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), 6);
+        Add(row, Text(profile.HasDualSensorCalibration
+                ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
+                : profile.DualSensorCalibrationRequired
+                    ? "منتظر کالیبراسیون جفتی"
+                    : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
+            11, "#D9DEE7"), 7);
+        Add(row, Editor(profile, nameof(profile.StableDurationMs)), 8);
+        Add(row, Editor(profile, nameof(profile.HysteresisLux)), 9);
+        Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
+            ? Editor(profile, nameof(profile.LightCooldownMs))
+            : Text("—", 12, "#777F8C"), 10);
         return row;
     }
 
@@ -282,8 +282,8 @@ internal static class LightStateProfilesUiBootstrap
         var grid = new Grid { MinWidth = 1440 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
-        for (var i = 0; i < 8; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        for (var i = 0; i < 8; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         return grid;
     }
 
