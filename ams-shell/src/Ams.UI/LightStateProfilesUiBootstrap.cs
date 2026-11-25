@@ -74,7 +74,7 @@ internal static class LightStateProfilesUiBootstrap
         var editorBody = new StackPanel();
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص فعلی همچنان از M=(L1+L2)/2 و Δ=L2−L1 استفاده می‌کند. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید تا استفاده از L1 قدیمی مسدود شود و همهٔ محیط‌های فعال را دوباره کالیبره کنید. ارسال مستقیم CALSYNC از این بخش تک‌سنسوره است؛ خروجی Native UF2 نسخهٔ ۶ برای پروفایل جفتی به‌کار می‌رود.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید. وارد/صادر کردن دوحسگری فقط مراکز M/Δ را همگام می‌کند؛ تلورانس‌ها در Native UF2 فعال هستند و برای تغییرشان باید UF2 را دوباره بسازید و فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -82,7 +82,7 @@ internal static class LightStateProfilesUiBootstrap
         defaultTolerance.SetBinding(TextBox.TextProperty, new Binding(nameof(MainViewModel.PhysicalCalibrationToleranceLux))
         { Source = vm, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.LostFocus, ValidatesOnExceptions = true });
         editorBody.Children.Add(defaultTolerance);
-        editorBody.Children.Add(Text("برای اعمال روی برد، پروفایل‌ها و تلورانس را ارسال کنید؛ اگر بازه‌ها تداخل داشته باشند فقط مرزهای روبه‌رو کوتاه می‌شوند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("برای برد تک‌سنسوره، پروفایل‌ها و تلورانس پیش‌فرض ارسال می‌شوند؛ در حالت دوحسگری مراکز جفتی ارسال و با برد بازخوانی و تأیید می‌شوند، اما تلورانس‌ها باید با UF2 فعال یکی باشند.", 12, "#AAB3C2"));
         var rows = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
         editorBody.Children.Add(new ScrollViewer
         {
@@ -104,7 +104,7 @@ internal static class LightStateProfilesUiBootstrap
         importFromBoard.Click += async (_, _) =>
         {
             if (MessageBox.Show(window,
-                    "مرکز، مرزهای مؤثر و تلورانس پیش‌فرض از برد وارد شوند؟ سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
+                    "کالیبراسیون موجود از برد وارد شود؟ در حالت دوحسگری، مراکز M/Δ وارد می‌شوند؛ خلاصهٔ خام L1/L2 از برد قابل بازیابی نیست. سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
                     "وارد کردن کالیبراسیون از برد", MessageBoxButton.YesNo,
                     MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             importFromBoard.IsEnabled = false;
@@ -121,7 +121,7 @@ internal static class LightStateProfilesUiBootstrap
         sendToBoard.Margin = new Thickness(8, 0, 0, 0);
         sendToBoard.Click += async (_, _) =>
         {
-            if (MessageBox.Show(window, "پروفایل‌های نوری و تلورانس پیش‌فرض روی برد جایگزین شوند؟ اجرای برد و کالیبراسیون باید متوقف باشند.",
+            if (MessageBox.Show(window, "پروفایل‌های نوری روی برد جایگزین شوند؟ در حالت دوحسگری فقط مراکز M/Δ منتقل می‌شوند و تلورانس‌ها باید با UF2 فعال یکی باشند. اجرای برد و کالیبراسیون باید متوقف باشند.",
                     "ارسال به برد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; }
             sendToBoard.IsEnabled = false;

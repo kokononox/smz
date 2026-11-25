@@ -615,6 +615,94 @@ static void set_light_sync(char *p){
     }
     printf("OK|CALSYNC|SET\n");
 }
+static void print_dual_light_sync(void){
+    if(!guard_runtime_dual_sensor_enabled()){
+        printf("ERR|STATE|CALSYNC|DUAL\n");return;
+    }
+    char profiles[448];size_t used=0u;
+    for(uint8_t id=1u;id<=9u;++id){
+        uint32_t mean,mean_tolerance,difference_tolerance;
+        int32_t difference;
+        if(!guard_runtime_get_profile_pair_calibration(id,&mean,
+               &mean_tolerance,&difference,&difference_tolerance)){
+            printf("ERR|STATE|CALSYNC|DUAL\n");return;
+        }
+        int written=snprintf(profiles+used,sizeof(profiles)-used,
+            "%s%u:%lu:%lu:%ld:%lu",used?",":"",
+            (unsigned)id,(unsigned long)mean,(unsigned long)mean_tolerance,
+            (long)difference,(unsigned long)difference_tolerance);
+        if(written<0||(size_t)written>=sizeof(profiles)-used){
+            printf("ERR|INTERNAL|CALSYNC|DUAL\n");return;
+        }
+        used+=(size_t)written;
+    }
+    printf("OK|CALSYNC|DUAL|revision=%lu|profiles=%s\n",
+        (unsigned long)calibration_store_revision(),profiles);
+}
+static bool parse_dual_sync_uint(char **cursor,char delimiter,uint32_t maximum,
+                                 uint32_t *value){
+    char *p=*cursor,*end=NULL;
+    if(*p<'0'||*p>'9')return false;
+    unsigned long n=strtoul(p,&end,10);
+    if(!end||end==p||*end!=delimiter||n>maximum)return false;
+    *value=(uint32_t)n;*cursor=delimiter?end+1:end;return true;
+}
+static bool parse_dual_sync_int(char **cursor,char delimiter,int32_t minimum,
+                                int32_t maximum,int32_t *value){
+    char *p=*cursor,*end=NULL;
+    if(*p!='-'&&(*p<'0'||*p>'9'))return false;
+    long n=strtol(p,&end,10);
+    if(!end||end==p||*end!=delimiter||n<minimum||n>maximum)return false;
+    *value=(int32_t)n;*cursor=delimiter?end+1:end;return true;
+}
+static void set_dual_light_sync(char *p){
+    uint32_t means[9],mean_tolerances[9],difference_tolerances[9];
+    int32_t differences[9];
+    if(guard_runtime_running()||vm.status==ABVM_STATUS_RUNNING||
+       vm.status==ABVM_STATUS_PAUSED||calibration_runtime_active()){
+        printf("ERR|BUSY|CALSYNC|DUAL\n");return;
+    }
+    if(!guard_runtime_dual_sensor_enabled()){
+        printf("ERR|STATE|CALSYNC|DUAL\n");return;
+    }
+    if(strncmp(p,"profiles=",9u)){printf("ERR|ARG|CALSYNC|DUAL\n");return;}
+    p+=9;
+    for(uint8_t i=0u;i<9u;++i){
+        uint32_t id;
+        char delimiter=i==8u?'\0':':';
+        if(!parse_dual_sync_uint(&p,':',9u,&id)||id!=(uint32_t)i+1u||
+           !parse_dual_sync_uint(&p,':',20000000u,&means[i])||
+           !parse_dual_sync_uint(&p,':',20000000u,&mean_tolerances[i])||
+           !mean_tolerances[i]||
+           !parse_dual_sync_int(&p,':',-10000000,10000000,&differences[i])||
+           !parse_dual_sync_uint(&p,delimiter,10000000u,
+                                 &difference_tolerances[i])||
+           !difference_tolerances[i]){
+            printf("ERR|ARG|CALSYNC|DUAL\n");return;
+        }
+        uint32_t board_mean,board_mean_tolerance,board_difference_tolerance;
+        int32_t board_difference;
+        if(!guard_runtime_get_profile_pair_calibration((uint8_t)(i+1u),
+               &board_mean,&board_mean_tolerance,&board_difference,
+               &board_difference_tolerance)||
+           mean_tolerances[i]!=board_mean_tolerance||
+           difference_tolerances[i]!=board_difference_tolerance){
+            printf("ERR|CONFIG|CALSYNC|DUAL|profile=%u\n",
+                   (unsigned)(i+1u));return;
+        }
+    }
+    if(!guard_runtime_validate_profile_pair_centers(means,differences)){
+        printf("ERR|FIT|CALSYNC|DUAL\n");return;
+    }
+    if(!calibration_store_dual_light_sync(0x1ffu,means,differences)){
+        printf("ERR|FLASH|CALSYNC|DUAL\n");return;
+    }
+    if(!guard_runtime_set_profile_pair_centers_batch(means,differences)){
+        printf("ERR|STATE|CALSYNC|DUAL\n");return;
+    }
+    printf("OK|CALSYNC|DUAL|SET|revision=%lu\n",
+           (unsigned long)calibration_store_revision());
+}
 static void release_all_actors(uint32_t now) {
     if(shift_checkpoint && shift_identity.phase!=SHIFT_FAILED) {
         shift_identity_cancel(&shift_identity);shift_failure_paused=true;
@@ -1211,6 +1299,9 @@ static void execute_command(char *line, uint32_t now) {
         printf("OK|CALSTATUS|revision=%lu|source=nvm-a-b|count=%u|mode=%u|last_error=none\n", (unsigned long)calibration_store_revision(), guard_runtime_available() ? 8u : 0u, calibration_runtime_mode());
     else if (!strcmp(line, "CALDUMP|LIGHT"))
         print_light_calibration_dump();
+    else if (!strcmp(line,"CALSYNC|DUAL|GET")) print_dual_light_sync();
+    else if (!strncmp(line,"CALSYNC|DUAL|SET|",17u))
+        set_dual_light_sync(line+17u);
     else if (!strcmp(line,"CALSYNC|GET")) print_light_sync();
     else if (!strncmp(line,"CALSYNC|SET|",12)) set_light_sync(line+12);
     else if (!strcmp(line, "WHISPER")) { if (abvm_interrupt_route(&vm, WHISPER_ROUTE_ID, now)) printf("CONTROL|interrupt|route=Whisper\n"); else printf("ERR|CONTROL|interrupt\n"); }

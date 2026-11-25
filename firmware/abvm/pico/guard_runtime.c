@@ -240,39 +240,72 @@ bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
     *difference_tolerance = profile->difference_tolerance_tenths;
     return true;
 }
+bool guard_runtime_validate_profile_pair_centers(
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
+    if (!guard.dual_sensor || !mean_centers || !difference_centers)
+        return false;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        if (mean_centers[i] > 20000000u ||
+            difference_centers[i] < -10000000 ||
+            difference_centers[i] > 10000000)
+            return false;
+    }
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        const GuardProfile *first = &guard.profiles[i];
+        for (uint8_t j = (uint8_t)(i + 1u); j < GUARD_PROFILE_COUNT; ++j) {
+            const GuardProfile *second = &guard.profiles[j];
+            uint64_t mean_clearance =
+                (uint64_t)first->mean_tolerance_half_tenths +
+                second->mean_tolerance_half_tenths + 20u;
+            uint64_t difference_clearance =
+                (uint64_t)first->difference_tolerance_tenths +
+                second->difference_tolerance_tenths + 10u;
+            if (!mean_clearance || !difference_clearance) return false;
+            uint64_t mean_ratio =
+                (magnitude_i64((int64_t)mean_centers[i] -
+                               mean_centers[j]) *
+                 GUARD_RATIO_SCALE + mean_clearance / 2u) / mean_clearance;
+            uint64_t difference_ratio =
+                (magnitude_i64((int64_t)difference_centers[i] -
+                               difference_centers[j]) *
+                 GUARD_RATIO_SCALE + difference_clearance / 2u) /
+                 difference_clearance;
+            if (mean_ratio <= GUARD_RATIO_SCALE &&
+                difference_ratio <= GUARD_RATIO_SCALE &&
+                mean_ratio * mean_ratio + difference_ratio * difference_ratio <=
+                    (uint64_t)GUARD_RATIO_SCALE * GUARD_RATIO_SCALE)
+                return false;
+        }
+    }
+    return true;
+}
+bool guard_runtime_set_profile_pair_centers_batch(
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
+    if (!guard_runtime_validate_profile_pair_centers(mean_centers,
+                                                       difference_centers))
+        return false;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        guard.profiles[i].mean_center_half_tenths = mean_centers[i];
+        guard.profiles[i].difference_center_tenths = difference_centers[i];
+    }
+    return true;
+}
 bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
     uint32_t mean_center, int32_t difference_center) {
     GuardProfile *profile = profile_by_id(profile_id);
-    if (!guard.dual_sensor || !profile || mean_center > 20000000u ||
-        difference_center < -10000000 || difference_center > 10000000)
-        return false;
+    if (!guard.dual_sensor || !profile) return false;
+    uint32_t means[GUARD_PROFILE_COUNT];
+    int32_t differences[GUARD_PROFILE_COUNT];
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
-        GuardProfile *other = &guard.profiles[i];
-        if (other == profile) continue;
-        uint64_t mean_clearance =
-            (uint64_t)profile->mean_tolerance_half_tenths +
-            other->mean_tolerance_half_tenths + 20u;
-        uint64_t difference_clearance =
-            (uint64_t)profile->difference_tolerance_tenths +
-            other->difference_tolerance_tenths + 10u;
-        if (!mean_clearance || !difference_clearance) return false;
-        uint64_t mean_ratio =
-            (magnitude_i64((int64_t)mean_center -
-                           other->mean_center_half_tenths) *
-             GUARD_RATIO_SCALE + mean_clearance / 2u) / mean_clearance;
-        uint64_t difference_ratio =
-            (magnitude_i64((int64_t)difference_center -
-                           other->difference_center_tenths) *
-             GUARD_RATIO_SCALE + difference_clearance / 2u) /
-             difference_clearance;
-        /* Reject conservatively whenever the center lies within the summed
-         * tolerance ellipses plus a 1 Lux clearance on both feature axes. */
-        if (mean_ratio <= GUARD_RATIO_SCALE &&
-            difference_ratio <= GUARD_RATIO_SCALE &&
-            mean_ratio * mean_ratio + difference_ratio * difference_ratio <=
-                (uint64_t)GUARD_RATIO_SCALE * GUARD_RATIO_SCALE)
-            return false;
+        means[i] = guard.profiles[i].mean_center_half_tenths;
+        differences[i] = guard.profiles[i].difference_center_tenths;
     }
+    means[(uint8_t)(profile - guard.profiles)] = mean_center;
+    differences[(uint8_t)(profile - guard.profiles)] = difference_center;
+    if (!guard_runtime_validate_profile_pair_centers(means, differences))
+        return false;
     profile->mean_center_half_tenths = mean_center;
     profile->difference_center_tenths = difference_center;
     return true;

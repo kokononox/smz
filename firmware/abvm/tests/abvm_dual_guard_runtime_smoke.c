@@ -79,6 +79,35 @@ int main(int argc,char **argv) {
        !require(guard_runtime_set_profile_pair_centers(1u,mean_center,
                  difference_center),"original paired center remains valid"))
         return 1;
+    uint32_t batch_means[9],saved_means[9];
+    int32_t batch_differences[9],saved_differences[9];
+    for(uint8_t id=1u;id<=9u;++id){
+        uint32_t mean_tolerance,difference_tolerance;
+        if(!require(guard_runtime_get_profile_pair_calibration(id,
+                &batch_means[id-1u],&mean_tolerance,
+                &batch_differences[id-1u],&difference_tolerance),
+                "batch snapshot"))return 1;
+    }
+    memcpy(saved_means,batch_means,sizeof(saved_means));
+    memcpy(saved_differences,batch_differences,sizeof(saved_differences));
+    for(uint8_t i=0u;i<9u;++i)batch_means[i]+=100u;
+    if(!require(guard_runtime_validate_profile_pair_centers(batch_means,
+                 batch_differences),"valid paired batch")||
+       !require(guard_runtime_set_profile_pair_centers_batch(batch_means,
+                 batch_differences),"paired batch applies atomically"))
+        return 1;
+    batch_means[1]=batch_means[0];
+    batch_differences[1]=batch_differences[0];
+    if(!require(!guard_runtime_set_profile_pair_centers_batch(batch_means,
+                 batch_differences),"overlapping paired batch rejected")||
+       !require(guard_runtime_get_profile_pair_calibration(1u,&mean_center,
+                 &mean_tolerance,&difference_center,&difference_tolerance)&&
+                 mean_center==saved_means[0]+100u,
+                "rejected batch leaves active profiles unchanged"))
+        return 1;
+    if(!require(guard_runtime_set_profile_pair_centers_batch(saved_means,
+                 saved_differences),"paired batch restores original centers"))
+        return 1;
 
     if(!require(guard_runtime_start(0u),"start with fresh pair"))return 1;
     guard_runtime_observe(&vm,1000u,0u);

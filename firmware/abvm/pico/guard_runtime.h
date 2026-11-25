@@ -47,6 +47,12 @@ bool guard_runtime_dual_sensor_ready(uint32_t now);
 bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
     uint32_t *mean_center_half_tenths, uint32_t *mean_tolerance_half_tenths,
     int32_t *difference_center_tenths, uint32_t *difference_tolerance_tenths);
+bool guard_runtime_validate_profile_pair_centers(
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
+bool guard_runtime_set_profile_pair_centers_batch(
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
 bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
     uint32_t mean_center_half_tenths, int32_t difference_center_tenths);
 bool guard_runtime_running(void);

@@ -38,13 +38,26 @@ static CalibrationState cal;
 static void emit(const char *format,...){va_list a;va_start(a,format);vsnprintf(cal.event,sizeof(cal.event),format,a);va_end(a);cal.event_pending=true;}
 static void apply_saved_light(void){
     if(guard_runtime_dual_sensor_enabled()){
+        uint32_t means[LIGHT_PROFILE_COUNT],mean_tolerances[LIGHT_PROFILE_COUNT];
+        int32_t differences[LIGHT_PROFILE_COUNT];
+        uint32_t difference_tolerances[LIGHT_PROFILE_COUNT];
+        bool any_saved=false;
         for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
-            uint32_t mean_center;int32_t difference_center;
-            if(calibration_store_dual_light_get((uint8_t)(i+1u),&mean_center,
-                                                &difference_center))
-                (void)guard_runtime_set_profile_pair_centers((uint8_t)(i+1u),
-                    mean_center,difference_center);
+            uint8_t id=(uint8_t)(i+1u);
+            if(!guard_runtime_get_profile_pair_calibration(id,&means[i],
+                    &mean_tolerances[i],&differences[i],
+                    &difference_tolerances[i]))return;
+            uint32_t saved_mean;int32_t saved_difference;
+            if(calibration_store_dual_light_get(id,&saved_mean,&saved_difference)){
+                means[i]=saved_mean;
+                differences[i]=saved_difference;
+                any_saved=true;
+            }
         }
+        /* Apply saved centres together. This prevents a partial, order-dependent
+         * restore if the active UF2 now has a different tolerance ellipse. */
+        if(any_saved&&guard_runtime_validate_profile_pair_centers(means,differences))
+            (void)guard_runtime_set_profile_pair_centers_batch(means,differences);
         return;
     }
     uint32_t base_low[LIGHT_PROFILE_COUNT],base_high[LIGHT_PROFILE_COUNT];

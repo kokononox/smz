@@ -69,6 +69,24 @@ bool guard_runtime_set_profile_pair_centers(uint8_t id,uint32_t m,int32_t d){
  }
  pair_mean[id-1u]=m;pair_difference[id-1u]=d;return true;
 }
+bool guard_runtime_validate_profile_pair_centers(const uint32_t means[9],
+                                                  const int32_t differences[9]){
+ if(!dual_sensor_enabled||!means||!differences)return false;
+ for(int i=0;i<9;i++)for(int j=i+1;j<9;j++){
+  uint32_t dm=means[i]>means[j]?means[i]-means[j]:means[j]-means[i];
+  int64_t raw=(int64_t)differences[i]-differences[j];
+  uint32_t dd=(uint32_t)(raw<0?-raw:raw);
+  if(dm<=80u&&dd<=40u)return false;
+ }
+ return true;
+}
+bool guard_runtime_set_profile_pair_centers_batch(const uint32_t means[9],
+                                                   const int32_t differences[9]){
+ if(!guard_runtime_validate_profile_pair_centers(means,differences))return false;
+ memcpy(pair_mean,means,sizeof(pair_mean));
+ memcpy(pair_difference,differences,sizeof(pair_difference));
+ return true;
+}
 const char *guard_runtime_profile_name(uint8_t id){(void)id;return "test";}
 uint32_t calibration_store_revision(void){return 42;}
 bool light_sensor_calibration_start(uint32_t duration,uint32_t now){(void)duration;(void)now;ready=true;return true;}
