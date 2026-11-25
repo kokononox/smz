@@ -36,24 +36,25 @@ public partial class MainViewModel
 
         try
         {
+            var outputPath = Path.GetFullPath(outputDialog.FileName);
             var workspace = CapturePipelineWorkspaceForExport();
             var result = await NativeUf2Exporter.ExportAsync(
-                templateDialog.FileName, outputDialog.FileName, workspace, _settings);
-            Log($"native UF2 export: {Path.GetFileName(outputDialog.FileName)}; "
+                templateDialog.FileName, outputPath, workspace, _settings);
+            Log($"native UF2 export: {Path.GetFileName(outputPath)}; "
                 + $"program={result.ProgramBytes} bytes; sha256={result.ProgramSha256}");
             if (!string.IsNullOrWhiteSpace(result.CompilerSummary))
                 Log("native ABP compiler: " + result.CompilerSummary);
             if (!string.IsNullOrWhiteSpace(result.PatcherSummary))
                 Log("native UF2 patcher: " + result.PatcherSummary);
             MessageBox.Show(
-                $"Native UF2 پروژهٔ فعلی ساخته شد.\n\n{outputDialog.FileName}\n\n"
+                $"Native UF2 پروژه ساخته شد.\n\nفایل: {outputPath}\n\n"
                 + $"ABP: {result.ProgramBytes:N0} bytes\nSHA-256: {result.ProgramSha256}",
                 "Export Native UF2", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             Log("native UF2 export failed: " + ex.Message);
-            MessageBox.Show("ساخت Native UF2 ناموفق بود:\n" + ex.Message,
+            MessageBox.Show("ساخت Native UF2 پروژه ناموفق بود:\n" + ex.Message,
                 "Export Native UF2", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

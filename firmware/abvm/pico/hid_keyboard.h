@@ -26,5 +26,7 @@ void hid_keyboard_release_all(void);
 void hid_keyboard_discard_completion(void);
 bool hid_keyboard_busy(void);
 bool hid_keyboard_locked(void);
+bool hid_keyboard_send_mirror_report(uint8_t modifiers,
+                                     const uint8_t keys[6]);
 
 #endif
