@@ -73,9 +73,28 @@ internal static class PipelineWorkspaceLightProfileContract
         {
             File.WriteAllText(legacyScriptPath,
                 "{\"App\":\"AMS\",\"Version\":\"0.8.2\",\"Steps\":[{\"Type\":\"delay\",\"Props\":{},\"Children\":[]}]} ");
-            var imported = DocumentService.Load(legacyScriptPath);
-            Check(imported.Count == 1 && imported[0].Type == "delay",
-                "legacy single-script .amsj imports case-insensitive envelope fields");
+            var imported = DocumentService.Load(legacyScriptPath, out var absentProfiles);
+            Check(imported.Count == 1 && imported[0].Type == "delay" && absentProfiles is null,
+                "legacy single-script .amsj imports without changing app-level profile fallback");
+
+            DocumentService.Save(legacyScriptPath, imported, profiles);
+            var savedJson = File.ReadAllText(legacyScriptPath);
+            var reloaded = DocumentService.Load(legacyScriptPath, out var reloadedProfiles);
+            var desktop = reloadedProfiles?.Single(profile => profile.Id == "desktop");
+            Check(savedJson.Contains("\"lightStateProfiles\"", StringComparison.Ordinal)
+                  && reloaded.Count == 1 && desktop is { HasDualSensorCalibration: true, DualSensorCalibrationRequired: true }
+                  && desktop.MeanLuxCenter == 20.5 && desktop.DifferenceLuxCenter == 0
+                  && desktop.Sensor1LuxCenter == 10 && desktop.Sensor2LuxCenter == 10
+                  && desktop.DualSensorSampleCount == 5,
+                "legacy .amsj save/load preserves dual layout flags, M/Δ and sensor summaries");
+
+            var migrated = PipelineWorkspace.FromLegacy(reloaded);
+            migrated.LightStateProfiles = reloadedProfiles;
+            var migratedRoundTrip = PipelineWorkspaceSerializer.Deserialize(
+                PipelineWorkspaceSerializer.Serialize(migrated));
+            Check(migratedRoundTrip.LightStateProfiles?.Single(profile => profile.Id == "desktop")
+                    is { HasDualSensorCalibration: true, MeanLuxCenter: 20.5 },
+                "legacy .amsj with embedded profiles migrates into a pipeline workspace");
         }
         finally
         {
