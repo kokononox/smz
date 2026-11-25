@@ -115,8 +115,8 @@ public static class DualBoardLightSync
         if (!separation.IsValid)
             throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));
 
-        var rows = ordered.Select((item, index) =>
-            $"{index + 1}:{item.Mean}:{item.MeanTolerance}:{item.Difference}:{item.DifferenceTolerance}");
+        var rows = ordered.Select(item =>
+            $"{Array.IndexOf(ProfileIds, item.Profile.Id) + 1}:{item.Mean}:{item.MeanTolerance}:{item.Difference}:{item.DifferenceTolerance}");
         var command = "CALSYNC|DUAL|SET|profiles=" + string.Join(",", rows);
         if (command.Length >= 512)
             throw new InvalidOperationException("دادهٔ همگام‌سازی از ظرفیت فرمان برد بزرگ‌تر است.");
