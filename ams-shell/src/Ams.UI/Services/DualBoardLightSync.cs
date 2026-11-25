@@ -75,15 +75,31 @@ public static class DualBoardLightSync
 
     /// <summary>Builds a center sync while requiring the board's UF2 tolerances to match.</summary>
     public static string BuildCommand(IList<LightStateProfile> profiles)
+        => BuildCommand(profiles, ProfileIds);
+
+    /// <summary>
+    /// Builds a sparse center sync for one or more selected profiles. Unselected
+    /// board profiles are left unchanged by the firmware.
+    /// </summary>
+    public static string BuildCommand(IList<LightStateProfile> profiles,
+        IEnumerable<string> profileIds)
     {
         ArgumentNullException.ThrowIfNull(profiles);
-        var ordered = ProfileIds.Select(id =>
+        ArgumentNullException.ThrowIfNull(profileIds);
+        var requestedIds = profileIds.ToArray();
+        if (requestedIds.Length == 0
+            || requestedIds.Distinct(StringComparer.Ordinal).Count() != requestedIds.Length
+            || requestedIds.Any(id => !ProfileIds.Contains(id, StringComparer.Ordinal)))
+            throw new InvalidOperationException("یک یا چند شناسهٔ پروفایل برای همگام‌سازی نامعتبر است.");
+
+        var requested = requestedIds.ToHashSet(StringComparer.Ordinal);
+        var ordered = ProfileIds.Where(requested.Contains).Select(id =>
         {
             var profile = profiles.SingleOrDefault(candidate => candidate.Id == id)
                 ?? throw new InvalidOperationException($"پروفایل «{id}» پیدا نشد.");
             if (!profile.Enabled || !profile.HasDualSensorCalibration || !profile.IsValid)
                 throw new InvalidOperationException(
-                    "برای همگام‌سازی Native دوحسگری، هر ۹ پروفایل باید فعال و جفت‌کالیبره باشند.");
+                    $"پروفایل «{profile.Name}» باید فعال و جفت‌کالیبره باشد.");
             return (Profile: profile,
                 Mean: ToUnits(profile.MeanLuxCenter, 20, MaximumMeanValueHalfTenths,
                     "مرکز میانگین"),
@@ -95,7 +111,7 @@ public static class DualBoardLightSync
                     MaximumDifferenceTenths, "تلورانس اختلاف", positive: true));
         }).ToArray();
 
-        var separation = DualLightCalibration.Validate(ordered.Select(item => item.Profile));
+        var separation = DualLightCalibration.Validate(profiles);
         if (!separation.IsValid)
             throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));
 
@@ -180,17 +196,30 @@ public static class DualBoardLightSync
 
     public static bool Matches(DualBoardLightSnapshot snapshot,
         IList<LightStateProfile> profiles)
+        => Matches(snapshot, profiles, ProfileIds);
+
+    public static bool Matches(DualBoardLightSnapshot snapshot,
+        IList<LightStateProfile> profiles, IEnumerable<string> profileIds)
     {
         try
         {
-            var command = BuildCommand(profiles);
+            var requestedIds = profileIds.ToArray();
+            var command = BuildCommand(profiles, requestedIds);
             var expected = command["CALSYNC|DUAL|SET|profiles=".Length..]
                 .Split(',', StringSplitOptions.None);
-            var actual = snapshot.Profiles.Select(profile =>
+            var actual = snapshot.Profiles.ToDictionary(profile => profile.ProfileId, profile =>
                 $"{profile.ProfileId}:{profile.MeanCenterHalfTenths}:"
                 + $"{profile.MeanToleranceHalfTenths}:{profile.DifferenceCenterTenths}:"
                 + $"{profile.DifferenceToleranceTenths}");
-            return expected.SequenceEqual(actual, StringComparer.Ordinal);
+            return expected.All(row =>
+            {
+                var separator = row.IndexOf(':');
+                return separator > 0
+                       && byte.TryParse(row[..separator], NumberStyles.None,
+                           CultureInfo.InvariantCulture, out var id)
+                       && actual.TryGetValue(id, out var actualRow)
+                       && string.Equals(row, actualRow, StringComparison.Ordinal);
+            });
         }
         catch
         {

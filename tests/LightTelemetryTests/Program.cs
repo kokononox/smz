@@ -155,12 +155,31 @@ var dualCommand = DualBoardLightSync.BuildCommand(dualTargets);
 Check(dualCommand.StartsWith("CALSYNC|DUAL|SET|profiles=1:410:10:0:5,2:810:10:0:5,",
         StringComparison.Ordinal),
     "dual board sync serializes paired centers and UF2 tolerance checks in profile order");
+var partialDualIds = new[] { "desktop", "game" };
+var partialDualTargets = dualTargets
+    .Where(profile => partialDualIds.Contains(profile.Id, StringComparer.Ordinal))
+    .ToList();
+var partialDualCommand = DualBoardLightSync.BuildCommand(
+    partialDualTargets, partialDualIds);
+Check(partialDualCommand
+      == "CALSYNC|DUAL|SET|profiles=1:410:10:0:5,5:2010:10:0:5",
+    "dual board sync can send selected calibrated profiles without waiting for all nine");
 var dualSnapshot = DualBoardLightSync.Parse(
     "OK|CALSYNC|DUAL|revision=73|" + dualCommand["CALSYNC|DUAL|SET|".Length..]);
 Check(dualSnapshot.Revision == 73 && dualSnapshot.Profiles.Count == 9
       && dualSnapshot.Profiles[0] == new DualBoardLightProfile(1, 410, 10, 0, 5)
-      && DualBoardLightSync.Matches(dualSnapshot, dualTargets),
+      && DualBoardLightSync.Matches(dualSnapshot, dualTargets)
+      && DualBoardLightSync.Matches(dualSnapshot, partialDualTargets, partialDualIds),
     "dual board sync parses a complete M/D snapshot and verifies the round trip");
+var changedUnselectedSnapshot = dualSnapshot with
+{
+    Profiles = dualSnapshot.Profiles.Select(profile => profile.ProfileId == 2
+        ? profile with { MeanCenterHalfTenths = profile.MeanCenterHalfTenths + 10 }
+        : profile).ToArray(),
+};
+Check(DualBoardLightSync.Matches(changedUnselectedSnapshot,
+        partialDualTargets, partialDualIds),
+    "sparse dual sync verifies requested profiles without requiring other centers to match");
 var dualImportTargets = LightStateDefaults.CreateInitialProfiles();
 var preservedLegacyLux = dualImportTargets[0].LuxCenter;
 dualImportTargets[0].Sensor1LuxCenter = 2;

@@ -223,39 +223,17 @@ public partial class MainViewModel
                 profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired);
             if (useDualSync)
             {
-                var dualCommand = DualBoardLightSync.BuildCommand(LightStateProfiles);
-                if (!SaveLightStateProfiles()) return false;
-                LightProfileSaveStatus = "در حال ارسال مراکز کالیبراسیون جفتی به برد…";
-                var dualReply = await _bridge.SendAsync(dualCommand, 5);
-                if (!dualReply.StartsWith("OK|CALSYNC|DUAL|SET|revision=", StringComparison.Ordinal))
-                {
-                    LightProfileSaveStatus = dualReply switch
-                    {
-                        _ when dualReply.StartsWith("ERR|COMMAND|unknown=", StringComparison.Ordinal)
-                            => "فریمور برد همگام‌سازی دوحسگری را نمی‌شناسد؛ Native UF2 دوحسگری همین نسخه را فلش کنید.",
-                        _ when dualReply.StartsWith("ERR|CONFIG|CALSYNC|DUAL|", StringComparison.Ordinal)
-                            => "تلورانس‌های برد با پروفایل‌ها یکی نیستند؛ UF2 را با تلورانس‌های فعلی بسازید و فلش کنید، سپس دوباره ارسال کنید.",
-                        _ when dualReply.StartsWith("ERR|FIT|CALSYNC|DUAL", StringComparison.Ordinal)
-                            => "برد این مراکز را به‌دلیل هم‌پوشانی یا فاصلهٔ ایمنی ناکافی نپذیرفت.",
-                        _ => "ارسال دوحسگری ناموفق بود؛ اجرا و کالیبراسیون را متوقف و مقادیر را بررسی کنید: " + dualReply,
-                    };
-                    return false;
-                }
-
-                var dualSnapshot = DualBoardLightSync.Parse(
-                    await _bridge.SendAsync("CALSYNC|DUAL|GET", 3));
-                if (!DualBoardLightSync.Matches(dualSnapshot, LightStateProfiles))
+                var calibratedProfileIds = LightStateProfiles
+                    .Where(profile => profile.Enabled && profile.HasDualSensorCalibration)
+                    .Select(profile => profile.Id)
+                    .ToArray();
+                if (calibratedProfileIds.Length == 0)
                 {
                     LightProfileSaveStatus =
-                        "تأیید برد با مقادیر ارسالی یکسان نبود؛ پیش از تلاش دوباره، از برد وارد کنید.";
+                        "ارسال انجام نشد: ابتدا کالیبراسیون جفتی یک وضعیت را کامل و اعمال کنید.";
                     return false;
                 }
-                DualBoardLightSync.Apply(dualSnapshot, LightStateProfiles);
-                if (!SaveLightStateProfiles()) return false;
-                LightProfileSaveStatus =
-                    $"۹ مرکز جفتی روی برد ذخیره و تأیید شد · revision {dualSnapshot.Revision}. "
-                    + "تلورانس‌ها در UF2 فعال می‌مانند؛ برای تغییرشان UF2 را دوباره بسازید و فلش کنید.";
-                return true;
+                return await SendDualLightProfilesToBoardAsync(calibratedProfileIds);
             }
 
             var command = BoardLightSync.BuildCommand(LightStateProfiles, PhysicalCalibrationToleranceLux);
@@ -280,6 +258,81 @@ public partial class MainViewModel
         catch (Exception ex)
         {
             LightProfileSaveStatus = "ارسال یا خواندن تأیید برد ناموفق بود: " + ex.Message + "؛ پیش از تلاش دوباره، از برد وارد کنید.";
+            return false;
+        }
+    }
+
+    public async Task<bool> SendLightStateProfileToBoardAsync(string profileId)
+    {
+        var profile = LightStateProfiles.SingleOrDefault(candidate => candidate.Id == profileId);
+        if (profile is null || !profile.Enabled || !profile.HasDualSensorCalibration)
+        {
+            LightProfileSaveStatus =
+                "ارسال انجام نشد: این وضعیت باید فعال و جفت‌کالیبره باشد.";
+            return false;
+        }
+        return await SendDualLightProfilesToBoardAsync(new[] { profileId });
+    }
+
+    private async Task<bool> SendDualLightProfilesToBoardAsync(
+        IReadOnlyCollection<string> profileIds)
+    {
+        if (_bridge is null || Connection != ConnectionState.Connected
+                            || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+
+        try
+        {
+            var command = DualBoardLightSync.BuildCommand(LightStateProfiles, profileIds);
+            if (!SaveLightStateProfiles()) return false;
+            LightProfileSaveStatus =
+                $"در حال ارسال {profileIds.Count} وضعیت جفت‌کالیبره‌شده به برد…";
+            var reply = await _bridge.SendAsync(command, 5);
+            if (!reply.StartsWith("OK|CALSYNC|DUAL|SET|revision=", StringComparison.Ordinal))
+            {
+                LightProfileSaveStatus = reply switch
+                {
+                    _ when reply.StartsWith("ERR|COMMAND|unknown=", StringComparison.Ordinal)
+                        => "فریمور برد همگام‌سازی دوحسگری را نمی‌شناسد؛ Native UF2 دوحسگری همین نسخه را فلش کنید.",
+                    _ when reply.StartsWith("ERR|ARG|CALSYNC|DUAL", StringComparison.Ordinal)
+                        => "فریمور فعلی فقط ارسال هر ۹ وضعیت را می‌پذیرد؛ برای ارسال تکی یا ناقص، Native UF2 به‌روز را فلش کنید.",
+                    _ when reply.StartsWith("ERR|CONFIG|CALSYNC|DUAL|", StringComparison.Ordinal)
+                        => "تلورانس‌های برد با پروفایل‌ها یکی نیستند؛ UF2 را با تلورانس‌های فعلی بسازید و فلش کنید، سپس دوباره ارسال کنید.",
+                    _ when reply.StartsWith("ERR|FIT|CALSYNC|DUAL", StringComparison.Ordinal)
+                        => "برد این تغییر را به‌دلیل هم‌پوشانی یا فاصلهٔ ایمنی ناکافی با وضعیت‌های دیگر نپذیرفت.",
+                    _ => "ارسال دوحسگری ناموفق بود؛ اجرا و کالیبراسیون را متوقف و مقادیر را بررسی کنید: " + reply,
+                };
+                return false;
+            }
+
+            var snapshot = DualBoardLightSync.Parse(
+                await _bridge.SendAsync("CALSYNC|DUAL|GET", 3));
+            if (!DualBoardLightSync.Matches(snapshot, LightStateProfiles, profileIds))
+            {
+                LightProfileSaveStatus =
+                    "تأیید برد با مقادیر ارسالی یکسان نبود؛ پیش از تلاش دوباره، از برد وارد کنید.";
+                return false;
+            }
+
+            var unsentCount = LightStateProfiles.Count(profile =>
+                profile.Enabled && profile.DualSensorCalibrationRequired
+                && !profile.HasDualSensorCalibration);
+            var unsentNote = unsentCount > 0
+                ? $" {unsentCount} وضعیتِ هنوز کالیبره‌نشده ارسال نشد."
+                : "";
+            LightProfileSaveStatus =
+                $"{profileIds.Count} وضعیت جفتی روی برد ذخیره و تأیید شد · revision {snapshot.Revision}. "
+                + $"وضعیت‌های دیگر تغییر نکردند.{unsentNote} "
+                + "تلورانس‌ها در UF2 فعال می‌مانند؛ برای تغییرشان UF2 را دوباره بسازید و فلش کنید.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "ارسال یا خواندن تأیید برد ناموفق بود: " + ex.Message
+                                     + "؛ پیش از تلاش دوباره، از برد وارد کنید.";
             return false;
         }
     }

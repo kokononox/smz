@@ -115,6 +115,15 @@ int main(void){
  calibration_store_init(&vm);
  assert(calibration_store_dual_light_get(1,&mean,&difference)&&
         mean==3250u&&difference==-750);
+ uint32_t second_means[9]={0};int32_t second_differences[9]={0};
+ second_means[2]=8750u;second_differences[2]=1250;
+ assert(calibration_store_dual_light_sync((uint16_t)(1u<<2),
+        second_means,second_differences));
+ calibration_store_init(&vm);
+ assert(calibration_store_dual_light_get(1,&mean,&difference)&&
+        mean==3250u&&difference==-750);
+ assert(calibration_store_dual_light_get(3,&mean,&difference)&&
+        mean==8750u&&difference==1250);
  assert(calibration_store_light_center(1,&saved_center)&&saved_center==100);
  assert(calibration_store_light_tolerance()==20u);
  corrupt_write=true;means[0]=3300u;

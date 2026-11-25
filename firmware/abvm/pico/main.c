@@ -658,6 +658,7 @@ static bool parse_dual_sync_int(char **cursor,char delimiter,int32_t minimum,
 static void set_dual_light_sync(char *p){
     uint32_t means[9],mean_tolerances[9],difference_tolerances[9];
     int32_t differences[9];
+    uint16_t mask=0u;
     if(guard_runtime_running()||vm.status==ABVM_STATUS_RUNNING||
        vm.status==ABVM_STATUS_PAUSED||calibration_runtime_active()){
         printf("ERR|BUSY|CALSYNC|DUAL\n");return;
@@ -667,34 +668,55 @@ static void set_dual_light_sync(char *p){
     }
     if(strncmp(p,"profiles=",9u)){printf("ERR|ARG|CALSYNC|DUAL\n");return;}
     p+=9;
+    /* Start with the active board values so a sparse update keeps every
+     * unselected profile and validates the resulting complete classifier set. */
     for(uint8_t i=0u;i<9u;++i){
-        uint32_t id;
-        char delimiter=i==8u?'\0':':';
-        if(!parse_dual_sync_uint(&p,':',9u,&id)||id!=(uint32_t)i+1u||
-           !parse_dual_sync_uint(&p,':',20000000u,&means[i])||
-           !parse_dual_sync_uint(&p,':',20000000u,&mean_tolerances[i])||
-           !mean_tolerances[i]||
-           !parse_dual_sync_int(&p,':',-10000000,10000000,&differences[i])||
-           !parse_dual_sync_uint(&p,delimiter,10000000u,
-                                 &difference_tolerances[i])||
-           !difference_tolerances[i]){
+        if(!guard_runtime_get_profile_pair_calibration((uint8_t)(i+1u),
+               &means[i],&mean_tolerances[i],&differences[i],
+               &difference_tolerances[i])){
+            printf("ERR|STATE|CALSYNC|DUAL\n");return;
+        }
+    }
+    uint8_t row_count=0u;
+    while(*p){
+        char *row_end=strchr(p,',');
+        if(row_end)*row_end='\0';
+        char *cursor=p;
+        uint32_t id,mean,mean_tolerance,difference_tolerance;
+        int32_t difference;
+        if(!parse_dual_sync_uint(&cursor,':',9u,&id)||id==0u||
+           (mask&(uint16_t)(1u<<(id-1u)))||
+           !parse_dual_sync_uint(&cursor,':',20000000u,&mean)||
+           !parse_dual_sync_uint(&cursor,':',20000000u,&mean_tolerance)||
+           !mean_tolerance||
+           !parse_dual_sync_int(&cursor,':',-10000000,10000000,&difference)||
+           !parse_dual_sync_uint(&cursor,'\0',10000000u,
+                                 &difference_tolerance)||
+           !difference_tolerance){
             printf("ERR|ARG|CALSYNC|DUAL\n");return;
         }
-        uint32_t board_mean,board_mean_tolerance,board_difference_tolerance;
-        int32_t board_difference;
-        if(!guard_runtime_get_profile_pair_calibration((uint8_t)(i+1u),
-               &board_mean,&board_mean_tolerance,&board_difference,
-               &board_difference_tolerance)||
-           mean_tolerances[i]!=board_mean_tolerance||
-           difference_tolerances[i]!=board_difference_tolerance){
+        uint8_t index=(uint8_t)(id-1u);
+        if(mean_tolerance!=mean_tolerances[index]||
+           difference_tolerance!=difference_tolerances[index]){
             printf("ERR|CONFIG|CALSYNC|DUAL|profile=%u\n",
-                   (unsigned)(i+1u));return;
+                   (unsigned)id);return;
         }
+        means[index]=mean;
+        differences[index]=difference;
+        mask|=(uint16_t)(1u<<index);
+        ++row_count;
+        if(!row_end)break;
+        *row_end=',';
+        p=row_end+1;
+        if(!*p){printf("ERR|ARG|CALSYNC|DUAL\n");return;}
+    }
+    if(!row_count){
+        printf("ERR|ARG|CALSYNC|DUAL\n");return;
     }
     if(!guard_runtime_validate_profile_pair_centers(means,differences)){
         printf("ERR|FIT|CALSYNC|DUAL\n");return;
     }
-    if(!calibration_store_dual_light_sync(0x1ffu,means,differences)){
+    if(!calibration_store_dual_light_sync(mask,means,differences)){
         printf("ERR|FLASH|CALSYNC|DUAL\n");return;
     }
     if(!guard_runtime_set_profile_pair_centers_batch(means,differences)){

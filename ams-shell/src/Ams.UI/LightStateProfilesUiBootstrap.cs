@@ -75,7 +75,7 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("چیدمان و کالیبراسیون دوحسگری در فایل پروژهٔ ‎.amsj ذخیره می‌شوند؛ بعد از ذخیرهٔ پروفایل‌ها، پروژه را هم ذخیره کنید تا همراه ماکرو بمانند.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص فعلی همچنان از M=(L1+L2)/2 و Δ=L2−L1 استفاده می‌کند. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید. وارد/صادر کردن دوحسگری فقط مراکز M/Δ را همگام می‌کند؛ تلورانس‌ها در Native UF2 فعال هستند و برای تغییرشان باید UF2 را دوباره بسازید و فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. وارد/صادر کردن دوحسگری فقط مراکز M/Δ را همگام می‌کند؛ تلورانس‌ها در Native UF2 فعال هستند و برای تغییرشان باید UF2 را دوباره بسازید و فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی (لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -96,7 +96,8 @@ internal static class LightStateProfilesUiBootstrap
         {
             rows.Children.Clear();
             rows.Children.Add(ProfileHeader());
-            foreach (var profile in vm.LightStateProfiles) rows.Children.Add(ProfileRow(profile));
+            foreach (var profile in vm.LightStateProfiles)
+                rows.Children.Add(ProfileRow(window, vm, profile));
         }
         RebuildRows();
 
@@ -118,13 +119,21 @@ internal static class LightStateProfilesUiBootstrap
                 importFromBoard.IsEnabled = true;
             }
         };
-        var sendToBoard = ActionButton("ارسال به برد", "#8D67C8", "#F5F7FA");
+        var sendToBoard = ActionButton("ارسال همه به برد", "#8D67C8", "#F5F7FA");
         sendToBoard.Margin = new Thickness(8, 0, 0, 0);
         sendToBoard.Click += async (_, _) =>
         {
-            if (MessageBox.Show(window, "پروفایل‌های نوری روی برد جایگزین شوند؟ در حالت دوحسگری فقط مراکز M/Δ منتقل می‌شوند و تلورانس‌ها باید با UF2 فعال یکی باشند. اجرای برد و کالیبراسیون باید متوقف باشند.",
+            if (MessageBox.Show(window,
+                    "در حالت دوحسگری، همهٔ وضعیت‌های فعال و جفت‌کالیبره‌شده ارسال می‌شوند؛ وضعیت‌های کالیبره‌نشده روی برد بدون تغییر می‌مانند و لازم نیست هر ۹ وضعیت آماده باشد. در حالت تک‌سنسوره، هر ۹ پروفایل ارسال می‌شوند. تلورانس‌های دوحسگری باید با UF2 فعال یکی باشند. اجرای برد و کالیبراسیون باید متوقف باشند.",
                     "ارسال به برد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; }
+            if (rows.Children.OfType<Grid>()
+                .SelectMany(grid => grid.Children.OfType<TextBox>())
+                .Any(box => Validation.GetHasError(box)))
+            {
+                vm.ReportLightProfileEditorValidationError();
+                return;
+            }
             sendToBoard.IsEnabled = false;
             try { if (await vm.SendLightStateProfilesToBoardAsync()) RebuildRows(); }
             finally { sendToBoard.IsEnabled = true; }
@@ -190,10 +199,12 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, Text("پایداری ms", 11, "#AAB3C2"), 7);
         Add(row, Text("Hysteresis", 11, "#AAB3C2"), 8);
         Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 9);
+        Add(row, Text("ارسال این وضعیت", 11, "#AAB3C2"), 10);
         return row;
     }
 
-    private static Grid ProfileRow(LightStateProfile profile)
+    private static Grid ProfileRow(MainWindow window, MainViewModel vm,
+        LightStateProfile profile)
     {
         var row = ProfileGrid();
         row.Margin = new Thickness(0, 3, 0, 3);
@@ -226,6 +237,29 @@ internal static class LightStateProfilesUiBootstrap
         Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
             ? Editor(profile, nameof(profile.LightCooldownMs))
             : Text("—", 12, "#777F8C"), 9);
+        var send = ActionButton("ارسال به برد", "#5D477F", "#F5F7FA");
+        send.Margin = new Thickness(4, 3, 0, 3);
+        send.Click += async (_, _) =>
+        {
+            if (row.Children.OfType<TextBox>().Any(box => Validation.GetHasError(box)))
+            {
+                vm.ReportLightProfileEditorValidationError();
+                return;
+            }
+            if (!profile.Enabled || !profile.HasDualSensorCalibration)
+            {
+                await vm.SendLightStateProfileToBoardAsync(profile.Id);
+                return;
+            }
+            if (MessageBox.Show(window,
+                    $"فقط کالیبراسیون دوحسگری «{profile.Name}» به برد فرستاده شود؟ اجرای برد و کالیبراسیون باید متوقف باشند؛ وضعیت‌های دیگر تغییر نمی‌کنند.",
+                    "ارسال یک وضعیت به برد", MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            send.IsEnabled = false;
+            try { await vm.SendLightStateProfileToBoardAsync(profile.Id); }
+            finally { send.IsEnabled = true; }
+        };
+        Add(row, send, 10);
         return row;
     }
 
@@ -245,10 +279,11 @@ internal static class LightStateProfilesUiBootstrap
 
     private static Grid ProfileGrid()
     {
-        var grid = new Grid { MinWidth = 1320 };
+        var grid = new Grid { MinWidth = 1440 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
         for (var i = 0; i < 8; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
         return grid;
     }
 
