@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json;
 using Ams.UI.Models;
 using Ams.UI.Services;
 using CommunityToolkit.Mvvm.Input;
@@ -229,8 +230,11 @@ public partial class MainViewModel
         {
             var json = File.ReadAllText(dialog.FileName);
             try { _pipelineWorkspace = PipelineWorkspaceSerializer.Deserialize(json); }
-            catch (InvalidDataException)
+            catch (Exception ex) when (ex is InvalidDataException or JsonException)
             {
+                // A malformed/unsupported multi-tab envelope must not be mistaken for an
+                // old single-script file and silently opened as an empty workspace.
+                if (HasPipelineEnvelope(json)) throw;
                 _pipelineWorkspace = PipelineWorkspace.FromLegacy(DocumentService.Load(dialog.FileName), targetKind);
             }
             ApplyProjectLightProfiles();
@@ -259,6 +263,19 @@ public partial class MainViewModel
             System.Windows.MessageBox.Show("بازکردن Pipeline ناموفق بود: " + ex.Message,
                 "Open Pipeline", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
         }
+    }
+
+    private static bool HasPipelineEnvelope(string json)
+    {
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+        var root = document.RootElement;
+        return root.ValueKind == JsonValueKind.Object
+            && root.EnumerateObject().Any(property =>
+                string.Equals(property.Name, "pipelines", StringComparison.OrdinalIgnoreCase));
     }
 
     [RelayCommand]

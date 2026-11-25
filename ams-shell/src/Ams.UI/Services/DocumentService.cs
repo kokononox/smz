@@ -18,7 +18,13 @@ public static class DocumentService
         public List<StepNode> steps { get; set; } = new();
     }
 
-    private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Opts = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
 
     public static void Save(string path, IEnumerable<StepNode> roots)
     {
@@ -29,7 +35,22 @@ public static class DocumentService
 
     public static List<StepNode> Load(string path)
     {
-        var doc = JsonSerializer.Deserialize<Doc>(File.ReadAllText(path))
+        var json = File.ReadAllText(path);
+        using (var document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        }))
+        {
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var roots = document.RootElement.Deserialize<List<StepNode>>(Opts)
+                    ?? throw new InvalidDataException("Not an AMS document.");
+                foreach (var root in roots) FixParents(root, null);
+                return roots;
+            }
+        }
+        var doc = JsonSerializer.Deserialize<Doc>(json, Opts)
                   ?? throw new InvalidDataException("Not an AMS document.");
         if (doc.app != "AMS") throw new InvalidDataException("Not an AMS document.");
         foreach (var n in doc.steps) FixParents(n, null);

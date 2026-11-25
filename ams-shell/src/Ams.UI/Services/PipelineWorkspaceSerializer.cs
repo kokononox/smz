@@ -24,7 +24,13 @@ public static class PipelineWorkspaceSerializer
         public List<LightStateProfile>? lightStateProfiles { get; set; }
     }
 
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
 
     public static string Serialize(PipelineWorkspace workspace)
     {
@@ -88,19 +94,36 @@ public static class PipelineWorkspaceSerializer
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        if (!root.TryGetProperty("app", out var app) || app.GetString() != "AMS")
+        if (root.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException("Not an AMS pipeline document.");
-        if (!root.TryGetProperty("pipelines", out var pipelines) || pipelines.ValueKind != JsonValueKind.Object)
+        if (!TryGetPropertyIgnoreCase(root, "app", out var app)
+            || app.ValueKind != JsonValueKind.String || app.GetString() != "AMS")
+            throw new InvalidDataException("Not an AMS pipeline document.");
+        if (!TryGetPropertyIgnoreCase(root, "pipelines", out var pipelines)
+            || pipelines.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException("Pipeline document has no pipelines.");
 
-        var version = root.TryGetProperty("pipelineVersion", out var versionValue)
-            && versionValue.TryGetInt32(out var parsed) ? parsed : 0;
+        // The earliest pipeline envelopes did not always write a version field.
+        // Their route map is the v1 shape; accept both numeric and quoted versions.
+        var version = 1;
+        if (TryGetPropertyIgnoreCase(root, "pipelineVersion", out var versionValue))
+        {
+            if (versionValue.ValueKind == JsonValueKind.Number
+                && versionValue.TryGetInt32(out var numericVersion))
+                version = numericVersion;
+            else if (versionValue.ValueKind == JsonValueKind.String
+                && int.TryParse(versionValue.GetString(), out var textVersion))
+                version = textVersion;
+            else
+                throw new InvalidDataException("Invalid AMS pipeline version.");
+        }
         if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15))
             throw new InvalidDataException("Unsupported AMS pipeline document.");
 
         var workspace = new PipelineWorkspace();
         workspace.DayWindowsUser = ReadOptionalUsername(root, "dayWindowsUser");
-        if (root.TryGetProperty("lightStateProfiles", out var lightProfilesValue))
+        if (TryGetPropertyIgnoreCase(root, "lightStateProfiles", out var lightProfilesValue)
+            && lightProfilesValue.ValueKind != JsonValueKind.Null)
         {
             if (lightProfilesValue.ValueKind != JsonValueKind.Array)
                 throw new InvalidDataException("پروفایل‌های نور داخل پروژه باید یک آرایه باشند.");
@@ -116,11 +139,11 @@ public static class PipelineWorkspaceSerializer
             workspace.LightStateProfiles = normalizedProfiles.Select(profile => profile.Copy()).ToList();
         }
         workspace.NightWindowsUser = ReadOptionalUsername(root, "nightWindowsUser");
-        if(root.TryGetProperty("shiftSchedule",out var schedule)) {
+        if(TryGetPropertyIgnoreCase(root, "shiftSchedule",out var schedule)) {
             workspace.ShiftSchedule=schedule.Deserialize<ShiftScheduleSettings>()??new();
             workspace.ShiftSchedule.Validate();
         }
-        if (root.TryGetProperty("gameBuffs", out var buffs)) {
+        if (TryGetPropertyIgnoreCase(root, "gameBuffs", out var buffs)) {
             var list=buffs.Deserialize<List<StepNode>>() ?? new();
             if(list.Count>16)throw new InvalidDataException("حداکثر ۱۶ باف مجاز است.");
             foreach(var buff in list) {
@@ -128,16 +151,16 @@ public static class PipelineWorkspaceSerializer
                 workspace.GameBuffs.Add(buff);
             }
         }
-        if(root.TryGetProperty("gameMouseFatigueMinutes",out var fatigue)) {
+        if(TryGetPropertyIgnoreCase(root, "gameMouseFatigueMinutes",out var fatigue)) {
             if(!fatigue.TryGetInt32(out var minutes)||minutes<1||minutes>1440)
                 throw new InvalidDataException("مدت افت تدریجی سرعت باید ۱ تا ۱۴۴۰ دقیقه باشد.");
             workspace.GameMouseFatigueMinutes=minutes;
         }
-        if (version >= 8 && root.TryGetProperty("humanMouseProfile", out var humanProfile)
+        if (version >= 8 && TryGetPropertyIgnoreCase(root, "humanMouseProfile", out var humanProfile)
             && humanProfile.ValueKind == JsonValueKind.Object)
             workspace.HumanMouseProfile =
                 humanProfile.Deserialize<HumanMouseProfile>() ?? new();
-        if (version >= 9 && root.TryGetProperty("displayProfile", out var displayProfile)
+        if (version >= 9 && TryGetPropertyIgnoreCase(root, "displayProfile", out var displayProfile)
             && displayProfile.ValueKind == JsonValueKind.Object)
         {
             var loaded = displayProfile.Deserialize<DisplayProfile>() ?? new();
@@ -160,7 +183,7 @@ public static class PipelineWorkspaceSerializer
             }
             if (target == PipelineKind.Dc) hasDc = true;
         }
-        if (version >= 4 && root.TryGetProperty("soundProfiles", out var soundProfiles)
+        if (version >= 4 && TryGetPropertyIgnoreCase(root, "soundProfiles", out var soundProfiles)
             && soundProfiles.ValueKind == JsonValueKind.Array)
         {
             var loaded = soundProfiles.Deserialize<List<SoundWatchProfile>>() ?? new();
@@ -182,9 +205,26 @@ public static class PipelineWorkspaceSerializer
         return workspace;
     }
 
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName,
+        out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                value = property.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+
     private static string ReadOptionalUsername(JsonElement root, string propertyName)
     {
-        if (!root.TryGetProperty(propertyName, out var value)
+        if (!TryGetPropertyIgnoreCase(root, propertyName, out var value)
             || value.ValueKind == JsonValueKind.Null)
             return "";
         if (value.ValueKind != JsonValueKind.String)

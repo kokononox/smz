@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.CompilerServices;
 using Ams.UI.Models;
 using Ams.UI.Services;
@@ -56,6 +57,30 @@ internal static class PipelineWorkspaceLightProfileContract
         var legacyLoaded = PipelineWorkspaceSerializer.Deserialize(legacy);
         Check(legacyLoaded.LightStateProfiles is null,
             "legacy .amsj without project calibration keeps the app-level profile fallback");
+
+        const string earlyPipeline = "{\"App\":\"AMS\",\"Pipelines\":{\"Main\":[]}}";
+        var earlyPipelineLoaded = PipelineWorkspaceSerializer.Deserialize(earlyPipeline);
+        Check(earlyPipelineLoaded[PipelineKind.Desktop].Steps.Count == 0,
+            "early pipeline .amsj imports without an explicit version and with legacy casing");
+
+        const string quotedVersion = "{\"app\":\"AMS\",\"pipelineVersion\":\"14\",\"pipelines\":{\"Desktop\":[]}}";
+        var quotedVersionLoaded = PipelineWorkspaceSerializer.Deserialize(quotedVersion);
+        Check(quotedVersionLoaded[PipelineKind.Desktop].Steps.Count == 0,
+            "legacy pipeline .amsj imports a quoted version number");
+
+        var legacyScriptPath = Path.Combine(Path.GetTempPath(), "legacy-amsj-" + Guid.NewGuid().ToString("N") + ".amsj");
+        try
+        {
+            File.WriteAllText(legacyScriptPath,
+                "{\"App\":\"AMS\",\"Version\":\"0.8.2\",\"Steps\":[{\"Type\":\"delay\",\"Props\":{},\"Children\":[]}]} ");
+            var imported = DocumentService.Load(legacyScriptPath);
+            Check(imported.Count == 1 && imported[0].Type == "delay",
+                "legacy single-script .amsj imports case-insensitive envelope fields");
+        }
+        finally
+        {
+            if (File.Exists(legacyScriptPath)) File.Delete(legacyScriptPath);
+        }
 
         Console.WriteLine($"=== Pipeline light-profile results: {passed} passed, {failed} failed ===");
         if (failed > 0) throw new InvalidOperationException($"Pipeline light-profile contract failed: {failed}");
