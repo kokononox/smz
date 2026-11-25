@@ -1513,9 +1513,11 @@ public partial class MainViewModel : ObservableObject
 
             Snapshot();   // v0.9.30 — undoable
 
+            var loadedSteps = DocumentService.Load(dlg.FileName, out var projectLightProfiles);
             Steps.Clear();
-
-            foreach (var n in DocumentService.Load(dlg.FileName)) Steps.Add(n);
+            foreach (var n in loadedSteps) Steps.Add(n);
+            _pipelineWorkspace.LightStateProfiles = projectLightProfiles;
+            ApplyProjectLightProfiles();
 
             Renumber();
 
@@ -1581,7 +1583,7 @@ public partial class MainViewModel : ObservableObject
 
         {
 
-            DocumentService.Save(path, Steps);
+            DocumentService.Save(path, Steps, LightStateProfiles);
 
             _currentFile = path;
 
