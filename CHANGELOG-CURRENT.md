@@ -13,11 +13,11 @@ Paired calibration reduced its synchronized L1/L2 samples to M and signed Δ bef
 
 ### Change
 
-Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries for each paired profile. Added a versioned, all-nine-profile `CALSYNC|DUAL` import/export path: paired centers persist atomically on the board, active UF2 tolerances are checked rather than silently changed, and Studio verifies the read-back. Board imports clear raw L1/L2 summaries because firmware does not store them. These raw ranges describe the latest short calibration capture only; they do not claim to cover full-day light drift, and the runtime classifier remains M/Δ-based.
+Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries for each paired profile. Added a versioned, all-nine-profile `CALSYNC|DUAL` import/export path: paired centers persist atomically on the board, active UF2 tolerances are checked rather than silently changed, and Studio verifies the read-back. Board imports clear raw L1/L2 summaries because firmware does not store them. The full sensor-layout and calibration profile set—including the dual-layout requirement marker, M/Δ values, and raw L1/L2 summaries—is now bundled into version 15 `.amsj` project files and restored when opened; the app-level `light-state-profiles.json` remains the fallback for legacy workspaces. After saving profiles, save the project to bind those values to its macro. Raw ranges describe only the latest short capture, not full-day light drift; runtime classification remains M/Δ-based.
 
 ### Validation
 
-Host contracts cover paired raw statistics, profile-file round-trip, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. The changed Pico host smoke tests and dual-guard tests passed locally; Windows build, full TestRunner, packaged Studio ZIP, Pico CI, and physical board acceptance are pending this CI run.
+Host contracts cover paired raw statistics, profile-file and `.amsj` round-trips, legacy version-14 fallback, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. The changed Pico host smoke tests and dual-guard tests passed locally; Windows build, full TestRunner, packaged Studio ZIP, Pico CI, and physical board acceptance are pending this CI run.
 
 ### Next test
 
