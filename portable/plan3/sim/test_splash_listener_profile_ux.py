@@ -11,7 +11,7 @@ serializer = (root / "ams-shell/src/Ams.UI/Services/PipelineWorkspaceSerializer.
 exporter = (root / "ams-shell/src/Ams.UI/Services/PlanExporter.cs").read_text(encoding="utf-8")
 bundle = (root / "ams-shell/src/Ams.UI/Services/PipelinePlanBundle.cs").read_text(encoding="utf-8")
 
-assert "FormatVersion = 14" in model
+assert "FormatVersion = 15" in model
 assert "TimeoutMinSec" in model and "TimeoutMaxSec" in model
 assert "WhisperSoundEnabled" in vm
 assert "WhisperRepeatSoundEnabled" in vm
@@ -34,7 +34,7 @@ assert "profile.Enabled = false" in serializer
 
 assert 'case "splashListener":EmitSplashListener(n);return;' in exporter
 assert "FindCatchWaits" in bundle
-assert '"splash_steps.txt", "scoped"' in bundle
+assert '["splash_steps.txt", "scoped"]' in bundle
 assert "catchWait.Children" in bundle
 assert "x.ResponseTab == PipelineKind.Whisper" in bundle
 
