@@ -44,11 +44,17 @@ int main(int argc,char **argv) {
         .primary_lux_tenths=950u,.primary_age_ms=0u,
         .secondary_lux_tenths=1050u,.secondary_age_ms=0u
     };
+    uint32_t mean_center=0u,mean_tolerance=0u,difference_tolerance=0u;
+    int32_t difference_center=0;
     if(!require(abvm_init(&vm,image,(size_t)length),"ABP image")||
        !require(guard_runtime_init(&vm),"v6 descriptor")||
        !require(guard_runtime_available(),"runtime available")||
        !require(guard_runtime_dual_sensor_enabled(),"dual mode")||
        !require(guard_runtime_dual_sensor_ready(0u),"fresh pair")||
+       !require(guard_runtime_get_profile_pair_calibration(1u,
+                 &mean_center,&mean_tolerance,
+                 &difference_center,&difference_tolerance),
+                "paired calibration metadata")||
        !require(!guard_runtime_profile_matches(1u,1000u),
                 "no legacy L1 fallback")||
        !require(guard_runtime_profile_matches_pair(1u,950u,1050u),
@@ -61,6 +67,18 @@ int main(int argc,char **argv) {
                 "single-sensor calibration disabled")||
        !require(!guard_runtime_set_profile_range(1u,900u,1100u),
                 "single-sensor range writes disabled"))return 1;
+    if(!require(mean_center>0u&&mean_tolerance>0u&&
+                difference_tolerance>0u,"paired tolerance metadata"))return 1;
+    uint32_t other_mean,other_mean_tolerance,other_difference_tolerance;
+    int32_t other_difference;
+    if(!require(guard_runtime_get_profile_pair_calibration(2u,&other_mean,
+                 &other_mean_tolerance,&other_difference,
+                 &other_difference_tolerance),"second profile metadata")||
+       !require(!guard_runtime_set_profile_pair_centers(1u,other_mean,
+                 other_difference),"overlapping paired centers rejected")||
+       !require(guard_runtime_set_profile_pair_centers(1u,mean_center,
+                 difference_center),"original paired center remains valid"))
+        return 1;
 
     if(!require(guard_runtime_start(0u),"start with fresh pair"))return 1;
     guard_runtime_observe(&vm,1000u,0u);

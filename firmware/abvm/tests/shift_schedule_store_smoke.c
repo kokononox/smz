@@ -44,6 +44,19 @@ static void load_v7(AbvmVm *vm){
  memcpy(bytes+sizeof(old.sequence),&old.payload,sizeof(old.payload));old.crc32=crc32_bytes(bytes,sizeof(bytes));
  memcpy(test_flash+CAL_OFFSET_A,&old,sizeof(old));
 }
+static void load_v8(AbvmVm *vm){
+ LegacyCalibrationRecordV8 old={0};old.magic=CAL_MAGIC;old.version=8;
+ old.size=sizeof(old.payload);old.sequence=50;
+ memcpy(old.payload.binding,vm->header.program_sha256,32);old.payload.light_mask=1;
+ old.payload.light_low[0]=80;old.payload.light_high[0]=120;
+ old.payload.light_center[0]=100;old.payload.light_center_mask=1;
+ old.payload.light_default_tolerance=20;old.payload.host_boot_s=42;
+ uint8_t bytes[sizeof(old.sequence)+sizeof(old.payload)];
+ memcpy(bytes,&old.sequence,sizeof(old.sequence));
+ memcpy(bytes+sizeof(old.sequence),&old.payload,sizeof(old.payload));
+ old.crc32=crc32_bytes(bytes,sizeof(bytes));
+ memcpy(test_flash+CAL_OFFSET_A,&old,sizeof(old));
+}
 int main(void){
  test_flash=malloc(PICO_FLASH_SIZE_BYTES);assert(test_flash);memset(test_flash,255,PICO_FLASH_SIZE_BYTES);
  AbvmVm vm={0};memset(vm.header.program_sha256,0x11,32);load_v4(&vm);calibration_store_init(&vm);
@@ -91,5 +104,23 @@ int main(void){
  corrupt_write=true;highs[0]=110;assert(!calibration_store_light_sync(1,lows,highs,centers,30));
  assert(calibration_store_light_tolerance()==20u&&calibration_store_light_get(1,&lo,&hi)&&hi==115);
  corrupt_write=false;calibration_store_init(&vm);assert(calibration_store_light_tolerance()==20u);
- free(test_flash);puts("actual NVM v6: v4/v6 migration, learned cold start, power loss, attempt limit, atomic successful reset and rollback passed");return 0;
+ memset(test_flash,255,PICO_FLASH_SIZE_BYTES);load_v8(&vm);calibration_store_init(&vm);
+ assert(calibration_store_light_get(1,&lo,&hi)&&lo==80&&hi==120);
+ assert(calibration_store_light_center(1,&saved_center)&&saved_center==100);
+ assert(calibration_store_light_tolerance()==20u);
+ uint32_t mean=0;int32_t difference=0;
+ assert(!calibration_store_dual_light_get(1,&mean,&difference));
+ uint32_t means[9]={3250u};int32_t differences[9]={-750};
+ assert(calibration_store_dual_light_sync(1,means,differences));
+ calibration_store_init(&vm);
+ assert(calibration_store_dual_light_get(1,&mean,&difference)&&
+        mean==3250u&&difference==-750);
+ assert(calibration_store_light_center(1,&saved_center)&&saved_center==100);
+ assert(calibration_store_light_tolerance()==20u);
+ corrupt_write=true;means[0]=3300u;
+ assert(!calibration_store_dual_light_sync(1,means,differences));
+ corrupt_write=false;calibration_store_init(&vm);
+ assert(calibration_store_dual_light_get(1,&mean,&difference)&&
+        mean==3250u&&difference==-750);
+ free(test_flash);puts("actual NVM v6/v8 migration, paired centers, atomic save and rollback passed");return 0;
 }
