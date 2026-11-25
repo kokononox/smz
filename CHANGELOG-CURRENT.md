@@ -19,6 +19,10 @@ Paired calibration proposals now preserve the per-sensor medians and observed mi
 
 Host contracts cover paired raw statistics, profile-file and `.amsj` round-trips, legacy version-14 fallback, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. Sparse dual-sync contracts verify canonical IDs for selected-profile writes and read-back matching. The package workflow builds the Windows app and runs the Golden-100 TestRunner before publication. Full Pico/firmware build and physical-board acceptance remain separate checks.
 
+### Legacy .amsj calibration persistence correction
+
+The supplied version-0.8.2 `2.amsj` contained only `app`, `version`, and `steps`; its paired calibration was not present in that file, so the importer had nothing to restore. The legacy single-script save path wrote only the step tree, while calibration lived in app-local profile storage. Legacy `.amsj` saves now embed the optional `lightStateProfiles` array, including dual-layout flags, M/Δ values, and L1/L2 summaries; both legacy open and Pipeline import restore it. A regression contract covers saving, loading, and migration into a versioned Pipeline workspace. Previously saved files that lack this array still require their original `light-state-profiles.json` or another backup; absent calibration values cannot be reconstructed from steps alone.
+
 ### Next test
 
 After the Windows CI package is available, record labeled L1/L2 CSV samples for all nine positions across different ambient-light conditions. Use those observations to decide whether the runtime classifier needs a drift-invariant feature.
