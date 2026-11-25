@@ -9,6 +9,7 @@
 #define GUARD_VERSION_V4 4u
 #define GUARD_VERSION_V5 5u
 #define GUARD_VERSION_V6 6u
+#define GUARD_VERSION_V7 7u
 #define GUARD_PROFILE_COUNT 9u
 #define GUARD_PROFILE_SIZE_V1 20u
 #define GUARD_PROFILE_SIZE_V2 24u
@@ -40,6 +41,7 @@ typedef struct GuardProfile {
     uint32_t mean_tolerance_half_tenths;
     int32_t difference_center_tenths;
     uint32_t difference_tolerance_tenths;
+    bool dual_calibrated;
     uint8_t custom_count,custom_volume,custom_envelope;
     uint16_t custom_hz[8],custom_duration_ms[8],custom_gap_ms[8];
 } GuardProfile;
@@ -167,6 +169,7 @@ static uint64_t magnitude_i64(int64_t value) {
 }
 static bool inside_dual(const GuardProfile *profile, uint32_t lux1_tenths,
                         uint32_t lux2_tenths, bool widened) {
+    if (!profile->dual_calibrated) return false;
     uint64_t mean = (uint64_t)lux1_tenths + lux2_tenths;
     int64_t difference = (int64_t)lux2_tenths - (int64_t)lux1_tenths;
     int64_t mean_delta = (int64_t)mean - profile->mean_center_half_tenths;
@@ -227,6 +230,18 @@ bool guard_runtime_profile_matches_pair(uint8_t profile_id,
     return matches==1u&&profile&&profile->id==profile_id;
 }
 bool guard_runtime_dual_sensor_enabled(void) { return guard.dual_sensor; }
+uint16_t guard_runtime_dual_calibration_mask(void) {
+    uint16_t mask = 0u;
+    if (!guard.dual_sensor) return 0u;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i)
+        if (guard.profiles[i].dual_calibrated)
+            mask |= (uint16_t)(1u << i);
+    return mask;
+}
+bool guard_runtime_profile_pair_calibrated(uint8_t profile_id) {
+    GuardProfile *profile = profile_by_id(profile_id);
+    return guard.dual_sensor && profile && profile->dual_calibrated;
+}
 bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
     uint32_t *mean_center, uint32_t *mean_tolerance,
     int32_t *difference_center, uint32_t *difference_tolerance) {
@@ -240,10 +255,11 @@ bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
     *difference_tolerance = profile->difference_tolerance_tenths;
     return true;
 }
-bool guard_runtime_validate_profile_pair_centers(
+bool guard_runtime_validate_profile_pair_centers_mask(uint16_t calibrated_mask,
     const uint32_t mean_centers[GUARD_PROFILE_COUNT],
     const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
-    if (!guard.dual_sensor || !mean_centers || !difference_centers)
+    if (!guard.dual_sensor || !mean_centers || !difference_centers ||
+        (calibrated_mask & (uint16_t)~0x01ffu))
         return false;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
         if (mean_centers[i] > 20000000u ||
@@ -252,8 +268,10 @@ bool guard_runtime_validate_profile_pair_centers(
             return false;
     }
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        if (!(calibrated_mask & (uint16_t)(1u << i))) continue;
         const GuardProfile *first = &guard.profiles[i];
         for (uint8_t j = (uint8_t)(i + 1u); j < GUARD_PROFILE_COUNT; ++j) {
+            if (!(calibrated_mask & (uint16_t)(1u << j))) continue;
             const GuardProfile *second = &guard.profiles[j];
             uint64_t mean_clearance =
                 (uint64_t)first->mean_tolerance_half_tenths +
@@ -280,19 +298,40 @@ bool guard_runtime_validate_profile_pair_centers(
     }
     return true;
 }
-bool guard_runtime_set_profile_pair_centers_batch(
+bool guard_runtime_validate_profile_pair_centers(
     const uint32_t mean_centers[GUARD_PROFILE_COUNT],
     const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
-    if (!guard_runtime_validate_profile_pair_centers(mean_centers,
-                                                       difference_centers))
+    return guard_runtime_validate_profile_pair_centers_mask(
+        0x01ffu, mean_centers, difference_centers);
+}
+bool guard_runtime_set_profile_pair_centers_mask(
+    uint16_t update_mask,
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
+    if (!guard.dual_sensor || !update_mask ||
+        (update_mask & (uint16_t)~0x01ffu) || !mean_centers ||
+        !difference_centers)
+        return false;
+    uint16_t calibrated_mask =
+        (uint16_t)(guard_runtime_dual_calibration_mask() | update_mask);
+    if (!guard_runtime_validate_profile_pair_centers_mask(calibrated_mask,
+            mean_centers, difference_centers))
         return false;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        if (!(update_mask & (uint16_t)(1u << i))) continue;
         guard.profiles[i].mean_center_half_tenths = mean_centers[i];
         guard.profiles[i].difference_center_tenths = difference_centers[i];
+        guard.profiles[i].dual_calibrated = true;
     }
     return true;
 }
-bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
+bool guard_runtime_set_profile_pair_centers_batch(
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
+    return guard_runtime_set_profile_pair_centers_mask(
+        0x01ffu, mean_centers, difference_centers);
+}
+bool guard_runtime_validate_profile_pair_center(uint8_t profile_id,
     uint32_t mean_center, int32_t difference_center) {
     GuardProfile *profile = profile_by_id(profile_id);
     if (!guard.dual_sensor || !profile) return false;
@@ -302,12 +341,25 @@ bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
         means[i] = guard.profiles[i].mean_center_half_tenths;
         differences[i] = guard.profiles[i].difference_center_tenths;
     }
-    means[(uint8_t)(profile - guard.profiles)] = mean_center;
-    differences[(uint8_t)(profile - guard.profiles)] = difference_center;
-    if (!guard_runtime_validate_profile_pair_centers(means, differences))
+    uint8_t index = (uint8_t)(profile - guard.profiles);
+    means[index] = mean_center;
+    differences[index] = difference_center;
+    uint16_t calibrated_mask =
+        (uint16_t)(guard_runtime_dual_calibration_mask() |
+                   (uint16_t)(1u << index));
+    return guard_runtime_validate_profile_pair_centers_mask(
+        calibrated_mask, means, differences);
+}
+bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
+    uint32_t mean_center, int32_t difference_center) {
+    GuardProfile *profile = profile_by_id(profile_id);
+    if (!guard.dual_sensor || !profile) return false;
+    if (!guard_runtime_validate_profile_pair_center(profile_id,
+            mean_center, difference_center))
         return false;
     profile->mean_center_half_tenths = mean_center;
     profile->difference_center_tenths = difference_center;
+    profile->dual_calibrated = true;
     return true;
 }
 static void emit(uint8_t type, uint8_t profile_id, uint16_t route_id,
@@ -493,12 +545,12 @@ bool guard_runtime_init(const AbvmVm *vm) {
         profile_size=GUARD_PROFILE_SIZE_V2;
     else if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5)
         profile_size=GUARD_PROFILE_SIZE_V4;
-    else if(version==GUARD_VERSION_V6)
+    else if(version==GUARD_VERSION_V6||version==GUARD_VERSION_V7)
         profile_size=GUARD_PROFILE_SIZE_V6;
     uint32_t base_size=8u+GUARD_PROFILE_COUNT*profile_size;
     uint32_t cue_table_size=4u+GUARD_BUZZER_CUE_COUNT*GUARD_BUZZER_CUE_SIZE;
     bool has_system_cues=version==GUARD_VERSION_V5;
-    if(version==GUARD_VERSION_V6) {
+    if(version==GUARD_VERSION_V6||version==GUARD_VERSION_V7) {
         if(size==base_size+cue_table_size)has_system_cues=true;
         else if(size==base_size)has_system_cues=false;
         else return false;
@@ -506,13 +558,14 @@ bool guard_runtime_init(const AbvmVm *vm) {
     uint32_t expected_size=base_size+(has_system_cues?cue_table_size:0u);
     if ((version!=GUARD_VERSION_V1&&version!=GUARD_VERSION_V2&&
          version!=GUARD_VERSION_V3&&version!=GUARD_VERSION_V4&&
-         version!=GUARD_VERSION_V5&&version!=GUARD_VERSION_V6) ||
+         version!=GUARD_VERSION_V5&&version!=GUARD_VERSION_V6&&
+         version!=GUARD_VERSION_V7) ||
         size != expected_size ||
         payload[1] != GUARD_PROFILE_COUNT || payload[2] > 1u ||
         (version<GUARD_VERSION_V3&&payload[3]) ||
         (version>=GUARD_VERSION_V3&&(!payload[3]||payload[3]>60u)))
         return false;
-    guard.dual_sensor=version==GUARD_VERSION_V6;
+    guard.dual_sensor=version==GUARD_VERSION_V6||version==GUARD_VERSION_V7;
     guard.sample_mode = payload[2];
     guard.watchdog_timeout_ms=version>=GUARD_VERSION_V3?
         (uint32_t)payload[3]*60000u:0u;
@@ -534,11 +587,14 @@ bool guard_runtime_init(const AbvmVm *vm) {
         profile->next_allowed=0u;
         profile->custom_count=0u;profile->custom_volume=100u;profile->custom_envelope=0u;
         if(version==GUARD_VERSION_V4||version==GUARD_VERSION_V5||
-           version==GUARD_VERSION_V6){
+           version==GUARD_VERSION_V6||version==GUARD_VERSION_V7){
             profile->custom_count=item[24];profile->custom_volume=item[25];
             profile->custom_envelope=item[26];
             if(profile->custom_count>8u||!profile->custom_volume||profile->custom_volume>100u||
-               profile->custom_envelope>3u||item[27])return false;
+               profile->custom_envelope>3u||
+               (version==GUARD_VERSION_V7?item[27]>1u:item[27]!=0u))return false;
+            profile->dual_calibrated = version==GUARD_VERSION_V6 ||
+                (version==GUARD_VERSION_V7&&item[27]!=0u);
             for(uint8_t tone=0;tone<8u;++tone){
                 const uint8_t *raw=item+28u+(uint32_t)tone*6u;
                 profile->custom_hz[tone]=(uint16_t)(raw[0]|((uint16_t)raw[1]<<8));
@@ -549,7 +605,7 @@ bool guard_runtime_init(const AbvmVm *vm) {
                     !profile->custom_duration_ms[tone]))return false;
             }
         }
-        if(version==GUARD_VERSION_V6){
+        if(version==GUARD_VERSION_V6||version==GUARD_VERSION_V7){
             const uint8_t *axes=item+GUARD_PROFILE_SIZE_V4;
             profile->mean_center_half_tenths=read_u32_le(axes);
             profile->mean_tolerance_half_tenths=read_u32_le(axes+4u);

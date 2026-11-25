@@ -1275,14 +1275,26 @@ class Compiler:
             any(key in item for key in dual_fields) for item in by_id.values())
         has_all_dual_fields = all(
             all(key in item for key in dual_fields) for item in by_id.values())
+        calibration_flag = "dualSensorCalibrated"
+        has_any_calibration_flags = any(
+            calibration_flag in item for item in by_id.values())
+        has_all_calibration_flags = all(
+            calibration_flag in item for item in by_id.values())
         if has_any_dual_fields and not dual_sensor:
             raise AbvmError("Dual-sensor Guard fields require dualSensor=true")
         if dual_sensor and not has_all_dual_fields:
             raise AbvmError("Dual-sensor Guard needs paired calibration for every profile")
+        if dual_sensor and has_any_calibration_flags and not has_all_calibration_flags:
+            raise AbvmError(
+                "Dual-sensor Guard needs calibration state for every profile")
         if not dual_sensor and has_any_dual_fields:
             raise AbvmError("Mixed single- and dual-sensor Guard profiles are unsupported")
+        if not dual_sensor and has_any_calibration_flags:
+            raise AbvmError("Dual-sensor calibration state requires dualSensor=true")
+        dual_partial_format = dual_sensor and has_all_calibration_flags
         packed = bytearray(GUARD_HEADER.pack(
-            6 if dual_sensor else (5 if has_buzzer_cues else 4), len(expected),
+            7 if dual_partial_format else
+            (6 if dual_sensor else (5 if has_buzzer_cues else 4)), len(expected),
             1 if str(guard.get("sampleMode") or "hires").lower() == "lowres" else 0,
             watchdog_minutes,
             max(250, integer(guard.get("sensorTimeoutMs"), 1500))))
@@ -1349,8 +1361,15 @@ class Compiler:
                     custom.append((frequency, duration, gap))
                 if not custom or len(custom) > GUARD_CUSTOM_TONES:
                     raise AbvmError("Native Guard custom cue needs 1..8 notes: " + profile_id)
+            paired_calibrated = True
+            if dual_partial_format:
+                paired_calibrated = item.get(calibration_flag)
+                if not isinstance(paired_calibrated, bool):
+                    raise AbvmError(
+                        "Native Guard calibration state must be boolean: " + profile_id)
             packed.extend(GUARD_CUE_META.pack(
-                len(custom), volume, envelopes[envelope_name], 0))
+                len(custom), volume, envelopes[envelope_name],
+                int(paired_calibrated) if dual_partial_format else 0))
             for index in range(GUARD_CUSTOM_TONES):
                 packed.extend(GUARD_CUE_TONE.pack(*(custom[index] if index < len(custom) else (0, 0, 0))))
             if dual_sensor:
@@ -1381,10 +1400,11 @@ class Compiler:
                 packed.extend(GUARD_DUAL_AXES.pack(
                     mean_center, mean_tolerance,
                     difference_center, difference_tolerance))
-                dual_ranges.append((
-                    profile_id, mean_center_lux, mean_tolerance_lux,
-                    difference_center_lux, difference_tolerance_lux,
-                ))
+                if paired_calibrated:
+                    dual_ranges.append((
+                        profile_id, mean_center_lux, mean_tolerance_lux,
+                        difference_center_lux, difference_tolerance_lux,
+                    ))
         if dual_sensor:
             for i, (left_id, left_m, left_mt, left_d, left_dt) in enumerate(dual_ranges):
                 for right_id, right_m, right_mt, right_d, right_dt in dual_ranges[i + 1:]:
@@ -1670,21 +1690,21 @@ class Verifier:
                 raise AbvmError("multiple Native Guard descriptors")
             raw = guard_constants[0]
             version, count, mode, reserved, timeout = GUARD_HEADER.unpack_from(raw)
-            profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5, 6) else GUARD_PROFILE_V1
-            profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5, 6) else 0)
-            if version == 6:
+            profile_struct = GUARD_PROFILE if version in (2, 3, 4, 5, 6, 7) else GUARD_PROFILE_V1
+            profile_size = profile_struct.size + (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size if version in (4, 5, 6, 7) else 0)
+            if version in (6, 7):
                 profile_size += GUARD_DUAL_AXES.size
             base_size = GUARD_HEADER.size + 9 * profile_size
             cue_table_size = GUARD_CUE_META.size + BUZZER_SYSTEM_CUE_COUNT * (GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size)
             expected_size = base_size + (cue_table_size if version == 5 else 0)
-            dual_has_cue_table = version == 6 and len(raw) == base_size + cue_table_size
-            if version == 6 and len(raw) not in (base_size, base_size + cue_table_size):
+            dual_has_cue_table = version in (6, 7) and len(raw) == base_size + cue_table_size
+            if version in (6, 7) and len(raw) not in (base_size, base_size + cue_table_size):
                 raise AbvmError("invalid Native Guard descriptor size")
             if dual_has_cue_table:
                 expected_size = base_size + cue_table_size
             if len(raw) != expected_size:
                 raise AbvmError("invalid Native Guard descriptor size")
-            if version not in (1, 2, 3, 4, 5, 6) or count != 9 or mode not in (0, 1) or \
+            if version not in (1, 2, 3, 4, 5, 6, 7) or count != 9 or mode not in (0, 1) or \
                     (version < 3 and reserved) or \
                     (version >= 3 and reserved not in range(1, 61)) or timeout < 250:
                 raise AbvmError("invalid Native Guard descriptor header")
@@ -1692,7 +1712,7 @@ class Verifier:
             for index in range(count):
                 item = profile_struct.unpack_from(
                     raw, GUARD_HEADER.size + index * profile_size)
-                if version in (2, 3, 4, 5, 6):
+                if version in (2, 3, 4, 5, 6, 7):
                     profile_id, cue, route_id, low, high, stable, hysteresis, cooldown = item
                 else:
                     profile_id, enabled, route_id, low, high, stable, hysteresis = item
@@ -1705,10 +1725,11 @@ class Verifier:
                         hysteresis > 1_000_000 or cooldown > 3_600_000 or \
                         (profile_id not in (6, 7, 8, 9) and cooldown):
                     raise AbvmError("invalid Native Guard profile")
-                if version in (4, 5, 6):
+                if version in (4, 5, 6, 7):
                     custom_offset = GUARD_HEADER.size + index * profile_size + GUARD_PROFILE.size
                     custom_count, volume, envelope, cue_reserved = GUARD_CUE_META.unpack_from(raw, custom_offset)
-                    if custom_count > GUARD_CUSTOM_TONES or volume not in range(1, 101) or envelope > 3 or cue_reserved:
+                    if custom_count > GUARD_CUSTOM_TONES or volume not in range(1, 101) or envelope > 3 or \
+                            (cue_reserved not in (0, 1) if version == 7 else cue_reserved != 0):
                         raise AbvmError("invalid Native Guard custom cue metadata")
                     if cue == 0 and custom_count == 0:
                         raise AbvmError("invalid Native Guard custom cue selection")
@@ -1717,7 +1738,7 @@ class Verifier:
                             raw, custom_offset + GUARD_CUE_META.size + tone_index * GUARD_CUE_TONE.size)
                         if frequency not in range(30, 20001) or not duration:
                             raise AbvmError("invalid Native Guard custom cue tone")
-                if version == 6:
+                if version in (6, 7):
                     axes_offset = custom_offset + GUARD_CUE_META.size + GUARD_CUSTOM_TONES * GUARD_CUE_TONE.size
                     mean_center, mean_tolerance, difference_center, difference_tolerance = \
                         GUARD_DUAL_AXES.unpack_from(raw, axes_offset)
@@ -1728,7 +1749,7 @@ class Verifier:
                 ids.add(profile_id)
             if ids != set(range(1, 10)):
                 raise AbvmError("Native Guard profile set mismatch")
-            if version == 5 or (version == 6 and dual_has_cue_table):
+            if version == 5 or (version in (6, 7) and dual_has_cue_table):
                 cue_count, r1, r2, r3 = GUARD_CUE_META.unpack_from(raw, base_size)
                 if cue_count != BUZZER_SYSTEM_CUE_COUNT or r1 or r2 or r3:
                     raise AbvmError("invalid Native system buzzer header")

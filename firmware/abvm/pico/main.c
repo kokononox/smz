@@ -620,7 +620,14 @@ static void print_dual_light_sync(void){
         printf("ERR|STATE|CALSYNC|DUAL\n");return;
     }
     char profiles[448];size_t used=0u;
+    uint16_t calibrated_mask=guard_runtime_dual_calibration_mask();
+    if(!calibrated_mask){
+        printf("OK|CALSYNC|DUAL|revision=%lu|profiles=none\n",
+            (unsigned long)calibration_store_revision());
+        return;
+    }
     for(uint8_t id=1u;id<=9u;++id){
+        if(!(calibrated_mask&(uint16_t)(1u<<(id-1u))))continue;
         uint32_t mean,mean_tolerance,difference_tolerance;
         int32_t difference;
         if(!guard_runtime_get_profile_pair_calibration(id,&mean,
@@ -668,8 +675,8 @@ static void set_dual_light_sync(char *p){
     }
     if(strncmp(p,"profiles=",9u)){printf("ERR|ARG|CALSYNC|DUAL\n");return;}
     p+=9;
-    /* Start with the active board values so a sparse update keeps every
-     * unselected profile and validates the resulting complete classifier set. */
+    /* Start with active board values so sparse updates keep unselected
+     * centers. Only calibrated profiles participate in separation checks. */
     for(uint8_t i=0u;i<9u;++i){
         if(!guard_runtime_get_profile_pair_calibration((uint8_t)(i+1u),
                &means[i],&mean_tolerances[i],&differences[i],
@@ -713,13 +720,16 @@ static void set_dual_light_sync(char *p){
     if(!row_count){
         printf("ERR|ARG|CALSYNC|DUAL\n");return;
     }
-    if(!guard_runtime_validate_profile_pair_centers(means,differences)){
+    uint16_t calibrated_mask=(uint16_t)(
+        guard_runtime_dual_calibration_mask()|mask);
+    if(!guard_runtime_validate_profile_pair_centers_mask(
+           calibrated_mask,means,differences)){
         printf("ERR|FIT|CALSYNC|DUAL\n");return;
     }
     if(!calibration_store_dual_light_sync(mask,means,differences)){
         printf("ERR|FLASH|CALSYNC|DUAL\n");return;
     }
-    if(!guard_runtime_set_profile_pair_centers_batch(means,differences)){
+    if(!guard_runtime_set_profile_pair_centers_mask(mask,means,differences)){
         printf("ERR|STATE|CALSYNC|DUAL\n");return;
     }
     printf("OK|CALSYNC|DUAL|SET|revision=%lu\n",

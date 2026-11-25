@@ -17,7 +17,7 @@ static uint32_t pair_mean[9]={2000,4000,6000,8000,10000,12000,14000,16000,18000}
 static uint32_t pair_mean_tolerance[9]={40,40,40,40,40,40,40,40,40};
 static int32_t pair_difference[9]={100,200,300,400,500,600,700,800,900};
 static uint32_t pair_difference_tolerance[9]={20,20,20,20,20,20,20,20,20};
-static uint16_t pair_saved_mask;
+static uint16_t pair_saved_mask,pair_calibrated_mask;
 static uint32_t pair_saved_mean[9];
 static int32_t pair_saved_difference[9];
 void calibration_store_init(const AbvmVm *vm){(void)vm;}
@@ -54,38 +54,81 @@ bool guard_runtime_set_profile_range(uint8_t id,uint32_t l,uint32_t h){
  lo[id-1u]=l;hi[id-1u]=h;return true;
 }
 bool guard_runtime_dual_sensor_enabled(void){return dual_sensor_enabled;}
+uint16_t guard_runtime_dual_calibration_mask(void){
+ return dual_sensor_enabled?pair_calibrated_mask:0u;
+}
+bool guard_runtime_profile_pair_calibrated(uint8_t id){
+ return dual_sensor_enabled&&id>=1u&&id<=9u&&
+        (pair_calibrated_mask&(uint16_t)(1u<<(id-1u)))!=0u;
+}
 bool guard_runtime_get_profile_pair_calibration(uint8_t id,uint32_t *m,uint32_t *mt,
                                                 int32_t *d,uint32_t *dt){
  if(!dual_sensor_enabled||id<1u||id>9u||!m||!mt||!d||!dt)return false;
  *m=pair_mean[id-1u];*mt=pair_mean_tolerance[id-1u];
  *d=pair_difference[id-1u];*dt=pair_difference_tolerance[id-1u];return true;
 }
-bool guard_runtime_set_profile_pair_centers(uint8_t id,uint32_t m,int32_t d){
- if(!dual_sensor_enabled||id<1u||id>9u)return false;
- for(int i=0;i<9;i++)if(i!=(int)id-1){
-  uint32_t dm=m>pair_mean[i]?m-pair_mean[i]:pair_mean[i]-m;
-  int64_t raw=(int64_t)d-pair_difference[i];uint32_t dd=(uint32_t)(raw<0?-raw:raw);
-  if(dm<=80u&&dd<=40u)return false;
+bool guard_runtime_validate_profile_pair_centers_mask(uint16_t mask,
+ const uint32_t means[9],const int32_t differences[9]){
+ if(!dual_sensor_enabled||!means||!differences||(mask&~0x1ffu))return false;
+ for(int i=0;i<9;i++)if(mask&(uint16_t)(1u<<i)){
+  if(means[i]>20000000u||differences[i]<-10000000||differences[i]>10000000)
+   return false;
+  for(int j=i+1;j<9;j++)if(mask&(uint16_t)(1u<<j)){
+   uint32_t dm=means[i]>means[j]?means[i]-means[j]:means[j]-means[i];
+   int64_t raw=(int64_t)differences[i]-differences[j];
+   uint32_t dd=(uint32_t)(raw<0?-raw:raw);
+   if(dm<=pair_mean_tolerance[i]+pair_mean_tolerance[j]+20u&&
+      dd<=pair_difference_tolerance[i]+pair_difference_tolerance[j]+10u)
+    return false;
+  }
  }
- pair_mean[id-1u]=m;pair_difference[id-1u]=d;return true;
+ return true;
 }
 bool guard_runtime_validate_profile_pair_centers(const uint32_t means[9],
                                                   const int32_t differences[9]){
- if(!dual_sensor_enabled||!means||!differences)return false;
- for(int i=0;i<9;i++)for(int j=i+1;j<9;j++){
-  uint32_t dm=means[i]>means[j]?means[i]-means[j]:means[j]-means[i];
-  int64_t raw=(int64_t)differences[i]-differences[j];
-  uint32_t dd=(uint32_t)(raw<0?-raw:raw);
-  if(dm<=80u&&dd<=40u)return false;
+ return guard_runtime_validate_profile_pair_centers_mask(0x1ffu,means,differences);
+}
+bool guard_runtime_set_profile_pair_centers_mask(uint16_t update_mask,
+ const uint32_t means[9],const int32_t differences[9]){
+ if(!dual_sensor_enabled||!update_mask||(update_mask&~0x1ffu)||!means||!differences)
+  return false;
+ uint32_t merged_means[9];int32_t merged_differences[9];
+ memcpy(merged_means,pair_mean,sizeof(merged_means));
+ memcpy(merged_differences,pair_difference,sizeof(merged_differences));
+ for(int i=0;i<9;i++)if(update_mask&(uint16_t)(1u<<i)){
+  merged_means[i]=means[i];merged_differences[i]=differences[i];
  }
+ uint16_t mask=(uint16_t)(pair_calibrated_mask|update_mask);
+ if(!guard_runtime_validate_profile_pair_centers_mask(mask,merged_means,
+                                                       merged_differences))return false;
+ memcpy(pair_mean,merged_means,sizeof(pair_mean));
+ memcpy(pair_difference,merged_differences,sizeof(pair_difference));
+ pair_calibrated_mask=mask;
  return true;
 }
 bool guard_runtime_set_profile_pair_centers_batch(const uint32_t means[9],
                                                    const int32_t differences[9]){
- if(!guard_runtime_validate_profile_pair_centers(means,differences))return false;
- memcpy(pair_mean,means,sizeof(pair_mean));
- memcpy(pair_difference,differences,sizeof(pair_difference));
- return true;
+ return guard_runtime_set_profile_pair_centers_mask(0x1ffu,means,differences);
+}
+bool guard_runtime_validate_profile_pair_center(uint8_t id,uint32_t mean,
+                                                 int32_t difference){
+ if(!dual_sensor_enabled||id<1u||id>9u)return false;
+ uint32_t means[9];int32_t differences[9];
+ memcpy(means,pair_mean,sizeof(means));
+ memcpy(differences,pair_difference,sizeof(differences));
+ means[id-1u]=mean;differences[id-1u]=difference;
+ return guard_runtime_validate_profile_pair_centers_mask(
+  (uint16_t)(pair_calibrated_mask|(uint16_t)(1u<<(id-1u))),means,differences);
+}
+bool guard_runtime_set_profile_pair_centers(uint8_t id,uint32_t mean,
+                                             int32_t difference){
+ if(!guard_runtime_validate_profile_pair_center(id,mean,difference))return false;
+ uint32_t means[9];int32_t differences[9];
+ memcpy(means,pair_mean,sizeof(means));
+ memcpy(differences,pair_difference,sizeof(differences));
+ means[id-1u]=mean;differences[id-1u]=difference;
+ return guard_runtime_set_profile_pair_centers_mask(
+  (uint16_t)(1u<<(id-1u)),means,differences);
 }
 const char *guard_runtime_profile_name(uint8_t id){(void)id;return "test";}
 uint32_t calibration_store_revision(void){return 42;}
@@ -145,6 +188,7 @@ int main(void){
  /* Paired physical calibration stores both feature centers for one profile
   * while preserving the descriptor's two-axis tolerance ellipse. */
  dual_sensor_enabled=true;pair_mean[0]=2000u;pair_difference[0]=100;
+ pair_calibrated_mask=1u;
  calibration_runtime_init(NULL);assert(calibration_runtime_blue_long(30000u));
  assert(calibration_runtime_take_event(event,sizeof(event))&&strstr(event,"dual=1"));
  assert(calibration_runtime_yellow_short(30001u));
@@ -179,6 +223,18 @@ int main(void){
         strstr(event,"ERR|CAL|SAVE"));
  assert(pair_mean[1]==4000u&&pair_difference[1]==200);
  fail_save=false;
+ /* A freshly exported partial descriptor can start with no calibrated rows;
+  * one physical button sample must be enough to activate its first profile. */
+ pair_calibrated_mask=0u;pair_saved_mask=0u;
+ pair_sample_mean=2050u;pair_sample_difference=110;
+ calibration_runtime_init(NULL);
+ assert(guard_runtime_dual_calibration_mask()==0u);
+ assert(calibration_runtime_blue_long(48000u));
+ assert(calibration_runtime_yellow_short(48001u));
+ calibration_runtime_service(53001u);
+ assert(calibration_runtime_take_event(event,sizeof(event))&&
+        strstr(event,"mode=saved|kind=light|dual=1"));
+ assert(pair_calibrated_mask==1u&&pair_saved_mask==1u);
  puts("physical calibration: single ranges, dual paired centers, separation and rollback passed");
  return 0;
 }

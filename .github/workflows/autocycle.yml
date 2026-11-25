@@ -98,6 +98,13 @@ jobs:
               firmware/abvm/tests/abvm_dual_guard_runtime_smoke.c \
               -o /tmp/abvm-dual-guard-runtime-smoke
             /tmp/abvm-dual-guard-runtime-smoke /tmp/abvm-dual-guard-smoke.abp
+            python tools/abvm.py compile firmware/abvm/tests/abvm_dual_guard_partial_smoke.amsj /tmp/abvm-dual-guard-partial-smoke.abp --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted TargetedRepeat Whisper WhisperRepeat Finish
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/src/abvm_vm.c firmware/abvm/pico/guard_runtime.c \
+              firmware/abvm/tests/abvm_dual_guard_partial_runtime_smoke.c \
+              -o /tmp/abvm-dual-guard-partial-runtime-smoke
+            /tmp/abvm-dual-guard-partial-runtime-smoke /tmp/abvm-dual-guard-partial-smoke.abp
             cc -std=c11 -Wall -Wextra -Werror \
               -Ifirmware/abvm/include -Ifirmware/abvm/pico \
               firmware/abvm/src/abvm_vm.c firmware/abvm/pico/cycle_runtime.c \
@@ -119,6 +126,12 @@ jobs:
             python firmware/abvm/tests/test_shift_schedule.py
             python firmware/abvm/tests/test_light_range_fit.py
             python firmware/abvm/tests/test_dual_guard.py
+            cc -std=c11 -Wall -Wextra -Werror \
+              -Ifirmware/abvm/include -Ifirmware/abvm/pico \
+              firmware/abvm/pico/calibration_runtime.c \
+              firmware/abvm/tests/light_calibration_runtime_smoke.c \
+              -o /tmp/light-calibration-runtime-smoke
+            /tmp/light-calibration-runtime-smoke
             python firmware/abvm/tests/test_abvm_shift_wake.py
             python firmware/abvm/tests/test_game_buff_runtime.py
             python firmware/abvm/tests/test_abvm_game_buffs.py

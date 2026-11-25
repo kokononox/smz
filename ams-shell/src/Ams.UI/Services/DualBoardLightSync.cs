@@ -39,7 +39,10 @@ public static class DualBoardLightSync
 
         var encodedProfiles = Field(parts[4], "profiles");
         var profiles = new List<DualBoardLightProfile>(ProfileIds.Length);
-        foreach (var encoded in encodedProfiles.Split(',', StringSplitOptions.None))
+        var rows = encodedProfiles == "none"
+            ? Array.Empty<string>()
+            : encodedProfiles.Split(',', StringSplitOptions.None);
+        foreach (var encoded in rows)
         {
             var values = encoded.Split(':', StringSplitOptions.None);
             if (values.Length != 5
@@ -63,11 +66,6 @@ public static class DualBoardLightSync
             profiles.Add(new DualBoardLightProfile(id, mean, meanTolerance,
                 difference, differenceTolerance));
         }
-
-        if (profiles.Count != ProfileIds.Length
-            || !profiles.Select(profile => profile.ProfileId).Order()
-                .SequenceEqual(Enumerable.Range(1, ProfileIds.Length).Select(id => (byte)id)))
-            throw new FormatException("همگام‌سازی دوحسگری باید دقیقاً ۹ پروفایل کامل داشته باشد.");
 
         return new DualBoardLightSnapshot(revision,
             profiles.OrderBy(profile => profile.ProfileId).ToArray());
@@ -123,12 +121,15 @@ public static class DualBoardLightSync
         return command;
     }
 
-    /// <summary>Applies a complete board snapshot atomically, without inventing L1/L2 samples.</summary>
+    /// <summary>
+    /// Applies the board's calibrated rows atomically. Missing rows remain marked
+    /// as requiring physical calibration; raw L1/L2 samples are never invented.
+    /// </summary>
     public static int Apply(DualBoardLightSnapshot snapshot, IList<LightStateProfile> targets)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(targets);
-        if (snapshot.Profiles.Count != ProfileIds.Length
+        if (snapshot.Profiles.Count > ProfileIds.Length
             || snapshot.Profiles.Any(profile => profile.ProfileId is < 1 or > 9
                 || profile.MeanCenterHalfTenths > MaximumMeanValueHalfTenths
                 || profile.MeanToleranceHalfTenths is 0 or > MaximumMeanValueHalfTenths
@@ -136,24 +137,35 @@ public static class DualBoardLightSync
                     or > MaximumDifferenceTenths
                 || profile.DifferenceToleranceTenths is 0 or > MaximumDifferenceTenths)
             || snapshot.Profiles.Select(profile => profile.ProfileId).Distinct().Count()
-                != ProfileIds.Length)
-            throw new FormatException("دادهٔ برد برای هر ۹ پروفایل کامل نیست.");
+                != snapshot.Profiles.Count)
+            throw new FormatException("دادهٔ پروفایل‌های کالیبره‌شدهٔ برد نامعتبر است.");
 
         var targetById = ProfileIds.ToDictionary(id => id, id =>
             targets.SingleOrDefault(profile => profile.Id == id)
             ?? throw new InvalidOperationException($"پروفایل مقصد «{id}» در برنامه پیدا نشد."),
             StringComparer.Ordinal);
+        var boardById = snapshot.Profiles.ToDictionary(
+            profile => ProfileIds[profile.ProfileId - 1], StringComparer.Ordinal);
         var staged = new Dictionary<string, LightStateProfile>(StringComparer.Ordinal);
-        foreach (var item in snapshot.Profiles.OrderBy(profile => profile.ProfileId))
+        foreach (var profileId in ProfileIds)
         {
-            var profileId = ProfileIds[item.ProfileId - 1];
             var candidate = targetById[profileId].Copy();
-            candidate.HasDualSensorCalibration = true;
+            candidate.HasDualSensorCalibration = boardById.TryGetValue(profileId, out var item);
             candidate.DualSensorCalibrationRequired = true;
-            candidate.MeanLuxCenter = item.MeanCenterHalfTenths / 20.0;
-            candidate.MeanLuxTolerance = item.MeanToleranceHalfTenths / 20.0;
-            candidate.DifferenceLuxCenter = item.DifferenceCenterTenths / 10.0;
-            candidate.DifferenceLuxTolerance = item.DifferenceToleranceTenths / 10.0;
+            if (item is not null)
+            {
+                candidate.MeanLuxCenter = item.MeanCenterHalfTenths / 20.0;
+                candidate.MeanLuxTolerance = item.MeanToleranceHalfTenths / 20.0;
+                candidate.DifferenceLuxCenter = item.DifferenceCenterTenths / 10.0;
+                candidate.DifferenceLuxTolerance = item.DifferenceToleranceTenths / 10.0;
+            }
+            else
+            {
+                candidate.MeanLuxCenter = 0;
+                candidate.MeanLuxTolerance = 0;
+                candidate.DifferenceLuxCenter = 0;
+                candidate.DifferenceLuxTolerance = 0;
+            }
             // Raw L1/L2 min/max values are not stored on the board. Clear any old
             // Studio-only capture summary rather than presenting it as board data.
             candidate.Sensor1LuxCenter = null;
@@ -191,7 +203,7 @@ public static class DualBoardLightSync
             target.Sensor2LuxMaximum = null;
             target.DualSensorSampleCount = null;
         }
-        return staged.Count;
+        return snapshot.Profiles.Count;
     }
 
     public static bool Matches(DualBoardLightSnapshot snapshot,

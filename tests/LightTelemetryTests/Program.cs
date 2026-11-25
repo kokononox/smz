@@ -200,13 +200,35 @@ Check(DualBoardLightSync.Apply(dualSnapshot, dualImportTargets) == 9
       && dualImportTargets[0].Sensor2LuxMaximum is null
       && dualImportTargets[0].DualSensorSampleCount is null,
     "dual board import atomically applies paired centers and clears unavailable raw summaries");
+var sparseDualSnapshot = DualBoardLightSync.Parse(
+    "OK|CALSYNC|DUAL|revision=74|profiles=1:410:10:0:5");
+var sparseDualTargets = LightStateDefaults.CreateInitialProfiles();
+Check(DualBoardLightSync.Apply(sparseDualSnapshot, sparseDualTargets) == 1
+      && sparseDualTargets[0].HasDualSensorCalibration
+      && sparseDualTargets[0].DualSensorCalibrationRequired
+      && sparseDualTargets[0].MeanLuxCenter == 20.5
+      && !sparseDualTargets[1].HasDualSensorCalibration
+      && sparseDualTargets[1].DualSensorCalibrationRequired
+      && sparseDualTargets[1].MeanLuxCenter == 0
+      && sparseDualTargets[1].MeanLuxTolerance == 0
+      && sparseDualTargets[1].DifferenceLuxTolerance == 0
+      && sparseDualTargets[1].Sensor1LuxCenter is null,
+    "sparse dual board import marks absent rows pending instead of inventing calibration");
+var emptyDualSnapshot = DualBoardLightSync.Parse(
+    "OK|CALSYNC|DUAL|revision=75|profiles=none");
+var emptyDualTargets = LightStateDefaults.CreateInitialProfiles();
+Check(DualBoardLightSync.Apply(emptyDualSnapshot, emptyDualTargets) == 0
+      && emptyDualTargets.All(profile => !profile.HasDualSensorCalibration
+          && profile.DualSensorCalibrationRequired
+          && profile.MeanLuxTolerance == 0),
+    "empty dual board snapshot leaves every profile awaiting physical calibration");
 try
 {
     DualBoardLightSync.Parse(
         "OK|CALSYNC|DUAL|revision=73|profiles=1:410:10:0:5,1:810:10:0:5");
-    Check(false, "dual sync rejects duplicate and incomplete profile snapshots");
+    Check(false, "dual sync rejects duplicate profile snapshots");
 }
-catch (FormatException) { Check(true, "dual sync rejects duplicate and incomplete profile snapshots"); }
+catch (FormatException) { Check(true, "dual sync rejects duplicate profile snapshots"); }
 try
 {
     DualBoardLightSync.BuildCommand(dualTargets.Select((profile, index) =>

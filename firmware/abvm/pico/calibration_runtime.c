@@ -41,7 +41,7 @@ static void apply_saved_light(void){
         uint32_t means[LIGHT_PROFILE_COUNT],mean_tolerances[LIGHT_PROFILE_COUNT];
         int32_t differences[LIGHT_PROFILE_COUNT];
         uint32_t difference_tolerances[LIGHT_PROFILE_COUNT];
-        bool any_saved=false;
+        uint16_t saved_mask=0u;
         for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i){
             uint8_t id=(uint8_t)(i+1u);
             if(!guard_runtime_get_profile_pair_calibration(id,&means[i],
@@ -51,13 +51,14 @@ static void apply_saved_light(void){
             if(calibration_store_dual_light_get(id,&saved_mean,&saved_difference)){
                 means[i]=saved_mean;
                 differences[i]=saved_difference;
-                any_saved=true;
+                saved_mask|=(uint16_t)(1u<<i);
             }
         }
-        /* Apply saved centres together. This prevents a partial, order-dependent
-         * restore if the active UF2 now has a different tolerance ellipse. */
-        if(any_saved&&guard_runtime_validate_profile_pair_centers(means,differences))
-            (void)guard_runtime_set_profile_pair_centers_batch(means,differences);
+        /* Restore saved centers as one transaction, checking them against the
+         * profiles that were calibrated into this UF2 and the saved rows. */
+        if(saved_mask)
+            (void)guard_runtime_set_profile_pair_centers_mask(saved_mask,means,
+                                                               differences);
         return;
     }
     uint32_t base_low[LIGHT_PROFILE_COUNT],base_high[LIGHT_PROFILE_COUNT];
@@ -196,17 +197,17 @@ static bool fit_and_save_light(uint32_t center,uint32_t low,uint32_t high,
 }
 static bool save_dual_light(const LightCalibrationResult *result){
     uint8_t selected=(uint8_t)(cal.profile-1u);
-    uint32_t old_mean,mean_tolerance;
-    int32_t old_difference;
+    uint32_t previous_mean,mean_tolerance;
+    int32_t previous_difference;
     uint32_t difference_tolerance;
-    if(!guard_runtime_get_profile_pair_calibration(cal.profile,&old_mean,
-           &mean_tolerance,&old_difference,&difference_tolerance)){
+    if(!guard_runtime_get_profile_pair_calibration(cal.profile,&previous_mean,
+           &mean_tolerance,&previous_difference,&difference_tolerance)){
         emit("ERR|CAL|DUAL-PROFILE|id=%s",guard_runtime_profile_name(cal.profile));
         return false;
     }
     /* Keep the project's two-axis tolerance ellipse, and move only its measured
      * center. The runtime rejects centers that would remove the 1 Lux clearance. */
-    if(!guard_runtime_set_profile_pair_centers(cal.profile,
+    if(!guard_runtime_validate_profile_pair_center(cal.profile,
             result->mean_center_half_tenths,
             result->difference_center_tenths)){
         emit("ERR|CAL|DUAL-FIT|id=%s|reason=centers-too-close",
@@ -219,9 +220,13 @@ static bool save_dual_light(const LightCalibrationResult *result){
     differences[selected]=result->difference_center_tenths;
     if(!calibration_store_dual_light_sync((uint16_t)(1u<<selected),means,
                                           differences)){
-        (void)guard_runtime_set_profile_pair_centers(cal.profile,old_mean,
-                                                      old_difference);
         emit("ERR|CAL|SAVE|kind=light|id=%s",guard_runtime_profile_name(cal.profile));
+        return false;
+    }
+    if(!guard_runtime_set_profile_pair_centers(cal.profile,
+            result->mean_center_half_tenths,
+            result->difference_center_tenths)){
+        emit("ERR|CAL|DUAL-STATE|id=%s",guard_runtime_profile_name(cal.profile));
         return false;
     }
     cal.phase=PHASE_READY;
