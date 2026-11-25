@@ -956,6 +956,21 @@ static bool service_mirror_mode_buttons(uint32_t now) {
             mirror_combo_block_until_release=false;
         return true;
     }
+    /* Do not enter the Mirror-only loop while calibration is active: that loop
+     * deliberately skips service_light(), which owns calibration_runtime_service().
+     * Consume a two-button chord in this state, but leave single-button
+     * calibration controls unchanged. */
+    if(!mirror_receiver_active()&&calibration_runtime_active()) {
+        mirror_combo_timing=false;
+        mirror_combo_fired=false;
+        if(pause_button.stable&&start_button.stable) {
+            pause_button.consumed=true;
+            start_button.consumed=true;
+            mirror_combo_block_until_release=true;
+            return true;
+        }
+        return false;
+    }
     if(!pause_button.stable||!start_button.stable) {
         if(mirror_combo_timing) {
             pause_button.consumed=true;

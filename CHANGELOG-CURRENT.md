@@ -25,7 +25,7 @@ The supplied version-0.8.2 `2.amsj` contained only `app`, `version`, and `steps`
 
 ### Mirror receiver integration
 
-**Change:** The ABVM firmware now supports the one-way Mirror receiver on UART1 (GP9, 1 Mbaud). Holding GP3+GP4 for 3 seconds toggles receiver mode; native macro/Guard execution is suspended while mirrored keyboard and mouse HID reports are forwarded. Disconnect timeout releases any held inputs. Studio packages the receiver-enabled UF2 templates for all 30 native runtime identities.
+**Change:** The ABVM firmware now supports the one-way Mirror receiver on UART1 (GP9, 1 Mbaud). Holding GP3+GP4 for 3 seconds toggles receiver mode; native macro/Guard execution is suspended while mirrored keyboard and mouse HID reports are forwarded. Disconnect timeout releases any held inputs. The Mirror chord is inhibited during physical calibration so its service loop cannot strand an active calibration. Studio packages the receiver-enabled UF2 templates for all 30 native runtime identities.
 **Validation:** The local Mirror frame-parser smoke test passed. CI is building the 30 receiver runtimes, Pico UF2 bring-up, and Windows package; physical-board acceptance has not yet been performed.
 **Next test:** Complete CI, flash the receiver-enabled UF2, and verify toggle, mirrored keyboard/mouse input, disconnect release, and return to native mode on the target board.
 
