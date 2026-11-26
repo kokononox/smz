@@ -115,42 +115,10 @@ internal static class LightCalibrationUiBootstrap
             && expression.ResolvedSource is LightStateProfile)
             expression.UpdateTarget();
 
-        if (root is Grid grid)
-        {
-            var profile = grid.Children.OfType<TextBox>()
-                .FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileNameColumn)?
-                .GetBindingExpression(TextBox.TextProperty)?.ResolvedSource as LightStateProfile;
-            if (profile is not null)
-            {
-                var sensor1 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSensor1Column);
-                var sensor2 = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSensor2Column);
-                var signature = grid.Children.OfType<TextBlock>().FirstOrDefault(x => Grid.GetColumn(x) == LightStateProfilesUiBootstrap.ProfileSignatureColumn);
-                if (sensor1 is not null) sensor1.Text = DescribeRawSensor(profile, sensor1: true);
-                if (sensor2 is not null) sensor2.Text = DescribeRawSensor(profile, sensor1: false);
-                if (signature is not null)
-                    signature.Text = profile.HasDualSensorCalibration
-                        ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
-                        : profile.DualSensorCalibrationRequired
-                            ? "منتظر کالیبراسیون جفتی"
-                            : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}";
-            }
-        }
+        LightStateProfilesUiBootstrap.RefreshProfileDisplayCell(root);
 
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
             RefreshProfileEditor(VisualTreeHelper.GetChild(root, i));
-    }
-
-    private static string DescribeRawSensor(LightStateProfile profile, bool sensor1)
-    {
-        if (profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration)
-            return "منتظر کالیبراسیون";
-        if (!profile.HasDualSensorCalibration) return "—";
-        var center = sensor1 ? profile.Sensor1LuxCenter : profile.Sensor2LuxCenter;
-        var minimum = sensor1 ? profile.Sensor1LuxMinimum : profile.Sensor2LuxMinimum;
-        var maximum = sensor1 ? profile.Sensor1LuxMaximum : profile.Sensor2LuxMaximum;
-        if (center is not double median || minimum is not double low || maximum is not double high)
-            return "نمونهٔ خام ذخیره نشده";
-        return $"میانه {median:0.0} Lux\n{low:0.0}–{high:0.0} · {profile.DualSensorSampleCount ?? 0} جفت";
     }
 
     private static Button Button(string label, string background, string foreground) => new()

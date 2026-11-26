@@ -16,16 +16,12 @@ namespace Ams.UI;
 /// <summary>Adds phase-four state/profile diagnostics to the existing read-only Status surface.</summary>
 internal static class LightStateProfilesUiBootstrap
 {
-    // Keep these shared with the calibration-form refresh after the send column was added.
-    internal const int ProfileNameColumn = 1;
-    internal const int ProfileSensor1Column = 5;
-    internal const int ProfileSensor2Column = 6;
-    internal const int ProfileSignatureColumn = 7;
-    internal const int ProfileMeanToleranceColumn = 11;
-    internal const int ProfileDifferenceToleranceColumn = 12;
-
     private static readonly DependencyProperty InstalledProperty = DependencyProperty.RegisterAttached(
         "LightStateProfilesUiInstalled", typeof(bool), typeof(LightStateProfilesUiBootstrap), new PropertyMetadata(false));
+    private static readonly DependencyProperty AudioCueMenuInstalledProperty = DependencyProperty.RegisterAttached(
+        "LightStateProfilesAudioCueMenuInstalled", typeof(bool), typeof(LightStateProfilesUiBootstrap), new PropertyMetadata(false));
+    private static readonly DependencyProperty AudioCueMenuRetryInstalledProperty = DependencyProperty.RegisterAttached(
+        "LightStateProfilesAudioCueMenuRetryInstalled", typeof(bool), typeof(LightStateProfilesUiBootstrap), new PropertyMetadata(false));
 
     [ModuleInitializer]
     internal static void Initialize()
@@ -44,8 +40,7 @@ internal static class LightStateProfilesUiBootstrap
     private static void Install(MainWindow window, MainViewModel vm)
     {
         var body = FindStatusBody(window);
-        var audioBody = FindAudioBody(window);
-        if (body is null || audioBody is null) return;
+        if (body is null) return;
         vm.RefreshLightProfileWarnings();
 
         var section = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -105,9 +100,7 @@ internal static class LightStateProfilesUiBootstrap
         void RebuildRows()
         {
             rows.Children.Clear();
-            rows.Children.Add(ProfileHeader());
-            foreach (var profile in vm.LightStateProfiles)
-                rows.Children.Add(ProfileRow(window, vm, profile, RebuildRows));
+            rows.Children.Add(ProfileTable(window, vm, vm.LightStateProfiles, rows, RebuildRows));
         }
         RebuildRows();
 
@@ -137,9 +130,7 @@ internal static class LightStateProfilesUiBootstrap
                     "در حالت دوحسگری، همهٔ وضعیت‌های فعال و جفت‌کالیبره‌شده همراه مرکزها و تلورانس‌های M/Δ ارسال می‌شوند؛ وضعیت‌های کالیبره‌نشده روی برد بدون تغییر می‌مانند و لازم نیست هر ۹ وضعیت آماده باشد. در حالت تک‌سنسوره، هر ۹ پروفایل ارسال می‌شوند. اجرای برد و کالیبراسیون باید متوقف باشند.",
                     "ارسال به برد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; }
-            if (rows.Children.OfType<Grid>()
-                .SelectMany(grid => grid.Children.OfType<TextBox>())
-                .Any(box => Validation.GetHasError(box)))
+            if (HasAnyProfileValidationError(rows))
             {
                 vm.ReportLightProfileEditorValidationError();
                 return;
@@ -150,7 +141,15 @@ internal static class LightStateProfilesUiBootstrap
         };
         var save = ActionButton("ذخیره پروفایل‌ها", "#5E9FE8", "#10151C");
         save.Margin = new Thickness(8, 0, 0, 0);
-        save.Click += (_, _) => { if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; } if (vm.SaveLightStateProfiles()) RebuildRows(); };
+        save.Click += (_, _) =>
+        {
+            if (Validation.GetHasError(defaultTolerance) || HasAnyProfileValidationError(rows))
+            {
+                vm.ReportLightProfileEditorValidationError();
+                return;
+            }
+            if (vm.SaveLightStateProfiles()) RebuildRows();
+        };
         var newDualLayout = ActionButton("چیدمان دوحسگری جدید", "#B36A3F", "#F5F7FA");
         newDualLayout.Margin = new Thickness(8, 0, 0, 0);
         newDualLayout.Click += (_, _) =>
@@ -180,7 +179,7 @@ internal static class LightStateProfilesUiBootstrap
         editor.Child = editorBody;
         section.Children.Add(editor);
 
-        audioBody.Children.Add(CalibrationCueMenu(window, vm));
+        EnsureAudioCueMenu(window, vm);
         var insertAt = Math.Max(0, body.Children.Count - 1);
         body.Children.Insert(insertAt, section);
 
@@ -196,148 +195,290 @@ internal static class LightStateProfilesUiBootstrap
         };
     }
 
-    private static Grid ProfileHeader()
+    private enum ProfileDisplayKind { Sensor1, Sensor2, Signature }
+    private sealed record ProfileDisplayCell(LightStateProfile Profile, ProfileDisplayKind Kind);
+
+    private static Grid ProfileTable(MainWindow window, MainViewModel vm,
+        IList<LightStateProfile> profiles, DependencyObject editorRoot, Action rebuildRows)
     {
-        var row = ProfileGrid();
-        Add(row, Text("فعال", 11, "#AAB3C2"), 0);
-        Add(row, Text("نام وضعیت", 11, "#AAB3C2"), ProfileNameColumn);
-        Add(row, Text("ارسال / وارد کردن تکی", 11, "#AAB3C2"), 2);
-        Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 3);
-        Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 4);
-        Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), ProfileSensor1Column);
-        Add(row, Text("حسگر ۲ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), ProfileSensor2Column);
-        Add(row, Text("امضای طبقه‌بندی M / Δ", 11, "#AAB3C2"), ProfileSignatureColumn);
-        Add(row, Text("پایداری ms", 11, "#AAB3C2"), 8);
-        Add(row, Text("Hysteresis", 11, "#AAB3C2"), 9);
-        Add(row, Text("Cooldown نوری ms · حداکثر ۶۰ دقیقه", 11, "#AAB3C2"), 10);
-        Add(row, Text("تلورانس M ± · حداقل ۳ Lux", 11, "#AAB3C2"), ProfileMeanToleranceColumn);
-        Add(row, Text("تلورانس Δ ± · حداقل ۳ Lux", 11, "#AAB3C2"), ProfileDifferenceToleranceColumn);
-        return row;
+        const int labelWidth = 100;
+        const int profileWidth = 108;
+        const int rowCount = 14;
+        var table = new Grid
+        {
+            FlowDirection = FlowDirection.RightToLeft,
+            Width = labelWidth + profileWidth * profiles.Count,
+            Margin = new Thickness(0, 6, 0, 4),
+        };
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
+        for (var i = 0; i < profiles.Count; i++)
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(profileWidth) });
+        for (var i = 0; i < rowCount; i++)
+            table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        AddTableCell(table, Text("ویژگی", 10, "#AAB3C2", FontWeights.SemiBold), 0, 0, "#292E36");
+        AddTableCell(table, Text("☑", 10, "#AAB3C2"), 1, 0, "#292E36", "فعال‌بودن موقعیت نوری");
+        AddTableCell(table, Text("نام", 10, "#AAB3C2"), 2, 0, "#292E36", "نام موقعیت نوری");
+        AddTableCell(table, Text("↑ / ↓", 10, "#AAB3C2"), 3, 0, "#292E36", "ارسال به برد / وارد کردن از برد");
+        AddTableCell(table, Text("L1 μ", 10, "#AAB3C2"), 4, 0, "#292E36", "مرکز تک‌حسگر L1");
+        AddTableCell(table, Text("L1 ±", 10, "#AAB3C2"), 5, 0, "#292E36", "تلورانس تک‌حسگر L1");
+        AddTableCell(table, Text("① خام", 10, "#AAB3C2"), 6, 0, "#292E36", "خلاصهٔ آخرین نمونهٔ خام حسگر ۱");
+        AddTableCell(table, Text("② خام", 10, "#AAB3C2"), 7, 0, "#292E36", "خلاصهٔ آخرین نمونهٔ خام حسگر ۲");
+        AddTableCell(table, Text("M · Δ", 10, "#AAB3C2"), 8, 0, "#292E36", "امضای طبقه‌بندی میانگین M و اختلاف Δ");
+        AddTableCell(table, Text("ثبات ms", 10, "#AAB3C2"), 9, 0, "#292E36", "مدت پایداری");
+        AddTableCell(table, Text("Hys. ±", 10, "#AAB3C2"), 10, 0, "#292E36", "هیسترزیس");
+        AddTableCell(table, Text("CD ms", 10, "#AAB3C2"), 11, 0, "#292E36", "فاصلهٔ ایمنی نوری");
+        AddTableCell(table, Text("M ±", 10, "#AAB3C2"), 12, 0, "#292E36", "تلورانس میانگین M · حداقل ۳ Lux");
+        AddTableCell(table, Text("Δ ±", 10, "#AAB3C2"), 13, 0, "#292E36", "تلورانس اختلاف Δ · حداقل ۳ Lux");
+
+        for (var index = 0; index < profiles.Count; index++)
+        {
+            var profile = profiles[index];
+            var column = index + 1;
+            var heading = Text(profile.Name, 10, "#F5F7FA", FontWeights.SemiBold);
+            heading.TextAlignment = TextAlignment.Center;
+            heading.ToolTip = profile.Name;
+            heading.SetBinding(TextBlock.TextProperty,
+                new Binding(nameof(profile.Name)) { Source = profile });
+            AddTableCell(table, heading, 0, column, "#2F3540");
+
+            var enabled = new CheckBox
+            {
+                IsChecked = profile.Enabled,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                ToolTip = "فعال‌بودن این موقعیت",
+            };
+            enabled.Checked += (_, _) => profile.Enabled = true;
+            enabled.Unchecked += (_, _) => profile.Enabled = false;
+            AddTableCell(table, enabled, 1, column);
+
+            var name = Editor(profile, nameof(profile.Name));
+            name.Width = 96;
+            name.ToolTip = profile.Name;
+            AddTableCell(table, name, 2, column);
+
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var send = CompactActionButton("↑", "#5D477F", "ارسال این موقعیت به برد");
+            var import = CompactActionButton("↓", "#2F7D5A", "وارد کردن این موقعیت از برد");
+            send.Click += async (_, _) =>
+            {
+                if (ProfileHasValidationError(editorRoot, profile))
+                {
+                    vm.ReportLightProfileEditorValidationError();
+                    return;
+                }
+                if (!profile.Enabled || !profile.HasDualSensorCalibration)
+                {
+                    await vm.SendLightStateProfileToBoardAsync(profile.Id);
+                    return;
+                }
+                if (MessageBox.Show(window,
+                        $"فقط کالیبراسیون دوحسگری «{profile.Name}» به برد فرستاده شود؟ اجرای برد و کالیبراسیون باید متوقف باشند؛ وضعیت‌های دیگر تغییر نمی‌کنند.",
+                        "ارسال یک وضعیت به برد", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                send.IsEnabled = false;
+                try { await vm.SendLightStateProfileToBoardAsync(profile.Id); }
+                finally { send.IsEnabled = true; }
+            };
+            import.Click += async (_, _) =>
+            {
+                if (MessageBox.Show(window,
+                        $"فقط کالیبراسیون دوحسگری «{profile.Name}» از برد وارد شود؟ هشت وضعیت دیگر بدون تغییر می‌مانند.",
+                        "وارد کردن یک وضعیت از برد", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                import.IsEnabled = false;
+                send.IsEnabled = false;
+                try
+                {
+                    if (await vm.ImportLightStateProfileFromBoardAsync(profile.Id))
+                        rebuildRows();
+                }
+                finally
+                {
+                    import.IsEnabled = true;
+                    send.IsEnabled = true;
+                }
+            };
+            actions.Children.Add(send);
+            actions.Children.Add(import);
+            AddTableCell(table, actions, 3, column);
+
+            var paired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
+            AddTableCell(table, paired ? Text("—", 10, "#777F8C") : CompactEditor(profile, nameof(profile.LuxCenter)), 4, column);
+            AddTableCell(table, paired ? Text("—", 10, "#777F8C") : CompactEditor(profile, nameof(profile.LuxTolerance)), 5, column);
+            AddTableCell(table, ProfileDisplayText(profile, ProfileDisplayKind.Sensor1), 6, column);
+            AddTableCell(table, ProfileDisplayText(profile, ProfileDisplayKind.Sensor2), 7, column);
+            AddTableCell(table, ProfileDisplayText(profile, ProfileDisplayKind.Signature), 8, column);
+            AddTableCell(table, CompactEditor(profile, nameof(profile.StableDurationMs)), 9, column);
+            AddTableCell(table, CompactEditor(profile, nameof(profile.HysteresisLux)), 10, column);
+            AddTableCell(table, profile.Id is "whisper-repeat" or "targeted-repeat"
+                ? CompactEditor(profile, nameof(profile.LightCooldownMs))
+                : Text("—", 10, "#777F8C"), 11, column);
+            AddTableCell(table, profile.HasDualSensorCalibration
+                ? CompactEditor(profile, nameof(profile.MeanLuxTolerance))
+                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C"),
+                12, column, tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
+                    ? "پس از کالیبراسیون جفتی قابل تنظیم است" : null);
+            AddTableCell(table, profile.HasDualSensorCalibration
+                ? CompactEditor(profile, nameof(profile.DifferenceLuxTolerance))
+                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C"),
+                13, column, tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
+                    ? "پس از کالیبراسیون جفتی قابل تنظیم است" : null);
+        }
+
+        return table;
     }
 
-    private static Grid ProfileRow(MainWindow window, MainViewModel vm,
-        LightStateProfile profile, Action rebuildRows)
+    internal static void RefreshProfileDisplayCell(DependencyObject element)
     {
-        var row = ProfileGrid();
-        row.Margin = new Thickness(0, 3, 0, 3);
-        var enabled = new CheckBox { IsChecked = profile.Enabled, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-        enabled.Checked += (_, _) => profile.Enabled = true;
-        enabled.Unchecked += (_, _) => profile.Enabled = false;
-        Add(row, enabled, 0);
-        Add(row, Editor(profile, nameof(profile.Name)), ProfileNameColumn);
-        var syncActions = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var send = ActionButton("ارسال به برد", "#5D477F", "#F5F7FA");
-        send.Margin = new Thickness(4, 2, 0, 2);
-        send.Click += async (_, _) =>
+        if (element is not TextBlock text || text.Tag is not ProfileDisplayCell cell) return;
+        text.Text = DescribeProfileDisplay(cell.Profile, cell.Kind, out var tooltip);
+        text.ToolTip = tooltip;
+    }
+
+    private static TextBlock ProfileDisplayText(LightStateProfile profile, ProfileDisplayKind kind)
+    {
+        var text = Text("", 9, "#D9DEE7");
+        text.TextAlignment = TextAlignment.Center;
+        text.Tag = new ProfileDisplayCell(profile, kind);
+        RefreshProfileDisplayCell(text);
+        return text;
+    }
+
+    private static string DescribeProfileDisplay(LightStateProfile profile,
+        ProfileDisplayKind kind, out string tooltip)
+    {
+        if (kind is ProfileDisplayKind.Sensor1 or ProfileDisplayKind.Sensor2)
         {
-            if (row.Children.OfType<TextBox>().Any(box => Validation.GetHasError(box)))
+            var sensor = kind == ProfileDisplayKind.Sensor1 ? 1 : 2;
+            var center = sensor == 1 ? profile.Sensor1LuxCenter : profile.Sensor2LuxCenter;
+            var minimum = sensor == 1 ? profile.Sensor1LuxMinimum : profile.Sensor2LuxMinimum;
+            var maximum = sensor == 1 ? profile.Sensor1LuxMaximum : profile.Sensor2LuxMaximum;
+            if (profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration)
             {
-                vm.ReportLightProfileEditorValidationError();
-                return;
+                tooltip = $"حسگر {sensor}: منتظر کالیبراسیون جفتی";
+                return "◌ جفتی";
             }
-            if (!profile.Enabled || !profile.HasDualSensorCalibration)
+            if (!profile.HasDualSensorCalibration)
             {
-                await vm.SendLightStateProfileToBoardAsync(profile.Id);
-                return;
+                tooltip = $"حسگر {sensor}: فقط در حالت دوحسگری";
+                return "—";
             }
-            if (MessageBox.Show(window,
-                    $"فقط کالیبراسیون دوحسگری «{profile.Name}» به برد فرستاده شود؟ اجرای برد و کالیبراسیون باید متوقف باشند؛ وضعیت‌های دیگر تغییر نمی‌کنند.",
-                    "ارسال یک وضعیت به برد", MessageBoxButton.YesNo,
-                    MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            send.IsEnabled = false;
-            try { await vm.SendLightStateProfileToBoardAsync(profile.Id); }
-            finally { send.IsEnabled = true; }
-        };
-        var import = ActionButton("وارد از برد", "#2F7D5A", "#F5F7FA");
-        import.Margin = new Thickness(4, 2, 0, 2);
-        import.Click += async (_, _) =>
-        {
-            if (MessageBox.Show(window,
-                    $"فقط کالیبراسیون دوحسگری «{profile.Name}» از برد وارد شود؟ هشت وضعیت دیگر بدون تغییر می‌مانند.",
-                    "وارد کردن یک وضعیت از برد", MessageBoxButton.YesNo,
-                    MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            import.IsEnabled = false;
-            send.IsEnabled = false;
-            try
+            if (center is not double median || minimum is not double low || maximum is not double high)
             {
-                if (await vm.ImportLightStateProfileFromBoardAsync(profile.Id))
-                    rebuildRows();
+                tooltip = $"حسگر {sensor}: نمونهٔ خام در برد ذخیره نشده است";
+                return "∅";
             }
-            finally
-            {
-                import.IsEnabled = true;
-                send.IsEnabled = true;
-            }
-        };
-        syncActions.Children.Add(send);
-        syncActions.Children.Add(import);
-        Add(row, syncActions, 2);
-        var isPaired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
-        if (isPaired)
-        {
-            Add(row, Text("—", 11, "#777F8C"), 3);
-            Add(row, Text("—", 11, "#777F8C"), 4);
+            tooltip = $"حسگر {sensor} · میانه {median:0.0} Lux · بازهٔ {low:0.0} تا {high:0.0} Lux · {profile.DualSensorSampleCount ?? 0} جفت";
+            return $"{median:0.0}\n{low:0.0}–{high:0.0}";
         }
-        else
-        {
-            Add(row, Editor(profile, nameof(profile.LuxCenter)), 3);
-            Add(row, Editor(profile, nameof(profile.LuxTolerance)), 4);
-        }
-        Add(row, Text(DescribePairedSamples(profile, sensor1: true), 10, "#D9DEE7"), ProfileSensor1Column);
-        Add(row, Text(DescribePairedSamples(profile, sensor1: false), 10, "#D9DEE7"), ProfileSensor2Column);
-        Add(row, Text(profile.HasDualSensorCalibration
-                ? $"M {profile.MeanLuxCenter:0.#} ±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#} ±{profile.DifferenceLuxTolerance:0.#}"
-                : profile.DualSensorCalibrationRequired
-                    ? "منتظر کالیبراسیون جفتی"
-                    : $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#}",
-            11, "#D9DEE7"), ProfileSignatureColumn);
-        Add(row, Editor(profile, nameof(profile.StableDurationMs)), 8);
-        Add(row, Editor(profile, nameof(profile.HysteresisLux)), 9);
-        Add(row, profile.Id is "whisper-repeat" or "targeted-repeat"
-            ? Editor(profile, nameof(profile.LightCooldownMs))
-            : Text("—", 12, "#777F8C"), 10);
+
         if (profile.HasDualSensorCalibration)
         {
-            Add(row, Editor(profile, nameof(profile.MeanLuxTolerance)), ProfileMeanToleranceColumn);
-            Add(row, Editor(profile, nameof(profile.DifferenceLuxTolerance)),
-                ProfileDifferenceToleranceColumn);
+            tooltip = $"M {profile.MeanLuxCenter:0.#} ± {profile.MeanLuxTolerance:0.#} Lux · Δ {profile.DifferenceLuxCenter:0.#} ± {profile.DifferenceLuxTolerance:0.#} Lux";
+            return $"M {profile.MeanLuxCenter:0.#}±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#}±{profile.DifferenceLuxTolerance:0.#}";
         }
-        else if (profile.DualSensorCalibrationRequired)
+        if (profile.DualSensorCalibrationRequired)
         {
-            Add(row, Text("بعد از کالیبراسیون", 10, "#777F8C"), ProfileMeanToleranceColumn);
-            Add(row, Text("بعد از کالیبراسیون", 10, "#777F8C"),
-                ProfileDifferenceToleranceColumn);
+            tooltip = "این موقعیت منتظر کالیبراسیون جفتی است";
+            return "◌ جفتی";
         }
-        else
-        {
-            Add(row, Text("—", 12, "#777F8C"), ProfileMeanToleranceColumn);
-            Add(row, Text("—", 12, "#777F8C"), ProfileDifferenceToleranceColumn);
-        }
-        return row;
+        tooltip = $"L1 · {profile.LuxMin:0.#} تا {profile.LuxMax:0.#} Lux";
+        return $"L1 {profile.LuxMin:0.#}–{profile.LuxMax:0.#}";
     }
 
-    private static string DescribePairedSamples(LightStateProfile profile, bool sensor1)
+    private static void AddTableCell(Grid table, UIElement child, int row, int column,
+        string background = "#22262D", string? tooltip = null)
     {
-        if (profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration)
-            return "منتظر کالیبراسیون";
-        if (!profile.HasDualSensorCalibration) return "—";
-
-        var center = sensor1 ? profile.Sensor1LuxCenter : profile.Sensor2LuxCenter;
-        var minimum = sensor1 ? profile.Sensor1LuxMinimum : profile.Sensor2LuxMinimum;
-        var maximum = sensor1 ? profile.Sensor1LuxMaximum : profile.Sensor2LuxMaximum;
-        if (center is not double median || minimum is not double low || maximum is not double high)
-            return "نمونهٔ خام در کالیبراسیون قبلی ذخیره نشده";
-        return $"میانه {median:0.0} Lux\n{low:0.0}–{high:0.0} · {profile.DualSensorSampleCount ?? 0} جفت";
+        var cell = new Border
+        {
+            Background = Brush(background),
+            BorderBrush = Brush("#343B46"),
+            BorderThickness = new Thickness(0, 0, 1, 1),
+            Padding = new Thickness(2),
+            Child = child,
+            ToolTip = tooltip,
+        };
+        Grid.SetRow(cell, row);
+        Grid.SetColumn(cell, column);
+        table.Children.Add(cell);
     }
 
-    private static Grid ProfileGrid()
+    private static Button CompactActionButton(string glyph, string color, string tooltip) => new()
     {
-        var grid = new Grid { MinWidth = 1680 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-        for (var i = 0; i < 10; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        return grid;
+        Content = glyph,
+        Width = 31,
+        Height = 26,
+        Padding = new Thickness(0),
+        Margin = new Thickness(1),
+        Background = Brush(color),
+        Foreground = Brush("#F5F7FA"),
+        FontWeight = FontWeights.Bold,
+        FontSize = 14,
+        ToolTip = tooltip,
+    };
+
+    private static TextBox CompactEditor(LightStateProfile profile, string path)
+    {
+        var box = Editor(profile, path);
+        box.Width = 68;
+        box.Padding = new Thickness(2);
+        box.FontSize = 10;
+        box.HorizontalContentAlignment = HorizontalAlignment.Center;
+        return box;
+    }
+
+    private static bool HasAnyProfileValidationError(DependencyObject root)
+    {
+        if (root is TextBox box && Validation.GetHasError(box)) return true;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (HasAnyProfileValidationError(VisualTreeHelper.GetChild(root, i))) return true;
+        return false;
+    }
+
+    private static bool ProfileHasValidationError(DependencyObject root, LightStateProfile profile)
+    {
+        if (root is TextBox box && Validation.GetHasError(box)
+            && box.GetBindingExpression(TextBox.TextProperty)?.ResolvedSource == profile)
+            return true;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (ProfileHasValidationError(VisualTreeHelper.GetChild(root, i), profile)) return true;
+        return false;
+    }
+
+    private static void EnsureAudioCueMenu(MainWindow window, MainViewModel vm)
+    {
+        var audioBody = FindAudioBody(window);
+        if (audioBody is not null)
+        {
+            if (audioBody.GetValue(AudioCueMenuInstalledProperty) is not true)
+            {
+                audioBody.SetValue(AudioCueMenuInstalledProperty, true);
+                audioBody.Children.Add(CalibrationCueMenu(window, vm));
+            }
+            return;
+        }
+
+        if (window.GetValue(AudioCueMenuRetryInstalledProperty) is true) return;
+        window.SetValue(AudioCueMenuRetryInstalledProperty, true);
+        EventHandler retry = null!;
+        retry = (_, _) =>
+        {
+            var found = FindAudioBody(window);
+            if (found is null) return;
+            window.LayoutUpdated -= retry;
+            window.SetValue(AudioCueMenuRetryInstalledProperty, false);
+            if (found.GetValue(AudioCueMenuInstalledProperty) is true) return;
+            found.SetValue(AudioCueMenuInstalledProperty, true);
+            found.Children.Add(CalibrationCueMenu(window, vm));
+        };
+        window.LayoutUpdated += retry;
     }
 
     private sealed record CueOption(int Id, string Name);
@@ -447,9 +588,13 @@ internal static class LightStateProfilesUiBootstrap
 
     private static TextBox Editor(LightStateProfile profile, string path)
     {
+        var isName = path == nameof(LightStateProfile.Name);
         var box = new TextBox
         {
-            Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(3), MinWidth = 70,
+            Padding = new Thickness(4, 3, 4, 3), Margin = new Thickness(1), MinWidth = 0,
+            FontSize = 11,
+            FlowDirection = isName ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
+            TextAlignment = isName ? TextAlignment.Right : TextAlignment.Center,
             Background = Brush("#181B20"), Foreground = Brush("#F5F7FA"), BorderBrush = Brush("#444A55"),
         };
         var binding = new Binding(path)
