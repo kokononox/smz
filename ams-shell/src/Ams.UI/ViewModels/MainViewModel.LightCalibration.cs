@@ -126,26 +126,45 @@ public partial class MainViewModel
             return false;
         }
         var profile = selectedProfile;
+        var suggestion = _pendingLightCalibrationSuggestion;
         var candidate = profile.Copy();
         candidate.HasDualSensorCalibration = true;
         candidate.DualSensorCalibrationRequired = true;
-        candidate.MeanLuxCenter = _pendingLightCalibrationSuggestion.MeanCenterLux;
-        candidate.MeanLuxTolerance = _pendingLightCalibrationSuggestion.MeanToleranceLux;
-        candidate.DifferenceLuxCenter = _pendingLightCalibrationSuggestion.DifferenceCenterLux;
-        candidate.DifferenceLuxTolerance = _pendingLightCalibrationSuggestion.DifferenceToleranceLux;
-        candidate.Sensor1LuxCenter = _pendingLightCalibrationSuggestion.Sensor1CenterLux;
-        candidate.Sensor1LuxMinimum = _pendingLightCalibrationSuggestion.Sensor1MinimumLux;
-        candidate.Sensor1LuxMaximum = _pendingLightCalibrationSuggestion.Sensor1MaximumLux;
-        candidate.Sensor2LuxCenter = _pendingLightCalibrationSuggestion.Sensor2CenterLux;
-        candidate.Sensor2LuxMinimum = _pendingLightCalibrationSuggestion.Sensor2MinimumLux;
-        candidate.Sensor2LuxMaximum = _pendingLightCalibrationSuggestion.Sensor2MaximumLux;
-        candidate.DualSensorSampleCount = _pendingLightCalibrationSuggestion.SampleCount;
+        candidate.MeanLuxCenter = suggestion.MeanCenterLux;
+        candidate.DifferenceLuxCenter = suggestion.DifferenceCenterLux;
+        candidate.Sensor1LuxCenter = suggestion.Sensor1CenterLux;
+        candidate.Sensor1LuxMinimum = suggestion.Sensor1MinimumLux;
+        candidate.Sensor1LuxMaximum = suggestion.Sensor1MaximumLux;
+        candidate.Sensor2LuxCenter = suggestion.Sensor2CenterLux;
+        candidate.Sensor2LuxMinimum = suggestion.Sensor2MinimumLux;
+        candidate.Sensor2LuxMaximum = suggestion.Sensor2MaximumLux;
+        candidate.DualSensorSampleCount = suggestion.SampleCount;
+        DualLightProfileValidation separation;
+        var automaticToleranceReduced = false;
+        if (profile.UseAutomaticDualTolerance)
+        {
+            if (!DualLightCalibration.TryFitAutomaticTolerances(candidate,
+                    LightStateProfiles, suggestion, out separation,
+                    out automaticToleranceReduced))
+            {
+                LightCalibrationStatus = DualLightCalibration.DescribeConflicts(separation)
+                    + " تلورانس خودکار برای پوشش نویز نمونه‌ها کوچک‌تر نمی‌شود.";
+                return false;
+            }
+        }
+        else
+        {
+            candidate.MeanLuxTolerance = profile.HasDualSensorCalibration
+                ? profile.MeanLuxTolerance : suggestion.MeanToleranceLux;
+            candidate.DifferenceLuxTolerance = profile.HasDualSensorCalibration
+                ? profile.DifferenceLuxTolerance : suggestion.DifferenceToleranceLux;
+            separation = DualLightCalibration.ValidateCandidate(candidate, LightStateProfiles);
+        }
         if (!candidate.IsValid)
         {
             LightCalibrationStatus = "پیشنهاد اعمال نشد: مقادیر دوحسگری خارج از محدودهٔ معتبرند؛ دوباره نمونه‌برداری کنید.";
             return false;
         }
-        var separation = DualLightCalibration.ValidateCandidate(candidate, LightStateProfiles);
         if (!separation.IsValid)
         {
             LightCalibrationStatus = DualLightCalibration.DescribeConflicts(separation);
@@ -169,7 +188,11 @@ public partial class MainViewModel
         // The paired tolerance editors appear only for paired-calibrated rows.
         // Rebuilding the profile table exposes them immediately after Apply.
         OnPropertyChanged(nameof(LightStateProfiles));
-        LightCalibrationStatus = "پیشنهاد دوحسگری روی فرم اعمال شد؛ برای ماندگارشدن، «ذخیره پروفایل‌ها» را بزنید.";
+        LightCalibrationStatus = automaticToleranceReduced
+            ? "پیشنهاد اعمال شد؛ تلورانس‌های هوشمند تا محدودهٔ امن و بدون هم‌پوشانی کاهش یافتند. برای ماندگاری «ذخیره پروفایل‌ها» را بزنید."
+            : profile.UseAutomaticDualTolerance
+                ? "پیشنهاد اعمال شد؛ تلورانس‌های هوشمند از پراکندگی مقاوم نمونه‌ها تنظیم شدند. برای ماندگاری «ذخیره پروفایل‌ها» را بزنید."
+                : "پیشنهاد اعمال شد؛ تلورانس‌های دستی حفظ شدند. برای ماندگاری «ذخیره پروفایل‌ها» را بزنید.";
         return true;
     }
 

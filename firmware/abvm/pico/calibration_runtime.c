@@ -16,6 +16,10 @@
 #define SOUND_MINIMUM_MS 20u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
+#define DRIFT_CAPTURE_MS 2000u
+#define DRIFT_MIN_SAMPLES 8u
+#define DRIFT_MAX_SAMPLES 32u
+#define DRIFT_PERSIST_RETRY_MS 5000u
 /*
  * Persistent profile IDs stay ABI-stable. The physical calibration selector
  * has its own user-facing order so the four classifiers after Game are:
@@ -35,6 +39,266 @@ typedef struct CalibrationState {
     char event[256]; bool event_pending;
 } CalibrationState;
 static CalibrationState cal;
+typedef struct DualDriftState {
+    bool active;
+    uint8_t profile;
+    uint32_t started_at;
+    uint32_t last_primary_at;
+    uint32_t last_secondary_at;
+    uint8_t count;
+    uint32_t means[DRIFT_MAX_SAMPLES];
+    int32_t differences[DRIFT_MAX_SAMPLES];
+} DualDriftState;
+static DualDriftState drift;
+static uint16_t drift_pending_mask;
+static bool drift_persist_attempted;
+static uint32_t drift_last_persist_at;
+
+static void reset_drift_capture(void) {
+    memset(&drift, 0, sizeof(drift));
+}
+
+static void sort_u32(uint32_t *values, uint8_t count) {
+    for (uint8_t i = 1u; i < count; ++i) {
+        uint32_t value = values[i];
+        uint8_t j = i;
+        while (j > 0u && values[j - 1u] > value) {
+            values[j] = values[j - 1u];
+            --j;
+        }
+        values[j] = value;
+    }
+}
+
+static void sort_i32(int32_t *values, uint8_t count) {
+    for (uint8_t i = 1u; i < count; ++i) {
+        int32_t value = values[i];
+        uint8_t j = i;
+        while (j > 0u && values[j - 1u] > value) {
+            values[j] = values[j - 1u];
+            --j;
+        }
+        values[j] = value;
+    }
+}
+
+static uint32_t median_u32(uint32_t *values, uint8_t count) {
+    sort_u32(values, count);
+    if ((count & 1u) != 0u) return values[count / 2u];
+    return values[count / 2u - 1u] / 2u + values[count / 2u] / 2u
+           + ((values[count / 2u - 1u] & 1u) &&
+              (values[count / 2u] & 1u) ? 1u : 0u);
+}
+
+static int32_t median_i32(int32_t *values, uint8_t count) {
+    sort_i32(values, count);
+    if ((count & 1u) != 0u) return values[count / 2u];
+    int64_t sum = (int64_t)values[count / 2u - 1u] + values[count / 2u];
+    return (int32_t)(sum >= 0 ? (sum + 1) / 2 : (sum - 1) / 2);
+}
+
+static uint32_t median_abs_u32_deviation(const uint32_t *values, uint8_t count,
+                                         uint32_t center) {
+    uint32_t deviations[DRIFT_MAX_SAMPLES];
+    for (uint8_t i = 0u; i < count; ++i)
+        deviations[i] = values[i] > center ? values[i] - center : center - values[i];
+    return median_u32(deviations, count);
+}
+
+static uint32_t median_abs_i32_deviation(const int32_t *values, uint8_t count,
+                                         int32_t center) {
+    uint32_t deviations[DRIFT_MAX_SAMPLES];
+    for (uint8_t i = 0u; i < count; ++i) {
+        int64_t delta = (int64_t)values[i] - center;
+        deviations[i] = (uint32_t)(delta < 0 ? -delta : delta);
+    }
+    return median_u32(deviations, count);
+}
+
+static uint32_t percentile_80_abs_u32_deviation(const uint32_t *values,
+                                                 uint8_t count,
+                                                 uint32_t center) {
+    uint32_t deviations[DRIFT_MAX_SAMPLES];
+    for (uint8_t i = 0u; i < count; ++i)
+        deviations[i] = values[i] > center ? values[i] - center : center - values[i];
+    sort_u32(deviations, count);
+    uint8_t rank = (uint8_t)(((uint16_t)count * 4u + 4u) / 5u);
+    return deviations[rank - 1u];
+}
+
+static uint32_t percentile_80_abs_i32_deviation(const int32_t *values,
+                                                 uint8_t count,
+                                                 int32_t center) {
+    uint32_t deviations[DRIFT_MAX_SAMPLES];
+    for (uint8_t i = 0u; i < count; ++i) {
+        int64_t delta = (int64_t)values[i] - center;
+        deviations[i] = (uint32_t)(delta < 0 ? -delta : delta);
+    }
+    sort_u32(deviations, count);
+    uint8_t rank = (uint8_t)(((uint16_t)count * 4u + 4u) / 5u);
+    return deviations[rank - 1u];
+}
+
+static int32_t quarter_delta(int64_t delta) {
+    if (delta >= 0) return (int32_t)((delta + 2) / 4);
+    return (int32_t)-(((-delta) + 2) / 4);
+}
+
+static int32_t clamp_i32(int32_t value, int32_t low, int32_t high) {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
+static void apply_drift_capture(void) {
+    if (drift.count < DRIFT_MIN_SAMPLES ||
+        !guard_runtime_running() || guard_runtime_paused() ||
+        guard_runtime_active_profile() != drift.profile)
+        return;
+
+    uint32_t means[DRIFT_MAX_SAMPLES];
+    int32_t differences[DRIFT_MAX_SAMPLES];
+    memcpy(means, drift.means, (size_t)drift.count * sizeof(means[0]));
+    memcpy(differences, drift.differences,
+           (size_t)drift.count * sizeof(differences[0]));
+    uint32_t observed_mean = median_u32(means, drift.count);
+    int32_t observed_difference = median_i32(differences, drift.count);
+
+    uint32_t current_mean, mean_tolerance;
+    int32_t current_difference;
+    uint32_t difference_tolerance;
+    if (!guard_runtime_get_profile_pair_calibration(drift.profile,
+            &current_mean, &mean_tolerance, &current_difference,
+            &difference_tolerance))
+        return;
+
+    /* Reject noisy two-second windows rather than allowing a transient to pull
+     * the classifier. Tolerances remain fixed; only centers can drift. */
+    uint32_t mean_mad = median_abs_u32_deviation(
+        drift.means, drift.count, observed_mean);
+    uint32_t difference_mad = median_abs_i32_deviation(
+        drift.differences, drift.count, observed_difference);
+    if ((uint64_t)mean_mad * 6u > mean_tolerance ||
+        (uint64_t)difference_mad * 6u > difference_tolerance ||
+        percentile_80_abs_u32_deviation(
+            drift.means, drift.count, observed_mean) > mean_tolerance / 2u ||
+        percentile_80_abs_i32_deviation(
+            drift.differences, drift.count, observed_difference) >
+                difference_tolerance / 2u)
+        return;
+
+    int32_t mean_step = clamp_i32(
+        quarter_delta((int64_t)observed_mean - current_mean), -10, 10);
+    int32_t difference_step = clamp_i32(
+        quarter_delta((int64_t)observed_difference - current_difference),
+        -5, 5);
+    if (mean_step == 0 && difference_step == 0) return;
+
+    int64_t next_mean = (int64_t)current_mean + mean_step;
+    int64_t next_difference = (int64_t)current_difference + difference_step;
+    if (next_mean < 0 || next_mean > 20000000 ||
+        next_difference < -10000000 || next_difference > 10000000)
+        return;
+    if (!guard_runtime_validate_profile_pair_center(drift.profile,
+            (uint32_t)next_mean, (int32_t)next_difference))
+        return;
+    if (!guard_runtime_set_profile_pair_centers(drift.profile,
+            (uint32_t)next_mean, (int32_t)next_difference))
+        return;
+    drift_pending_mask |= (uint16_t)(1u << (drift.profile - 1u));
+}
+
+static void collect_dual_drift(uint32_t now) {
+    if (!guard_runtime_running() || guard_runtime_paused() ||
+        !guard_runtime_dual_sensor_enabled() || cal.mode != CAL_MODE_NONE) {
+        reset_drift_capture();
+        return;
+    }
+
+    uint8_t profile = guard_runtime_active_profile();
+    if (profile < 1u || profile > LIGHT_PROFILE_COUNT ||
+        !guard_runtime_profile_pair_calibrated(profile)) {
+        reset_drift_capture();
+        return;
+    }
+    if (!drift.active || drift.profile != profile) {
+        reset_drift_capture();
+        drift.active = true;
+        drift.profile = profile;
+        drift.started_at = now;
+        return;
+    }
+
+    if ((uint32_t)(now - drift.started_at) >= DRIFT_CAPTURE_MS) {
+        apply_drift_capture();
+        reset_drift_capture();
+        return;
+    }
+    if (drift.count >= DRIFT_MAX_SAMPLES) return;
+
+    LightSensorSnapshot snapshot;
+    if (!light_sensor_latest_pair(&snapshot, now) ||
+        !snapshot.primary_valid || !snapshot.secondary_present ||
+        !snapshot.secondary_valid ||
+        snapshot.primary_age_ms > 1000u || snapshot.secondary_age_ms > 1000u)
+        return;
+    uint32_t skew = snapshot.primary_age_ms > snapshot.secondary_age_ms
+        ? snapshot.primary_age_ms - snapshot.secondary_age_ms
+        : snapshot.secondary_age_ms - snapshot.primary_age_ms;
+    if (skew > 250u) return;
+
+    uint32_t primary_at = now - snapshot.primary_age_ms;
+    uint32_t secondary_at = now - snapshot.secondary_age_ms;
+    if ((int32_t)(primary_at - drift.started_at) < 0 ||
+        (int32_t)(secondary_at - drift.started_at) < 0 ||
+        (drift.count > 0u && primary_at == drift.last_primary_at &&
+         secondary_at == drift.last_secondary_at))
+        return;
+
+    uint32_t lux1 = snapshot.primary_lux_tenths;
+    uint32_t lux2 = snapshot.secondary_lux_tenths;
+    if (lux1 > 10000000u || lux2 > 10000000u) return;
+    for (uint8_t i = 1u; i <= LIGHT_PROFILE_COUNT; ++i) {
+        if (i != profile && guard_runtime_profile_pair_calibrated(i) &&
+            guard_runtime_profile_matches_pair(i, lux1, lux2)) {
+            reset_drift_capture();
+            return;
+        }
+    }
+
+    drift.means[drift.count] = lux1 + lux2;
+    drift.differences[drift.count] = (int32_t)lux2 - (int32_t)lux1;
+    drift.last_primary_at = primary_at;
+    drift.last_secondary_at = secondary_at;
+    ++drift.count;
+}
+
+static void persist_pending_drift(uint32_t now) {
+    if (!drift_pending_mask || guard_runtime_running() ||
+        (drift_persist_attempted &&
+         (uint32_t)(now - drift_last_persist_at) < DRIFT_PERSIST_RETRY_MS))
+        return;
+    uint32_t means[LIGHT_PROFILE_COUNT] = {0};
+    uint32_t mean_tolerances[LIGHT_PROFILE_COUNT] = {0};
+    int32_t differences[LIGHT_PROFILE_COUNT] = {0};
+    uint32_t difference_tolerances[LIGHT_PROFILE_COUNT] = {0};
+    for (uint8_t i = 0u; i < LIGHT_PROFILE_COUNT; ++i) {
+        uint8_t id = (uint8_t)(i + 1u);
+        if (!(drift_pending_mask & (uint16_t)(1u << i))) continue;
+        if (!guard_runtime_get_profile_pair_calibration(id, &means[i],
+                &mean_tolerances[i], &differences[i],
+                &difference_tolerances[i]))
+            return;
+    }
+    drift_persist_attempted = true;
+    drift_last_persist_at = now;
+    if (calibration_store_dual_light_sync(drift_pending_mask, means,
+            mean_tolerances, differences, difference_tolerances)) {
+        drift_pending_mask = 0u;
+        drift_persist_attempted = false;
+    }
+}
+
 static void emit(const char *format,...){va_list a;va_start(a,format);vsnprintf(cal.event,sizeof(cal.event),format,a);va_end(a);cal.event_pending=true;}
 static void apply_saved_light(void){
     if(guard_runtime_dual_sensor_enabled()){
@@ -85,7 +349,7 @@ static void apply_saved_light(void){
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)
         (void)guard_runtime_set_profile_range((uint8_t)(i+1u),fitted_low[i],fitted_high[i]);
 }
-void calibration_runtime_init(const AbvmVm *vm){memset(&cal,0,sizeof(cal));calibration_store_init(vm);apply_saved_light();}
+void calibration_runtime_init(const AbvmVm *vm){memset(&cal,0,sizeof(cal));reset_drift_capture();drift_pending_mask=0u;drift_persist_attempted=false;calibration_store_init(vm);apply_saved_light();}
 bool calibration_runtime_active(void){return cal.mode!=CAL_MODE_NONE;}
 CalibrationMode calibration_runtime_mode(void){return cal.mode;}
 static uint8_t light_stage(void){return (uint8_t)(cal.light_slot+1u);}
@@ -279,5 +543,5 @@ static void service_light(void){
 }
 static void request_sound(uint32_t now){if(!arm_uart_sound_calibration_start(now,SOUND_SAMPLE_MS))emit("ERR|SOUNDCAL|ARM-BUSY|id=%u",cal.profile);}
 static void service_sound(uint32_t now){uint16_t avg,peak;if(cal.mode!=CAL_MODE_SOUND||!arm_uart_sound_calibration_take(&avg,&peak))return;if(cal.phase==PHASE_SOUND_SILENCE){if(avg>cal.silence_peak)cal.silence_peak=avg;if(peak>cal.silence_peak)cal.silence_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_SILENCE_MS))>=0){cal.phase=PHASE_SOUND_TARGET;cal.phase_started=now;emit("EVT|SOUNDCAL|mode=sound|id=%u|seconds=30|silence=%u",cal.profile,cal.silence_peak);}request_sound(now);return;}if(cal.phase==PHASE_SOUND_TARGET){if(avg>cal.sound_peak)cal.sound_peak=avg;if(peak>cal.sound_peak)cal.sound_peak=peak;if((int32_t)(now-(cal.phase_started+SOUND_TARGET_MS))<0){request_sound(now);return;}if(cal.sound_peak<=cal.silence_peak+SOUND_MIN_SEPARATION){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|NO-SEPARATION|id=%u|silence=%u|peak=%u",cal.profile,cal.silence_peak,cal.sound_peak);return;}uint16_t threshold=(uint16_t)((cal.silence_peak+cal.sound_peak)/2u);if(!calibration_store_sound_set(cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak)){cal.phase=PHASE_READY;emit("ERR|SOUNDCAL|SAVE|id=%u",cal.profile);return;}cal.phase=PHASE_SOUND_COMPLETE;emit("EVT|SOUNDCAL|mode=saved|id=%u|threshold=%u|min=%u|silence=%u|peak=%u|revision=%lu",cal.profile,threshold,SOUND_MINIMUM_MS,cal.silence_peak,cal.sound_peak,(unsigned long)calibration_store_revision());}}
-void calibration_runtime_service(uint32_t now){service_light();service_sound(now);}
+void calibration_runtime_service(uint32_t now){service_light();service_sound(now);collect_dual_drift(now);persist_pending_drift(now);}
 bool calibration_runtime_take_event(char *out,uint32_t size){if(!cal.event_pending||!out||!size)return false;snprintf(out,size,"%s",cal.event);cal.event_pending=false;return true;}

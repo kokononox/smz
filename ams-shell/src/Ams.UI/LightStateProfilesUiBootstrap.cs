@@ -79,7 +79,7 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(Text("پروفایل‌های قابل تنظیم", 15, "#F5F7FA", FontWeights.SemiBold));
         editorBody.Children.Add(Text("چیدمان و کالیبراسیون دوحسگری در فایل پروژهٔ ‎.amsj ذخیره می‌شوند؛ بعد از ذخیرهٔ پروفایل‌ها، پروژه را هم ذخیره کنید تا همراه ماکرو بمانند.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص همچنان با M=(L1+L2)/2 و Δ=L2−L1 انجام می‌شود. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("تلورانس‌های M و Δ برای هر وضعیت در دو ستون جداگانه قابل تنظیم‌اند؛ حداقل هرکدام ۳ لوکس است. هم‌پوشانی در یک محور اشکالی ندارد، اما پروفایل‌ها باید در فضای دوبعدی با حاشیهٔ امن ۱ لوکس جدا بمانند. دقت قابل‌ارسال به برد برای M برابر ۰٫۰۵ و برای Δ برابر ۰٫۱ لوکس است.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("تلورانس‌های M و Δ به‌طور پیش‌فرض هوشمندند: از پراکندگی مقاوم نمونه‌ها پیشنهاد می‌شوند و فقط تا جایی کم می‌شوند که پروفایل‌ها با حاشیهٔ امن ۱ لوکس جدا بمانند. اگر حتی کف پوشش نویز هم هم‌پوشانی داشته باشد، اعمال رد می‌شود. با انتخاب «دستی» می‌توانید مقدارها را تنظیم کنید؛ این مقدارها در کالیبراسیون‌های بعدی حفظ می‌شوند. کف فعلی هر محور ۳ لوکس است؛ دقت برد برای M برابر ۰٫۰۵ و برای Δ برابر ۰٫۱ لوکس است.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. همگام‌سازی، مرکزها و تلورانس‌های M/Δ هر وضعیت را مستقیماً روی برد ذخیره می‌کند؛ پس از نصب این firmware، برای تغییر تلورانس نیازی به ساخت یا فلش دوبارهٔ UF2 نیست. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی تک‌سنسوره (L1، لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
@@ -203,7 +203,7 @@ internal static class LightStateProfilesUiBootstrap
     {
         const int labelWidth = 100;
         const int profileWidth = 108;
-        const int rowCount = 14;
+        const int rowCount = 15;
         var table = new Grid
         {
             FlowDirection = FlowDirection.RightToLeft,
@@ -230,6 +230,8 @@ internal static class LightStateProfilesUiBootstrap
         AddTableCell(table, Text("CD ms", 10, "#AAB3C2"), 11, 0, "#292E36", "فاصلهٔ ایمنی نوری");
         AddTableCell(table, Text("M ±", 10, "#AAB3C2"), 12, 0, "#292E36", "تلورانس میانگین M · حداقل ۳ Lux");
         AddTableCell(table, Text("Δ ±", 10, "#AAB3C2"), 13, 0, "#292E36", "تلورانس اختلاف Δ · حداقل ۳ Lux");
+        AddTableCell(table, Text("روش تلورانس", 10, "#AAB3C2"), 14, 0, "#292E36",
+            "هوشمند از پراکندگی نمونه و فاصلهٔ امن استفاده می‌کند؛ دستی مقدارهای فعلی را نگه می‌دارد.");
 
         for (var index = 0; index < profiles.Count; index++)
         {
@@ -323,16 +325,50 @@ internal static class LightStateProfilesUiBootstrap
             AddTableCell(table, profile.Id is "whisper-repeat" or "targeted-repeat"
                 ? CompactEditor(profile, nameof(profile.LightCooldownMs))
                 : Text("—", 10, "#777F8C"), 11, column);
-            AddTableCell(table, profile.HasDualSensorCalibration
+            var meanTolerance = profile.HasDualSensorCalibration
                 ? CompactEditor(profile, nameof(profile.MeanLuxTolerance))
-                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C"),
-                12, column, tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
-                    ? "پس از کالیبراسیون جفتی قابل تنظیم است" : null);
-            AddTableCell(table, profile.HasDualSensorCalibration
+                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C");
+            var differenceTolerance = profile.HasDualSensorCalibration
                 ? CompactEditor(profile, nameof(profile.DifferenceLuxTolerance))
-                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C"),
-                13, column, tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
-                    ? "پس از کالیبراسیون جفتی قابل تنظیم است" : null);
+                : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C");
+            if (meanTolerance is TextBox meanBox) meanBox.IsReadOnly = profile.UseAutomaticDualTolerance;
+            if (differenceTolerance is TextBox differenceBox)
+                differenceBox.IsReadOnly = profile.UseAutomaticDualTolerance;
+            AddTableCell(table, meanTolerance, 12, column,
+                tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
+                    ? "پس از کالیبراسیون جفتی قابل تنظیم است"
+                    : profile.UseAutomaticDualTolerance
+                        ? "خودکار: از پراکندگی نمونه تنظیم می‌شود؛ برای ویرایش، حالت دستی را انتخاب کنید."
+                        : "دستی: مقدار انتخاب‌شده در کالیبراسیون بعدی حفظ می‌شود.");
+            AddTableCell(table, differenceTolerance, 13, column,
+                tooltip: profile.DualSensorCalibrationRequired && !profile.HasDualSensorCalibration
+                    ? "پس از کالیبراسیون جفتی قابل تنظیم است"
+                    : profile.UseAutomaticDualTolerance
+                        ? "خودکار: از پراکندگی نمونه تنظیم می‌شود؛ برای ویرایش، حالت دستی را انتخاب کنید."
+                        : "دستی: مقدار انتخاب‌شده در کالیبراسیون بعدی حفظ می‌شود.");
+
+            var automaticTolerance = new CheckBox
+            {
+                Content = profile.UseAutomaticDualTolerance ? "هوشمند" : "دستی",
+                IsChecked = profile.UseAutomaticDualTolerance,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = Brush("#D9DEE7"),
+                ToolTip = "هوشمند: تنظیم از پراکندگی مقاوم نمونه و بیشترین تلورانس امن. دستی: حفظ مقدارهای ویرایش‌شده.",
+            };
+            automaticTolerance.Checked += (_, _) =>
+            {
+                if (profile.UseAutomaticDualTolerance) return;
+                profile.UseAutomaticDualTolerance = true;
+                rebuildRows();
+            };
+            automaticTolerance.Unchecked += (_, _) =>
+            {
+                if (!profile.UseAutomaticDualTolerance) return;
+                profile.UseAutomaticDualTolerance = false;
+                rebuildRows();
+            };
+            AddTableCell(table, automaticTolerance, 14, column);
         }
 
         return table;
@@ -616,6 +652,7 @@ internal static class LightStateProfilesUiBootstrap
             box.ToolTip = meanAxis
                 ? "حداقل ۳ لوکس؛ گام قابل‌ارسال به برد ۰٫۰۵ لوکس"
                 : "حداقل ۳ لوکس؛ گام قابل‌ارسال به برد ۰٫۱ لوکس";
+            box.LostFocus += (_, _) => profile.UseAutomaticDualTolerance = false;
         }
         box.SetBinding(TextBox.TextProperty, binding);
         return box;

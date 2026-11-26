@@ -30,11 +30,24 @@ internal static class DualLightCalibrationContract
               && Near(suggestion.Sensor2MaximumLux, 20.2)
               && suggestion.SampleCount == 5,
             "paired proposal stores raw L1/L2 ranges and the synchronized M/Δ signature");
-        Check(Near(suggestion.MeanToleranceLux, 3.2)
-              && Near(suggestion.DifferenceToleranceLux, 3.1)
+        Check(suggestion.MeanToleranceLux >= suggestion.MeanMinimumToleranceLux
+              && suggestion.DifferenceToleranceLux >= suggestion.DifferenceMinimumToleranceLux
               && suggestion.MeanToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux
-              && suggestion.DifferenceToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux,
-            "calibration suggestions enforce the configurable 3-Lux minimum on both axes");
+              && suggestion.DifferenceToleranceLux >= DualLightCalibration.MinimumAxisToleranceLux
+              && LightStateProfile.IsValidDualAxisTolerance(
+                  suggestion.MeanToleranceLux, LightStateProfile.MeanLuxToleranceUnitsPerLux)
+              && LightStateProfile.IsValidDualAxisTolerance(
+                  suggestion.DifferenceToleranceLux,
+                  LightStateProfile.DifferenceLuxToleranceUnitsPerLux),
+            "automatic tolerance proposals respect robust spread, the 3-Lux floor and board precision");
+        var outlierSuggestion = DualLightCalibration.Suggest(
+            Enumerable.Range(0, 8).Select(_ => (10.0, 20.0))
+                .Append((50.0, 60.0)));
+        Check(Near(outlierSuggestion.MeanCenterLux, 15)
+              && Near(outlierSuggestion.DifferenceCenterLux, 10)
+              && Near(outlierSuggestion.MeanToleranceLux, 3)
+              && Near(outlierSuggestion.DifferenceToleranceLux, 3),
+            "median/MAD proposals resist a single transient calibration outlier");
 
         var adjustable = Profile("adjustable", mean: 30, difference: 5, tolerance: 3);
         adjustable.MeanLuxTolerance = 4.25;
@@ -64,6 +77,33 @@ internal static class DualLightCalibrationContract
         var tooClose = Profile("too-close", mean: 20, difference: 6.9, tolerance: 3);
         Check(!DualLightCalibration.Validate(new[] { first, tooClose }).IsValid,
             "per-profile tolerances plus the extra inter-profile margin reject insufficient clearance");
+        var spreadSuggestion = DualLightCalibration.Suggest(new[]
+        {
+            (10.0, 20.0), (10.0, 21.0), (10.0, 19.0), (10.0, 22.0),
+            (10.0, 18.0), (10.0, 21.0), (10.0, 19.0),
+        });
+        var autoCandidate = Profile("auto-fit", mean: 20, difference: 7.5, tolerance: 3);
+        Check(DualLightCalibration.TryFitAutomaticTolerances(autoCandidate,
+                  new[] { first }, spreadSuggestion, out var fittedValidation, out var reduced)
+              && reduced && fittedValidation.IsValid
+              && autoCandidate.DifferenceLuxTolerance
+                 >= spreadSuggestion.DifferenceMinimumToleranceLux
+              && autoCandidate.DifferenceLuxTolerance
+                 < spreadSuggestion.DifferenceToleranceLux
+              && Math.Abs(autoCandidate.DifferenceLuxTolerance
+                          * LightStateProfile.DifferenceLuxToleranceUnitsPerLux
+                          - Math.Round(autoCandidate.DifferenceLuxTolerance
+                                       * LightStateProfile.DifferenceLuxToleranceUnitsPerLux)) < 1e-9,
+            "automatic fitting reduces tolerance to the widest safe supported value without going below sample spread");
+        var impossibleCandidate = Profile("auto-impossible", mean: 20, difference: 6.9, tolerance: 3);
+        var tightSuggestion = DualLightCalibration.Suggest(
+            Enumerable.Repeat((10.0, 20.0), DualLightCalibration.MinimumSampleCount));
+        Check(!DualLightCalibration.TryFitAutomaticTolerances(impossibleCandidate,
+                  new[] { first }, tightSuggestion, out var impossibleValidation, out _)
+              && !impossibleValidation.IsValid
+              && Near(impossibleCandidate.DifferenceLuxTolerance,
+                  tightSuggestion.DifferenceMinimumToleranceLux),
+            "automatic fitting reports a real conflict instead of shrinking below the noise floor");
         var tangent = Profile("tangent", mean: 27, difference: 0, tolerance: 3);
         Check(!DualLightCalibration.Validate(new[] { first, tangent }).IsValid,
             "a pair exactly on the required safety boundary fails closed");
@@ -117,6 +157,7 @@ internal static class DualLightCalibrationContract
             var roundtrip = calibrated.Single(profile => profile.Id == "desktop");
             roundtrip.HasDualSensorCalibration = true;
             roundtrip.DualSensorCalibrationRequired = true;
+            roundtrip.UseAutomaticDualTolerance = false;
             roundtrip.MeanLuxCenter = 30;
             roundtrip.MeanLuxTolerance = 4.25;
             roundtrip.DifferenceLuxCenter = -4;
@@ -125,6 +166,7 @@ internal static class DualLightCalibrationContract
             var loaded = LightStateProfileStore.Load(path).Single(profile => profile.Id == "desktop");
             Check(loaded.HasDualSensorCalibration
                   && loaded.DualSensorCalibrationRequired
+                  && !loaded.UseAutomaticDualTolerance
                   && Near(loaded.MeanLuxCenter, 30) && Near(loaded.MeanLuxTolerance, 4.25)
                   && Near(loaded.DifferenceLuxCenter, -4) && Near(loaded.DifferenceLuxTolerance, 3.7),
                 "paired calibration values round-trip without altering legacy schema fields");

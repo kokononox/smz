@@ -23,6 +23,9 @@ static uint32_t pair_saved_mean[9];
 static uint32_t pair_saved_mean_tolerance[9];
 static int32_t pair_saved_difference[9];
 static uint32_t pair_saved_difference_tolerance[9];
+static bool guard_running,guard_paused_state,live_pair_available;
+static uint8_t active_profile;
+static LightSensorSnapshot live_pair;
 void calibration_store_init(const AbvmVm *vm){(void)vm;}
 bool calibration_store_light_get(uint8_t id,uint32_t *l,uint32_t *h){
  if(!base_available||id<1u||id>9u||!l||!h)return false;
@@ -65,6 +68,9 @@ bool guard_runtime_set_profile_range(uint8_t id,uint32_t l,uint32_t h){
  lo[id-1u]=l;hi[id-1u]=h;return true;
 }
 bool guard_runtime_dual_sensor_enabled(void){return dual_sensor_enabled;}
+bool guard_runtime_running(void){return guard_running;}
+bool guard_runtime_paused(void){return guard_paused_state;}
+uint8_t guard_runtime_active_profile(void){return active_profile;}
 uint16_t guard_runtime_dual_calibration_mask(void){
  return dual_sensor_enabled?pair_calibrated_mask:0u;
 }
@@ -153,6 +159,15 @@ bool guard_runtime_validate_profile_pair_center(uint8_t id,uint32_t mean,
  return guard_runtime_validate_profile_pair_centers_mask(
   (uint16_t)(pair_calibrated_mask|(uint16_t)(1u<<(id-1u))),means,differences);
 }
+bool guard_runtime_profile_matches_pair(uint8_t id,uint32_t lux1,uint32_t lux2){
+ if(!guard_runtime_profile_pair_calibrated(id))return false;
+ int64_t mean_delta=(int64_t)lux1+(int64_t)lux2-pair_mean[id-1u];
+ int64_t difference_delta=(int64_t)lux2-(int64_t)lux1-pair_difference[id-1u];
+ double mean_ratio=(double)mean_delta/(double)pair_mean_tolerance[id-1u];
+ double difference_ratio=(double)difference_delta/
+                         (double)pair_difference_tolerance[id-1u];
+ return mean_ratio*mean_ratio+difference_ratio*difference_ratio<=1.0;
+}
 bool guard_runtime_set_profile_pair_centers(uint8_t id,uint32_t mean,
                                              int32_t difference){
  if(!guard_runtime_validate_profile_pair_center(id,mean,difference))return false;
@@ -164,6 +179,11 @@ bool guard_runtime_set_profile_pair_centers(uint8_t id,uint32_t mean,
   (uint16_t)(1u<<(id-1u)),means,differences);
 }
 const char *guard_runtime_profile_name(uint8_t id){(void)id;return "test";}
+bool light_sensor_latest_pair(LightSensorSnapshot *snapshot,uint32_t now){
+ (void)now;
+ if(!snapshot||!live_pair_available)return false;
+ *snapshot=live_pair;return true;
+}
 uint32_t calibration_store_revision(void){return 42;}
 bool light_sensor_calibration_start(uint32_t duration,uint32_t now){(void)duration;(void)now;ready=true;return true;}
 bool light_sensor_pair_calibration_start(uint32_t duration,uint32_t now){(void)duration;(void)now;ready=true;pair_result=true;return true;}
@@ -280,6 +300,60 @@ int main(void){
  pair_tolerance_saved_mask|=1u;
  calibration_runtime_init(NULL);
  assert(pair_mean_tolerance[0]==80u&&pair_difference_tolerance[0]==40u);
+
+ /* A stable recognized profile adapts only after a two-second robust window.
+  * The center step is bounded, tolerances stay fixed, and flash is written
+  * once only after Guard stops. */
+ dual_sensor_enabled=true;pair_saved_mask=0u;pair_tolerance_saved_mask=0u;
+ pair_calibrated_mask=1u;pair_mean[0]=2000u;pair_difference[0]=100;
+ pair_mean_tolerance[0]=40u;pair_difference_tolerance[0]=20u;
+ guard_running=true;guard_paused_state=false;active_profile=1u;
+ live_pair_available=true;memset(&live_pair,0,sizeof(live_pair));
+ live_pair.primary_valid=true;live_pair.secondary_present=true;
+ live_pair.secondary_valid=true;live_pair.primary_lux_tenths=900u;
+ live_pair.secondary_lux_tenths=1140u;
+ calibration_runtime_init(NULL);
+ calibration_runtime_service(0u);
+ for(uint32_t now=130u;now<2000u;now+=130u)
+  calibration_runtime_service(now);
+ calibration_runtime_service(2000u);
+ assert(pair_mean[0]==2010u&&pair_difference[0]==105);
+ assert(pair_mean_tolerance[0]==40u&&pair_difference_tolerance[0]==20u);
+ assert(pair_saved_mask==0u);
+ guard_running=false;calibration_runtime_service(2010u);
+ assert(calibration_store_dual_light_get(1,&restored_mean,&restored_difference));
+ assert(restored_mean==2010u&&restored_difference==105);
+ assert(pair_saved_mean_tolerance[0]==40u&&
+        pair_saved_difference_tolerance[0]==20u);
+
+ /* A noisy window is ignored, even if its median is displaced. */
+ pair_saved_mask=0u;pair_tolerance_saved_mask=0u;
+ pair_mean[0]=2000u;pair_difference[0]=100;
+ guard_running=true;active_profile=1u;calibration_runtime_init(NULL);
+ calibration_runtime_service(3000u);
+ for(uint32_t now=3130u;now<5000u;now+=130u){
+  live_pair.primary_lux_tenths=(now/130u)%2u?850u:950u;
+  live_pair.secondary_lux_tenths=live_pair.primary_lux_tenths+1000u;
+  calibration_runtime_service(now);
+ }
+ calibration_runtime_service(5000u);
+ assert(pair_mean[0]==2000u&&pair_difference[0]==100);
+
+ /* Center motion that would reduce separation from another calibrated profile
+  * is rejected without changing either center. */
+ pair_mean[0]=2000u;pair_difference[0]=100;
+ pair_mean[1]=2101u;pair_difference[1]=105;
+ pair_mean_tolerance[0]=pair_mean_tolerance[1]=40u;
+ pair_difference_tolerance[0]=pair_difference_tolerance[1]=20u;
+ pair_calibrated_mask=3u;
+ live_pair.primary_lux_tenths=900u;live_pair.secondary_lux_tenths=1140u;
+ guard_running=true;active_profile=1u;calibration_runtime_init(NULL);
+ calibration_runtime_service(6000u);
+ for(uint32_t now=6130u;now<8000u;now+=130u)
+  calibration_runtime_service(now);
+ calibration_runtime_service(8000u);
+ assert(pair_mean[0]==2000u&&pair_difference[0]==100);
+ guard_running=false;calibration_runtime_service(8010u);
  puts("physical calibration: single ranges, dual paired centers, separation and rollback passed");
  return 0;
 }

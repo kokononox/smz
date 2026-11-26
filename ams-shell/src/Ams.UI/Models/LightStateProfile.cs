@@ -54,6 +54,12 @@ public class LightStateProfile
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double DifferenceLuxTolerance { get; set; }
     /// <summary>
+    /// When true, dual calibration derives tolerances from robust sample spread and
+    /// reduces them only as far as the observed-noise floor permits separation.
+    /// False preserves user-edited M/Δ tolerances during later calibrations.
+    /// </summary>
+    public bool UseAutomaticDualTolerance { get; set; } = true;
+    /// <summary>
     /// Indicates whether both paired tolerances meet the UI/firmware minimum and
     /// can be represented exactly by the board's fixed-point descriptor.
     /// Kept separate from IsValid so older stored profiles remain readable.
