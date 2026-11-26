@@ -352,7 +352,7 @@ public partial class MainViewModel
                     _ when reply.StartsWith("ERR|ARG|CALSYNC|DUAL", StringComparison.Ordinal)
                         => "فریمور فعلی فقط ارسال هر ۹ وضعیت را می‌پذیرد؛ برای ارسال تکی یا ناقص، Native UF2 به‌روز را فلش کنید.",
                     _ when reply.StartsWith("ERR|CONFIG|CALSYNC|DUAL|", StringComparison.Ordinal)
-                        => "تلورانس‌های برد با پروفایل‌ها یکی نیستند؛ UF2 را با تلورانس‌های فعلی بسازید و فلش کنید، سپس دوباره ارسال کنید.",
+                        => "فریمور برد قدیمی است و ذخیرهٔ مستقیم تلورانس‌های M/Δ را پشتیبانی نمی‌کند؛ Native UF2 به‌روزشده را یک‌بار فلش کنید.",
                     _ when reply.StartsWith("ERR|FIT|CALSYNC|DUAL", StringComparison.Ordinal)
                         => "برد این تغییر را به‌دلیل هم‌پوشانی یا فاصلهٔ ایمنی ناکافی با وضعیت‌های دیگر نپذیرفت.",
                     _ => "ارسال دوحسگری ناموفق بود؛ اجرا و کالیبراسیون را متوقف و مقادیر را بررسی کنید: " + reply,
@@ -378,7 +378,7 @@ public partial class MainViewModel
             LightProfileSaveStatus =
                 $"{profileIds.Count} وضعیت جفتی روی برد ذخیره و تأیید شد · revision {snapshot.Revision}. "
                 + $"وضعیت‌های دیگر تغییر نکردند.{unsentNote} "
-                + "تلورانس‌ها در UF2 فعال می‌مانند؛ برای تغییرشان UF2 را دوباره بسازید و فلش کنید.";
+                + "مرکزها و تلورانس‌های M/Δ ذخیره شدند؛ برای تغییرات بعدی نیازی به بازسازی UF2 نیست.";
             return true;
         }
         catch (Exception ex)

@@ -53,12 +53,18 @@ static void apply_saved_light(void){
                 differences[i]=saved_difference;
                 saved_mask|=(uint16_t)(1u<<i);
             }
+            uint32_t saved_mean_tolerance,saved_difference_tolerance;
+            if(calibration_store_dual_light_tolerance_get(id,
+                    &saved_mean_tolerance,&saved_difference_tolerance)){
+                mean_tolerances[i]=saved_mean_tolerance;
+                difference_tolerances[i]=saved_difference_tolerance;
+            }
         }
-        /* Restore saved centers as one transaction, checking them against the
-         * profiles that were calibrated into this UF2 and the saved rows. */
+        /* Restore saved centers and any mutable tolerances as one transaction,
+         * checking them against the profiles in this UF2 and the saved rows. */
         if(saved_mask)
-            (void)guard_runtime_set_profile_pair_centers_mask(saved_mask,means,
-                                                               differences);
+            (void)guard_runtime_set_profile_pair_calibrations_mask(saved_mask,
+                means,mean_tolerances,differences,difference_tolerances);
         return;
     }
     uint32_t base_low[LIGHT_PROFILE_COUNT],base_high[LIGHT_PROFILE_COUNT];
@@ -215,11 +221,15 @@ static bool save_dual_light(const LightCalibrationResult *result){
         return false;
     }
     uint32_t means[LIGHT_PROFILE_COUNT]={0};
+    uint32_t mean_tolerances[LIGHT_PROFILE_COUNT]={0};
     int32_t differences[LIGHT_PROFILE_COUNT]={0};
+    uint32_t difference_tolerances[LIGHT_PROFILE_COUNT]={0};
     means[selected]=result->mean_center_half_tenths;
+    mean_tolerances[selected]=mean_tolerance;
     differences[selected]=result->difference_center_tenths;
+    difference_tolerances[selected]=difference_tolerance;
     if(!calibration_store_dual_light_sync((uint16_t)(1u<<selected),means,
-                                          differences)){
+            mean_tolerances,differences,difference_tolerances)){
         emit("ERR|CAL|SAVE|kind=light|id=%s",guard_runtime_profile_name(cal.profile));
         return false;
     }

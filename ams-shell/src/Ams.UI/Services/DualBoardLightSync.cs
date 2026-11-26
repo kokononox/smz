@@ -4,8 +4,8 @@ using Ams.UI.Models;
 namespace Ams.UI.Services;
 
 /// <summary>
-/// Versioned round-trip for the board's paired M/D calibration. Mean values use
-/// half-tenths of Lux; signed differences use tenths of Lux.
+/// Round-trip for the board's paired M/D centers and per-profile tolerances.
+/// Mean values use half-tenths of Lux; signed differences use tenths of Lux.
 /// </summary>
 public sealed record DualBoardLightProfile(
     byte ProfileId,
@@ -71,12 +71,12 @@ public static class DualBoardLightSync
             profiles.OrderBy(profile => profile.ProfileId).ToArray());
     }
 
-    /// <summary>Builds a center sync while requiring the board's UF2 tolerances to match.</summary>
+    /// <summary>Builds a paired center-and-tolerance sync for the selected profiles.</summary>
     public static string BuildCommand(IList<LightStateProfile> profiles)
         => BuildCommand(profiles, ProfileIds);
 
     /// <summary>
-    /// Builds a sparse center sync for one or more selected profiles. Unselected
+    /// Builds a sparse center-and-tolerance sync for selected profiles. Unselected
     /// board profiles are left unchanged by the firmware.
     /// </summary>
     public static string BuildCommand(IList<LightStateProfile> profiles,
@@ -102,7 +102,7 @@ public static class DualBoardLightSync
                 throw new InvalidOperationException(
                     $"تلورانس‌های M و Δ در «{profile.Name}» باید دست‌کم "
                     + $"{LightStateProfile.MinimumDualAxisToleranceLux:0.#} لوکس باشند "
-                    + "و با گام قابل پشتیبانی برد تنظیم شوند؛ سپس UF2 را دوباره بسازید و فلش کنید.");
+                    + "و با گام قابل پشتیبانی برد تنظیم شوند.");
             return (Profile: profile,
                 Mean: ToUnits(profile.MeanLuxCenter, 20, MaximumMeanValueHalfTenths,
                     "مرکز میانگین"),

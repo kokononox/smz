@@ -85,7 +85,7 @@ internal static class LightStateProfilesUiBootstrap
         editorBody.Children.Add(Text("چیدمان و کالیبراسیون دوحسگری در فایل پروژهٔ ‎.amsj ذخیره می‌شوند؛ بعد از ذخیرهٔ پروفایل‌ها، پروژه را هم ذخیره کنید تا همراه ماکرو بمانند.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("در هر پروفایل دوحسگری، میانه و بازهٔ مشاهده‌شدهٔ خام L1 و L2 جداگانه ذخیره و نمایش داده می‌شود؛ تشخیص همچنان با M=(L1+L2)/2 و Δ=L2−L1 انجام می‌شود. این بازهٔ خام فقط مربوط به آخرین برداشت کالیبراسیون است، نه تغییرات کل روز.", 12, "#AAB3C2"));
         editorBody.Children.Add(Text("تلورانس‌های M و Δ برای هر وضعیت در دو ستون جداگانه قابل تنظیم‌اند؛ حداقل هرکدام ۳ لوکس است. هم‌پوشانی در یک محور اشکالی ندارد، اما پروفایل‌ها باید در فضای دوبعدی با حاشیهٔ امن ۱ لوکس جدا بمانند. دقت قابل‌ارسال به برد برای M برابر ۰٫۰۵ و برای Δ برابر ۰٫۱ لوکس است.", 12, "#AAB3C2"));
-        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. همگام‌سازی با برد فقط مراکز M/Δ را می‌فرستد؛ برای اعمال تلورانس‌های جدید، پروفایل‌ها را ذخیره کنید، Native UF2 را دوباره بسازید و آن را فلش کنید. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
+        editorBody.Children.Add(Text("پروفایل‌های دوحسگری با جابه‌جایی سنسورها معتبر نمی‌مانند. پس از هر جابه‌جایی، «چیدمان دوحسگری جدید» را بزنید و همهٔ محیط‌های فعال را دوباره کالیبره کنید؛ هر وضعیت را می‌توان جداگانه یا همراه با بقیهٔ وضعیت‌های کالیبره‌شده به برد فرستاد. همگام‌سازی، مرکزها و تلورانس‌های M/Δ هر وضعیت را مستقیماً روی برد ذخیره می‌کند؛ پس از نصب این firmware، برای تغییر تلورانس نیازی به ساخت یا فلش دوبارهٔ UF2 نیست. خلاصهٔ خام L1/L2 فقط در Studio نگه‌داری می‌شود.", 12, "#DE9255"));
         editorBody.Children.Add(Text("تلورانس پیش‌فرض کالیبراسیون فیزیکی تک‌سنسوره (L1، لوکس، مرکز ± عدد):", 12, "#D9DEE7"));
         var defaultTolerance = new TextBox { Width = 100, HorizontalAlignment = HorizontalAlignment.Left,
             Padding = new Thickness(6), Margin = new Thickness(3), Background = Brush("#181B20"),
@@ -93,7 +93,7 @@ internal static class LightStateProfilesUiBootstrap
         defaultTolerance.SetBinding(TextBox.TextProperty, new Binding(nameof(MainViewModel.PhysicalCalibrationToleranceLux))
         { Source = vm, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.LostFocus, ValidatesOnExceptions = true });
         editorBody.Children.Add(defaultTolerance);
-        editorBody.Children.Add(Text("برای برد تک‌سنسوره، پروفایل‌ها و تلورانس پیش‌فرض ارسال می‌شوند؛ در حالت دوحسگری مراکز جفتی ارسال و با برد بازخوانی و تأیید می‌شوند، اما تلورانس‌ها باید با UF2 فعال یکی باشند.", 12, "#AAB3C2"));
+        editorBody.Children.Add(Text("برای برد تک‌سنسوره، پروفایل‌ها و تلورانس پیش‌فرض ارسال می‌شوند؛ در حالت دوحسگری مرکزها و تلورانس‌های M/Δ ارسال، روی برد ذخیره و بازخوانی و تأیید می‌شوند.", 12, "#AAB3C2"));
         var rows = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
         editorBody.Children.Add(new ScrollViewer
         {
@@ -116,7 +116,7 @@ internal static class LightStateProfilesUiBootstrap
         importFromBoard.Click += async (_, _) =>
         {
             if (MessageBox.Show(window,
-                    "کالیبراسیون موجود از برد وارد شود؟ در حالت دوحسگری، مراکز M/Δ وارد می‌شوند؛ خلاصهٔ خام L1/L2 از برد قابل بازیابی نیست. سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
+                    "کالیبراسیون موجود از برد وارد شود؟ در حالت دوحسگری، مرکزها و تلورانس‌های M/Δ وارد می‌شوند؛ خلاصهٔ خام L1/L2 از برد قابل بازیابی نیست. سایر تنظیمات پروفایل‌ها تغییر نمی‌کنند.",
                     "وارد کردن کالیبراسیون از برد", MessageBoxButton.YesNo,
                     MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             importFromBoard.IsEnabled = false;
@@ -134,7 +134,7 @@ internal static class LightStateProfilesUiBootstrap
         sendToBoard.Click += async (_, _) =>
         {
             if (MessageBox.Show(window,
-                    "در حالت دوحسگری، همهٔ وضعیت‌های فعال و جفت‌کالیبره‌شده ارسال می‌شوند؛ وضعیت‌های کالیبره‌نشده روی برد بدون تغییر می‌مانند و لازم نیست هر ۹ وضعیت آماده باشد. در حالت تک‌سنسوره، هر ۹ پروفایل ارسال می‌شوند. تلورانس‌های دوحسگری باید با UF2 فعال یکی باشند. اجرای برد و کالیبراسیون باید متوقف باشند.",
+                    "در حالت دوحسگری، همهٔ وضعیت‌های فعال و جفت‌کالیبره‌شده همراه مرکزها و تلورانس‌های M/Δ ارسال می‌شوند؛ وضعیت‌های کالیبره‌نشده روی برد بدون تغییر می‌مانند و لازم نیست هر ۹ وضعیت آماده باشد. در حالت تک‌سنسوره، هر ۹ پروفایل ارسال می‌شوند. اجرای برد و کالیبراسیون باید متوقف باشند.",
                     "ارسال به برد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             if (Validation.GetHasError(defaultTolerance)) { vm.ReportLightProfileEditorValidationError(); return; }
             if (rows.Children.OfType<Grid>()

@@ -123,7 +123,7 @@ class ShiftWakeTests(unittest.TestCase):
 
     def test_persisted_wake_record_is_versioned(self):
         store=(ROOT/'firmware/abvm/pico/calibration_store.c').read_text()
-        self.assertIn('#define CAL_VERSION 9u',store)
+        self.assertIn('#define CAL_VERSION 10u',store)
         self.assertIn('legacy_v7_record_valid(v7a,binding)',store)
         self.assertIn('typedef struct LegacyCalibrationPayloadV5',store)
         self.assertIn('legacy_v5_record_valid(v5a,binding)',store)
@@ -134,6 +134,9 @@ class ShiftWakeTests(unittest.TestCase):
         self.assertIn('typedef struct LegacyCalibrationPayloadV6',store)
         self.assertIn('legacy_v6_record_valid(v6a,binding)',store)
         self.assertIn('offsetof(CalibrationPayload,host_boot_s)',store)
+        self.assertIn('typedef struct LegacyCalibrationPayloadV9',store)
+        self.assertIn('legacy_v9_record_valid(v9a,binding)',store)
+        self.assertIn('dual_light_tolerance_mask=0u',store)
         self.assertIn('_Static_assert(sizeof(LegacyCalibrationPayloadV7)==sizeof(LegacyCalibrationPayloadV6),',store)
         self.assertIn('_Static_assert(sizeof(CalibrationRecord) <= 2u * FLASH_PAGE_SIZE',store)
         self.assertIn('uint8_t page[2u * FLASH_PAGE_SIZE]',store)

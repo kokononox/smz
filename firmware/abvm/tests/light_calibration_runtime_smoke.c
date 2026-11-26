@@ -3,6 +3,7 @@
 #include <string.h>
 #include "calibration_runtime.h"
 #include "calibration_store.h"
+#include "guard_runtime.h"
 #include "light_sensor.h"
 static uint32_t lo[9]={70,120,170,390,490,590,690,790,890};
 static uint32_t hi[9]={130,180,230,410,510,610,710,810,910};
@@ -17,9 +18,11 @@ static uint32_t pair_mean[9]={2000,4000,6000,8000,10000,12000,14000,16000,18000}
 static uint32_t pair_mean_tolerance[9]={40,40,40,40,40,40,40,40,40};
 static int32_t pair_difference[9]={100,200,300,400,500,600,700,800,900};
 static uint32_t pair_difference_tolerance[9]={20,20,20,20,20,20,20,20,20};
-static uint16_t pair_saved_mask,pair_calibrated_mask;
+static uint16_t pair_saved_mask,pair_tolerance_saved_mask,pair_calibrated_mask;
 static uint32_t pair_saved_mean[9];
+static uint32_t pair_saved_mean_tolerance[9];
 static int32_t pair_saved_difference[9];
+static uint32_t pair_saved_difference_tolerance[9];
 void calibration_store_init(const AbvmVm *vm){(void)vm;}
 bool calibration_store_light_get(uint8_t id,uint32_t *l,uint32_t *h){
  if(!base_available||id<1u||id>9u||!l||!h)return false;
@@ -40,10 +43,18 @@ bool calibration_store_dual_light_get(uint8_t id,uint32_t *m,int32_t *d){
  if(id<1u||id>9u||!m||!d||!(pair_saved_mask&(1u<<(id-1u))))return false;
  *m=pair_saved_mean[id-1u];*d=pair_saved_difference[id-1u];return true;
 }
-bool calibration_store_dual_light_sync(uint16_t mask,const uint32_t m[9],const int32_t d[9]){
+bool calibration_store_dual_light_tolerance_get(uint8_t id,uint32_t *mt,uint32_t *dt){
+ if(id<1u||id>9u||!mt||!dt||!(pair_tolerance_saved_mask&(1u<<(id-1u))))return false;
+ *mt=pair_saved_mean_tolerance[id-1u];*dt=pair_saved_difference_tolerance[id-1u];return true;
+}
+bool calibration_store_dual_light_sync(uint16_t mask,const uint32_t m[9],
+ const uint32_t mt[9],const int32_t d[9],const uint32_t dt[9]){
  if(fail_save)return false;
- for(int i=0;i<9;i++)if(mask&(1u<<i)){pair_saved_mean[i]=m[i];pair_saved_difference[i]=d[i];}
- pair_saved_mask|=mask;return true;
+ for(int i=0;i<9;i++)if(mask&(1u<<i)){
+  pair_saved_mean[i]=m[i];pair_saved_mean_tolerance[i]=mt[i];
+  pair_saved_difference[i]=d[i];pair_saved_difference_tolerance[i]=dt[i];
+ }
+ pair_saved_mask|=mask;pair_tolerance_saved_mask|=mask;return true;
 }
 bool guard_runtime_get_profile_range(uint8_t id,uint32_t *l,uint32_t *h){
  if(id<1u||id>9u)return false;
@@ -69,7 +80,14 @@ bool guard_runtime_get_profile_pair_calibration(uint8_t id,uint32_t *m,uint32_t 
 }
 bool guard_runtime_validate_profile_pair_centers_mask(uint16_t mask,
  const uint32_t means[9],const int32_t differences[9]){
- if(!dual_sensor_enabled||!means||!differences||(mask&~0x1ffu))return false;
+ return guard_runtime_validate_profile_pair_calibrations_mask(mask,means,
+  pair_mean_tolerance,differences,pair_difference_tolerance);
+}
+bool guard_runtime_validate_profile_pair_calibrations_mask(uint16_t mask,
+ const uint32_t means[9],const uint32_t mean_tolerances[9],
+ const int32_t differences[9],const uint32_t difference_tolerances[9]){
+ if(!dual_sensor_enabled||!means||!mean_tolerances||!differences||
+    !difference_tolerances||(mask&~0x1ffu))return false;
  for(int i=0;i<9;i++)if(mask&(uint16_t)(1u<<i)){
   if(means[i]>20000000u||differences[i]<-10000000||differences[i]>10000000)
    return false;
@@ -77,8 +95,8 @@ bool guard_runtime_validate_profile_pair_centers_mask(uint16_t mask,
    uint32_t dm=means[i]>means[j]?means[i]-means[j]:means[j]-means[i];
    int64_t raw=(int64_t)differences[i]-differences[j];
    uint32_t dd=(uint32_t)(raw<0?-raw:raw);
-   if(dm<=pair_mean_tolerance[i]+pair_mean_tolerance[j]+20u&&
-      dd<=pair_difference_tolerance[i]+pair_difference_tolerance[j]+10u)
+   if(dm<=mean_tolerances[i]+mean_tolerances[j]+20u&&
+      dd<=difference_tolerances[i]+difference_tolerances[j]+10u)
     return false;
   }
  }
@@ -90,19 +108,34 @@ bool guard_runtime_validate_profile_pair_centers(const uint32_t means[9],
 }
 bool guard_runtime_set_profile_pair_centers_mask(uint16_t update_mask,
  const uint32_t means[9],const int32_t differences[9]){
- if(!dual_sensor_enabled||!update_mask||(update_mask&~0x1ffu)||!means||!differences)
+ return guard_runtime_set_profile_pair_calibrations_mask(update_mask,means,
+  pair_mean_tolerance,differences,pair_difference_tolerance);
+}
+bool guard_runtime_set_profile_pair_calibrations_mask(uint16_t update_mask,
+ const uint32_t means[9],const uint32_t mean_tolerances[9],
+ const int32_t differences[9],const uint32_t difference_tolerances[9]){
+ if(!dual_sensor_enabled||!update_mask||(update_mask&~0x1ffu)||!means||
+    !mean_tolerances||!differences||!difference_tolerances)
   return false;
- uint32_t merged_means[9];int32_t merged_differences[9];
+ uint32_t merged_means[9],merged_mean_tolerances[9];
+ int32_t merged_differences[9];uint32_t merged_difference_tolerances[9];
  memcpy(merged_means,pair_mean,sizeof(merged_means));
+ memcpy(merged_mean_tolerances,pair_mean_tolerance,sizeof(merged_mean_tolerances));
  memcpy(merged_differences,pair_difference,sizeof(merged_differences));
+ memcpy(merged_difference_tolerances,pair_difference_tolerance,sizeof(merged_difference_tolerances));
  for(int i=0;i<9;i++)if(update_mask&(uint16_t)(1u<<i)){
-  merged_means[i]=means[i];merged_differences[i]=differences[i];
+  merged_means[i]=means[i];merged_mean_tolerances[i]=mean_tolerances[i];
+  merged_differences[i]=differences[i];
+  merged_difference_tolerances[i]=difference_tolerances[i];
  }
  uint16_t mask=(uint16_t)(pair_calibrated_mask|update_mask);
- if(!guard_runtime_validate_profile_pair_centers_mask(mask,merged_means,
-                                                       merged_differences))return false;
+ if(!guard_runtime_validate_profile_pair_calibrations_mask(mask,merged_means,
+   merged_mean_tolerances,merged_differences,merged_difference_tolerances))return false;
  memcpy(pair_mean,merged_means,sizeof(pair_mean));
+ memcpy(pair_mean_tolerance,merged_mean_tolerances,sizeof(pair_mean_tolerance));
  memcpy(pair_difference,merged_differences,sizeof(pair_difference));
+ memcpy(pair_difference_tolerance,merged_difference_tolerances,
+        sizeof(pair_difference_tolerance));
  pair_calibrated_mask=mask;
  return true;
 }
@@ -205,6 +238,11 @@ int main(void){
  assert(calibration_store_dual_light_get(1,&restored_mean,&restored_difference));
  assert(restored_mean==pair_sample_mean&&
         restored_difference==pair_sample_difference);
+ uint32_t restored_mean_tolerance,restored_difference_tolerance;
+ assert(calibration_store_dual_light_tolerance_get(
+        1,&restored_mean_tolerance,&restored_difference_tolerance));
+ assert(restored_mean_tolerance==pair_mean_tolerance[0]&&
+        restored_difference_tolerance==pair_difference_tolerance[0]);
 
  /* Unsafe overlap with profile 1 is rejected and does not persist profile 2. */
  assert(calibration_runtime_blue_short(36000u)); /* profile 2 */
@@ -225,7 +263,7 @@ int main(void){
  fail_save=false;
  /* A freshly exported partial descriptor can start with no calibrated rows;
   * one physical button sample must be enough to activate its first profile. */
- pair_calibrated_mask=0u;pair_saved_mask=0u;
+ pair_calibrated_mask=0u;pair_saved_mask=0u;pair_tolerance_saved_mask=0u;
  pair_sample_mean=2050u;pair_sample_difference=110;
  calibration_runtime_init(NULL);
  assert(guard_runtime_dual_calibration_mask()==0u);
@@ -235,6 +273,13 @@ int main(void){
  assert(calibration_runtime_take_event(event,sizeof(event))&&
         strstr(event,"mode=saved|kind=light|dual=1"));
  assert(pair_calibrated_mask==1u&&pair_saved_mask==1u);
+ /* Studio's per-profile sync persists tolerance overrides alongside centers;
+  * a reboot restores both values into the active classifier. */
+ pair_saved_mean_tolerance[0]=80u;
+ pair_saved_difference_tolerance[0]=40u;
+ pair_tolerance_saved_mask|=1u;
+ calibration_runtime_init(NULL);
+ assert(pair_mean_tolerance[0]==80u&&pair_difference_tolerance[0]==40u);
  puts("physical calibration: single ranges, dual paired centers, separation and rollback passed");
  return 0;
 }

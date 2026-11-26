@@ -258,27 +258,46 @@ bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
 bool guard_runtime_validate_profile_pair_centers_mask(uint16_t calibrated_mask,
     const uint32_t mean_centers[GUARD_PROFILE_COUNT],
     const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
-    if (!guard.dual_sensor || !mean_centers || !difference_centers ||
+    uint32_t mean_tolerances[GUARD_PROFILE_COUNT];
+    uint32_t difference_tolerances[GUARD_PROFILE_COUNT];
+    if (!guard.dual_sensor || !mean_centers || !difference_centers)
+        return false;
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        mean_tolerances[i] = guard.profiles[i].mean_tolerance_half_tenths;
+        difference_tolerances[i] = guard.profiles[i].difference_tolerance_tenths;
+    }
+    return guard_runtime_validate_profile_pair_calibrations_mask(
+        calibrated_mask, mean_centers, mean_tolerances, difference_centers,
+        difference_tolerances);
+}
+bool guard_runtime_validate_profile_pair_calibrations_mask(
+    uint16_t calibrated_mask,
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const uint32_t mean_tolerances[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT],
+    const uint32_t difference_tolerances[GUARD_PROFILE_COUNT]) {
+    if (!guard.dual_sensor || !mean_centers || !mean_tolerances ||
+        !difference_centers || !difference_tolerances ||
         (calibrated_mask & (uint16_t)~0x01ffu))
         return false;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
         if (mean_centers[i] > 20000000u ||
             difference_centers[i] < -10000000 ||
-            difference_centers[i] > 10000000)
+            difference_centers[i] > 10000000 ||
+            !mean_tolerances[i] || mean_tolerances[i] > 20000000u ||
+            !difference_tolerances[i] ||
+            difference_tolerances[i] > 10000000u)
             return false;
     }
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
         if (!(calibrated_mask & (uint16_t)(1u << i))) continue;
-        const GuardProfile *first = &guard.profiles[i];
         for (uint8_t j = (uint8_t)(i + 1u); j < GUARD_PROFILE_COUNT; ++j) {
             if (!(calibrated_mask & (uint16_t)(1u << j))) continue;
-            const GuardProfile *second = &guard.profiles[j];
             uint64_t mean_clearance =
-                (uint64_t)first->mean_tolerance_half_tenths +
-                second->mean_tolerance_half_tenths + 20u;
+                (uint64_t)mean_tolerances[i] + mean_tolerances[j] + 20u;
             uint64_t difference_clearance =
-                (uint64_t)first->difference_tolerance_tenths +
-                second->difference_tolerance_tenths + 10u;
+                (uint64_t)difference_tolerances[i] +
+                difference_tolerances[j] + 10u;
             if (!mean_clearance || !difference_clearance) return false;
             uint64_t mean_ratio =
                 (magnitude_i64((int64_t)mean_centers[i] -
@@ -308,19 +327,41 @@ bool guard_runtime_set_profile_pair_centers_mask(
     uint16_t update_mask,
     const uint32_t mean_centers[GUARD_PROFILE_COUNT],
     const int32_t difference_centers[GUARD_PROFILE_COUNT]) {
+    if (!guard.dual_sensor || !mean_centers || !difference_centers)
+        return false;
+    uint32_t mean_tolerances[GUARD_PROFILE_COUNT];
+    uint32_t difference_tolerances[GUARD_PROFILE_COUNT];
+    for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
+        mean_tolerances[i] = guard.profiles[i].mean_tolerance_half_tenths;
+        difference_tolerances[i] = guard.profiles[i].difference_tolerance_tenths;
+    }
+    return guard_runtime_set_profile_pair_calibrations_mask(update_mask,
+        mean_centers, mean_tolerances, difference_centers,
+        difference_tolerances);
+}
+bool guard_runtime_set_profile_pair_calibrations_mask(
+    uint16_t update_mask,
+    const uint32_t mean_centers[GUARD_PROFILE_COUNT],
+    const uint32_t mean_tolerances[GUARD_PROFILE_COUNT],
+    const int32_t difference_centers[GUARD_PROFILE_COUNT],
+    const uint32_t difference_tolerances[GUARD_PROFILE_COUNT]) {
     if (!guard.dual_sensor || !update_mask ||
         (update_mask & (uint16_t)~0x01ffu) || !mean_centers ||
-        !difference_centers)
+        !mean_tolerances || !difference_centers || !difference_tolerances)
         return false;
     uint16_t calibrated_mask =
         (uint16_t)(guard_runtime_dual_calibration_mask() | update_mask);
-    if (!guard_runtime_validate_profile_pair_centers_mask(calibrated_mask,
-            mean_centers, difference_centers))
+    if (!guard_runtime_validate_profile_pair_calibrations_mask(
+            calibrated_mask, mean_centers, mean_tolerances,
+            difference_centers, difference_tolerances))
         return false;
     for (uint8_t i = 0; i < GUARD_PROFILE_COUNT; ++i) {
         if (!(update_mask & (uint16_t)(1u << i))) continue;
         guard.profiles[i].mean_center_half_tenths = mean_centers[i];
+        guard.profiles[i].mean_tolerance_half_tenths = mean_tolerances[i];
         guard.profiles[i].difference_center_tenths = difference_centers[i];
+        guard.profiles[i].difference_tolerance_tenths =
+            difference_tolerances[i];
         guard.profiles[i].dual_calibrated = true;
     }
     return true;

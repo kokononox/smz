@@ -19,6 +19,11 @@ assert 'ImportLightStateProfilesFromBoardAsync' in vm
 assert 'ImportLightStateProfileFromBoardAsync' in vm
 assert 'DualBoardLightSync.ApplyProfile' in vm
 assert 'CALSYNC|DUAL|GET' in vm
+assert 'calibration_store_dual_light_sync(mask,means,mean_tolerances' in main
+assert 'guard_runtime_set_profile_pair_calibrations_mask(mask,means' in main
+assert 'dual_mean_tolerance_half_tenths' in (root / "firmware/abvm/pico/calibration_store.c").read_text()
+assert 'تلورانس‌های M/Δ ذخیره شدند' in vm
+assert 'فقط مراکز M/Δ را می‌فرستد' not in ui
 assert '_bridge.SendAsync("CALDUMP|LIGHT", 3)' in vm
 assert 'ERR|COMMAND|unknown=CALDUMP|LIGHT' in vm
 assert 'ERR|TIMEOUT|CALDUMP' in vm

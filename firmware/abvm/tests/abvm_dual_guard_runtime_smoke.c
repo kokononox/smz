@@ -69,6 +69,37 @@ int main(int argc,char **argv) {
                 "single-sensor range writes disabled"))return 1;
     if(!require(mean_center>0u&&mean_tolerance>0u&&
                 difference_tolerance>0u,"paired tolerance metadata"))return 1;
+    uint32_t means[9],mean_tolerances[9],difference_tolerances[9];
+    int32_t differences[9];
+    for(uint8_t id=1u;id<=9u;++id)
+        if(!require(guard_runtime_get_profile_pair_calibration(id,
+                &means[id-1u],&mean_tolerances[id-1u],
+                &differences[id-1u],&difference_tolerances[id-1u]),
+                "tolerance update snapshot"))return 1;
+    uint32_t original_mean_tolerance=mean_tolerances[0];
+    uint32_t original_difference_tolerance=difference_tolerances[0];
+    mean_tolerances[0]=80u;
+    difference_tolerances[0]=40u;
+    if(!require(guard_runtime_validate_profile_pair_calibrations_mask(
+                guard_runtime_dual_calibration_mask(),means,mean_tolerances,
+                differences,difference_tolerances),
+                "wider tolerance update keeps clearance")||
+       !require(guard_runtime_set_profile_pair_calibrations_mask(1u,means,
+                mean_tolerances,differences,difference_tolerances),
+                "per-profile tolerance update applies")||
+       !require(guard_runtime_get_profile_pair_calibration(1u,&mean_center,
+                &mean_tolerance,&difference_center,&difference_tolerance)&&
+                mean_tolerance==80u&&difference_tolerance==40u,
+                "updated M and D tolerances are active")||
+       !require(guard_runtime_profile_matches_pair(1u,910u,1010u),
+                "new M tolerance is used by the classifier"))
+        return 1;
+    mean_tolerances[0]=original_mean_tolerance;
+    difference_tolerances[0]=original_difference_tolerance;
+    if(!require(guard_runtime_set_profile_pair_calibrations_mask(1u,means,
+                mean_tolerances,differences,difference_tolerances),
+                "original per-profile tolerance restores"))
+        return 1;
     uint32_t other_mean,other_mean_tolerance,other_difference_tolerance;
     int32_t other_difference;
     if(!require(guard_runtime_get_profile_pair_calibration(2u,&other_mean,

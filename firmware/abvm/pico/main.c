@@ -701,21 +701,18 @@ static void set_dual_light_sync(char *p){
            (mask&(uint16_t)(1u<<(id-1u)))||
            !parse_dual_sync_uint(&cursor,':',20000000u,&mean)||
            !parse_dual_sync_uint(&cursor,':',20000000u,&mean_tolerance)||
-           !mean_tolerance||
+           mean_tolerance<60u||
            !parse_dual_sync_int(&cursor,':',-10000000,10000000,&difference)||
            !parse_dual_sync_uint(&cursor,'\0',10000000u,
                                  &difference_tolerance)||
-           !difference_tolerance){
+           difference_tolerance<30u){
             printf("ERR|ARG|CALSYNC|DUAL\n");return;
         }
         uint8_t index=(uint8_t)(id-1u);
-        if(mean_tolerance!=mean_tolerances[index]||
-           difference_tolerance!=difference_tolerances[index]){
-            printf("ERR|CONFIG|CALSYNC|DUAL|profile=%u\n",
-                   (unsigned)id);return;
-        }
         means[index]=mean;
+        mean_tolerances[index]=mean_tolerance;
         differences[index]=difference;
+        difference_tolerances[index]=difference_tolerance;
         mask|=(uint16_t)(1u<<index);
         ++row_count;
         if(!row_end)break;
@@ -728,14 +725,17 @@ static void set_dual_light_sync(char *p){
     }
     uint16_t calibrated_mask=(uint16_t)(
         guard_runtime_dual_calibration_mask()|mask);
-    if(!guard_runtime_validate_profile_pair_centers_mask(
-           calibrated_mask,means,differences)){
+    if(!guard_runtime_validate_profile_pair_calibrations_mask(
+           calibrated_mask,means,mean_tolerances,differences,
+           difference_tolerances)){
         printf("ERR|FIT|CALSYNC|DUAL\n");return;
     }
-    if(!calibration_store_dual_light_sync(mask,means,differences)){
+    if(!calibration_store_dual_light_sync(mask,means,mean_tolerances,
+            differences,difference_tolerances)){
         printf("ERR|FLASH|CALSYNC|DUAL\n");return;
     }
-    if(!guard_runtime_set_profile_pair_centers_mask(mask,means,differences)){
+    if(!guard_runtime_set_profile_pair_calibrations_mask(mask,means,
+            mean_tolerances,differences,difference_tolerances)){
         printf("ERR|STATE|CALSYNC|DUAL\n");return;
     }
     printf("OK|CALSYNC|DUAL|SET|revision=%lu\n",

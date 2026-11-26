@@ -154,7 +154,7 @@ for (var i = 0; i < BoardLightSync.Ids.Length; i++)
 var dualCommand = DualBoardLightSync.BuildCommand(dualTargets);
 Check(dualCommand.StartsWith("CALSYNC|DUAL|SET|profiles=1:410:85:0:37,2:810:60:0:30,",
         StringComparison.Ordinal),
-    "dual board sync serializes paired centers and UF2 tolerance checks in profile order");
+    "dual board sync serializes paired centers and per-profile tolerances in profile order");
 var partialDualIds = new[] { "desktop", "game" };
 var partialDualTargets = dualTargets
     .Where(profile => partialDualIds.Contains(profile.Id, StringComparer.Ordinal))
