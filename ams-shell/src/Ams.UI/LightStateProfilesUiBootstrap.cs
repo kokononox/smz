@@ -325,10 +325,10 @@ internal static class LightStateProfilesUiBootstrap
             AddTableCell(table, profile.Id is "whisper-repeat" or "targeted-repeat"
                 ? CompactEditor(profile, nameof(profile.LightCooldownMs))
                 : Text("—", 10, "#777F8C"), 11, column);
-            var meanTolerance = profile.HasDualSensorCalibration
+            UIElement meanTolerance = profile.HasDualSensorCalibration
                 ? CompactEditor(profile, nameof(profile.MeanLuxTolerance))
                 : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C");
-            var differenceTolerance = profile.HasDualSensorCalibration
+            UIElement differenceTolerance = profile.HasDualSensorCalibration
                 ? CompactEditor(profile, nameof(profile.DifferenceLuxTolerance))
                 : Text(profile.DualSensorCalibrationRequired ? "◌" : "—", 10, "#777F8C");
             if (meanTolerance is TextBox meanBox) meanBox.IsReadOnly = profile.UseAutomaticDualTolerance;
