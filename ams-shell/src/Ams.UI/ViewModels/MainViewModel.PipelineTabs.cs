@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json;
 using Ams.UI.Models;
 using Ams.UI.Services;
 using CommunityToolkit.Mvvm.Input;
@@ -17,6 +18,27 @@ public partial class MainViewModel
     // StepNode references cannot be used across tabs.  Stable index paths keep
     // each tab's open/closed state for the lifetime of the editor session.
     private readonly Dictionary<PipelineKind, HashSet<string>> _collapsedPathsByTab = new();
+
+    private void CaptureProjectLightProfiles()
+        => _pipelineWorkspace.LightStateProfiles = LightStateProfiles
+            .Select(profile => profile.Copy()).ToList();
+
+    private void ApplyProjectLightProfiles()
+    {
+        if (_pipelineWorkspace.LightStateProfiles is not { } profiles) return;
+        var normalized = LightStateProfileStore.Normalize(profiles.Select(profile => profile.Copy()));
+        var separation = DualLightCalibration.Validate(normalized);
+        if (!separation.IsValid)
+            throw new InvalidDataException(DualLightCalibration.DescribeConflicts(separation));
+        LightStateProfiles.Clear();
+        foreach (var profile in normalized) LightStateProfiles.Add(profile.Copy());
+        _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
+        _lastClassifiedChartVersion = -1;
+        RefreshLightGateDiagnosticProfiles();
+        RefreshLightProfileWarnings();
+        LightProfileSaveStatus = "چیدمان و کالیبراسیون نور از فایل پروژه بارگذاری شدند.";
+        OnPropertyChanged(nameof(LightStateProfiles));
+    }
 
     // Splash is a legacy storage route only. Catch actions now live visibly
     // under the explicit Wait For Sound step in Game.
@@ -66,6 +88,7 @@ public partial class MainViewModel
     {
         InitializePipelineTabs();
         CaptureActivePipeline();
+        CaptureProjectLightProfiles();
         return _pipelineWorkspace;
     }
 
@@ -173,6 +196,7 @@ public partial class MainViewModel
         if (!ConfirmDiscard()) return;
         InitializePipelineTabs();
         _pipelineWorkspace = new PipelineWorkspace();
+        CaptureProjectLightProfiles();
         _collapsedPathsByTab.Clear();
         _pipelineWorkspace.EnsureDcDefaults();
         _activePipelineTab = _pipelineWorkspace[PipelineKind.Main];
@@ -206,10 +230,16 @@ public partial class MainViewModel
         {
             var json = File.ReadAllText(dialog.FileName);
             try { _pipelineWorkspace = PipelineWorkspaceSerializer.Deserialize(json); }
-            catch (InvalidDataException)
+            catch (Exception ex) when (ex is InvalidDataException or JsonException)
             {
-                _pipelineWorkspace = PipelineWorkspace.FromLegacy(DocumentService.Load(dialog.FileName), targetKind);
+                // A malformed/unsupported multi-tab envelope must not be mistaken for an
+                // old single-script file and silently opened as an empty workspace.
+                if (HasPipelineEnvelope(json)) throw;
+                var legacySteps = DocumentService.Load(dialog.FileName, out var legacyLightProfiles);
+                _pipelineWorkspace = PipelineWorkspace.FromLegacy(legacySteps, targetKind);
+                _pipelineWorkspace.LightStateProfiles = legacyLightProfiles;
             }
+            ApplyProjectLightProfiles();
             _collapsedPathsByTab.Clear();
             _activePipelineTab = _pipelineWorkspace[targetKind];
             _currentFile = dialog.FileName;
@@ -237,6 +267,19 @@ public partial class MainViewModel
         }
     }
 
+    private static bool HasPipelineEnvelope(string json)
+    {
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+        var root = document.RootElement;
+        return root.ValueKind == JsonValueKind.Object
+            && root.EnumerateObject().Any(property =>
+                string.Equals(property.Name, "pipelines", StringComparison.OrdinalIgnoreCase));
+    }
+
     [RelayCommand]
     private void SavePipelineWorkspace() => SavePipelineWorkspaceCore(false);
 
@@ -247,6 +290,7 @@ public partial class MainViewModel
     {
         InitializePipelineTabs();
         CaptureActivePipeline();
+        CaptureProjectLightProfiles();
         Log("pipeline save snapshot: " + PipelineCounts());
         var path = _currentFile;
         if (saveAs || string.IsNullOrWhiteSpace(path))

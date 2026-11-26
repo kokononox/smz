@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ams.UI.Models;
 
 namespace Ams.UI.Services;
@@ -16,24 +17,70 @@ public static class DocumentService
         public string app { get; set; } = "AMS";
         public string version { get; set; } = "0.8.2";
         public List<StepNode> steps { get; set; } = new();
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<LightStateProfile>? lightStateProfiles { get; set; }
     }
 
-    private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Opts = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
 
-    public static void Save(string path, IEnumerable<StepNode> roots)
+    public static void Save(string path, IEnumerable<StepNode> roots,
+        IEnumerable<LightStateProfile>? lightStateProfiles = null)
     {
         var doc = new Doc { steps = roots.ToList() };
         ShiftTextValidation.ValidateTree(doc.steps);
+        if (lightStateProfiles is not null)
+            doc.lightStateProfiles = ValidateAndCopyLightProfiles(lightStateProfiles);
         File.WriteAllText(path, JsonSerializer.Serialize(doc, Opts));
     }
 
-    public static List<StepNode> Load(string path)
+    public static List<StepNode> Load(string path) => Load(path, out _);
+
+    public static List<StepNode> Load(string path, out List<LightStateProfile>? lightStateProfiles)
     {
-        var doc = JsonSerializer.Deserialize<Doc>(File.ReadAllText(path))
+        lightStateProfiles = null;
+        var json = File.ReadAllText(path);
+        using (var document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        }))
+        {
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var roots = document.RootElement.Deserialize<List<StepNode>>(Opts)
+                    ?? throw new InvalidDataException("Not an AMS document.");
+                foreach (var root in roots) FixParents(root, null);
+                return roots;
+            }
+        }
+        var doc = JsonSerializer.Deserialize<Doc>(json, Opts)
                   ?? throw new InvalidDataException("Not an AMS document.");
         if (doc.app != "AMS") throw new InvalidDataException("Not an AMS document.");
+        if (doc.lightStateProfiles is not null)
+            lightStateProfiles = ValidateAndCopyLightProfiles(doc.lightStateProfiles);
         foreach (var n in doc.steps) FixParents(n, null);
         return doc.steps;
+    }
+
+    private static List<LightStateProfile> ValidateAndCopyLightProfiles(
+        IEnumerable<LightStateProfile> source)
+    {
+        var profiles = source.Select(profile => profile?.Copy()!)
+            .ToList();
+        if (profiles.Count == 0 || profiles.Any(profile => profile is null || !profile.IsValid)
+            || profiles.Select(profile => profile.Id).Distinct(StringComparer.Ordinal).Count() != profiles.Count)
+            throw new InvalidDataException("پروفایل‌های نور داخل فایل خالی، تکراری یا نامعتبرند.");
+        var normalized = LightStateProfileStore.Normalize(profiles);
+        var separation = DualLightCalibration.Validate(normalized);
+        if (!separation.IsValid)
+            throw new InvalidDataException(DualLightCalibration.DescribeConflicts(separation));
+        return normalized.Select(profile => profile.Copy()).ToList();
     }
 
     /// <summary>

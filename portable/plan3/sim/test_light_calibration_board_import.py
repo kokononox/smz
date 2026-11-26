@@ -6,6 +6,7 @@ root = Path(__file__).resolve().parents[3]
 main = (root / "firmware/abvm/pico/main.c").read_text()
 vm = (root / "ams-shell/src/Ams.UI/ViewModels/MainViewModel.LightProfiles.cs").read_text()
 ui = (root / "ams-shell/src/Ams.UI/LightStateProfilesUiBootstrap.cs").read_text()
+calibration_ui = (root / "ams-shell/src/Ams.UI/LightCalibrationUiBootstrap.cs").read_text()
 parser = (root / "ams-shell/src/Ams.UI/Services/LightCalibrationDumpParser.cs").read_text()
 tests = (root / "tests/LightTelemetryTests/Program.cs").read_text()
 bridge = (root / "ams-shell/bridge/bridge.py").read_text()
@@ -16,12 +17,29 @@ assert 'calibration_store_light_get' in main
 assert 'char profiles[256]' in main
 assert 'printf("%s%u:%lu:%lu"' not in main
 assert 'ImportLightStateProfilesFromBoardAsync' in vm
+assert 'ImportLightStateProfileFromBoardAsync' in vm
+assert 'DualBoardLightSync.ApplyProfile' in vm
+assert 'CALSYNC|DUAL|GET' in vm
+assert 'calibration_store_dual_light_sync(mask,means,mean_tolerances' in main
+assert 'guard_runtime_set_profile_pair_calibrations_mask(mask,means' in main
+assert 'dual_mean_tolerance_half_tenths' in (root / "firmware/abvm/pico/calibration_store.c").read_text()
+assert 'تلورانس‌های M/Δ ذخیره شدند' in vm
+assert 'فقط مراکز M/Δ را می‌فرستد' not in ui
 assert '_bridge.SendAsync("CALDUMP|LIGHT", 3)' in vm
 assert 'ERR|COMMAND|unknown=CALDUMP|LIGHT' in vm
 assert 'ERR|TIMEOUT|CALDUMP' in vm
 assert 'LightCalibrationDumpParser.Apply' in vm
 assert 'وارد کردن از برد' in ui
+assert 'CompactActionButton("↓"' in ui
+assert 'وارد کردن این موقعیت از برد' in ui
 assert 'MessageBoxButton.YesNo' in ui
+assert 'private static Grid ProfileTable' in ui
+assert 'profileWidth * profiles.Count' in ui
+assert 'const int profileWidth = 108' in ui
+assert 'if (body is null) return;' in ui
+assert 'if (body is null || audioBody is null)' not in ui
+assert 'EnsureAudioCueMenu(window, vm)' in ui and 'window.LayoutUpdated += retry' in ui
+assert 'RefreshProfileDisplayCell(root)' in calibration_ui
 assert 'ProfileIds' in parser and '"desktop", "login-or-dc"' in parser
 assert 'range.CenterLux' in parser and 'range.ToleranceLux' in parser
 assert 'mismatched mask' in tests

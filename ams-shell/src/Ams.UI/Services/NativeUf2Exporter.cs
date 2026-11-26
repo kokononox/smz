@@ -93,11 +93,16 @@ public static class NativeUf2Exporter
             profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired);
         if (dualSensor)
         {
-            if (configuredProfiles.Any(profile =>
-                    !profile.Enabled || !profile.HasDualSensorCalibration
-                    || !profile.IsValid))
+            if (configuredProfiles.Any(profile => !profile.Enabled || !profile.IsValid))
                 throw new InvalidOperationException(
-                    "خروجی Native UF2 دوحسگری به کالیبراسیون معتبر و جفتی برای همهٔ پروفایل‌های فعال نیاز دارد.");
+                    "خروجی Native UF2 دوحسگری به پروفایل‌های فعال و معتبر نیاز دارد.");
+            var invalidTolerance = configuredProfiles.FirstOrDefault(profile =>
+                profile.HasDualSensorCalibration && !profile.HasValidDualAxisTolerances);
+            if (invalidTolerance is not null)
+                throw new InvalidOperationException(
+                    $"تلورانس‌های M و Δ در «{invalidTolerance.Name}» باید دست‌کم "
+                    + $"{LightStateProfile.MinimumDualAxisToleranceLux:0.#} لوکس باشند "
+                    + "و با گام قابل پشتیبانی برد تنظیم شوند.");
             var separation = DualLightCalibration.Validate(configuredProfiles);
             if (!separation.IsValid)
                 throw new InvalidOperationException(DualLightCalibration.DescribeConflicts(separation));
@@ -123,10 +128,21 @@ public static class NativeUf2Exporter
             };
             if (dualSensor)
             {
-                nativeProfile["meanLuxCenter"] = profile.MeanLuxCenter;
-                nativeProfile["meanLuxTolerance"] = profile.MeanLuxTolerance;
-                nativeProfile["differenceLuxCenter"] = profile.DifferenceLuxCenter;
-                nativeProfile["differenceLuxTolerance"] = profile.DifferenceLuxTolerance;
+                var pairedCalibration = profile.HasDualSensorCalibration;
+                nativeProfile["dualSensorCalibrated"] = pairedCalibration;
+                // The uncalibrated values are inert placeholders: v7 Guard
+                // descriptors omit those profiles from matching until the
+                // physical button calibration records a center on the board.
+                // A narrow positive default keeps the descriptor valid without
+                // claiming that Studio measured either sensor.
+                nativeProfile["meanLuxCenter"] = pairedCalibration
+                    ? profile.MeanLuxCenter : profile.LuxCenter;
+                nativeProfile["meanLuxTolerance"] = pairedCalibration
+                    ? profile.MeanLuxTolerance : DualLightCalibration.MinimumAxisToleranceLux;
+                nativeProfile["differenceLuxCenter"] = pairedCalibration
+                    ? profile.DifferenceLuxCenter : 0;
+                nativeProfile["differenceLuxTolerance"] = pairedCalibration
+                    ? profile.DifferenceLuxTolerance : DualLightCalibration.MinimumAxisToleranceLux;
             }
             profiles.Add(nativeProfile);
         }

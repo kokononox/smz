@@ -35,6 +35,21 @@ def dual_source():
     return source
 
 
+def dual_partial_source():
+    source = dual_source()
+    profiles = source["nativeGuard"]["profiles"]
+    first = profiles[0]
+    for index, profile in enumerate(profiles):
+        # Missing profiles deliberately overlap the calibrated profile. Their
+        # placeholder centers must be inert until button calibration saves them.
+        profile.update({
+            "dualSensorCalibrated": index == 0,
+            "meanLuxCenter": first["meanLuxCenter"],
+            "differenceLuxCenter": first["differenceLuxCenter"],
+        })
+    return source
+
+
 class DualGuardFormatTest(unittest.TestCase):
     def compile_descriptor(self, source):
         image = abvm.Verifier.verify(
@@ -59,6 +74,30 @@ class DualGuardFormatTest(unittest.TestCase):
         offset += abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size
         self.assertEqual(abvm.GUARD_DUAL_AXES.unpack_from(raw, offset),
                          (2000, 40, 100, 20))
+
+    def test_v7_serializes_partial_calibration_and_ignores_placeholders(self):
+        raw = self.compile_descriptor(dual_partial_source())
+        version, count, *_ = abvm.GUARD_HEADER.unpack_from(raw)
+        self.assertEqual((version, count), (7, 9))
+        profile_size = (abvm.GUARD_PROFILE.size + abvm.GUARD_CUE_META.size
+                        + abvm.GUARD_CUSTOM_TONES * abvm.GUARD_CUE_TONE.size
+                        + abvm.GUARD_DUAL_AXES.size)
+        flags = []
+        for index in range(count):
+            offset = (abvm.GUARD_HEADER.size + index * profile_size
+                      + abvm.GUARD_PROFILE.size + 3)
+            flags.append(raw[offset])
+        self.assertEqual(flags, [1] + [0] * 8)
+        # Every placeholder overlaps the calibrated profile, but only the
+        # calibrated profile participates in the clearance check.
+        self.assertTrue(abvm.Verifier.verify(
+            abvm.Compiler().compile_amsj(dual_partial_source(), ROUTES).image))
+
+    def test_v7_requires_explicit_state_for_every_profile(self):
+        source = dual_partial_source()
+        del source["nativeGuard"]["profiles"][1]["dualSensorCalibrated"]
+        with self.assertRaisesRegex(abvm.AbvmError, "state for every profile"):
+            abvm.Compiler().compile_amsj(source, ROUTES)
 
     def test_missing_or_mixed_paired_profiles_fail_closed(self):
         source = dual_source()

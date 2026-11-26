@@ -164,6 +164,36 @@ static void delayed_follow_up(void) {
     assert(game_buff_service(&r,285u,safe).kind==GAME_BUFF_EVENT_CONSUMED);
     assert(r.last_consumed[0]==285u && r.due[0]==1285u);
 }
+static void repeated_buff(void) {
+    GameBuffRuntime r;
+    GameBuffConfig c=config('8',1000u);
+    c.follow_key='6'; c.repeat_count=2u; c.repeat_delay_ms=25u;
+    c.before_min_ms=c.before_max_ms=0u;
+    c.after_min_ms=c.after_max_ms=10u;
+    assert(game_buff_init(&r,&c,1u,5u)); game_buff_new_game(&r);
+    GameBuffEvent e=game_buff_service(&r,0u,safe);
+    assert(e.kind==GAME_BUFF_EVENT_KEY_REQUEST && !r.follow_pending);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,100u));
+    assert(r.follow_pending);
+    e=game_buff_service(&r,100u,safe);
+    assert(e.kind==GAME_BUFF_EVENT_KEY_REQUEST && r.follow_pending);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,200u));
+    assert(!r.follow_pending && r.repeat_pos==1u);
+    assert(r.phase==GAME_BUFF_REPEAT_DELAY && r.deadline==225u);
+    assert(game_buff_service(&r,224u,safe).kind==GAME_BUFF_EVENT_NONE);
+    e=game_buff_service(&r,225u,safe);
+    assert(e.kind==GAME_BUFF_EVENT_KEY_REQUEST && !r.follow_pending);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,325u));
+    assert(r.follow_pending);
+    e=game_buff_service(&r,325u,safe);
+    assert(e.kind==GAME_BUFF_EVENT_KEY_REQUEST && r.follow_pending);
+    assert(game_buff_key_accepted(&r)); assert(game_buff_key_finished(&r,425u));
+    assert(r.phase==GAME_BUFF_AFTER && !r.follow_pending);
+    assert(r.deadline==435u);
+    assert(game_buff_service(&r,434u,safe).kind==GAME_BUFF_EVENT_NONE);
+    e=game_buff_service(&r,435u,safe);
+    assert(e.kind==GAME_BUFF_EVENT_CONSUMED && r.last_consumed[0]==435u);
+}
 static void descriptor_v3(void) {
     uint8_t payload[48]={0};
     memcpy(payload,"GBF1",4u); payload[4]=3u; payload[5]=1u;
@@ -178,8 +208,28 @@ static void descriptor_v3(void) {
     assert(game_buff_load(&r,payload,sizeof(payload),4u));
     assert(r.config[0].follow_key=='6' && r.config[0].follow_delay_ms==250u);
 }
+static void descriptor_v4(void) {
+    uint8_t payload[56]={0};
+    memcpy(payload,"GBF1",4u); payload[4]=4u; payload[5]=1u;
+    uint8_t *row=payload+8u;
+    row[0]='8'; row[4]=1u; row[5]='6'; row[6]=250u;
+    const uint32_t values[8]={1000u,2000u,0u,0u,10u,10u,0u,0u};
+    for(uint8_t i=0u;i<8u;++i) {
+        uint32_t value=values[i];
+        for(uint8_t b=0u;b<4u;++b) row[8u+(uint32_t)i*4u+b]=(uint8_t)(value>>(8u*b));
+    }
+    row[40]=5u; row[44]=0xf4u; row[45]=1u; /* 500 ms */
+    GameBuffRuntime r;
+    assert(game_buff_load(&r,payload,sizeof(payload),4u));
+    assert(r.config[0].follow_key=='6' && r.config[0].follow_delay_ms==250u);
+    assert(r.config[0].repeat_count==5u && r.config[0].repeat_delay_ms==500u);
+    row[41]=1u;
+    assert(!game_buff_load(&r,payload,sizeof(payload),4u));
+    row[41]=0u; row[40]=0u;
+    assert(!game_buff_load(&r,payload,sizeof(payload),4u));
+}
 int main(void) {
-    follow_up(); delayed_follow_up(); descriptor_v3();
+    follow_up(); delayed_follow_up(); repeated_buff(); descriptor_v3(); descriptor_v4();
     timing();priority_and_retry();rollover();random_and_validation();
     puts("Pico game buff scheduler contracts passed");
     return 0;

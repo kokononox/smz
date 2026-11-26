@@ -9,6 +9,7 @@
  * Delays and intervals must be <= INT32_MAX for rollover-safe deadlines. */
 #define GAME_BUFF_MAX 16u
 #define GAME_BUFF_MAX_KEYS 6u
+#define GAME_BUFF_MAX_REPEATS 100u
 #define GAME_BUFF_NO_INDEX 255u
 
 typedef struct GameBuffConfig {
@@ -17,6 +18,8 @@ typedef struct GameBuffConfig {
     uint8_t keys[GAME_BUFF_MAX_KEYS]; /* Pico virtual-key combination */
     uint8_t follow_key; /* optional separate key, 0 disables */
     uint16_t follow_delay_ms; /* nonblocking delay after first key release */
+    uint8_t repeat_count; /* zero is accepted as the legacy/default value 1 */
+    uint32_t repeat_delay_ms; /* nonblocking gap between complete repetitions */
     uint32_t interval_min_ms, interval_max_ms;
     uint32_t before_min_ms, before_max_ms;
     uint32_t hold_min_ms, hold_max_ms;
@@ -35,7 +38,8 @@ typedef struct GameBuffGate {
 
 typedef enum GameBuffPhase {
     GAME_BUFF_IDLE, GAME_BUFF_BEFORE, GAME_BUFF_REQUEST,
-    GAME_BUFF_KEY, GAME_BUFF_FOLLOW_DELAY, GAME_BUFF_AFTER
+    GAME_BUFF_KEY, GAME_BUFF_FOLLOW_DELAY, GAME_BUFF_REPEAT_DELAY,
+    GAME_BUFF_AFTER
 } GameBuffPhase;
 
 typedef enum GameBuffEventKind {
@@ -56,6 +60,7 @@ typedef struct GameBuffRuntime {
     uint32_t rng, deadline, selected_hold;
     uint16_t consumed_mask;
     uint8_t queue[GAME_BUFF_MAX], queue_count, queue_pos, count, current;
+    uint8_t repeat_pos;
     GameBuffPhase phase;
     bool session;
     bool follow_pending;

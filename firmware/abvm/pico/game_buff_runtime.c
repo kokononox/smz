@@ -10,18 +10,26 @@ static uint16_t le16(const uint8_t *p) {
 }
 bool game_buff_load(GameBuffRuntime *r, const uint8_t *p, uint32_t size, uint32_t seed) {
     if (!p || size < 8u || memcmp(p,"GBF1",4u) ||
-        (p[4] != 1u && p[4] != 2u && p[4] != 3u) ||
-        !p[5] || p[5]>GAME_BUFF_MAX || p[6] || p[7] || size != 8u+(uint32_t)p[5]*40u) return false;
+        (p[4] != 1u && p[4] != 2u && p[4] != 3u && p[4] != 4u) ||
+        !p[5] || p[5]>GAME_BUFF_MAX || p[6] || p[7]) return false;
+    uint32_t row_size = p[4] == 4u ? 48u : 40u;
+    if (size != 8u+(uint32_t)p[5]*row_size) return false;
     GameBuffConfig c[GAME_BUFF_MAX] = {0};
     for (uint8_t i=0u;i<p[5];++i) {
-        const uint8_t *row=p+8u+(uint32_t)i*40u;
+        const uint8_t *row=p+8u+(uint32_t)i*row_size;
         c[i].enabled=true;c[i].key_count=row[4];
         if (!row[4] || row[4]>4u ||
             (p[4] == 1u && (row[5] || row[6] || row[7])) ||
             (p[4] == 2u && (row[6] || row[7]))) return false;
         c[i].follow_key = p[4] >= 2u ? row[5] : 0u;
-        c[i].follow_delay_ms = p[4] == 3u ? le16(row+6u) : 0u;
+        c[i].follow_delay_ms = p[4] >= 3u ? le16(row+6u) : 0u;
         if (c[i].follow_delay_ms && !c[i].follow_key) return false;
+        c[i].repeat_count = p[4] == 4u ? row[40] : 1u;
+        c[i].repeat_delay_ms = p[4] == 4u ? le32(row+44u) : 0u;
+        if (p[4] == 4u &&
+            (!c[i].repeat_count || c[i].repeat_count > GAME_BUFF_MAX_REPEATS ||
+             c[i].repeat_delay_ms > 60000u ||
+             row[41] || row[42] || row[43])) return false;
         memcpy(c[i].keys,row,row[4]);
         for (uint8_t k=row[4];k<4u;++k) if(row[k]) return false;
         c[i].interval_min_ms=le32(row+8u);c[i].interval_max_ms=le32(row+12u);
@@ -86,7 +94,9 @@ bool game_buff_init(GameBuffRuntime *r, const GameBuffConfig *config,
             !range_valid(c->interval_min_ms, c->interval_max_ms, true) ||
             !range_valid(c->before_min_ms, c->before_max_ms, false) ||
             !range_valid(c->hold_min_ms, c->hold_max_ms, true) ||
-            !range_valid(c->after_min_ms, c->after_max_ms, false)) return false;
+            !range_valid(c->after_min_ms, c->after_max_ms, false) ||
+            (c->repeat_count && c->repeat_count > GAME_BUFF_MAX_REPEATS) ||
+            c->repeat_delay_ms > 60000u) return false;
         for (uint8_t k = 0u; k < c->key_count; ++k) {
             if (!c->keys[k]) return false;
             for (uint8_t j = 0u; j < k; ++j)
@@ -94,6 +104,9 @@ bool game_buff_init(GameBuffRuntime *r, const GameBuffConfig *config,
         }
     }
     if (count) memcpy(r->config, config, count * sizeof(*config));
+    for (uint8_t i = 0u; i < count; ++i)
+        if (r->config[i].enabled && !r->config[i].repeat_count)
+            r->config[i].repeat_count = 1u;
     r->count = count;
     r->rng = seed ? seed : 0xa341316cu;
     return true;
@@ -107,6 +120,7 @@ void game_buff_new_game(GameBuffRuntime *r) {
     r->current = GAME_BUFF_NO_INDEX;
     r->phase = GAME_BUFF_IDLE;
     r->follow_pending = false;
+    r->repeat_pos = 0u;
     r->session = true;
     /* Keep RNG state across runs, so new Game entries aren't identical. */
 }
@@ -117,6 +131,7 @@ void game_buff_end_game(GameBuffRuntime *r) {
     r->phase = GAME_BUFF_IDLE;
     r->queue_count = r->queue_pos = 0u;
     r->current = GAME_BUFF_NO_INDEX;
+    r->repeat_pos = 0u;
 }
 GameBuffEvent game_buff_service(GameBuffRuntime *r, uint32_t now,
                                 GameBuffGate gate) {
@@ -141,11 +156,14 @@ GameBuffEvent game_buff_service(GameBuffRuntime *r, uint32_t now,
     }
     if (r->phase == GAME_BUFF_FOLLOW_DELAY && reached(now, r->deadline))
         r->phase = GAME_BUFF_REQUEST;
+    if (r->phase == GAME_BUFF_REPEAT_DELAY && reached(now, r->deadline))
+        r->phase = GAME_BUFF_REQUEST;
     if (!allowed(gate)) return event;
     if (r->phase == GAME_BUFF_IDLE) {
         if (r->queue_pos >= r->queue_count) batch(r, now);
         if (!r->queue_count) return event;
         r->current = r->queue[r->queue_pos];
+        r->repeat_pos = 0u;
         const GameBuffConfig *c = &r->config[r->current];
         r->deadline = now + between(r, c->before_min_ms, c->before_max_ms);
         r->selected_hold = between(r, c->hold_min_ms, c->hold_max_ms);
@@ -178,6 +196,14 @@ bool game_buff_key_finished(GameBuffRuntime *r, uint32_t now) {
         return true;
     }
     r->follow_pending = false;
+    if ((uint8_t)(r->repeat_pos + 1u) < c->repeat_count) {
+        ++r->repeat_pos;
+        r->selected_hold = between(r, c->hold_min_ms, c->hold_max_ms);
+        r->deadline = now + c->repeat_delay_ms;
+        r->phase = c->repeat_delay_ms
+            ? GAME_BUFF_REPEAT_DELAY : GAME_BUFF_REQUEST;
+        return true;
+    }
     r->deadline = now + between(r, c->after_min_ms, c->after_max_ms);
     r->phase = GAME_BUFF_AFTER;
     return true;

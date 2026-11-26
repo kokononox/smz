@@ -13,6 +13,10 @@ verification is still required. Existing projects remain opt-in; missing or empt
 - Every batch is Fisher–Yates shuffled; repeated permutations are possible by
   chance. Before/hold/after ranges preserve the existing intermediate and food
   consumption waits, rather than compressing all buffs into rapid key presses.
+- Each buff can run 1–100 times per scheduled turn (default 1), with a
+  configurable nonblocking 0–60,000 ms gap between complete repetitions
+  (default 1,000 ms). An optional follow-up key is repeated with each main key;
+  before and after waits, and the renewal cooldown, still apply once per batch.
 - After waits finish, sample a new configurable interval per buff. Defaults to
   the user's selected 55/28/9 minute groups; interval bounds are editable
   (54–56/27–29/8–10 are suggestions, not fixed firmware constants).
@@ -34,7 +38,8 @@ verification is still required. Existing projects remain opt-in; missing or empt
 - Project format 13 adds `gameBuffs` (Keystroke nodes with before/hold/after and
   editable renewal ranges) and `gameMouseFatigueMinutes` (default 135).
 - Native descriptor `GBF1`, constant kind 10, opcode 31, uses validated fixed-size
-  binary rows. The compiler inserts the initial all-buff checkpoint at fresh
+  binary rows. Version 4 adds repeat count and delay while legacy versions keep
+  their existing 40-byte rows. The compiler inserts the initial all-buff checkpoint at fresh
   Game entry. Explicit `buffCheckpoint` nodes must be placed BEFORE casts,
   never in the middle of a Catch wait or its response.
 - Pico owns keyboard submission and key-release completion. The VM is held at

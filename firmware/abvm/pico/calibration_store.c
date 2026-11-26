@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #define CAL_MAGIC 0x314c4143u
-#define CAL_VERSION 9u
+#define CAL_VERSION 10u
 #define LIGHT_PROFILE_COUNT 9u
 #define SOUND_PROFILE_COUNT 3u
 #define CAL_SLOT_SIZE FLASH_SECTOR_SIZE
@@ -70,6 +70,9 @@ typedef struct CalibrationPayload {
     uint32_t dual_mean_center_half_tenths[LIGHT_PROFILE_COUNT];
     int32_t dual_difference_center_tenths[LIGHT_PROFILE_COUNT];
     uint16_t dual_light_center_mask;
+    uint32_t dual_mean_tolerance_half_tenths[LIGHT_PROFILE_COUNT];
+    uint32_t dual_difference_tolerance_tenths[LIGHT_PROFILE_COUNT];
+    uint16_t dual_light_tolerance_mask;
 } CalibrationPayload;
 typedef struct LegacyCalibrationPayloadV8 {
     uint8_t binding[32];
@@ -89,9 +92,33 @@ typedef struct LegacyCalibrationRecordV8 {
     uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
     LegacyCalibrationPayloadV8 payload;
 } LegacyCalibrationRecordV8;
+typedef struct LegacyCalibrationPayloadV9 {
+    uint8_t binding[32];
+    uint16_t light_mask;
+    uint8_t sound_mask,cycle_armed,cycle_count;
+    uint32_t light_low[LIGHT_PROFILE_COUNT],light_high[LIGHT_PROFILE_COUNT];
+    uint16_t sound_threshold[SOUND_PROFILE_COUNT],sound_minimum[SOUND_PROFILE_COUNT];
+    uint16_t sound_silence[SOUND_PROFILE_COUNT],sound_peak[SOUND_PROFILE_COUNT];
+    uint8_t shift_attempts,shift_target;
+    uint8_t wake_flags,wake_recovery;
+    uint16_t wake_next_start;
+    uint16_t host_boot_s;
+    uint32_t light_center[LIGHT_PROFILE_COUNT];
+    uint16_t light_center_mask,light_default_tolerance;
+    uint32_t dual_mean_center_half_tenths[LIGHT_PROFILE_COUNT];
+    int32_t dual_difference_center_tenths[LIGHT_PROFILE_COUNT];
+    uint16_t dual_light_center_mask;
+} LegacyCalibrationPayloadV9;
+typedef struct LegacyCalibrationRecordV9 {
+    uint32_t magic;uint16_t version,size;uint32_t sequence,crc32;
+    LegacyCalibrationPayloadV9 payload;
+} LegacyCalibrationRecordV9;
 _Static_assert(offsetof(CalibrationPayload, dual_mean_center_half_tenths) ==
                sizeof(LegacyCalibrationPayloadV8),
                "v8 calibration payload must remain an exact prefix");
+_Static_assert(offsetof(CalibrationPayload, dual_mean_tolerance_half_tenths) ==
+               sizeof(LegacyCalibrationPayloadV9),
+               "v9 calibration payload must remain an exact prefix");
 typedef struct LegacyCalibrationPayloadV5 {
     uint8_t binding[32];
     uint16_t light_mask;
@@ -223,6 +250,12 @@ static bool legacy_v8_record_valid(const LegacyCalibrationRecordV8 *r,const uint
     memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
     return r->crc32==crc32_bytes(bytes,sizeof(bytes));
 }
+static bool legacy_v9_record_valid(const LegacyCalibrationRecordV9 *r,const uint8_t binding[32]) {
+    if(r->magic!=CAL_MAGIC||r->version!=9u||r->size!=sizeof(r->payload)||memcmp(r->payload.binding,binding,32u))return false;
+    uint8_t bytes[sizeof(r->sequence)+sizeof(r->payload)];
+    memcpy(bytes,&r->sequence,sizeof(r->sequence));memcpy(bytes+sizeof(r->sequence),&r->payload,sizeof(r->payload));
+    return r->crc32==crc32_bytes(bytes,sizeof(bytes));
+}
 static bool record_valid(const CalibrationRecord *record, const uint8_t binding[32]) {
     if(record->magic!=CAL_MAGIC||record->version!=CAL_VERSION||
        record->size!=sizeof(CalibrationPayload)||memcmp(record->payload.binding,binding,32u))return false;
@@ -254,6 +287,20 @@ void calibration_store_init(const AbvmVm *vm) {
     if(av&&(!bv||(int32_t)(a->sequence-b->sequence)>0)){memcpy(&current,a,sizeof(current));active_offset=CAL_OFFSET_A;}
     else if(bv){memcpy(&current,b,sizeof(current));active_offset=CAL_OFFSET_B;}
     else {
+        const LegacyCalibrationRecordV9 *v9a=(const LegacyCalibrationRecordV9 *)a,*v9b=(const LegacyCalibrationRecordV9 *)b;
+        bool v9av=legacy_v9_record_valid(v9a,binding),v9bv=legacy_v9_record_valid(v9b,binding);
+        const LegacyCalibrationRecordV9 *v9=NULL;
+        if(v9av&&(!v9bv||(int32_t)(v9a->sequence-v9b->sequence)>0)){v9=v9a;active_offset=CAL_OFFSET_A;}
+        else if(v9bv){v9=v9b;active_offset=CAL_OFFSET_B;}
+        if(v9){
+            current.magic=CAL_MAGIC;current.version=CAL_VERSION;current.size=sizeof(CalibrationPayload);
+            current.sequence=v9->sequence;
+            memcpy(&current.payload,&v9->payload,sizeof(v9->payload));
+            /* v9 stored paired centers but had no mutable tolerance fields. Keep
+             * those centers and fall back to the matching descriptor tolerances. */
+            current.payload.dual_light_tolerance_mask=0u;
+            return;
+        }
         const LegacyCalibrationRecordV8 *v8a=(const LegacyCalibrationRecordV8 *)a,*v8b=(const LegacyCalibrationRecordV8 *)b;
         bool v8av=legacy_v8_record_valid(v8a,binding),v8bv=legacy_v8_record_valid(v8b,binding);
         const LegacyCalibrationRecordV8 *v8=NULL;
@@ -447,18 +494,35 @@ bool calibration_store_dual_light_get(uint8_t id,uint32_t *mean_center,
     *difference_center=current.payload.dual_difference_center_tenths[id-1u];
     return true;
 }
+bool calibration_store_dual_light_tolerance_get(
+    uint8_t id,uint32_t *mean_tolerance,uint32_t *difference_tolerance){
+    if(id<1u||id>LIGHT_PROFILE_COUNT||!mean_tolerance||!difference_tolerance||
+       !(current.payload.dual_light_tolerance_mask&(1u<<(id-1u))))return false;
+    *mean_tolerance=current.payload.dual_mean_tolerance_half_tenths[id-1u];
+    *difference_tolerance=current.payload.dual_difference_tolerance_tenths[id-1u];
+    return *mean_tolerance>0u&&*mean_tolerance<=20000000u&&
+           *difference_tolerance>0u&&*difference_tolerance<=10000000u;
+}
 bool calibration_store_dual_light_sync(uint16_t mask,const uint32_t means[9],
-                                       const int32_t differences[9]){
-    if(!mask||(mask&~0x1ffu)||!means||!differences)return false;
+                                       const uint32_t mean_tolerances[9],
+                                       const int32_t differences[9],
+                                       const uint32_t difference_tolerances[9]){
+    if(!mask||(mask&~0x1ffu)||!means||!mean_tolerances||!differences||
+       !difference_tolerances)return false;
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)if(mask&(1u<<i))
         if(means[i]>20000000u||differences[i]<-10000000||
-           differences[i]>10000000)return false;
+           differences[i]>10000000||!mean_tolerances[i]||
+           mean_tolerances[i]>20000000u||!difference_tolerances[i]||
+           difference_tolerances[i]>10000000u)return false;
     CalibrationRecord before=current;uint32_t before_offset=active_offset;
     for(uint8_t i=0;i<LIGHT_PROFILE_COUNT;++i)if(mask&(1u<<i)){
         current.payload.dual_mean_center_half_tenths[i]=means[i];
+        current.payload.dual_mean_tolerance_half_tenths[i]=mean_tolerances[i];
         current.payload.dual_difference_center_tenths[i]=differences[i];
+        current.payload.dual_difference_tolerance_tenths[i]=difference_tolerances[i];
     }
     current.payload.dual_light_center_mask|=mask;
+    current.payload.dual_light_tolerance_mask|=mask;
     if(persist())return true;
     current=before;active_offset=before_offset;return false;
 }

@@ -1,3 +1,44 @@
+## Build {{BUILD_NUMBER}} — Classroom Studio dual-sensor tolerance controls
+
+**Previous build:** `classroom-current-11`; this update fixes stale profile-row refresh after applying calibration and preserves canonical board IDs during sparse dual-profile sync.
+**Status:** Test package from `feat/classroom-dual-profile-capture`; publication is gated on Windows build and TestRunner. Physical-board acceptance is separate.
+
+### Problem observed
+
+The configurable profile table showed the derived M/Δ signature but did not preserve or show the raw readings/ranges from each physical sensor, making it difficult to inspect how the two sensor positions distinguish the nine lighting states. After applying a paired-calibration suggestion, the target row could still show “waiting for paired calibration” in the M/Δ cell while adjacent cells showed the new values.
+
+### Root cause
+
+Paired calibration reduced its synchronized L1/L2 samples to M and signed Δ before applying the proposal. The profile model retained only those derived classifier values. The calibration-form refresh still targeted columns 4/5/6 from the table before the per-profile send column was added; the current sensor and M/Δ cells are columns 5/6/7.
+
+### Change
+
+Paired calibration proposals now preserve the per-sensor medians and observed minimum/maximum ranges, plus the paired sample count, alongside the existing M/Δ classifier centers and tolerances. The configurable profile table displays both sensor summaries and now exposes separate editable M and Δ tolerance fields for every paired profile. The default calibration proposal floor is 3 Lux per axis; manual values accept the board's fixed-point steps (0.05 Lux for M, 0.1 Lux for Δ), and Native UF2 export rejects paired profiles below the minimum. The existing two-dimensional ellipse and 1 Lux safety-clearance rule remain in force, so overlap on one axis alone is allowed while unsafe two-axis overlap still fails closed. Changing tolerances does not change a flashed board: save profiles, rebuild the Native UF2, then flash it. The per-profile board-send action remains beside the state name and sends only that calibrated profile, while the global action sends the eligible calibrated subset. Applying a suggestion refreshes the raw sensor summaries and M/Δ signature at their correct columns; shared column constants keep the calibration refresh aligned with the profile table. Added a versioned `CALSYNC|DUAL` import/export path: paired centers persist atomically on the board, active UF2 tolerances are checked rather than silently changed, and Studio verifies full or sparse read-backs (including `profiles=none`). Board imports clear raw L1/L2 summaries because firmware does not store them. Native UF2 no longer waits for all nine paired calibrations: fully calibrated projects retain descriptor v6, while partial projects use descriptor v7 with per-profile activation flags; unmeasured rows remain inert until button-calibrated, and separation checks cover only calibrated rows. The full sensor-layout and calibration profile set—including the dual-layout requirement marker, M/Δ values, tolerances and raw L1/L2 summaries—is now bundled into version 15 `.amsj` project files and restored when opened; the app-level `light-state-profiles.json` remains the fallback for legacy workspaces. After saving profiles, save the project to bind those values to its macro. Legacy .amsj import now accepts early unversioned pipeline envelopes and older single-script/root-array documents with common legacy casing, comments, or trailing commas; unsupported multi-tab documents fail clearly instead of falling back to empty scripts. Sparse dual-profile writes now preserve each selected profile’s canonical board ID instead of renumbering the subset. Raw ranges describe only the latest short capture, not full-day light drift; runtime classification remains M/Δ-based.
+
+Dual-sensor Guard now takes a two-second sample window after a profile becomes stable, rejects noisy or stale windows, then nudges only that profile's M/Δ centers by at most 0.5 Lux per axis and only when the existing classifier's separation check still passes. Tolerances never widen during runtime adaptation; accepted center updates batch-persist after Guard stops. Studio's smart tolerance mode derives robust MAD-based floors and preferred values from calibration samples, fits them to the widest safe proportional setting without going below the sample-coverage floor, and reports a conflict when no safe fit exists. The profile table exposes a per-profile smart/manual switch; manually edited tolerances remain unchanged through later calibrations and the selected mode is saved with the profile.
+
+Game buffs can now repeat 1–100 times each scheduled turn (default once), with an editable nonblocking delay between repetitions (default 1,000 ms). Studio exposes both settings in the buff editor and validates the repeat count and 0–60,000 ms spacing; older projects default to one run. An optional follow-up key runs after every main-key repetition; the existing before/after waits and renewal interval still apply once to the complete batch. GBF1 v4 carries the new settings, older descriptors remain compatible, and UF2 export rejects firmware templates without the repeat runtime marker.
+
+### Validation
+
+Host contracts cover paired raw statistics, robust automatic tolerance fitting and noise floors, manual-mode profile round-trip, repeat-settings .amsj round-trip, validation and GBF1 v4 compatibility, the 3-Lux tolerance floor, separate supported M/Δ steps, profile-file and `.amsj` round-trips, legacy version-14 fallback, strict dual-board snapshot/command round-trip, malformed snapshots, and protocol precision rejection. Firmware smoke tests cover repeat scheduling/follow-up sequencing and the two-second bounded drift update, unstable-window rejection, overlap rejection, and deferred persistence. The Windows .NET build and contract suite are pending CI; full Pico/firmware build and physical-board acceptance remain separate checks.
+
+### Legacy .amsj calibration persistence correction
+
+The supplied version-0.8.2 `2.amsj` contained only `app`, `version`, and `steps`; its paired calibration was not present in that file, so the importer had nothing to restore. The legacy single-script save path wrote only the step tree, while calibration lived in app-local profile storage. Legacy `.amsj` saves now embed the optional `lightStateProfiles` array, including dual-layout flags, M/Δ values, and L1/L2 summaries; both legacy open and Pipeline import restore it. A regression contract covers saving, loading, and migration into a versioned Pipeline workspace. Previously saved files that lack this array still require their original `light-state-profiles.json` or another backup; absent calibration values cannot be reconstructed from steps alone.
+
+### Mirror receiver integration
+
+**Change:** The ABVM firmware now supports the one-way Mirror receiver on UART1 (GP9, 1 Mbaud). Holding GP3+GP4 for 3 seconds toggles receiver mode; native macro/Guard execution is suspended while mirrored keyboard and mouse HID reports are forwarded. Disconnect timeout releases any held inputs. The Mirror chord is inhibited during physical calibration so its service loop cannot strand an active calibration. Studio packages the receiver-enabled UF2 templates for all 30 native runtime identities.
+**Validation:** The local Mirror frame-parser smoke test passed. CI is building the 30 receiver runtimes, Pico UF2 bring-up, and Windows package; physical-board acceptance has not yet been performed.
+**Next test:** Complete CI, flash the receiver-enabled UF2, and verify toggle, mirrored keyboard/mouse input, disconnect release, and return to native mode on the target board.
+
+### Next test
+
+After the Windows CI package is available, test with the fixed sensor layout: verify a two-second stable scene corrects slow drift without crossing another profile, then compare automatic tolerance behavior with manual mode in overlapping light conditions. Record labeled L1/L2 CSV samples for all nine positions and repeat under different ambient-light conditions before accepting the runtime adaptation on hardware.
+
+## Build history
+
 # Dual BH1750 — paired calibration and fail-closed separation
 
 - Started the two-sensor rollout on `feat/dual-bh1750-sensors`, based on the verified integration branch. The work order is in `docs/dual-bh1750-work-order-fa.md`.
@@ -6,11 +47,11 @@
 - Paired tolerance regions are represented as 2D ellipses. Save and proposal application reject insufficient combined-space separation with an additional 1 Lux clearance; one-axis overlap alone is allowed. The check is conservative and never trims or shifts calibration ranges. Failed separation does not write profile storage.
 - The read-only classifier uses both features, keeps stable-duration/hysteresis behavior, and fails closed on stale/missing second-sensor data or mixed active calibration modes. Legacy single-sensor classification remains unchanged when no active paired profile exists.
 - Added an explicit “new dual-sensor layout” reset: it clears all paired centers/tolerances and persists a dual-required marker across every profile, preventing accidental L1 fallback while the same physical layout is recalibrated. Legacy values are retained for compatibility; full reset to initial profiles remains an explicit separate action.
-- Board import/send and legacy firmware exporters remain blocked while paired calibration exists or a new dual-sensor layout is awaiting calibration, rather than silently dropping fields or falling back to stale L1 values. Native UF2 now emits a v6 paired descriptor for fully calibrated profiles; older single-sensor exporters remain unchanged.
+- Board import/send and legacy firmware exporters remain blocked while paired calibration exists or a new dual-sensor layout is awaiting calibration, rather than silently dropping fields or falling back to stale L1 values. Native UF2 emits v6 when all profiles are calibrated and v7 for partial paired calibration; uncalibrated profiles stay disabled until button calibration. Older single-sensor exporters remain unchanged.
 - Firmware Guard classifies paired `(M,D)` observations with independent ellipse axes, stable-duration/hysteresis, paired freshness/skew checks, and fail-closed timeout behavior. Legacy descriptors retain the v1–v5 single-sensor path.
 - Added the physical nine-position button calibration for paired profiles: GP4 enters/advances/exits, GP3 starts the 5-second sample. Only fresh L1/L2 pairs within 250 ms are included; saved means and signed contrasts update that profile's centers while preserving its descriptor tolerances.
 - Paired center updates are rejected when they violate the conservative 1 Lux separation check. Flash records moved from v8 to v9 with a v8 migration; paired centers are saved atomically and a failed flash write restores the in-memory classifier.
-- Added host coverage for synchronized dual capture, missing-sensor rejection, paired center save/separation/rollback, and v8→v9 storage migration. Guard remains operator-started (`GUARD|ON`); no new firmware was flashed or tested on hardware. Windows CI, Pico build, and hardware acceptance remain pending.
+- Added host coverage for synchronized dual capture, missing-sensor rejection, paired center save/separation/rollback, v7 partial-descriptor matching, first-profile physical calibration, and v8→v9 storage migration. Guard remains operator-started (`GUARD|ON`); no new firmware was flashed or tested on hardware. Windows CI, Pico build, and hardware acceptance remain pending.
 
 # Physical light calibration tolerance — test build
 

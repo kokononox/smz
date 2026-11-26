@@ -69,6 +69,37 @@ int main(int argc,char **argv) {
                 "single-sensor range writes disabled"))return 1;
     if(!require(mean_center>0u&&mean_tolerance>0u&&
                 difference_tolerance>0u,"paired tolerance metadata"))return 1;
+    uint32_t means[9],mean_tolerances[9],difference_tolerances[9];
+    int32_t differences[9];
+    for(uint8_t id=1u;id<=9u;++id)
+        if(!require(guard_runtime_get_profile_pair_calibration(id,
+                &means[id-1u],&mean_tolerances[id-1u],
+                &differences[id-1u],&difference_tolerances[id-1u]),
+                "tolerance update snapshot"))return 1;
+    uint32_t original_mean_tolerance=mean_tolerances[0];
+    uint32_t original_difference_tolerance=difference_tolerances[0];
+    mean_tolerances[0]=80u;
+    difference_tolerances[0]=40u;
+    if(!require(guard_runtime_validate_profile_pair_calibrations_mask(
+                guard_runtime_dual_calibration_mask(),means,mean_tolerances,
+                differences,difference_tolerances),
+                "wider tolerance update keeps clearance")||
+       !require(guard_runtime_set_profile_pair_calibrations_mask(1u,means,
+                mean_tolerances,differences,difference_tolerances),
+                "per-profile tolerance update applies")||
+       !require(guard_runtime_get_profile_pair_calibration(1u,&mean_center,
+                &mean_tolerance,&difference_center,&difference_tolerance)&&
+                mean_tolerance==80u&&difference_tolerance==40u,
+                "updated M and D tolerances are active")||
+       !require(guard_runtime_profile_matches_pair(1u,910u,1010u),
+                "new M tolerance is used by the classifier"))
+        return 1;
+    mean_tolerances[0]=original_mean_tolerance;
+    difference_tolerances[0]=original_difference_tolerance;
+    if(!require(guard_runtime_set_profile_pair_calibrations_mask(1u,means,
+                mean_tolerances,differences,difference_tolerances),
+                "original per-profile tolerance restores"))
+        return 1;
     uint32_t other_mean,other_mean_tolerance,other_difference_tolerance;
     int32_t other_difference;
     if(!require(guard_runtime_get_profile_pair_calibration(2u,&other_mean,
@@ -78,6 +109,35 @@ int main(int argc,char **argv) {
                  other_difference),"overlapping paired centers rejected")||
        !require(guard_runtime_set_profile_pair_centers(1u,mean_center,
                  difference_center),"original paired center remains valid"))
+        return 1;
+    uint32_t batch_means[9],saved_means[9];
+    int32_t batch_differences[9],saved_differences[9];
+    for(uint8_t id=1u;id<=9u;++id){
+        uint32_t mean_tolerance,difference_tolerance;
+        if(!require(guard_runtime_get_profile_pair_calibration(id,
+                &batch_means[id-1u],&mean_tolerance,
+                &batch_differences[id-1u],&difference_tolerance),
+                "batch snapshot"))return 1;
+    }
+    memcpy(saved_means,batch_means,sizeof(saved_means));
+    memcpy(saved_differences,batch_differences,sizeof(saved_differences));
+    for(uint8_t i=0u;i<9u;++i)batch_means[i]+=100u;
+    if(!require(guard_runtime_validate_profile_pair_centers(batch_means,
+                 batch_differences),"valid paired batch")||
+       !require(guard_runtime_set_profile_pair_centers_batch(batch_means,
+                 batch_differences),"paired batch applies atomically"))
+        return 1;
+    batch_means[1]=batch_means[0];
+    batch_differences[1]=batch_differences[0];
+    if(!require(!guard_runtime_set_profile_pair_centers_batch(batch_means,
+                 batch_differences),"overlapping paired batch rejected")||
+       !require(guard_runtime_get_profile_pair_calibration(1u,&mean_center,
+                 &mean_tolerance,&difference_center,&difference_tolerance)&&
+                 mean_center==saved_means[0]+100u,
+                "rejected batch leaves active profiles unchanged"))
+        return 1;
+    if(!require(guard_runtime_set_profile_pair_centers_batch(saved_means,
+                 saved_differences),"paired batch restores original centers"))
         return 1;
 
     if(!require(guard_runtime_start(0u),"start with fresh pair"))return 1;

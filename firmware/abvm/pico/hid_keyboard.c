@@ -6,7 +6,7 @@
 
 #include "tusb.h"
 
-#define REPORT_ID_KEYBOARD 0u
+#define REPORT_ID_KEYBOARD 1u
 #define MAX_KEYS 6u
 /* Keep each printable key down across more than one typical 60 Hz game/UI
  * input frame.  Eight milliseconds was USB-valid but some login/game fields
@@ -497,4 +497,10 @@ bool hid_keyboard_locked(void) {
     for(uint8_t i=0;i<MAX_KEYS;++i)
         if(actor.persistent_keys[i])return true;
     return false;
+}
+
+bool hid_keyboard_send_mirror_report(uint8_t modifiers,
+                                     const uint8_t keys[MAX_KEYS]) {
+    if (!keys || actor.phase != ACTOR_IDLE || actor.release_pending) return false;
+    return send_report(modifiers, keys);
 }

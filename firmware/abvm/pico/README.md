@@ -17,6 +17,33 @@ python tools/abvm_uf2.py runtime-NB01.uf2 /tmp/program.abp project-NB01.uf2
 
 The patcher validates UF2 framing, requires exactly one compatible slot, checks capacity, rewrites program length and SHA-256, clears unused slot bytes, and verifies the result before saving. At boot, ABVM still verifies the ABP CRC, SHA, format, resources, and opcodes.
 
+## One-way mirror receiver on client boards
+
+The 30 `batch30.json` native runtime identities include the same lightweight
+one-way mirror receiver. Classroom Studio exports the selected identity with
+the current project ABP patched into it; there is no second client UF2 to
+install or copy beside the project output.
+
+For a client board, wire the master's UART1 TX on GP8 to the client's UART1 RX
+on GP9 and connect grounds. The current client runtime listens at 1 Mbaud and
+does not transmit acknowledgements. Hold the existing Pause/Resume button on
+GP3 and Start/Stop button on GP4 together for three seconds to enter or leave
+receive mode; their individual actions are consumed for that chord. GP6 gives a
+two-note entry confirmation and a distinct exit tone. Entering receive mode
+stops local macro/Guard execution, releases local inputs, and forwards received
+keyboard and mouse reports over USB HID. A 350 ms receive timeout releases any
+held keys or mouse buttons if the link stops. Leaving receive mode does not
+restart a macro automatically; use the normal start control when ready. The
+current boot's scheduled-wake phase is also suspended; reboot to reload its
+in-memory schedule state.
+
+The receiver uses frame version 1 from the one-way mirror link: CRC-checked
+state snapshots carry keyboard state and mouse buttons, while relative mouse
+movement and wheel events are forwarded directly. UART framing and malformed
+event handling have a host-side smoke test in CI. Hardware acceptance is still
+required for the GP3/GP4 chord, USB mouse enumeration, and end-to-end one-client
+latency.
+
 ## Safety boundary
 
 The image exposes TinyUSB CDC and a real HID keyboard actor. `RMOUSE` is routed to the ARM board over UART0 on GP16/GP17 at 57600 baud with checksum framing. Relative motion completes only after `OK|MMOVE`; malformed replies, ARM errors, RX overflow, and ACK timeout fail closed. Release-all emits a zero keyboard report and framed `HALT`. `TYPE` is a real allocation-free, nonblocking TinyUSB actor: it preserves held modifiers, supports printable US-ASCII plus Enter/Tab, applies per-key, word, punctuation and thinking delays, and performs bounded typo/backspace correction. Clipboard, secret, malformed JSON, and non-ASCII payloads fail closed instead of being silently typed.
@@ -529,9 +556,11 @@ The existing sensor remains at I2C address `0x23` (`ADDR` to GND). A second BH17
 
 `LUX?` remains the original single-sensor response for compatibility. `LUX2?` is read-only diagnostic telemetry: it reports each sensor's lux and sample age, and whether the second device is ready, warming up, or missing. Classroom Studio's live light monitor prefers `LUX2?` and shows both readings; when connected to older firmware it falls back to `LUX?` and labels the second sensor unsupported.
 
-Guard descriptors v1–v5 keep the original single-sensor classifier. Native UF2 can carry a v6 paired descriptor: Guard then classifies both sensors in `(M=(L1+L2)/2, D=L2-L1)` space and fails closed if either reading is missing or stale. Starting Guard still requires the explicit `GUARD|ON` command; this does not enable automatic route execution.
+Guard descriptors v1–v5 keep the original single-sensor classifier. Native UF2 uses a v6 paired descriptor when all nine profiles have Studio calibration, or v7 when some profiles are awaiting calibration. Both versions classify in `(M=(L1+L2)/2, D=L2-L1)` space and fail closed if either reading is missing or stale. In v7, only profiles flagged calibrated participate in matching; placeholder centers are inert until a physical calibration saves that profile. Starting Guard still requires the explicit `GUARD|ON` command; this does not enable automatic route execution.
 
-With a v6 paired descriptor, the board's nine-position physical light-calibration mode now captures both sensors together. While stopped, hold Start/Stop (GP4) for 3 seconds to enter the mode. Pause/Resume (GP3) starts a 5-second sample for the selected position; Start/Stop advances to the next position, and a 3-second Start/Stop hold exits. Each saved profile stores its measured mean/contrast center in the project-bound A/B flash record while retaining the descriptor's two-axis tolerances. A paired sample requires both sensors to be fresh and within 250 ms of each other. A save is rejected if its new center violates the conservative 1 Lux separation clearance or if the flash transaction fails. Persistent calibration records migrate from v8 to v9 without discarding the existing single-sensor, wake, shift, or cycle fields.
+With a v6 or v7 paired descriptor, the board's nine-position physical light-calibration mode captures both sensors together. While stopped, hold Start/Stop (GP4) for 3 seconds to enter the mode. Pause/Resume (GP3) starts a 5-second sample for the selected position; Start/Stop advances to the next position, and a 3-second Start/Stop hold exits. Each saved profile stores its measured mean/contrast center in the project-bound A/B flash record while retaining its active two-axis tolerances. A paired sample requires both sensors to be fresh and within 250 ms of each other. A save is rejected if its new center violates the conservative 1 Lux separation clearance or if the flash transaction fails. Partial v7 projects can be calibrated one position at a time; unsaved positions remain unavailable to Guard. Persistent calibration records migrate through v10 without discarding the existing single-sensor, wake, shift, or cycle fields; v9 paired centers migrate with descriptor tolerances until Studio first saves explicit per-profile tolerances.
+
+For Studio's paired import/export, the stopped board accepts `CALSYNC|DUAL|GET` and `CALSYNC|DUAL|SET|profiles=...`. GET returns only calibrated profile IDs with mean center/tolerance in half-tenths of Lux and signed difference center/tolerance in tenths of Lux; when none are calibrated, it returns `profiles=none`. SET accepts one or more unique profile IDs (1–9), validates the updated centers and per-profile tolerances against the complete calibrated set before writing one A/B calibration record, and leaves every unselected profile unchanged. This supports one-position transfers without waiting for all nine. Both centers and M/Δ tolerances are persisted and applied to the running firmware, so changing tolerances does not require rebuilding or reflashing UF2 after the board has this firmware. Each requested tolerance must be at least 3 Lux and use the supported wire precision. The board does not store the raw L1/L2 sample summaries, so Studio intentionally clears those display-only values when importing a board snapshot.
 
 `WATCH` and the direct `LCAL|ms` diagnostic remain single-sensor utilities; they do not write Guard profile centers. The paired button workflow has host-smoke coverage but still requires CI, Pico build, and hardware acceptance. With a legacy descriptor, a missing second sensor does not disable the existing single-sensor path.
 

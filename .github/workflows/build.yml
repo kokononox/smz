@@ -1,14 +1,14 @@
 name: build-test-package
 
-# Classroom Studio CI — every push to main builds the WPF app on a free Windows
-# runner, runs TestRunner, and only packages when ALL tests are green.
+# Classroom Studio CI — every push to main or the active feature branches builds
+# the WPF app on Windows and only packages when ALL tests are green.
 # Green -> a GitHub Release appears with the zip (visible via the releases API).
 # Red   -> an Issue opens naming the failed step + the tail of the test log.
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feat/classroom-client-uf2-companion, feat/classroom-dual-profile-capture]
     # doc-only pushes (project state, patch notes) do not need a build+test cycle
     paths-ignore:
       - 'project-state/**'
@@ -20,10 +20,91 @@ permissions:
   actions: read     # read job/step conclusions for the failure issue
 
 jobs:
+  build-native-client-runtimes:
+    name: Build 30 Classroom native receiver runtimes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Classroom Studio repository
+        uses: actions/checkout@v4
+      - name: Check out Pico SDK
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: 2.3.1
+          path: pico-sdk
+          submodules: recursive
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y cmake ninja-build
+      - name: Install ARM GNU Toolchain 14.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/arm-gnu-toolchain.tar.xz"
+          install_dir="$RUNNER_TEMP/arm-gnu-toolchain-14.2.rel1"
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
+            --output "$archive" \
+            'https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz'
+          mkdir -p "$install_dir"
+          tar -xJf "$archive" -C "$install_dir" --strip-components=1
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/arm-none-eabi-gcc" --version
+      - name: Configure Pico SDK path
+        run: echo "PICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk" >> "$GITHUB_ENV"
+      - name: Host-test mirror framing and event validation
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -I firmware/abvm/pico \
+            firmware/abvm/tests/mirror_frame_smoke.c \
+            firmware/abvm/pico/mirror_frame.c \
+            -o "$RUNNER_TEMP/mirror-frame-smoke"
+          "$RUNNER_TEMP/mirror-frame-smoke"
+      - name: Compile dual-sensor smoke ABP
+        run: |
+          python tools/abvm.py compile firmware/abvm/tests/abvm_dual_guard_smoke.amsj \
+            "$RUNNER_TEMP/dual-guard-smoke.abp" \
+            --routes Desktop Restart Startup LoginOrDc Dc CharacterDashboard EnteringGameLoading Game Targeted TargetedRepeat Whisper WhisperRepeat Finish
+      - name: Build all receiver-enabled native runtime identities
+        run: |
+          bash firmware/abvm/pico/build_batch.sh \
+            "$RUNNER_TEMP/dual-guard-smoke.abp" \
+            firmware/abvm/pico/batch30.json \
+            build/native-runtime
+          count="$(find build/native-runtime -mindepth 2 -maxdepth 2 \
+            -type f -name '*.uf2' ! -path '*/.build-batch/*' | wc -l)"
+          test "$count" -eq 30
+      - name: Upload receiver-enabled native runtimes
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-native-client-runtimes
+          path: build/native-runtime
+          if-no-files-found: error
+          retention-days: 14
+
   build:
+    needs: build-native-client-runtimes
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download receiver-enabled native runtimes
+        uses: actions/download-artifact@v4
+        with:
+          name: classroom-native-client-runtimes
+          path: ${{ runner.temp }}/native-runtime
+
+      - name: Stage the 30 native runtime templates
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'native-runtime'
+          $target = 'firmware/native-runtime'
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item (Join-Path $source '*') $target -Recurse -Force
+          $count = (Get-ChildItem $target -Recurse -Filter '*.uf2' | Measure-Object).Count
+          if ($count -ne 30) { throw "Expected 30 native runtime templates, found $count" }
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -87,8 +168,20 @@ jobs:
           $results = (Select-String -Path ci-test-output.txt -Pattern '=== Results' | Select-Object -Last 1).Line
           @("**Tests:** $results", "", "**SHA256:** $(Get-Content sha256.txt -Raw)") | Out-File release_body.md -Encoding utf8
 
+      - name: Upload feature-branch package artifact
+        if: success() && github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classroom-Studio-native-client-runtimes-${{ github.sha }}
+          path: |
+            Classroom-Studio-release.zip
+            sha256.txt
+            ci-test-output.txt
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish green-build release
-        if: success()
+        if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-${{ github.run_number }}

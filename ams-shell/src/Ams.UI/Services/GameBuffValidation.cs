@@ -24,6 +24,12 @@ public static class GameBuffValidation
             throw new FormatException("وقفهٔ کلید دوم باید بین ۰ تا ۶۰۰۰۰ میلی‌ثانیه باشد.");
         if (followDelay > 0 && !PropEx.GetBool(p, "followEnabled"))
             throw new FormatException("وقفهٔ کلید دوم فقط با فعال‌بودن کلید دوم مجاز است.");
+        int repeatCount = PropEx.GetInt(p, "repeatCount", 1);
+        int repeatDelay = PropEx.GetInt(p, "repeatDelayMs", 1000);
+        if (repeatCount < 1 || repeatCount > 100)
+            throw new FormatException("تعداد تکرار باف باید بین ۱ تا ۱۰۰ باشد.");
+        if (repeatDelay < 0 || repeatDelay > 60_000)
+            throw new FormatException("فاصلهٔ تکرار باف باید بین ۰ تا ۶۰۰۰۰ میلی‌ثانیه باشد.");
         var modifiers = new[] { "modCtrl", "modShift", "modAlt", "modWin" }.Count(k => PropEx.GetBool(p, k));
         if (modifiers > 3) throw new FormatException("حداکثر سه Modifier همراه کلید مجاز است.");
         double lo = PropEx.GetDouble(p, "renewMinMinutes", 54), hi = PropEx.GetDouble(p, "renewMaxMinutes", 56);

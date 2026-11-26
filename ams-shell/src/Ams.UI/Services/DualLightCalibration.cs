@@ -11,7 +11,7 @@ public static class DualLightCalibration
     /// </summary>
     public const double MinimumInterProfileGapLux = 1.0;
     public const int MinimumSampleCount = 5;
-    public const double MinimumAxisToleranceLux = 0.5;
+    public const double MinimumAxisToleranceLux = LightStateProfile.MinimumDualAxisToleranceLux;
     private const int SeparationDirectionSteps = 4096;
 
     public static DualLightCalibrationSuggestion Suggest(
@@ -21,7 +21,9 @@ public static class DualLightCalibration
         var valid = samples
             .Where(sample => double.IsFinite(sample.Lux1) && sample.Lux1 >= 0
                              && double.IsFinite(sample.Lux2) && sample.Lux2 >= 0)
-            .Select(sample => (Mean: (sample.Lux1 + sample.Lux2) / 2.0,
+            .Select(sample => (Lux1: sample.Lux1,
+                               Lux2: sample.Lux2,
+                               Mean: (sample.Lux1 + sample.Lux2) / 2.0,
                                Difference: sample.Lux2 - sample.Lux1))
             .Where(sample => double.IsFinite(sample.Mean) && double.IsFinite(sample.Difference))
             .ToArray();
@@ -29,12 +31,89 @@ public static class DualLightCalibration
             throw new ArgumentException(
                 $"At least {MinimumSampleCount} valid paired samples are required.", nameof(samples));
 
-        var mean = ProposeAxis(valid.Select(x => x.Mean));
-        var difference = ProposeAxis(valid.Select(x => x.Difference));
+        var mean = ProposeAxis(valid.Select(x => x.Mean),
+            LightStateProfile.MeanLuxToleranceUnitsPerLux);
+        var difference = ProposeAxis(valid.Select(x => x.Difference),
+            LightStateProfile.DifferenceLuxToleranceUnitsPerLux);
+        var sensor1 = ProposeAxis(valid.Select(x => x.Lux1));
+        var sensor2 = ProposeAxis(valid.Select(x => x.Lux2));
         return new DualLightCalibrationSuggestion(
             mean.Center, mean.Tolerance, mean.Minimum, mean.Maximum,
+            mean.MinimumTolerance,
             difference.Center, difference.Tolerance, difference.Minimum, difference.Maximum,
+            difference.MinimumTolerance,
+            sensor1.Center, sensor1.Minimum, sensor1.Maximum,
+            sensor2.Center, sensor2.Minimum, sensor2.Maximum,
             valid.Length);
+    }
+
+    /// <summary>
+    /// Keeps the recommended tolerance when it is safe. If it overlaps another
+    /// calibrated profile, finds the widest proportionate fit along the preferred-to-
+    /// minimum path without going below robust sample-coverage floors. The candidate
+    /// is modified only.
+    /// </summary>
+    public static bool TryFitAutomaticTolerances(
+        LightStateProfile candidate,
+        IEnumerable<LightStateProfile> existingProfiles,
+        DualLightCalibrationSuggestion suggestion,
+        out DualLightProfileValidation validation,
+        out bool reduced)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(existingProfiles);
+        ArgumentNullException.ThrowIfNull(suggestion);
+        var existing = existingProfiles.ToArray();
+        candidate.MeanLuxTolerance = suggestion.MeanToleranceLux;
+        candidate.DifferenceLuxTolerance = suggestion.DifferenceToleranceLux;
+        validation = ValidateCandidate(candidate, existing);
+        reduced = false;
+        if (validation.IsValid) return true;
+
+        var preferredMean = suggestion.MeanToleranceLux;
+        var preferredDifference = suggestion.DifferenceToleranceLux;
+        candidate.MeanLuxTolerance = suggestion.MeanMinimumToleranceLux;
+        candidate.DifferenceLuxTolerance = suggestion.DifferenceMinimumToleranceLux;
+        validation = ValidateCandidate(candidate, existing);
+        if (!validation.IsValid) return false;
+
+        var safeFraction = 0.0;
+        var unsafeFraction = 1.0;
+        for (var iteration = 0; iteration < 32; iteration++)
+        {
+            var fraction = (safeFraction + unsafeFraction) / 2.0;
+            candidate.MeanLuxTolerance = QuantizeUp(
+                suggestion.MeanMinimumToleranceLux
+                + (preferredMean - suggestion.MeanMinimumToleranceLux) * fraction,
+                LightStateProfile.MeanLuxToleranceUnitsPerLux);
+            candidate.DifferenceLuxTolerance = QuantizeUp(
+                suggestion.DifferenceMinimumToleranceLux
+                + (preferredDifference - suggestion.DifferenceMinimumToleranceLux) * fraction,
+                LightStateProfile.DifferenceLuxToleranceUnitsPerLux);
+            var trial = ValidateCandidate(candidate, existing);
+            if (trial.IsValid) safeFraction = fraction;
+            else unsafeFraction = fraction;
+        }
+
+        candidate.MeanLuxTolerance = QuantizeUp(
+            suggestion.MeanMinimumToleranceLux
+            + (preferredMean - suggestion.MeanMinimumToleranceLux) * safeFraction,
+            LightStateProfile.MeanLuxToleranceUnitsPerLux);
+        candidate.DifferenceLuxTolerance = QuantizeUp(
+            suggestion.DifferenceMinimumToleranceLux
+            + (preferredDifference - suggestion.DifferenceMinimumToleranceLux) * safeFraction,
+            LightStateProfile.DifferenceLuxToleranceUnitsPerLux);
+        validation = ValidateCandidate(candidate, existing);
+        if (!validation.IsValid)
+        {
+            candidate.MeanLuxTolerance = suggestion.MeanMinimumToleranceLux;
+            candidate.DifferenceLuxTolerance = suggestion.DifferenceMinimumToleranceLux;
+            validation = ValidateCandidate(candidate, existing);
+            if (!validation.IsValid) return false;
+        }
+        reduced = candidate.MeanLuxTolerance + 1e-9 < preferredMean
+                  || candidate.DifferenceLuxTolerance + 1e-9 < preferredDifference;
+        return true;
     }
 
     /// <summary>
@@ -132,8 +211,8 @@ public static class DualLightCalibration
                + ". سنسورها را جابه‌جا کنید یا نور محیط را تغییر دهید، سپس دوباره کالیبره کنید.";
     }
 
-    private static (double Center, double Tolerance, double Minimum, double Maximum) ProposeAxis(
-        IEnumerable<double> source)
+    private static (double Center, double Tolerance, double Minimum, double Maximum,
+        double MinimumTolerance) ProposeAxis(IEnumerable<double> source, int unitsPerLux)
     {
         var values = source.OrderBy(value => value).ToArray();
         var middle = values.Length / 2;
@@ -142,12 +221,39 @@ public static class DualLightCalibration
             : values[middle];
         var minimum = values[0];
         var maximum = values[^1];
-        var tolerance = Math.Max(MinimumAxisToleranceLux,
-            Math.Ceiling((((maximum - minimum) / 2.0) + MinimumAxisToleranceLux) * 10.0) / 10.0);
-        if (!double.IsFinite(center) || !double.IsFinite(tolerance))
+        var deviations = values.Select(value => Math.Abs(value - center))
+            .OrderBy(value => value).ToArray();
+        var middleDeviation = deviations.Length / 2;
+        var mad = deviations.Length % 2 == 0
+            ? deviations[middleDeviation - 1] / 2.0 + deviations[middleDeviation] / 2.0
+            : deviations[middleDeviation];
+        var robustSigma = mad * 1.4826;
+        // The minimum floor covers about 95% of normal sample variation; the
+        // preferred value leaves a wider ~3-sigma envelope. MAD limits outlier
+        // influence, and fixed-point quantization matches the board descriptor.
+        var minimumTolerance = QuantizeUp(
+            Math.Max(MinimumAxisToleranceLux, 2.0 * robustSigma + 0.1), unitsPerLux);
+        var tolerance = QuantizeUp(
+            Math.Max(minimumTolerance, 3.0 * robustSigma + 0.1), unitsPerLux);
+        if (!double.IsFinite(center) || !double.IsFinite(tolerance)
+            || !double.IsFinite(minimumTolerance) || tolerance > 1_000_000)
             throw new InvalidOperationException("نمونه‌های نور از محدودهٔ عددی معتبر خارج‌اند.");
-        return (center, tolerance, minimum, maximum);
+        return (center, tolerance, minimum, maximum, minimumTolerance);
     }
+
+    private static (double Center, double Minimum, double Maximum) ProposeAxis(
+        IEnumerable<double> source)
+    {
+        var values = source.OrderBy(value => value).ToArray();
+        var middle = values.Length / 2;
+        var center = values.Length % 2 == 0
+            ? values[middle - 1] / 2.0 + values[middle] / 2.0
+            : values[middle];
+        return (center, values[0], values[^1]);
+    }
+
+    private static double QuantizeUp(double value, int unitsPerLux)
+        => Math.Ceiling(value * unitsPerLux - 1e-9) / unitsPerLux;
 
     private static double EllipseSupport(LightStateProfile profile, double meanAxis, double differenceAxis)
     {
@@ -162,10 +268,18 @@ public sealed record DualLightCalibrationSuggestion(
     double MeanToleranceLux,
     double MeanMinimumLux,
     double MeanMaximumLux,
+    double MeanMinimumToleranceLux,
     double DifferenceCenterLux,
     double DifferenceToleranceLux,
     double DifferenceMinimumLux,
     double DifferenceMaximumLux,
+    double DifferenceMinimumToleranceLux,
+    double Sensor1CenterLux,
+    double Sensor1MinimumLux,
+    double Sensor1MaximumLux,
+    double Sensor2CenterLux,
+    double Sensor2MinimumLux,
+    double Sensor2MaximumLux,
     int SampleCount);
 
 public sealed record DualLightProfileConflict(

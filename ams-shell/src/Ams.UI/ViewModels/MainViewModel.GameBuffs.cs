@@ -69,6 +69,8 @@ public partial class MainViewModel
                 new("followEnabled", "کلید دوم پس از کلید باف فعال شود", FieldKind.Check, "false"),
                 new("followKey", "کلید دوم — پس از رها شدن کلید باف", FieldKind.Combo, "F", KeyMap.KeyNames.Where(GameBuffValidation.IsSupportedFollowKey).ToArray(), HideWhenKey: "followEnabled", HideUnlessValue: "true"),
                 new("followDelayMs", "وقفه تا کلید دوم (ms)", FieldKind.Int, "0", HideWhenKey: "followEnabled", HideUnlessValue: "true"),
+                new("repeatCount", "تعداد تکرار باف (۱ تا ۱۰۰)", FieldKind.Int, "1"),
+                new("repeatDelayMs", "فاصله بین هر بار مصرف باف (ms)", FieldKind.Int, "1000"),
                 new("renewMinMinutes", "حداقل فاصلهٔ تجدید (دقیقه)", FieldKind.Float, "54"),
                 new("renewMaxMinutes", "حداکثر فاصلهٔ تجدید (دقیقه)", FieldKind.Float, "56"),
                 new("beforeMinMs", "حداقل مکث قبل از مصرف (ms)", FieldKind.Int, "33"),

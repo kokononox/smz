@@ -116,6 +116,12 @@ public partial class MainViewModel
                     profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired)
                 ? "پروفایل‌ها ذخیره شدند. " + DescribeProfileOverlaps(normalized)
                 : "پروفایل‌ها ذخیره شدند؛ مقادیر تک‌سنسوره تا کالیبراسیون سخت‌افزاری فرضی‌اند.";
+            if (_pipelineInitialized)
+            {
+                CaptureProjectLightProfiles();
+                MarkDirty();
+                LightProfileSaveStatus += " برای ثبت داخل فایل .amsj، پروژه را هم ذخیره کنید.";
+            }
             return true;
         }
         catch (Exception ex)
@@ -127,13 +133,6 @@ public partial class MainViewModel
 
     public async Task<bool> ImportLightStateProfilesFromBoardAsync()
     {
-        if (LightStateProfiles.Any(profile =>
-                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
-        {
-            LightProfileSaveStatus =
-                "وارد کردن از برد انجام نشد: این firmware فقط کالیبراسیون تک‌سنسوره را می‌خواند و می‌تواند پروفایل دوحسگری را ناقص کند.";
-            return false;
-        }
         if (_bridge is null || Connection != ConnectionState.Connected
                             || _bridge.State != BridgeState.Connected)
         {
@@ -144,6 +143,31 @@ public partial class MainViewModel
         try
         {
             LightProfileSaveStatus = "در حال خواندن کالیبراسیون نوری از برد…";
+            var dualReply = await _bridge.SendAsync("CALSYNC|DUAL|GET", 3);
+            if (dualReply.StartsWith("OK|CALSYNC|DUAL|", StringComparison.Ordinal))
+            {
+                var dualSnapshot = DualBoardLightSync.Parse(dualReply);
+                var importedDual = DualBoardLightSync.Apply(dualSnapshot, LightStateProfiles);
+                if (!SaveLightStateProfiles()) return false;
+                LightProfileSaveStatus =
+                    $"{importedDual} پروفایل جفتی از برد وارد و ذخیره شد · revision {dualSnapshot.Revision}. "
+                    + "خلاصهٔ خام L1/L2 در Studio ذخیره می‌شود و از برد قابل بازیابی نیست.";
+                return true;
+            }
+
+            var supportsDualSnapshot = dualReply == "ERR|COMMAND|unknown=CALSYNC|DUAL|GET"
+                                       || dualReply == "ERR|STATE|CALSYNC|DUAL";
+            if (!supportsDualSnapshot)
+                throw new InvalidOperationException(dualReply);
+
+            if (LightStateProfiles.Any(profile =>
+                    profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+            {
+                LightProfileSaveStatus =
+                    "وارد کردن انجام نشد: برد از همگام‌سازی دوحسگری پشتیبانی نمی‌کند یا با UF2 جفتی راه‌اندازی نشده است؛ پروفایل‌های فعلی حفظ شدند.";
+                return false;
+            }
+
             var syncReply = await _bridge.SendAsync("CALSYNC|GET", 3);
             if (syncReply.StartsWith("OK|CALSYNC|", StringComparison.Ordinal))
             {
@@ -186,15 +210,60 @@ public partial class MainViewModel
         }
     }
 
-    public async Task<bool> SendLightStateProfilesToBoardAsync()
+    public async Task<bool> ImportLightStateProfileFromBoardAsync(string profileId)
     {
-        if (LightStateProfiles.Any(profile =>
-                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired))
+        var profile = LightStateProfiles.SingleOrDefault(candidate => candidate.Id == profileId);
+        if (profile is null)
         {
-            LightProfileSaveStatus =
-                "ارسال انجام نشد: firmware فعلی فقط L1 را می‌پذیرد و دادهٔ دوحسگری را نادیده می‌گیرد. تا پشتیبانی firmware، پروفایل دوحسگری روی برد صادر نمی‌شود.";
+            LightProfileSaveStatus = "وارد کردن انجام نشد: وضعیت انتخاب‌شده در برنامه پیدا نشد.";
             return false;
         }
+        if (_bridge is null || Connection != ConnectionState.Connected
+                            || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "وارد کردن انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+
+        try
+        {
+            LightProfileSaveStatus = $"در حال خواندن «{profile.Name}» از برد…";
+            var reply = await _bridge.SendAsync("CALSYNC|DUAL|GET", 3);
+            if (!reply.StartsWith("OK|CALSYNC|DUAL|", StringComparison.Ordinal))
+            {
+                if (reply == "ERR|COMMAND|unknown=CALSYNC|DUAL|GET"
+                    || reply == "ERR|STATE|CALSYNC|DUAL")
+                {
+                    LightProfileSaveStatus =
+                        "وارد کردن تکی به همگام‌سازی دوحسگری نیاز دارد؛ Native UF2 دوحسگری همین نسخه را روی برد فلش کنید.";
+                    return false;
+                }
+                throw new InvalidOperationException(reply);
+            }
+
+            var snapshot = DualBoardLightSync.Parse(reply);
+            if (!DualBoardLightSync.ApplyProfile(snapshot, LightStateProfiles, profileId))
+            {
+                LightProfileSaveStatus =
+                    $"برد برای «{profile.Name}» کالیبراسیون جفتی ندارد؛ پروفایل‌های دیگر تغییر نکردند.";
+                return false;
+            }
+            if (!SaveLightStateProfiles()) return false;
+
+            LightProfileSaveStatus =
+                $"کالیبراسیون «{profile.Name}» از برد وارد و ذخیره شد · revision {snapshot.Revision}. "
+                + "هشت وضعیت دیگر تغییر نکردند؛ خلاصهٔ خام L1/L2 از برد قابل بازیابی نیست.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "وارد کردن تکی از برد ناموفق بود: " + ex.Message;
+            return false;
+        }
+    }
+
+    public async Task<bool> SendLightStateProfilesToBoardAsync()
+    {
         if (_bridge is null || Connection != ConnectionState.Connected || _bridge.State != BridgeState.Connected)
         {
             LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
@@ -202,6 +271,23 @@ public partial class MainViewModel
         }
         try
         {
+            var useDualSync = LightStateProfiles.Any(profile =>
+                profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired);
+            if (useDualSync)
+            {
+                var calibratedProfileIds = LightStateProfiles
+                    .Where(profile => profile.Enabled && profile.HasDualSensorCalibration)
+                    .Select(profile => profile.Id)
+                    .ToArray();
+                if (calibratedProfileIds.Length == 0)
+                {
+                    LightProfileSaveStatus =
+                        "ارسال انجام نشد: ابتدا کالیبراسیون جفتی یک وضعیت را کامل و اعمال کنید.";
+                    return false;
+                }
+                return await SendDualLightProfilesToBoardAsync(calibratedProfileIds);
+            }
+
             var command = BoardLightSync.BuildCommand(LightStateProfiles, PhysicalCalibrationToleranceLux);
             if (!SaveLightStateProfiles()) return false;
             LightProfileSaveStatus = "در حال ارسال پروفایل‌ها و تلورانس به برد…";
@@ -228,6 +314,81 @@ public partial class MainViewModel
         }
     }
 
+    public async Task<bool> SendLightStateProfileToBoardAsync(string profileId)
+    {
+        var profile = LightStateProfiles.SingleOrDefault(candidate => candidate.Id == profileId);
+        if (profile is null || !profile.Enabled || !profile.HasDualSensorCalibration)
+        {
+            LightProfileSaveStatus =
+                "ارسال انجام نشد: این وضعیت باید فعال و جفت‌کالیبره باشد.";
+            return false;
+        }
+        return await SendDualLightProfilesToBoardAsync(new[] { profileId });
+    }
+
+    private async Task<bool> SendDualLightProfilesToBoardAsync(
+        IReadOnlyCollection<string> profileIds)
+    {
+        if (_bridge is null || Connection != ConnectionState.Connected
+                            || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "ارسال انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+
+        try
+        {
+            var command = DualBoardLightSync.BuildCommand(LightStateProfiles, profileIds);
+            if (!SaveLightStateProfiles()) return false;
+            LightProfileSaveStatus =
+                $"در حال ارسال {profileIds.Count} وضعیت جفت‌کالیبره‌شده به برد…";
+            var reply = await _bridge.SendAsync(command, 5);
+            if (!reply.StartsWith("OK|CALSYNC|DUAL|SET|revision=", StringComparison.Ordinal))
+            {
+                LightProfileSaveStatus = reply switch
+                {
+                    _ when reply.StartsWith("ERR|COMMAND|unknown=", StringComparison.Ordinal)
+                        => "فریمور برد همگام‌سازی دوحسگری را نمی‌شناسد؛ Native UF2 دوحسگری همین نسخه را فلش کنید.",
+                    _ when reply.StartsWith("ERR|ARG|CALSYNC|DUAL", StringComparison.Ordinal)
+                        => "فریمور فعلی فقط ارسال هر ۹ وضعیت را می‌پذیرد؛ برای ارسال تکی یا ناقص، Native UF2 به‌روز را فلش کنید.",
+                    _ when reply.StartsWith("ERR|CONFIG|CALSYNC|DUAL|", StringComparison.Ordinal)
+                        => "فریمور برد قدیمی است و ذخیرهٔ مستقیم تلورانس‌های M/Δ را پشتیبانی نمی‌کند؛ Native UF2 به‌روزشده را یک‌بار فلش کنید.",
+                    _ when reply.StartsWith("ERR|FIT|CALSYNC|DUAL", StringComparison.Ordinal)
+                        => "برد این تغییر را به‌دلیل هم‌پوشانی یا فاصلهٔ ایمنی ناکافی با وضعیت‌های دیگر نپذیرفت.",
+                    _ => "ارسال دوحسگری ناموفق بود؛ اجرا و کالیبراسیون را متوقف و مقادیر را بررسی کنید: " + reply,
+                };
+                return false;
+            }
+
+            var snapshot = DualBoardLightSync.Parse(
+                await _bridge.SendAsync("CALSYNC|DUAL|GET", 3));
+            if (!DualBoardLightSync.Matches(snapshot, LightStateProfiles, profileIds))
+            {
+                LightProfileSaveStatus =
+                    "تأیید برد با مقادیر ارسالی یکسان نبود؛ پیش از تلاش دوباره، از برد وارد کنید.";
+                return false;
+            }
+
+            var unsentCount = LightStateProfiles.Count(profile =>
+                profile.Enabled && profile.DualSensorCalibrationRequired
+                && !profile.HasDualSensorCalibration);
+            var unsentNote = unsentCount > 0
+                ? $" {unsentCount} وضعیتِ هنوز کالیبره‌نشده ارسال نشد."
+                : "";
+            LightProfileSaveStatus =
+                $"{profileIds.Count} وضعیت جفتی روی برد ذخیره و تأیید شد · revision {snapshot.Revision}. "
+                + $"وضعیت‌های دیگر تغییر نکردند.{unsentNote} "
+                + "مرکزها و تلورانس‌های M/Δ ذخیره شدند؛ برای تغییرات بعدی نیازی به بازسازی UF2 نیست.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "ارسال یا خواندن تأیید برد ناموفق بود: " + ex.Message
+                                     + "؛ پیش از تلاش دوباره، از برد وارد کنید.";
+            return false;
+        }
+    }
+
     public bool SaveBuzzerSystemCues()
     {
         try
@@ -244,7 +405,8 @@ public partial class MainViewModel
     }
 
     public void ReportLightProfileEditorValidationError()
-        => LightProfileSaveStatus = "ذخیره نشد: یک یا چند فیلد خالی یا دارای قالب نامعتبر است.";
+        => LightProfileSaveStatus =
+            "ذخیره نشد: فیلدها را بررسی کنید؛ تلورانس M و Δ در پروفایل دوحسگری باید حداقل ۳ لوکس و با گام مجاز برد باشد.";
 
     public void ResetLightStateProfiles()
     {
@@ -274,6 +436,13 @@ public partial class MainViewModel
             profile.MeanLuxTolerance = 0;
             profile.DifferenceLuxCenter = 0;
             profile.DifferenceLuxTolerance = 0;
+            profile.Sensor1LuxCenter = null;
+            profile.Sensor1LuxMinimum = null;
+            profile.Sensor1LuxMaximum = null;
+            profile.Sensor2LuxCenter = null;
+            profile.Sensor2LuxMinimum = null;
+            profile.Sensor2LuxMaximum = null;
+            profile.DualSensorSampleCount = null;
         }
 
         if (!SaveLightStateProfiles())
@@ -287,6 +456,13 @@ public partial class MainViewModel
                 profile.MeanLuxTolerance = saved.MeanLuxTolerance;
                 profile.DifferenceLuxCenter = saved.DifferenceLuxCenter;
                 profile.DifferenceLuxTolerance = saved.DifferenceLuxTolerance;
+                profile.Sensor1LuxCenter = saved.Sensor1LuxCenter;
+                profile.Sensor1LuxMinimum = saved.Sensor1LuxMinimum;
+                profile.Sensor1LuxMaximum = saved.Sensor1LuxMaximum;
+                profile.Sensor2LuxCenter = saved.Sensor2LuxCenter;
+                profile.Sensor2LuxMinimum = saved.Sensor2LuxMinimum;
+                profile.Sensor2LuxMaximum = saved.Sensor2LuxMaximum;
+                profile.DualSensorSampleCount = saved.DualSensorSampleCount;
             }
             _lightStateClassifier = new LightStateClassifier(LightStateProfiles);
             _lastClassifiedChartVersion = -1;

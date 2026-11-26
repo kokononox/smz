@@ -44,9 +44,37 @@ bool guard_runtime_route_complete(AbvmVm *vm, uint16_t route_id, uint32_t now);
 bool guard_runtime_take_event(GuardRuntimeEvent *event);
 bool guard_runtime_dual_sensor_enabled(void);
 bool guard_runtime_dual_sensor_ready(uint32_t now);
+uint16_t guard_runtime_dual_calibration_mask(void);
+bool guard_runtime_profile_pair_calibrated(uint8_t profile_id);
 bool guard_runtime_get_profile_pair_calibration(uint8_t profile_id,
     uint32_t *mean_center_half_tenths, uint32_t *mean_tolerance_half_tenths,
     int32_t *difference_center_tenths, uint32_t *difference_tolerance_tenths);
+bool guard_runtime_validate_profile_pair_centers_mask(
+    uint16_t calibrated_mask,
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
+bool guard_runtime_validate_profile_pair_centers(
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
+bool guard_runtime_validate_profile_pair_calibrations_mask(
+    uint16_t calibrated_mask,
+    const uint32_t mean_centers_half_tenths[9],
+    const uint32_t mean_tolerances_half_tenths[9],
+    const int32_t difference_centers_tenths[9],
+    const uint32_t difference_tolerances_tenths[9]);
+bool guard_runtime_validate_profile_pair_center(uint8_t profile_id,
+    uint32_t mean_center_half_tenths, int32_t difference_center_tenths);
+bool guard_runtime_set_profile_pair_centers_mask(uint16_t update_mask,
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
+bool guard_runtime_set_profile_pair_calibrations_mask(uint16_t update_mask,
+    const uint32_t mean_centers_half_tenths[9],
+    const uint32_t mean_tolerances_half_tenths[9],
+    const int32_t difference_centers_tenths[9],
+    const uint32_t difference_tolerances_tenths[9]);
+bool guard_runtime_set_profile_pair_centers_batch(
+    const uint32_t mean_centers_half_tenths[9],
+    const int32_t difference_centers_tenths[9]);
 bool guard_runtime_set_profile_pair_centers(uint8_t profile_id,
     uint32_t mean_center_half_tenths, int32_t difference_center_tenths);
 bool guard_runtime_running(void);
