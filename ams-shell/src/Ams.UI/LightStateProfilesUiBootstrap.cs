@@ -238,8 +238,6 @@ internal static class LightStateProfilesUiBootstrap
             var heading = Text(profile.Name, 10, "#F5F7FA", FontWeights.SemiBold);
             heading.TextAlignment = TextAlignment.Center;
             heading.ToolTip = profile.Name;
-            heading.SetBinding(TextBlock.TextProperty,
-                new Binding(nameof(profile.Name)) { Source = profile });
             AddTableCell(table, heading, 0, column, "#2F3540");
 
             var enabled = new CheckBox
@@ -256,6 +254,11 @@ internal static class LightStateProfilesUiBootstrap
             var name = Editor(profile, nameof(profile.Name));
             name.Width = 96;
             name.ToolTip = profile.Name;
+            name.TextChanged += (_, _) =>
+            {
+                heading.Text = name.Text;
+                heading.ToolTip = name.Text;
+            };
             AddTableCell(table, name, 2, column);
 
             var actions = new StackPanel
@@ -381,8 +384,8 @@ internal static class LightStateProfilesUiBootstrap
 
         if (profile.HasDualSensorCalibration)
         {
-            tooltip = $"M {profile.MeanLuxCenter:0.#} ± {profile.MeanLuxTolerance:0.#} Lux · Δ {profile.DifferenceLuxCenter:0.#} ± {profile.DifferenceLuxTolerance:0.#} Lux";
-            return $"M {profile.MeanLuxCenter:0.#}±{profile.MeanLuxTolerance:0.#}\nΔ {profile.DifferenceLuxCenter:0.#}±{profile.DifferenceLuxTolerance:0.#}";
+            tooltip = $"مرکز M برابر {profile.MeanLuxCenter:0.#} Lux · مرکز Δ برابر {profile.DifferenceLuxCenter:0.#} Lux";
+            return $"M {profile.MeanLuxCenter:0.#}\nΔ {profile.DifferenceLuxCenter:0.#}";
         }
         if (profile.DualSensorCalibrationRequired)
         {
