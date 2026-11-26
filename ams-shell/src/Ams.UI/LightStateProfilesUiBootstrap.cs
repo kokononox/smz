@@ -107,7 +107,7 @@ internal static class LightStateProfilesUiBootstrap
             rows.Children.Clear();
             rows.Children.Add(ProfileHeader());
             foreach (var profile in vm.LightStateProfiles)
-                rows.Children.Add(ProfileRow(window, vm, profile));
+                rows.Children.Add(ProfileRow(window, vm, profile, RebuildRows));
         }
         RebuildRows();
 
@@ -201,7 +201,7 @@ internal static class LightStateProfilesUiBootstrap
         var row = ProfileGrid();
         Add(row, Text("فعال", 11, "#AAB3C2"), 0);
         Add(row, Text("نام وضعیت", 11, "#AAB3C2"), ProfileNameColumn);
-        Add(row, Text("ارسال این وضعیت", 11, "#AAB3C2"), 2);
+        Add(row, Text("ارسال / وارد کردن تکی", 11, "#AAB3C2"), 2);
         Add(row, Text("مرکز تک‌سنسور L1", 11, "#AAB3C2"), 3);
         Add(row, Text("تلورانس L1 ±", 11, "#AAB3C2"), 4);
         Add(row, Text("حسگر ۱ · میانه / بازهٔ آخرین برداشت", 11, "#AAB3C2"), ProfileSensor1Column);
@@ -216,7 +216,7 @@ internal static class LightStateProfilesUiBootstrap
     }
 
     private static Grid ProfileRow(MainWindow window, MainViewModel vm,
-        LightStateProfile profile)
+        LightStateProfile profile, Action rebuildRows)
     {
         var row = ProfileGrid();
         row.Margin = new Thickness(0, 3, 0, 3);
@@ -225,8 +225,9 @@ internal static class LightStateProfilesUiBootstrap
         enabled.Unchecked += (_, _) => profile.Enabled = false;
         Add(row, enabled, 0);
         Add(row, Editor(profile, nameof(profile.Name)), ProfileNameColumn);
+        var syncActions = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var send = ActionButton("ارسال به برد", "#5D477F", "#F5F7FA");
-        send.Margin = new Thickness(4, 3, 0, 3);
+        send.Margin = new Thickness(4, 2, 0, 2);
         send.Click += async (_, _) =>
         {
             if (row.Children.OfType<TextBox>().Any(box => Validation.GetHasError(box)))
@@ -247,7 +248,30 @@ internal static class LightStateProfilesUiBootstrap
             try { await vm.SendLightStateProfileToBoardAsync(profile.Id); }
             finally { send.IsEnabled = true; }
         };
-        Add(row, send, 2);
+        var import = ActionButton("وارد از برد", "#2F7D5A", "#F5F7FA");
+        import.Margin = new Thickness(4, 2, 0, 2);
+        import.Click += async (_, _) =>
+        {
+            if (MessageBox.Show(window,
+                    $"فقط کالیبراسیون دوحسگری «{profile.Name}» از برد وارد شود؟ هشت وضعیت دیگر بدون تغییر می‌مانند.",
+                    "وارد کردن یک وضعیت از برد", MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            import.IsEnabled = false;
+            send.IsEnabled = false;
+            try
+            {
+                if (await vm.ImportLightStateProfileFromBoardAsync(profile.Id))
+                    rebuildRows();
+            }
+            finally
+            {
+                import.IsEnabled = true;
+                send.IsEnabled = true;
+            }
+        };
+        syncActions.Children.Add(send);
+        syncActions.Children.Add(import);
+        Add(row, syncActions, 2);
         var isPaired = profile.HasDualSensorCalibration || profile.DualSensorCalibrationRequired;
         if (isPaired)
         {

@@ -211,6 +211,77 @@ public static class DualBoardLightSync
         return snapshot.Profiles.Count;
     }
 
+    /// <summary>
+    /// Imports only one calibrated board profile. All other Studio profiles,
+    /// including uncalibrated rows, remain untouched.
+    /// </summary>
+    public static bool ApplyProfile(DualBoardLightSnapshot snapshot,
+        IList<LightStateProfile> targets, string profileId)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+
+        var index = Array.IndexOf(ProfileIds, profileId);
+        if (index < 0)
+            throw new InvalidOperationException($"شناسهٔ پروفایل «{profileId}» برای وارد کردن نامعتبر است.");
+        if (snapshot.Profiles.Any(profile => profile.ProfileId is < 1 or > 9
+                || profile.MeanCenterHalfTenths > MaximumMeanValueHalfTenths
+                || profile.MeanToleranceHalfTenths is 0 or > MaximumMeanValueHalfTenths
+                || profile.DifferenceCenterTenths is < -MaximumDifferenceTenths
+                    or > MaximumDifferenceTenths
+                || profile.DifferenceToleranceTenths is 0 or > MaximumDifferenceTenths)
+            || snapshot.Profiles.Select(profile => profile.ProfileId).Distinct().Count()
+                != snapshot.Profiles.Count)
+            throw new FormatException("دادهٔ پروفایل‌های دوحسگری برد نامعتبر است.");
+
+        var boardProfile = snapshot.Profiles.SingleOrDefault(profile => profile.ProfileId == index + 1);
+        if (boardProfile is null) return false;
+
+        var target = targets.SingleOrDefault(profile => profile.Id == profileId)
+            ?? throw new InvalidOperationException($"پروفایل مقصد «{profileId}» در برنامه پیدا نشد.");
+        var candidate = target.Copy();
+        candidate.HasDualSensorCalibration = true;
+        candidate.DualSensorCalibrationRequired = true;
+        candidate.MeanLuxCenter = boardProfile.MeanCenterHalfTenths / 20.0;
+        candidate.MeanLuxTolerance = boardProfile.MeanToleranceHalfTenths / 20.0;
+        candidate.DifferenceLuxCenter = boardProfile.DifferenceCenterTenths / 10.0;
+        candidate.DifferenceLuxTolerance = boardProfile.DifferenceToleranceTenths / 10.0;
+        candidate.Sensor1LuxCenter = null;
+        candidate.Sensor1LuxMinimum = null;
+        candidate.Sensor1LuxMaximum = null;
+        candidate.Sensor2LuxCenter = null;
+        candidate.Sensor2LuxMinimum = null;
+        candidate.Sensor2LuxMaximum = null;
+        candidate.DualSensorSampleCount = null;
+        if (!candidate.IsValid)
+            throw new FormatException($"پروفایل «{profileId}» روی برد معتبر نیست.");
+
+        var staged = targets.Select(profile =>
+            profile.Id == profileId ? candidate : profile.Copy()).ToArray();
+        var separation = DualLightCalibration.Validate(
+            staged.Where(profile => profile.HasDualSensorCalibration));
+        if (!separation.IsValid)
+            throw new InvalidOperationException(
+                "پروفایل واردشده با کالیبراسیون‌های جفتی موجود جدایی امن ندارد: "
+                + DualLightCalibration.DescribeConflicts(separation));
+
+        target.HasDualSensorCalibration = candidate.HasDualSensorCalibration;
+        target.DualSensorCalibrationRequired = candidate.DualSensorCalibrationRequired;
+        target.MeanLuxCenter = candidate.MeanLuxCenter;
+        target.MeanLuxTolerance = candidate.MeanLuxTolerance;
+        target.DifferenceLuxCenter = candidate.DifferenceLuxCenter;
+        target.DifferenceLuxTolerance = candidate.DifferenceLuxTolerance;
+        target.Sensor1LuxCenter = null;
+        target.Sensor1LuxMinimum = null;
+        target.Sensor1LuxMaximum = null;
+        target.Sensor2LuxCenter = null;
+        target.Sensor2LuxMinimum = null;
+        target.Sensor2LuxMaximum = null;
+        target.DualSensorSampleCount = null;
+        return true;
+    }
+
     public static bool Matches(DualBoardLightSnapshot snapshot,
         IList<LightStateProfile> profiles)
         => Matches(snapshot, profiles, ProfileIds);

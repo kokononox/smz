@@ -214,6 +214,31 @@ Check(DualBoardLightSync.Apply(sparseDualSnapshot, sparseDualTargets) == 1
       && sparseDualTargets[1].DifferenceLuxTolerance == 0
       && sparseDualTargets[1].Sensor1LuxCenter is null,
     "sparse dual board import marks absent rows pending instead of inventing calibration");
+var singleDualImportSnapshot = DualBoardLightSync.Parse(
+    "OK|CALSYNC|DUAL|revision=76|profiles=5:2010:60:25:30");
+var singleDualImportTargets = LightStateDefaults.CreateInitialProfiles();
+singleDualImportTargets.Single(profile => profile.Id == "desktop").LuxCenter = 88.5;
+var desktopBeforeSingleImport = singleDualImportTargets.Single(profile => profile.Id == "desktop").Copy();
+Check(DualBoardLightSync.ApplyProfile(singleDualImportSnapshot,
+          singleDualImportTargets, "game")
+      && singleDualImportTargets.Single(profile => profile.Id == "game").HasDualSensorCalibration
+      && singleDualImportTargets.Single(profile => profile.Id == "game").MeanLuxCenter == 100.5
+      && singleDualImportTargets.Single(profile => profile.Id == "game").DifferenceLuxCenter == 2.5
+      && singleDualImportTargets.Count(profile => profile.HasDualSensorCalibration) == 1
+      && singleDualImportTargets.Single(profile => profile.Id == "desktop").LuxCenter
+          == desktopBeforeSingleImport.LuxCenter
+      && !singleDualImportTargets.Single(profile => profile.Id == "desktop").HasDualSensorCalibration,
+    "one dual board profile imports without completing all nine and preserves other positions");
+var missingSingleImportSnapshot = DualBoardLightSync.Parse(
+    "OK|CALSYNC|DUAL|revision=77|profiles=none");
+var gameBeforeMissingImport = singleDualImportTargets.Single(profile => profile.Id == "game").Copy();
+Check(!DualBoardLightSync.ApplyProfile(missingSingleImportSnapshot,
+          singleDualImportTargets, "game")
+      && singleDualImportTargets.Single(profile => profile.Id == "game").MeanLuxCenter
+          == gameBeforeMissingImport.MeanLuxCenter
+      && singleDualImportTargets.Single(profile => profile.Id == "desktop").LuxCenter
+          == desktopBeforeSingleImport.LuxCenter,
+    "missing one-position board calibration leaves every Studio profile unchanged");
 var emptyDualSnapshot = DualBoardLightSync.Parse(
     "OK|CALSYNC|DUAL|revision=75|profiles=none");
 var emptyDualTargets = LightStateDefaults.CreateInitialProfiles();

@@ -16,11 +16,15 @@ assert 'calibration_store_light_get' in main
 assert 'char profiles[256]' in main
 assert 'printf("%s%u:%lu:%lu"' not in main
 assert 'ImportLightStateProfilesFromBoardAsync' in vm
+assert 'ImportLightStateProfileFromBoardAsync' in vm
+assert 'DualBoardLightSync.ApplyProfile' in vm
+assert 'CALSYNC|DUAL|GET' in vm
 assert '_bridge.SendAsync("CALDUMP|LIGHT", 3)' in vm
 assert 'ERR|COMMAND|unknown=CALDUMP|LIGHT' in vm
 assert 'ERR|TIMEOUT|CALDUMP' in vm
 assert 'LightCalibrationDumpParser.Apply' in vm
 assert 'وارد کردن از برد' in ui
+assert 'وارد از برد' in ui
 assert 'MessageBoxButton.YesNo' in ui
 assert 'ProfileIds' in parser and '"desktop", "login-or-dc"' in parser
 assert 'range.CenterLux' in parser and 'range.ToleranceLux' in parser

@@ -210,6 +210,58 @@ public partial class MainViewModel
         }
     }
 
+    public async Task<bool> ImportLightStateProfileFromBoardAsync(string profileId)
+    {
+        var profile = LightStateProfiles.SingleOrDefault(candidate => candidate.Id == profileId);
+        if (profile is null)
+        {
+            LightProfileSaveStatus = "وارد کردن انجام نشد: وضعیت انتخاب‌شده در برنامه پیدا نشد.";
+            return false;
+        }
+        if (_bridge is null || Connection != ConnectionState.Connected
+                            || _bridge.State != BridgeState.Connected)
+        {
+            LightProfileSaveStatus = "وارد کردن انجام نشد: ابتدا برد را متصل کنید.";
+            return false;
+        }
+
+        try
+        {
+            LightProfileSaveStatus = $"در حال خواندن «{profile.Name}» از برد…";
+            var reply = await _bridge.SendAsync("CALSYNC|DUAL|GET", 3);
+            if (!reply.StartsWith("OK|CALSYNC|DUAL|", StringComparison.Ordinal))
+            {
+                if (reply == "ERR|COMMAND|unknown=CALSYNC|DUAL|GET"
+                    || reply == "ERR|STATE|CALSYNC|DUAL")
+                {
+                    LightProfileSaveStatus =
+                        "وارد کردن تکی به همگام‌سازی دوحسگری نیاز دارد؛ Native UF2 دوحسگری همین نسخه را روی برد فلش کنید.";
+                    return false;
+                }
+                throw new InvalidOperationException(reply);
+            }
+
+            var snapshot = DualBoardLightSync.Parse(reply);
+            if (!DualBoardLightSync.ApplyProfile(snapshot, LightStateProfiles, profileId))
+            {
+                LightProfileSaveStatus =
+                    $"برد برای «{profile.Name}» کالیبراسیون جفتی ندارد؛ پروفایل‌های دیگر تغییر نکردند.";
+                return false;
+            }
+            if (!SaveLightStateProfiles()) return false;
+
+            LightProfileSaveStatus =
+                $"کالیبراسیون «{profile.Name}» از برد وارد و ذخیره شد · revision {snapshot.Revision}. "
+                + "هشت وضعیت دیگر تغییر نکردند؛ خلاصهٔ خام L1/L2 از برد قابل بازیابی نیست.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LightProfileSaveStatus = "وارد کردن تکی از برد ناموفق بود: " + ex.Message;
+            return false;
+        }
+    }
+
     public async Task<bool> SendLightStateProfilesToBoardAsync()
     {
         if (_bridge is null || Connection != ConnectionState.Connected || _bridge.State != BridgeState.Connected)
