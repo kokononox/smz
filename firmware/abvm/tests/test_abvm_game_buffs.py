@@ -101,7 +101,7 @@ class GameBuffCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(Uf2Error, "delayed buff follow-up"):
             inject(bytes(template), result.image)
         marker = b"EVT|BUFF|follow-delay=v3"
-        template[80:80 + len(marker)] = marker
+        template[120:120 + len(marker)] = marker
         inject(bytes(template), result.image)
         for delay, enabled in [(60_001, True), (1, False)]:
             data = project()
@@ -109,6 +109,44 @@ class GameBuffCompilerTests(unittest.TestCase):
                 followEnabled=enabled, followKey="6", followDelayMs=delay)
             with self.assertRaises(abvm.AbvmError):
                 abvm.Compiler().compile_amsj(data)
+
+    def test_repeat_settings_use_v4_and_require_matching_template(self):
+        data = project()
+        data["gameBuffs"][0]["Props"].update(
+            repeatCount=5, repeatDelayMs=750,
+            followEnabled=True, followKey="6", followDelayMs=200)
+        program = abvm.Compiler().compile_amsj(data).image
+        image = abvm.Verifier.verify(program)
+        payload = image.const(
+            image.instructions[image.route("Game").pc].a, abvm.CONST_BUFF)
+        self.assertEqual(abvm.BUFF_HEADER.unpack_from(payload),
+                         (b"GBF1", 4, 1, 0))
+        self.assertEqual(len(payload), 8 + abvm.BUFF_ROW_V4.size)
+        self.assertEqual(payload[13], ord("6"))
+        self.assertEqual(int.from_bytes(payload[14:16], "little"), 200)
+        self.assertEqual(payload[48], 5)
+        self.assertEqual(payload[52:56], (750).to_bytes(4, "little"))
+
+        sys.path.insert(0, str(ROOT / "firmware/abvm/tests"))
+        from test_abvm_uf2 import make_uf2
+        from abvm_uf2 import inject, Uf2Error
+        template = bytearray(make_uf2(b"ABP1old", capacity=16384))
+        template[32:32 + len(b"EVT|BUFF|state=new-game|count=%u")] = \
+            b"EVT|BUFF|state=new-game|count=%u"
+        template[80:80 + len(b"EVT|BUFF|follow-key=v2")] = b"EVT|BUFF|follow-key=v2"
+        template[120:120 + len(b"EVT|BUFF|follow-delay=v3")] = b"EVT|BUFF|follow-delay=v3"
+        with self.assertRaisesRegex(Uf2Error, "configurable buff repeats"):
+            inject(bytes(template), program)
+        marker = b"EVT|BUFF|repeat=v4"
+        template[160:160 + len(marker)] = marker
+        inject(bytes(template), program)
+
+        for key, value in [("repeatCount", 0), ("repeatCount", 101),
+                           ("repeatDelayMs", -1), ("repeatDelayMs", 60_001)]:
+            invalid = project()
+            invalid["gameBuffs"][0]["Props"][key] = value
+            with self.assertRaises(abvm.AbvmError):
+                abvm.Compiler().compile_amsj(invalid)
 
     def test_legacy_project_remains_opt_out(self):
         data = project(); data.pop("gameBuffs")
@@ -171,6 +209,10 @@ class GameBuffCompilerTests(unittest.TestCase):
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             data = project()
             data["gameBuffs"][0]["Props"].update(followEnabled=True, followKey="6")
+            program.write_bytes(abvm.Compiler().compile_amsj(data).image)
+            subprocess.run([str(executable), str(program), "follow"], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            data["gameBuffs"][0]["Props"].update(repeatCount=2, repeatDelayMs=30)
             program.write_bytes(abvm.Compiler().compile_amsj(data).image)
             subprocess.run([str(executable), str(program), "follow"], check=True,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)

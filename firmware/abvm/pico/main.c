@@ -2184,8 +2184,10 @@ static void service_vm(uint32_t now) {
                     arm_uart_mouse_set_game_elapsed(0u);game_age_at=now;
                     printf("EVT|BUFF|state=new-game|count=%u\n",game_buffs.count);
                     printf("EVT|BUFF|follow-key=v2\n");
-                    if(payload[4]==3u)
+                    if(payload[4]>=3u)
                         printf("EVT|BUFF|follow-delay=v3\n");
+                    if(payload[4]>=4u)
+                        printf("EVT|BUFF|repeat=v4\n");
                 }
                 buff_lane=event.lane;buff_checkpoint=true;break;
             }

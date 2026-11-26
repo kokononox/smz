@@ -87,12 +87,15 @@ def inject(template:bytes,program:bytes):
             flash=b"".join(bytes(b.payload) for b in sorted(blocks,key=lambda b:b.address))
             if b"EVT|BUFF|state=new-game|count=%u" not in flash:
                 raise Uf2Error("UF2 template lacks the Pico buff runtime; select a matching GameBuff test-build template")
-            if any(kind == 10 and payload[:5] == b"GBF1\x02" for kind, _, payload in verified.constants):
+            if any(kind == 10 and payload[:5] in (b"GBF1\x02", b"GBF1\x03", b"GBF1\x04") for kind, _, payload in verified.constants):
                 if b"EVT|BUFF|follow-key=v2" not in flash:
                     raise Uf2Error("UF2 template lacks the second buff key runtime; select the matching new template")
-            if any(kind == 10 and payload[:5] == b"GBF1\x03" for kind, _, payload in verified.constants):
+            if any(kind == 10 and payload[:5] in (b"GBF1\x03", b"GBF1\x04") for kind, _, payload in verified.constants):
                 if b"EVT|BUFF|follow-delay=v3" not in flash:
                     raise Uf2Error("UF2 template lacks the delayed buff follow-up runtime; select the matching new template")
+            if any(kind == 10 and payload[:5] == b"GBF1\x04" for kind, _, payload in verified.constants):
+                if b"EVT|BUFF|repeat=v4" not in flash:
+                    raise Uf2Error("UF2 template lacks configurable buff repeats; select the matching new template")
         if any(i.op == OP_WATCH and i.flags == 2 and
                len(verified.const(i.a, CONST_SOUND)) == 12
                for i in verified.instructions):

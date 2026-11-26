@@ -55,6 +55,7 @@ SHIFT_SCHEDULE = struct.Struct("<BB7H") # enabled/attempts/day and night minutes
 CONST_BUFF = 10
 BUFF_HEADER = struct.Struct("<4sBBH")
 BUFF_ROW = struct.Struct("<IB3xIIIIIIII")
+BUFF_ROW_V4 = struct.Struct("<IB3xIIIIIIII B3xI")
 
 SCOPE_JOIN_ALL = 1
 SCOPE_CANCEL_ON_ANY = 2
@@ -640,8 +641,14 @@ class Compiler:
             raise AbvmError("gameBuffs must contain at most 16 buffs")
         enabled = [n for n in buffs if not disabled(n)]
         if enabled:
+            repeat_settings = [
+                (integer(props(n).get("repeatCount"), 1),
+                 integer(props(n).get("repeatDelayMs"), 1000))
+                for n in enabled
+            ]
             buff_version = (
-                3 if any(integer(props(n).get("followDelayMs"), 0) > 0 for n in enabled)
+                4 if any(count > 1 for count, _ in repeat_settings)
+                else 3 if any(integer(props(n).get("followDelayMs"), 0) > 0 for n in enabled)
                 else 2 if any(props(n).get("followEnabled", False) for n in enabled)
                 else 1
             )
@@ -652,6 +659,12 @@ class Compiler:
                 p = props(n)
                 follow_enabled = bool(p.get("followEnabled", False))
                 follow_delay = integer(p.get("followDelayMs"), 0)
+                repeat_count = integer(p.get("repeatCount"), 1)
+                repeat_delay = integer(p.get("repeatDelayMs"), 1000)
+                if not 1 <= repeat_count <= 100:
+                    raise AbvmError("buff repeat count must be 1..100")
+                if not 0 <= repeat_delay <= 60_000:
+                    raise AbvmError("buff repeat delay must be 0..60000 ms")
                 if not 0 <= follow_delay <= 60_000:
                     raise AbvmError("buff follow-up delay must be 0..60000 ms")
                 if follow_delay and not follow_enabled:
@@ -674,9 +687,13 @@ class Compiler:
                     if not 1 <= follow_key <= 255:
                         raise AbvmError("invalid buff follow-up key")
                     row[5] = follow_key
-                    if buff_version == 3:
+                    if buff_version >= 3:
                         row[6:8] = struct.pack("<H", follow_delay)
-                payload.extend(row)
+                if buff_version == 4:
+                    payload.extend(row)
+                    payload.extend(struct.pack("<B3xI", repeat_count, repeat_delay))
+                else:
+                    payload.extend(row)
             self.buff_constant = self.pool.add(CONST_BUFF, bytes(payload))
         fatigue_minutes = integer(source.get("gameMouseFatigueMinutes"), 135)
         if not 1 <= fatigue_minutes <= 1440:
@@ -1796,10 +1813,13 @@ class Verifier:
                 if len(payload) < BUFF_HEADER.size:
                     raise AbvmError("truncated buff descriptor")
                 magic, version, count, reserved = BUFF_HEADER.unpack_from(payload)
-                if magic != b"GBF1" or version not in (1, 2, 3) or reserved or not 1 <= count <= 16 or len(payload) != BUFF_HEADER.size + count * BUFF_ROW.size:
+                if magic != b"GBF1" or version not in (1, 2, 3, 4) or reserved or not 1 <= count <= 16:
+                    raise AbvmError("invalid buff descriptor")
+                row_size = BUFF_ROW_V4.size if version == 4 else BUFF_ROW.size
+                if len(payload) != BUFF_HEADER.size + count * row_size:
                     raise AbvmError("invalid buff descriptor")
                 for index in range(count):
-                    offset = BUFF_HEADER.size + index * BUFF_ROW.size
+                    offset = BUFF_HEADER.size + index * row_size
                     packed, width, *values = BUFF_ROW.unpack_from(payload, offset)
                     follow_delay = struct.unpack_from("<H", payload, offset + 6)[0]
                     if ((version == 1 and payload[offset + 5]) or
@@ -1813,6 +1833,12 @@ class Verifier:
                     for j in range(0,8,2):
                         if not 0 <= values[j] <= values[j+1] <= 0x7fffffff or (j in (0,4) and values[j]==0):
                             raise AbvmError("invalid buff timing range")
+                    if version == 4:
+                        repeat_count = payload[offset + 40]
+                        repeat_delay = struct.unpack_from("<I", payload, offset + 44)[0]
+                        if (not 1 <= repeat_count <= 100 or repeat_delay > 60_000 or
+                                any(payload[offset + 41:offset + 44])):
+                            raise AbvmError("invalid buff repeat descriptor")
 
         def walk(start: int, end: int, depth: int, watch_depth: int = 0,
                  scope_depth: int = 0) -> None:
