@@ -102,7 +102,8 @@ class TestRunner
         var testBuff = new StepNode { Type="keystroke", Name="tea", Delay=11000, DelayMax=16000,
             Props=new() { ["key"]="9", ["holdMin"]=89, ["holdMax"]=210,
                 ["renewMinMinutes"]=54.0, ["renewMaxMinutes"]=56.0,
-                ["beforeMinMs"]=222, ["beforeMaxMs"]=666, ["keyboardBoard"]="pico" } };
+                ["beforeMinMs"]=222, ["beforeMaxMs"]=666, ["keyboardBoard"]="pico",
+                ["repeatCount"]=5, ["repeatDelayMs"]=750 } };
         GameBuffValidation.Validate(testBuff);
         buffWorkspace.GameBuffs.Add(testBuff);
         buffWorkspace.GameMouseFatigueMinutes=135;
@@ -111,6 +112,9 @@ class TestRunner
             "Pico buffs round-trip food consumption delays");
         Assert(PropEx.GetDouble(buffReload.GameBuffs[0].Props,"renewMinMinutes")==54.0&&buffReload.GameMouseFatigueMinutes==135,
             "Pico buffs round-trip configurable intervals and fatigue duration");
+        Assert(PropEx.GetInt(buffReload.GameBuffs[0].Props,"repeatCount")==5
+            &&PropEx.GetInt(buffReload.GameBuffs[0].Props,"repeatDelayMs")==750,
+            "Pico buffs round-trip repetition count and spacing");
         testBuff.Props["followEnabled"]=true; testBuff.Props["followKey"]="6";
         testBuff.Props["followDelayMs"]=250;
         GameBuffValidation.Validate(testBuff);
